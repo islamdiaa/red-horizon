@@ -561,9 +561,6 @@ export class InputController {
       case 'p':
         if (blds.length === 1) this.h.issue({ c: 'primary', player: local.id, building: blds[0].id });
         break;
-      case 'e':
-        if (units.length) this.selectSameTypeOnScreen(units[0].ut.id);
-        break;
       case 'h': {
         const fact = this.h.world.buildings.find((b) => b.alive && b.owner === local && b.bt.id === 'fact');
         const target = fact ?? this.h.world.units.find((u) => u.alive && u.owner === local && u.ut.deploysInto);
@@ -572,6 +569,27 @@ export class InputController {
       }
       case ' ':
         if (local.lastAttackX >= 0) this.h.gfx.cam.flyToPoint(local.lastAttackX, local.lastAttackY);
+        break;
+      case 'q': case ',':
+        this.h.gfx.cam.targetYaw += Math.PI / 4;
+        break;
+      case '.':
+        this.h.gfx.cam.targetYaw -= Math.PI / 4;
+        break;
+      case 'e':
+        if (units.length) this.selectSameTypeOnScreen(units[0].ut.id);
+        break;
+      case 'backspace':
+        this.h.gfx.cam.targetYaw = Math.round(this.h.gfx.cam.targetYaw / (Math.PI * 2)) * Math.PI * 2;
+        break;
+      case 'u':
+        if (!document.getElementById('photo-style')) {
+          const st = document.createElement('style');
+          st.id = 'photo-style';
+          st.textContent = 'body.photo-mode #ui, body.photo-mode .overlay-canvas, body.photo-mode #tooltip { opacity: 0 !important; pointer-events: none !important; }';
+          document.head.appendChild(st);
+        }
+        document.body.classList.toggle('photo-mode');
         break;
       case '+': case '=':
         this.h.gfx.cam.zoomBy(-300);
