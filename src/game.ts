@@ -22,6 +22,7 @@ import type { AudioSystem } from './audio';
 import type { SfxKey } from './audio/types';
 import type { SuperKind } from './sim/superweapons';
 import { setupScenario } from './debug';
+import { playIntro } from './cinematic';
 import { recalcPlayerEconomy } from './sim/production';
 
 export interface OpponentSetup {
@@ -50,6 +51,8 @@ export interface GameSetup {
   weather?: string;
   /** Climate for automatic weather: temperate | winter | desert. */
   climate?: string;
+  /** Play the opening cinematic (default true). */
+  intro?: boolean;
 }
 
 export interface GameCallbacks {
@@ -230,9 +233,13 @@ export class Game {
     this.running = true;
     this.last = performance.now();
     if (!this.setup.demo) {
-      this.audio.announce('mission_start');
-      this.audio.startMusic();
-      this.audio.setMusicIntensity(0.1);
+      const begin = () => {
+        this.audio.announce('mission_start');
+        this.audio.startMusic();
+        this.audio.setMusicIntensity(0.1);
+      };
+      if (this.setup.intro !== false) playIntro(this, begin);
+      else begin();
     }
     const loop = (now: number) => {
       if (!this.running) return;

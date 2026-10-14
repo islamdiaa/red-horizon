@@ -26,6 +26,10 @@ export class RTSCamera {
   private flyFrom: [number, number] | null = null;
   private flyTo: [number, number] | null = null;
   private flyT = 0;
+  private flyRate = 2.2;
+  /** Smoothing for zoom / rotation (smaller = snappier). Raised during cinematics. */
+  zoomDamp = 0.0001;
+  yawDamp = 0.001;
 
   constructor(private mapW: number, private mapH: number, aspect: number) {
     this.camera = new THREE.PerspectiveCamera(38, aspect, 0.5, 400);
@@ -46,10 +50,11 @@ export class RTSCamera {
     this.clampFocus();
   }
 
-  flyToPoint(x: number, y: number) {
+  flyToPoint(x: number, y: number, seconds = 0.45) {
     this.flyFrom = [this.x, this.y];
     this.flyTo = [x, y];
     this.flyT = 0;
+    this.flyRate = 1 / Math.max(0.05, seconds);
   }
 
   zoomBy(delta: number) {
@@ -82,8 +87,8 @@ export class RTSCamera {
 
   update(dt: number) {
     if (this.flyTo && this.flyFrom) {
-      this.flyT = Math.min(1, this.flyT + dt * 2.2);
-      const e = 1 - Math.pow(1 - this.flyT, 3);
+      this.flyT = Math.min(1, this.flyT + dt * this.flyRate);
+      const e = this.flyT < 0.5 ? 4 * this.flyT ** 3 : 1 - Math.pow(-2 * this.flyT + 2, 3) / 2;
       this.x = lerp(this.flyFrom[0], this.flyTo[0], e);
       this.y = lerp(this.flyFrom[1], this.flyTo[1], e);
       if (this.flyT >= 1) this.flyTo = null;
@@ -94,8 +99,8 @@ export class RTSCamera {
       this.vy *= Math.pow(0.0005, dt);
     }
     this.clampFocus();
-    this.dist = lerp(this.dist, this.targetDist, 1 - Math.pow(0.0001, dt));
-    this.yaw = lerp(this.yaw, this.targetYaw, 1 - Math.pow(0.001, dt));
+    this.dist = lerp(this.dist, this.targetDist, 1 - Math.pow(this.zoomDamp, dt));
+    this.yaw = lerp(this.yaw, this.targetYaw, 1 - Math.pow(this.yawDamp, dt));
     this.apply();
   }
 

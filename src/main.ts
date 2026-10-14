@@ -136,7 +136,7 @@ if (params.get('autostart')) {
     mapSize: +(params.get('size') ?? 96), water: 0.5, trees: 0.5, ore: 0.6, credits: +(params.get('credits') ?? 10000),
     startUnits: (params.get('units') as any) ?? 'light', fog: params.get('fog') !== '0', timeOfDay: (params.get('tod') as TimeOfDay) ?? 'day',
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: +(params.get('seed') ?? 1234),
-    dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear',
+    dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1',
   });
 } else {
   setLoading(0.5, 'Loading');

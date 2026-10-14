@@ -118,7 +118,9 @@ export class FogPass extends Pass {
           float inside = 1.0 - smoothstep(0.0, 1.5, outsideD);
           float vis = mix(0.5, f.r, inside);
           float exp = mix(1.0, f.g, inside);
-          if (uEnabled < 0.5) { vis = mix(0.5, 1.0, inside); exp = 1.0; }
+          // uEnabled blends from no fog (0, e.g. intro recon view) to full fog of war (1)
+          vis = mix(mix(0.5, 1.0, inside), vis, uEnabled);
+          exp = mix(1.0, exp, uEnabled);
           // fog: desaturated, darker, cool tint
           float l = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
           vec3 fogged = mix(vec3(l), col.rgb, 0.35) * vec3(0.42, 0.46, 0.55);
