@@ -79,6 +79,7 @@ async function startGame(setup: GameSetup) {
 
 /** URL testing hooks: scenario=base|battle, ff=seconds, charge=1, cam=x,y,dist, sel=army */
 function applyTestParams(g: Game) {
+  if (params.get('autostart')) g.gfx.dynamicResolution = false; // stable screenshots in tests
   const sc = params.get('scenario');
   if (sc) g.applyScenario(sc);
   if (params.get('charge')) chargeArmies(g.world);

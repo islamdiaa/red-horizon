@@ -36,12 +36,12 @@ function margin(world: World, type: string, cx: number, cy: number) {
 }
 
 const BASES: Record<string, string[]> = {
-  allies: ['fact', 'powr', 'powr', 'proc', 'tent', 'weap', 'dome', 'apwr', 'gun', 'pbox', 'gun', 'atek', 'fix', 'silo', 'pdox', 'mslo'],
-  soviet: ['fact', 'powr', 'powr', 'proc', 'barr', 'weap', 'dome', 'apwr', 'tsla', 'ftur', 'kenn', 'stek', 'sam', 'tsla', 'iron', 'mslo'],
+  allies: ['fact', 'powr', 'powr', 'proc', 'tent', 'weap', 'dome', 'apwr', 'gun', 'pbox', 'gun', 'atek', 'fix', 'silo', 'hpad', 'agun', 'pdox', 'mslo'],
+  soviet: ['fact', 'powr', 'powr', 'proc', 'barr', 'weap', 'dome', 'apwr', 'tsla', 'ftur', 'kenn', 'stek', 'sam', 'tsla', 'afld', 'apwr', 'iron', 'mslo'],
 };
 const ARMIES: Record<string, string[]> = {
-  allies: ['2tnk', '2tnk', '2tnk', '1tnk', '1tnk', 'jeep', 'arty', 'arty', 'e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e3', 'medi', 'e6', 'e7'],
-  soviet: ['3tnk', '3tnk', '3tnk', '4tnk', '4tnk', 'v2rl', 'v2rl', 'e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'e3', 'e4', 'e4', 'dog', 'dog'],
+  allies: ['2tnk', '2tnk', '2tnk', '1tnk', '1tnk', 'jeep', 'arty', 'arty', 'apc', 'e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e3', 'medi', 'e6', 'e7', 'heli', 'heli'],
+  soviet: ['3tnk', '3tnk', '3tnk', '4tnk', '4tnk', 'v2rl', 'v2rl', 'e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'e3', 'e4', 'e4', 'dog', 'dog', 'hind', 'mig', 'yak'],
 };
 
 /** Debug scenarios: 'base' = developed bases, 'battle' = bases + armies clashing in the middle. */
@@ -72,6 +72,7 @@ export function setupScenario(world: World, name: string) {
         const [x, y] = world.findFreeSpot(ax + (k % 6) * 0.9 - 2.5, ay + Math.floor(k / 6) * 0.9 - 1, 4);
         const u = world.addUnit(t, p, x, y);
         u.heading = u.prevHeading = u.turret = u.prevTurret = toward;
+        if (u.kind === 'aircraft') u.altitude = u.ut.vtol ? 1.55 : 2.3;
       });
     }
   });

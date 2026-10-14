@@ -101,11 +101,16 @@ export class GameRenderer {
   flash = 0;
   /** Per-frame totals across all passes. */
   stats = { calls: 0, tris: 0 };
+  private basePixelRatio = 1;
+  private scale = 1;
+  private frameAcc = 0;
+  private frameN = 0;
 
   constructor(readonly canvas: HTMLCanvasElement, readonly map: GameMap, readonly settings: GraphicsSettings) {
     const q = settings.quality;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q === 'high' ? 2 : q === 'medium' ? 1.5 : 1));
+    this.basePixelRatio = Math.min(window.devicePixelRatio, q === 'high' ? 2 : q === 'medium' ? 1.5 : 1);
+    this.renderer.setPixelRatio(this.basePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.shadowMap.enabled = q !== 'low';
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -189,6 +194,30 @@ export class GameRenderer {
 
   resize() {
     this.onResize();
+  }
+
+  /**
+   * Dynamic resolution: drop the render scale when frames take too long, restore it when
+   * there is headroom. Keeps big battles smooth on weaker GPUs.
+   */
+  dynamicResolution = true;
+  adaptResolution(frameMs: number) {
+    if (!this.dynamicResolution) return;
+    this.frameAcc += frameMs;
+    this.frameN++;
+    if (this.frameAcc < 2000) return;
+    const avg = this.frameAcc / this.frameN;
+    this.frameAcc = 0;
+    this.frameN = 0;
+    let s = this.scale;
+    if (avg > 38) s = Math.max(0.55, s - 0.12);
+    else if (avg < 22 && s < 1) s = Math.min(1, s + 0.08);
+    if (s !== this.scale) {
+      this.scale = s;
+      this.renderer.setPixelRatio(this.basePixelRatio * s);
+      this.composer.setPixelRatio(this.basePixelRatio * s);
+      this.onResize();
+    }
   }
 
   /** Keep the sun's shadow frustum tight around what the camera sees. */
