@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { BUILDINGS, UNITS } from '../data/rules';
 import { createModel } from './models';
+import { WallRenderer } from './walls';
 
 /** Renders sidebar portraits of the real 3D models (once per type), returning data URLs. */
 export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 128): Map<string, string> {
@@ -35,7 +36,9 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
 
   for (const id of ids) {
     try {
-      const m = createModel(id, color);
+      const m = BUILDINGS[id]?.wall
+        ? (() => { const root = WallRenderer.preview(id); root.rotation.y = 0.5; return { root, update() {}, dispose() {} } as unknown as ReturnType<typeof createModel>; })()
+        : createModel(id, color);
       const isBld = id in BUILDINGS;
       const unit = UNITS[id];
       if (!isBld) m.root.rotation.y = -Math.PI * 0.18 - Math.PI / 2 + Math.PI; // face the viewer, three-quarter

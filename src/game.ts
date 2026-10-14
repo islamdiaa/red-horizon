@@ -17,6 +17,7 @@ import { CrateRenderer } from './render/crates';
 import { TrackMarks } from './render/tracks';
 import { Rubble } from './render/rubble';
 import { AmbientLife } from './render/ambientlife';
+import { WallRenderer } from './render/walls';
 import type { EmitterHandle } from './render/effects/types';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
@@ -80,6 +81,7 @@ export class Game {
   tracks: TrackMarks;
   rubble: Rubble;
   life: AmbientLife;
+  walls: WallRenderer;
   private timedEmitters: { h: EmitterHandle; until: number }[] = [];
   hud: Hud | null = null;
   input: InputController | null = null;
@@ -150,6 +152,8 @@ export class Game {
     this.rubble = new Rubble(map);
     this.gfx.scene.add(this.rubble.mesh);
     this.life = new AmbientLife(map, (x, y) => this.gfx.terrain.renderHeight(x, y));
+    this.walls = new WallRenderer(this.world, this.gfx.fog, this.local);
+    this.gfx.scene.add(this.walls.group);
     this.gfx.scene.add(this.life.group);
     this.gfx.scene.add(this.crates.group);
     this.lightPools = new LightPools(this.world, this.ents);
@@ -332,6 +336,7 @@ export class Game {
       if (this.lightPools.mesh.visible) this.lightPools.update(this.alpha, this.time, this.gfx.night);
     }
     this.crates.update(this.time);
+    this.walls.update();
     if (!this.paused) this.tracks.update(this.alpha, this.time);
     this.life.update(fdt, this.time, this.gfx.night, this.gfx.cam.x, this.gfx.cam.y);
     if (this.timedEmitters.length) {

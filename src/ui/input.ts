@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BUILDINGS } from '../data/rules';
+import { wallLine } from '../sim/world';
 import { lerp } from '../core/util';
 import { Building, Entity, Unit } from '../sim/entities';
 import type { Player } from '../sim/player';
@@ -66,6 +67,7 @@ export class InputController {
   private lastClick = { t: 0, id: 0 };
   private lastGroupTap = { t: 0, g: -1 };
   private pointerInside = false;
+  private wallStart: [number, number] | null = null;
   private canvas: HTMLCanvasElement;
   private disposers: (() => void)[] = [];
   edgeScroll = true;
@@ -228,6 +230,7 @@ export class InputController {
   // ---------------------------------------------------------------------------
   setMode(m: Mode) {
     this.mode = m;
+    this.wallStart = null;
     if (m !== 'place') {
       this.placeType = null;
       this.h.placement.set(null);
@@ -281,6 +284,11 @@ export class InputController {
     switch (this.mode) {
       case 'place': {
         const [cx, cy] = this.placementCell();
+        if (BUILDINGS[this.placeType!].wall) {
+          if (world.canPlace(local, this.placeType!, cx, cy)) this.wallStart = [cx, cy];
+          else { this.h.audio.play('error'); this.h.audio.announce('cannot_build_here'); }
+          return;
+        }
         if (world.canPlace(local, this.placeType!, cx, cy)) {
           this.h.issue({ c: 'place', player: local.id, type: this.placeType!, cx, cy });
           this.h.audio.play('build_place');
@@ -360,6 +368,14 @@ export class InputController {
       if (!rd || rd.moved || this.h.paused) return;
       if (this.mode !== 'normal') { this.setMode('normal'); return; }
       this.command(e);
+      return;
+    }
+    if (e.button === 0 && this.wallStart && this.mode === 'place' && this.placeType) {
+      const [cx, cy] = this.placementCell();
+      this.h.issue({ c: 'place', player: this.h.local.id, type: this.placeType, cx: this.wallStart[0], cy: this.wallStart[1], cx2: cx, cy2: cy });
+      this.h.audio.play('build_place');
+      this.wallStart = null;
+      this.setMode('normal');
       return;
     }
     if (e.button !== 0 || !this.leftDown) return;
@@ -622,7 +638,17 @@ export class InputController {
     this.groundX = gx;
     this.groundY = gy;
 
-    if (this.mode === 'place' && this.placeType) {
+    if (this.mode === 'place' && this.placeType && this.wallStart) {
+      const [cx, cy] = this.placementCell();
+      const local = this.h.local;
+      const cost = BUILDINGS[this.placeType].cost;
+      let budget = local.credits;
+      const cells = wallLine(this.wallStart[0], this.wallStart[1], cx, cy).slice(0, 24).map(([x, y], k): [number, number, boolean] => {
+        const ok = this.h.world.canPlace(local, this.placeType!, x, y) && (k === 0 || (budget -= cost) >= 0);
+        return [x, y, ok];
+      });
+      this.h.placement.updateLine(cells, time);
+    } else if (this.mode === 'place' && this.placeType) {
       const [cx, cy] = this.placementCell();
       const map = this.h.world.map;
       const valid = this.h.world.canPlace(this.h.local, this.placeType, cx, cy);

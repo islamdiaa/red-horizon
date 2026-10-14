@@ -29,9 +29,12 @@ float wx_vnoise(vec2 p) {
 export const WEATHER_SURFACE_APPLY = /* glsl */ `
 {
   float wxUp = clamp(wxNrm.y, 0.0, 1.0);
-  float wxN = wx_vnoise(wxPos.xz * 1.3) * 0.6 + wx_vnoise(wxPos.xz * 4.1) * 0.4;
-  // snow settles on upward-facing surfaces first, patchy while it builds up
-  float wxCover = smoothstep(0.45, 0.8, wxUp) * smoothstep(0.0, 0.12, uWxSnow * 1.25 - wxN * 0.9 - 0.15 - (1.0 - wxUp) * 0.5);
+  float wxN = wx_vnoise(wxPos.xz * 0.35) * 0.55 + wx_vnoise(wxPos.xz * 1.7) * 0.3 + wx_vnoise(wxPos.xz * 6.3) * 0.15;
+  // snow: a light dusting everywhere first, then soft drifts that grow until everything is covered;
+  // upward-facing surfaces only
+  float wxDust = smoothstep(0.0, 0.45, uWxSnow) * 0.5;
+  float wxDrift = smoothstep(-0.12, 0.12, uWxSnow * 1.35 - wxN - 0.12);
+  float wxCover = smoothstep(0.45, 0.8, wxUp - (1.0 - uWxSnow) * 0.15) * max(wxDust, wxDrift);
   // wet: darker and glossier; flat spots collect puddles
   float wxWet = uWxWet * (1.0 - wxCover);
   float wxPud = wxWet * smoothstep(0.6, 0.66, wx_vnoise(wxPos.xz * 0.45) * 0.72 + wxN * 0.28 + uWxWet * 0.1) * smoothstep(0.93, 0.99, wxUp);

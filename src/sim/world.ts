@@ -479,6 +479,16 @@ export class World {
         p.stats.buildingsBuilt++;
         this.events.push({ e: 'placed', id: b.id });
         this.clearFootprintUnits(b);
+        // walls: extra segments along a dragged line, each paid on placement
+        if (b.bt.wall && cmd.cx2 !== undefined && cmd.cy2 !== undefined) {
+          for (const [x, y] of wallLine(cmd.cx, cmd.cy, cmd.cx2, cmd.cy2).slice(1, 24)) {
+            if (!this.canPlace(p, cmd.type, x, y)) continue;
+            if (!p.spend(b.bt.cost)) { this.announce(p, 'insufficient_funds', 3); break; }
+            const w = this.addBuilding(cmd.type, p, x, y);
+            p.stats.buildingsBuilt++;
+            this.events.push({ e: 'placed', id: w.id });
+          }
+        }
         break;
       }
       case 'sell': {
@@ -636,7 +646,7 @@ export class World {
       need.push([cx + e[0], cy + e[1]]);
     }
     for (const [x, y] of need) if (!m.inBounds(x, y) || !m.passable(x, y)) return false;
-    return this.isAdjacentToBase(p, bt, cx, cy);
+    return this.isAdjacentToBase(p, bt, cx, cy, bt.wall ? 6 : 2);
   }
 
   isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2): boolean {
@@ -918,7 +928,7 @@ export class World {
 
   private updateBuilding(b: Building) {
     if (b.buildAnim < 1) {
-      b.buildAnim = Math.min(1, b.buildAnim + DT / 1.1);
+      b.buildAnim = Math.min(1, b.buildAnim + DT / (b.bt.wall ? 0.35 : 1.1));
       if (b.buildAnim >= 1) this.onBuildingComplete(b);
       return;
     }
@@ -1028,7 +1038,7 @@ export class World {
     if (this.gameOver) return;
     for (const p of this.players) {
       if (p.defeated) continue;
-      const alive = this.buildings.some((b) => b.alive && b.owner === p) || this.units.some((u) => u.alive && u.owner === p);
+      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall) || this.units.some((u) => u.alive && u.owner === p);
       if (!alive) {
         p.defeated = true;
         this.events.push({ e: 'eliminated', player: p.id });
@@ -1041,6 +1051,19 @@ export class World {
       this.events.push({ e: 'gameover', winnerTeam: this.winnerTeam });
     }
   }
+}
+
+/** Cells of a straight wall line (horizontal, vertical or diagonal, whichever is dominant). */
+export function wallLine(x0: number, y0: number, x1: number, y1: number): [number, number][] {
+  const dx = x1 - x0, dy = y1 - y0;
+  const n = Math.max(Math.abs(dx), Math.abs(dy));
+  const out: [number, number][] = [];
+  // snap to the dominant axis or a clean diagonal
+  let sx = Math.sign(dx), sy = Math.sign(dy);
+  if (Math.abs(dx) > Math.abs(dy) * 2) sy = 0;
+  else if (Math.abs(dy) > Math.abs(dx) * 2) sx = 0;
+  for (let k = 0; k <= n; k++) out.push([x0 + sx * k, y0 + sy * k]);
+  return out;
 }
 
 export { isBuildingType };

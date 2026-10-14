@@ -10,6 +10,7 @@
  *   dist=N                             camera distance (default 26), cx/cz focus point
  *   q=0.2..1                           particle quality, seed=N
  *   bench=1                            CPU benchmark of Weather.update() (results via console.warn)
+ *   frames=N                           stop rendering after N frames (cheap, stable screenshots with pause=1)
  *   hud=0                              hide the overlay
  * Keys: 1-6 switch weather, L strike, C cloud flash, arrows pan, wheel zoom.
  */
@@ -35,6 +36,7 @@ const clouds = listParam('cloud');
 let dist = parseFloat(params.get('dist') ?? '26');
 const bench = params.get('bench') === '1';
 const showHud = params.get('hud') !== '0';
+const maxFrames = parseInt(params.get('frames') ?? '0', 10);
 const quality = parseFloat(params.get('q') ?? '1');
 const seed = parseInt(params.get('seed') ?? '7', 10);
 const MAP = 96;
@@ -327,7 +329,10 @@ function runBench(): void {
     if (i > 60 && d > worst) worst = d;
   }
   const avg = (performance.now() - t0) / frames;
-  const msg = `[bench] Weather.update() at full storm: avg ${(avg * 1000).toFixed(1)} µs/frame, worst ${(worst * 1000).toFixed(0)} µs (incl. strikes, camera moving), draw calls ${weather.stats.drawCalls}, particles ${weather.stats.particles}`;
+  const s0 = performance.now();
+  for (let i = 0; i < 200; i++) weather.strike();
+  const strikeMs = (performance.now() - s0) / 200;
+  const msg = `[bench] Weather.update() at full storm: avg ${(avg * 1000).toFixed(1)} µs/frame, worst ${(worst * 1000).toFixed(0)} µs (incl. strikes, camera moving; timer resolution may be coarse), one lightning strike (bolt generation + upload) ${(strikeMs * 1000).toFixed(0)} µs, draw calls ${weather.stats.drawCalls}, particles ${weather.stats.particles}`;
   console.warn(msg);
   hud.textContent = msg;
   render();
@@ -374,6 +379,7 @@ if (bench) {
     if (!pause) step(dt);
     render();
     if (++hudTick % 10 === 0) updateHud();
+    if (maxFrames > 0 && hudTick >= maxFrames) { updateHud(); return; }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

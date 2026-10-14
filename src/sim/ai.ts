@@ -446,7 +446,14 @@ export class AIController {
       const idle = alive.filter((u) => u.order.type === 'idle' && !u.target);
       if (idle.length && w.tick % (TICK_HZ * 3) === 0) {
         const near = this.nearestEnemyBuilding(idle[0].x, idle[0].y);
-        if (near && Math.hypot(near.x - idle[0].x, near.y - idle[0].y) < 12) {
+        // walls in the way: blast through the nearest segment
+        let wall: Building | null = null;
+        for (const b of w.buildings) {
+          if (b.alive && b.bt.wall && this.p.isEnemy(b.owner) && Math.hypot(b.x - idle[0].x, b.y - idle[0].y) < 3.5) { wall = b; break; }
+        }
+        if (wall && (!near || Math.hypot(near.x - idle[0].x, near.y - idle[0].y) > 5)) {
+          w.issue({ c: 'attack', player: p.id, units: idle.map((u) => u.id), target: wall.id, forced: true });
+        } else if (near && Math.hypot(near.x - idle[0].x, near.y - idle[0].y) < 12) {
           w.issue({ c: 'attack', player: p.id, units: idle.map((u) => u.id), target: near.id });
         } else {
           const target = this.pickAttackTarget(idle[0].x, idle[0].y);
@@ -460,7 +467,7 @@ export class AIController {
   private nearestEnemyBuilding(x: number, y: number): Building | null {
     let best: Building | null = null, bestD = Infinity;
     for (const b of this.world.buildings) {
-      if (!b.alive || !this.p.isEnemy(b.owner)) continue;
+      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.wall) continue;
       const d = Math.hypot(b.x - x, b.y - y);
       if (d < bestD) { bestD = d; best = b; }
     }
@@ -472,7 +479,7 @@ export class AIController {
     const [bx, by] = fromX !== undefined ? [fromX, fromY!] : this.baseCenter();
     let best: [number, number] | null = null, bestScore = Infinity;
     for (const b of w.buildings) {
-      if (!b.alive || !this.p.isEnemy(b.owner)) continue;
+      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.wall) continue;
       let score = Math.hypot(b.x - bx, b.y - by);
       if (b.bt.id === 'proc' || b.bt.factory) score -= 4;
       // steer around fortified spots

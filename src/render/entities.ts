@@ -117,7 +117,9 @@ export class EntityRenderer {
   }
 
   private createView(e: Entity): View {
-    const model = createModel(e.type.id, this.teamColor(e.owner));
+    const model: ModelInstance = e instanceof Building && e.bt.wall
+      ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
+      : createModel(e.type.id, this.teamColor(e.owner));
     this.scene.add(model.root);
     const anim: ModelAnimState = {
       time: 0, dt: 0, moving: false, speed: 0, firing: 0, firingMuzzle: 0, powered: true, health: 1,
@@ -186,7 +188,9 @@ export class EntityRenderer {
           return;
         }
         if (!shown) { this.removeView(e.id); return; }
-        if (e instanceof Building) {
+        if (e instanceof Building && e.bt.wall) {
+          this.effects.explosion(p.clone().setY(p.y + 0.3), 'small', 1.2);
+        } else if (e instanceof Building) {
           this.effects.explosion(p.clone().setY(p.y + 0.3), 'building', Math.max(e.w, e.h));
           this.effects.scorch(p, Math.max(e.w, e.h) * 1.1);
         } else if (e.kind === 'vehicle' || e.kind === 'aircraft') {
@@ -374,7 +378,7 @@ export class EntityRenderer {
     if (b.buildAnim < 1) {
       const t = b.buildAnim;
       sy = Math.max(0.02, 1 - Math.pow(1 - t, 2.2));
-      if (!v.holo && root.visible) {
+      if (!v.holo && root.visible && !b.bt.wall) {
         v.holo = createModel(b.bt.id, this.teamColor(b.owner));
         v.holo.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = this.holoMat; m.castShadow = false; m.receiveShadow = false; } });
         v.holo.root.position.set(b.x, g, b.y);

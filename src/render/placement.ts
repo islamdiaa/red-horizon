@@ -3,6 +3,7 @@ import { BUILDINGS, WEAPONS } from '../data/rules';
 import type { GameMap } from '../sim/map';
 import { createModel } from './models';
 import { createHoloMaterial } from './holo';
+import { WallRenderer } from './walls';
 import type { ModelInstance } from './models/types';
 
 /** Holographic building preview with per-cell validity tiles and a weapon-range ring. */
@@ -19,7 +20,7 @@ export class PlacementGhost {
     this.holo = createHoloMaterial();
     const tileGeo = new THREE.PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2);
     const tileMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending });
-    this.tiles = new THREE.InstancedMesh(tileGeo, tileMat, 16);
+    this.tiles = new THREE.InstancedMesh(tileGeo, tileMat, 64);
     this.tiles.count = 0;
     this.tiles.renderOrder = 3;
     this.tiles.frustumCulled = false;
@@ -41,7 +42,9 @@ export class PlacementGhost {
     this.typeId = typeId;
     this.group.visible = !!typeId;
     if (!typeId) return;
-    this.model = createModel(typeId, teamColor ?? new THREE.Color(0x4080ff));
+    this.model = BUILDINGS[typeId].wall
+      ? (() => { const root = new THREE.Group(); const p = WallRenderer.preview(typeId); p.children.forEach((c, i) => { if (i === 0) root.add(c.clone()); }); return { root, muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { root.removeFromParent(); } } as ModelInstance; })()
+      : createModel(typeId, teamColor ?? new THREE.Color(0x4080ff));
     this.model.root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) { m.material = this.holo; m.castShadow = false; m.receiveShadow = false; }
@@ -53,9 +56,31 @@ export class PlacementGhost {
     if (w) this.ring.scale.set(w.range + Math.max(bt.size[0], bt.size[1]) / 2, 1, w.range + Math.max(bt.size[0], bt.size[1]) / 2);
   }
 
+  /** Wall line preview: one tile per cell, coloured by validity. */
+  updateLine(cells: [number, number, boolean][], time: number) {
+    if (!this.model) return;
+    this.model.root.visible = false;
+    this.ring.visible = false;
+    const m = new THREE.Matrix4();
+    let k = 0;
+    for (const [cx, cy, ok] of cells.slice(0, 64)) {
+      const tx = cx + 0.5, ty = cy + 0.5;
+      m.makeTranslation(tx, this.map.heightAt(tx, ty) + 0.05, ty);
+      this.tiles.setMatrixAt(k, m);
+      this.tileColor.set(ok ? 0x30ff70 : 0xff3020);
+      this.tiles.setColorAt(k, this.tileColor);
+      k++;
+    }
+    this.tiles.count = k;
+    this.tiles.instanceMatrix.needsUpdate = true;
+    if (this.tiles.instanceColor) this.tiles.instanceColor.needsUpdate = true;
+    this.holo.uniforms.uTime.value = time;
+  }
+
   /** Position at footprint top-left (cx, cy). cellOk(i) = validity per footprint cell. */
   update(cx: number, cy: number, cellOk: (dx: number, dy: number) => boolean, valid: boolean, time: number) {
     if (!this.typeId || !this.model) return;
+    this.model.root.visible = true;
     const bt = BUILDINGS[this.typeId];
     const [w, h] = bt.size;
     const x = cx + w / 2, y = cy + h / 2;

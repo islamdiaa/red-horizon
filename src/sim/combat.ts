@@ -124,7 +124,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
   });
   // structures (defences first)
   for (const b of world.buildings) {
-    if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1) continue;
+    if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1 || b.bt.wall) continue;
     const d = b.distTo(e.x, e.y);
     if (d > buildingRange) continue;
     if (!pickWeapon(e, b)) continue;
@@ -272,6 +272,7 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
   }
   const firepower = attacker ? 1 + 0.15 * attacker.rank : 1;
   for (const [v, d] of victims) {
+    if (v instanceof Building && v.bt.wall && !wh.wall) continue; // only explosives breach walls
     const dmg = modifyDamage(w.damage, wh, ARMOR_INDEX[v.type.armor], d) * firepower * (1 - 0.12 * v.rank);
     if (dmg > 0) damageEntity(world, v, dmg, attacker, wh.infDeath);
   }

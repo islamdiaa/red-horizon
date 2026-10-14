@@ -65,7 +65,7 @@ const PROFILES: Record<WeatherKind, Profile> = {
   storm: { ...ZERO, rain: 1, mist: 0.8, storm: 1, haze: 0.42, hazeColor: [0.44, 0.49, 0.57], overcast: 0.85, wind: 4.6, gust: 0.6 },
   snow: { ...ZERO, snow: 1, snowMist: 0.4, haze: 0.32, hazeColor: [0.8, 0.84, 0.9], overcast: 0.55, wind: 1.4, gust: 0.4 },
   fog: { ...ZERO, fog: 1, haze: 0.62, hazeColor: [0.66, 0.7, 0.76], overcast: 0.5, wind: 0.45, gust: 0.15 },
-  dust: { ...ZERO, grit: 1, dust: 1, haze: 0.5, hazeColor: [0.8, 0.58, 0.33], overcast: 0.45, wind: 8.5, gust: 0.45 },
+  dust: { ...ZERO, grit: 1, dust: 1, haze: 0.5, hazeColor: [0.8, 0.64, 0.44], overcast: 0.45, wind: 8.5, gust: 0.45 },
 };
 
 const KINDS: readonly WeatherKind[] = ['clear', 'rain', 'storm', 'snow', 'fog', 'dust'];
@@ -77,7 +77,7 @@ interface PuffLook {
 }
 const LOOK_FOG: PuffLook = { color: [0.72, 0.76, 0.82], shadow: [0.5, 0.55, 0.62], opacity: 0.4, size: 7.5, lo: 0.2, hi: 2.2, aniso: 0.3, valley: 1, shapeLo: 0.3, shapeHi: 0.85, noise: 0.045, stretch: 0.15, tilt: 0.1 };
 const LOOK_MIST: PuffLook = { color: [0.52, 0.57, 0.64], shadow: [0.36, 0.4, 0.47], opacity: 0.16, size: 9, lo: 0.3, hi: 2.4, aniso: 0.8, valley: 0.5, shapeLo: 0.44, shapeHi: 0.95, noise: 0.05, stretch: 0.4, tilt: 0.1 };
-const LOOK_DUST: PuffLook = { color: [0.86, 0.64, 0.38], shadow: [0.55, 0.37, 0.2], opacity: 0.42, size: 8.5, lo: 0.1, hi: 1.5, aniso: 1.9, valley: 0, shapeLo: 0.46, shapeHi: 0.92, noise: 0.03, stretch: 4.0, tilt: 0.06 };
+const LOOK_DUST: PuffLook = { color: [0.84, 0.68, 0.48], shadow: [0.56, 0.43, 0.29], opacity: 0.36, size: 8.5, lo: 0.05, hi: 1.15, aniso: 1.9, valley: 0, shapeLo: 0.5, shapeHi: 0.94, noise: 0.03, stretch: 4.0, tilt: 0.05 };
 const LOOK_SNOW: PuffLook = { color: [0.86, 0.89, 0.94], shadow: [0.66, 0.7, 0.78], opacity: 0.25, size: 8, lo: 0.3, hi: 2.2, aniso: 0.3, valley: 0.6, shapeLo: 0.4, shapeHi: 0.9, noise: 0.045, stretch: 0.2, tilt: 0.1 };
 
 const srgb = (c: number) => Math.pow(c, 2.2);
@@ -142,6 +142,7 @@ export class Weather {
   private hemiLight: THREE.HemisphereLight | null = null;
   private lightScan = 0;
   private light = new THREE.Color(1, 1, 1);
+  private hazeLight = new THREE.Color(1, 1, 1);
   // scratch
   private camPos = new THREE.Vector3();
   private focus = new THREE.Vector3();
@@ -317,7 +318,10 @@ export class Weather {
     // --- lighting -------------------------------------------------------------------------
     this.readLights();
     const L = this.light;
-    this.hazeColorLit.copy(this.hazeColor).multiply(L);
+    // haze is lit by a desaturated version of the light (moonlit fog is grey-blue, not deep blue)
+    const lum = 0.2126 * L.r + 0.7152 * L.g + 0.0722 * L.b;
+    this.hazeLight.setRGB(L.r * 0.6 + lum * 0.4, L.g * 0.6 + lum * 0.4, L.b * 0.6 + lum * 0.4);
+    this.hazeColorLit.copy(this.hazeColor).multiply(this.hazeLight);
     this.renderer.getDrawingBufferSize(this.res);
 
     // --- camera frame ---------------------------------------------------------------------
@@ -387,11 +391,11 @@ export class Weather {
       u.uVel.value.copy(this.vel);
       u.uNear.value.set(D * 0.3, D * 0.55);
       u.uTime.value = clock;
-      u.uColor.value.setRGB(srgb(0.86), srgb(0.66), srgb(0.42)).multiply(L).multiplyScalar(0.9).add(this.tmpC.setRGB(0.03, 0.022, 0.012));
+      u.uColor.value.setRGB(srgb(0.88), srgb(0.72), srgb(0.5)).multiply(L).multiplyScalar(0.9).add(this.tmpC.setRGB(0.03, 0.022, 0.012));
       draws++; parts += this.grit.geometry.instanceCount;
     }
     // --- haze puffs -----------------------------------------------------------------------
-    draws += this.updatePuffs(dt, R, w, L, wlen) ? 1 : 0;
+    draws += this.updatePuffs(dt, R, w, this.hazeLight, wlen) ? 1 : 0;
     parts += this.puffs.geometry.instanceCount;
 
     // --- lightning ------------------------------------------------------------------------

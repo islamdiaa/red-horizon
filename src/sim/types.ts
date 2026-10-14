@@ -30,7 +30,7 @@ export type Command =
   | { c: 'build'; player: number; type: string; count?: number }
   | { c: 'cancel'; player: number; type: string; all?: boolean }
   | { c: 'pause'; player: number; type: string }
-  | { c: 'place'; player: number; type: string; cx: number; cy: number }
+  | { c: 'place'; player: number; type: string; cx: number; cy: number; cx2?: number; cy2?: number }
   | { c: 'sell'; player: number; building: number }
   | { c: 'repair'; player: number; building: number }
   | { c: 'rally'; player: number; building: number; x: number; y: number }

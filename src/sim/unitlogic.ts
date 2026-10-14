@@ -290,6 +290,10 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
   }
   stopMoving(u);
   if (u.ut.engineer) {
+    if (u.owner.isEnemy(t.owner) && t.bt.wall) {
+      finishOrder(world, u);
+      return;
+    }
     if (u.owner.isEnemy(t.owner)) {
       if (t.healthFrac <= ENGINEER_CAPTURE_LEVEL) {
         captureBuilding(world, t, u);
