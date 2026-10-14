@@ -239,7 +239,24 @@ const VARIANT_SCORCH = [0, 0.38, 0.62, 1.0, 0.0];
 
 const bodyCache = new Map<number, THREE.MeshStandardMaterial>();
 
-function makeBodyMaterial(teamHex: number, variant: number): THREE.MeshStandardMaterial {
+/** HDR multiplier of steady emissive parts baked into the body (windows, lamps) when powered / unpowered. */
+export const BODY_EMISSIVE_ON = 2.6;
+export const BODY_EMISSIVE_OFF = 0.12;
+
+/**
+ * Condition a raw team colour so it reads as military paint rather than neon plastic:
+ * partially desaturate toward its luminance and cap the brightest channel (linear space).
+ */
+export function conditionTeamColor(hex: number): THREE.Color {
+  const team = new THREE.Color(hex);
+  const lum = team.r * 0.2126 + team.g * 0.7152 + team.b * 0.0722;
+  team.lerp(new THREE.Color(lum, lum, lum), 0.28);
+  const mx = Math.max(team.r, team.g, team.b);
+  if (mx > 0.48) team.multiplyScalar(0.48 / mx);
+  return team;
+}
+
+function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: getDetailTexture(),
@@ -247,34 +264,33 @@ function makeBodyMaterial(teamHex: number, variant: number): THREE.MeshStandardM
     metalness: 1,
     roughness: 1,
   });
-  const team = new THREE.Color(teamHex);
-  // Slightly condition the team colour so it reads as military paint, not neon plastic.
-  const lum = team.r * 0.2126 + team.g * 0.7152 + team.b * 0.0722;
-  team.lerp(new THREE.Color(lum, lum, lum), 0.18);
   const uniforms = {
-    uTeam: { value: team },
+    uTeam: { value: conditionTeamColor(teamHex) },
     uScorch: { value: VARIANT_SCORCH[variant] ?? 0 },
     uFlash: { value: variant === BodyVariant.Electro ? new THREE.Color(0.9, 1.4, 3.2) : new THREE.Color(0, 0, 0) },
+    uEmissive: { value: powered && variant < BodyVariant.Charred ? BODY_EMISSIVE_ON : BODY_EMISSIVE_OFF },
   };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTeam = uniforms.uTeam;
     shader.uniforms.uScorch = uniforms.uScorch;
     shader.uniforms.uFlash = uniforms.uFlash;
+    shader.uniforms.uEmissive = uniforms.uEmissive;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 pbr;\nvarying vec4 vPbr;')
       .replace('#include <color_vertex>', '#include <color_vertex>\nvPbr = pbr;');
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform vec3 uTeam;\nuniform float uScorch;\nuniform vec3 uFlash;\nvarying vec4 vPbr;',
+        '#include <common>\nuniform vec3 uTeam;\nuniform float uScorch;\nuniform vec3 uFlash;\nuniform float uEmissive;\nvarying vec4 vPbr;',
       )
       .replace(
         '#include <map_fragment>',
         `vec4 dTex = texture2D( map, vMapUv );
 float dSel = vPbr.w;
+float emisK = dSel > 3.5 ? dSel - 4.0 : 0.0;
 float detail = dSel < 0.5 ? dTex.r : ( dSel < 1.5 ? dTex.g : ( dSel < 2.5 ? dTex.b : 0.87 ) );
 detail *= 1.15;
-diffuseColor.rgb *= mix( vec3( 1.0 ), uTeam, vPbr.z ) * detail;
+diffuseColor.rgb *= mix( vec3( 1.0 ), uTeam, vPbr.z ) * detail * ( emisK > 0.0 ? 0.3 : 1.0 );
 float scorch = smoothstep( 1.0 - uScorch, 1.25 - uScorch, dTex.a ) * min( uScorch * 1.6, 1.0 );
 diffuseColor.rgb *= 1.0 - 0.86 * scorch;`,
       )
@@ -283,18 +299,22 @@ diffuseColor.rgb *= 1.0 - 0.86 * scorch;`,
         'float roughnessFactor = clamp( vPbr.y * ( 1.45 - 0.45 * detail ) + scorch * 0.35, 0.04, 1.0 );',
       )
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.x * ( 1.0 - scorch * 0.8 );')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uFlash;');
+      .replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uFlash + vColor.rgb * emisK * uEmissive * ( 1.0 - scorch );',
+      );
   };
-  mat.customProgramCacheKey = () => 'rh-body-v2';
-  mat.name = `body-${teamHex.toString(16)}-${variant}`;
+  mat.customProgramCacheKey = () => 'rh-body-v3';
+  mat.name = `body-${teamHex.toString(16)}-${variant}${powered ? '' : '-off'}`;
   return mat;
 }
 
-export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Normal): THREE.MeshStandardMaterial {
-  const key = teamHex * 8 + variant;
+/** Shared body material per team colour, damage/death variant and powered state. */
+export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Normal, powered = true): THREE.MeshStandardMaterial {
+  const key = teamHex * 16 + variant * 2 + (powered ? 0 : 1);
   let m = bodyCache.get(key);
   if (!m) {
-    m = makeBodyMaterial(teamHex, variant);
+    m = makeBodyMaterial(teamHex, variant, powered);
     bodyCache.set(key, m);
   }
   return m;

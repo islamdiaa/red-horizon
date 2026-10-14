@@ -242,7 +242,13 @@ export class World {
         if (r && r.dockOccupant === e.id) r.dockOccupant = 0;
       }
       // APC passengers die with it
-      for (const p of e.passengers) { p.alive = false; }
+      for (const p of e.passengers) {
+        p.alive = false;
+        p.transport = 0;
+        this.entities.delete(p.id);
+        owner.stats.unitsLost++;
+      }
+      e.passengers.length = 0;
     }
   }
 
@@ -261,7 +267,7 @@ export class World {
     this.dirtyLists = false;
     this.units = this.units.filter((u) => {
       if (!u.alive) { this.entities.delete(u.id); return false; }
-      return true;
+      return !u.transport;
     });
     this.buildings = this.buildings.filter((b) => {
       if (!b.alive) { this.entities.delete(b.id); return false; }
@@ -360,7 +366,8 @@ export class World {
         break;
       case 'deploy':
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
-          if (u.ut.deploysInto || u.kind === 'aircraft') this.setOrder(u, { type: 'deploy' });
+          if (u.ut.passengers) this.unload(u);
+          else if (u.ut.deploysInto || u.kind === 'aircraft') this.setOrder(u, { type: 'deploy' });
         }
         break;
       case 'harvest':
@@ -632,6 +639,35 @@ export class World {
         this.setOrder(u, { type: 'idle' });
       }
     }
+  }
+
+  /** Put an infantry unit inside a transport. */
+  board(u: Unit, apc: Unit): boolean {
+    if (!apc.alive || apc.passengers.length >= (apc.ut.passengers ?? 0) || u.kind !== 'infantry') return false;
+    apc.passengers.push(u);
+    u.transport = apc.id;
+    this.setOrder(u, { type: 'idle' });
+    this.dirtyLists = true;
+    this.events.push({ e: 'death', id: u.id, x: u.x, y: u.y, how: 'sold' });
+    this.sfx('door', apc.x, apc.y);
+    return true;
+  }
+
+  /** Drop all passengers next to a transport. */
+  unload(apc: Unit) {
+    if (!apc.passengers.length) return;
+    for (const p of apc.passengers) {
+      const [x, y] = this.findFreeSpot(apc.x - Math.cos(apc.heading) * 0.8, apc.y - Math.sin(apc.heading) * 0.8, 3, false);
+      p.x = p.prevX = x;
+      p.y = p.prevY = y;
+      p.transport = 0;
+      p.guardX = x;
+      p.guardY = y;
+      p.heading = p.prevHeading = apc.heading + Math.PI;
+      this.units.push(p);
+    }
+    apc.passengers.length = 0;
+    this.sfx('door', apc.x, apc.y);
   }
 
   /** Construction Yard footprint top-left for an MCV deploying at (x, y). */

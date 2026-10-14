@@ -11,6 +11,7 @@ import { EntityRenderer } from './render/entities';
 import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
+import { LightPools } from './render/lightpools';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
 import type { AudioSystem } from './audio';
@@ -58,6 +59,7 @@ export class Game {
   ents: EntityRenderer;
   overlay: Overlay | null = null;
   placement: PlacementGhost;
+  lightPools: LightPools | null = null;
   hud: Hud | null = null;
   input: InputController | null = null;
   local;
@@ -110,6 +112,10 @@ export class Game {
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
     this.placement = new PlacementGhost(map);
     this.gfx.scene.add(this.placement.group);
+    if (setup.timeOfDay === 'night') {
+      this.lightPools = new LightPools(this.world, this.ents);
+      this.gfx.scene.add(this.lightPools.mesh);
+    }
 
     const start = map.startPositions[0];
     this.gfx.cam.jumpTo(start.x, start.y + 2);
@@ -255,12 +261,16 @@ export class Game {
     const fdt = this.paused ? 0 : dt;
 
     // selection housekeeping
-    for (const id of this.selection) if (!world.getEntity(id)?.alive) this.selection.delete(id);
+    for (const id of this.selection) {
+      const e = world.getEntity(id);
+      if (!e?.alive || (e instanceof Unit && e.transport)) this.selection.delete(id);
+    }
 
     if (this.setup.demo) this.updateDemoCamera(dt);
     this.input?.update(dt, this.time);
     this.gfx.fog.update(this.local, dt);
     this.ents.update(this.alpha, fdt, this.time, this.selection, this.input?.hovered ?? 0);
+    this.lightPools?.update(this.alpha, this.time);
     for (const p of this.gfx.vegetation.syncTrees()) {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
     }

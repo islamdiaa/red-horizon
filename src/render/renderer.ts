@@ -27,12 +27,13 @@ interface LightPreset {
   hemiSky: number; hemiGround: number; hemiIntensity: number;
   env: number; exposure: number; bg: number;
   bloom: number;
+  tint: [number, number, number];
 }
 
 const PRESETS: Record<TimeOfDay, LightPreset> = {
-  day:   { sunColor: 0xffeedd, sunIntensity: 2.5, elevation: 0.86, azimuth: 2.35, hemiSky: 0xb0c8ef, hemiGround: 0x5a4a32, hemiIntensity: 0.75, env: 0.25, exposure: 0.92, bg: 0x05070b, bloom: 0.5 },
-  dusk:  { sunColor: 0xffa868, sunIntensity: 2.6, elevation: 0.42, azimuth: 2.6, hemiSky: 0x8a98c8, hemiGround: 0x4a3426, hemiIntensity: 0.65, env: 0.22, exposure: 1.0, bg: 0x05070b, bloom: 0.65 },
-  night: { sunColor: 0x9fb8ff, sunIntensity: 1.1, elevation: 0.95, azimuth: 2.0, hemiSky: 0x30477a, hemiGround: 0x1a1612, hemiIntensity: 0.6, env: 0.18, exposure: 1.45, bg: 0x020305, bloom: 0.95 },
+  day:   { sunColor: 0xffeedd, sunIntensity: 2.5, elevation: 0.86, azimuth: 2.35, hemiSky: 0xb0c8ef, hemiGround: 0x5a4a32, hemiIntensity: 0.75, env: 0.25, exposure: 0.92, bg: 0x05070b, bloom: 0.5, tint: [1, 1, 1] },
+  dusk:  { sunColor: 0xffa868, sunIntensity: 2.6, elevation: 0.42, azimuth: 2.6, hemiSky: 0x8a98c8, hemiGround: 0x4a3426, hemiIntensity: 0.65, env: 0.22, exposure: 1.0, bg: 0x05070b, bloom: 0.65, tint: [1.06, 0.99, 0.92] },
+  night: { sunColor: 0x86a0ff, sunIntensity: 0.85, elevation: 0.95, azimuth: 2.0, hemiSky: 0x22335c, hemiGround: 0x0a0908, hemiIntensity: 0.42, env: 0.1, exposure: 1.05, bg: 0x020305, bloom: 1.15, tint: [0.72, 0.84, 1.12] },
 };
 
 const GradeShader = {
@@ -43,11 +44,13 @@ const GradeShader = {
     uSaturation: { value: 1.1 },
     uRes: { value: new THREE.Vector2(1, 1) },
     uFlash: { value: 0 },
+    uTint: { value: new THREE.Vector3(1, 1, 1) },
   },
   vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float uTime, uVignette, uSaturation, uFlash;
+    uniform vec3 uTint;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -62,6 +65,7 @@ const GradeShader = {
       c.b = texture2D(tDiffuse, vUv - off).b;
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       c = mix(vec3(l), c, uSaturation);
+      c *= uTint;
       // split toning: cool shadows, warm highlights
       float t = smoothstep(0.0, 0.9, l);
       c *= mix(vec3(0.93, 0.98, 1.07), vec3(1.05, 1.0, 0.93), t);
@@ -161,6 +165,7 @@ export class GameRenderer {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), p.bloom, 0.5, 1.15);
     if (q !== 'low') this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
+    (this.grade.uniforms.uTint.value as THREE.Vector3).set(...p.tint);
     this.composer.addPass(this.grade);
     this.composer.addPass(new OutputPass());
     if (q !== 'low') {

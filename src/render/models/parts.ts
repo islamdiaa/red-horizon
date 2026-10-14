@@ -3,7 +3,7 @@
  * windows, lamps, decals, hazard stripes, foundations...).
  */
 import * as THREE from 'three';
-import { NB, type Glow, type Mat, type Surface, type V3 } from './builder';
+import { NB, maxSeg, type Glow, type Mat, type Surface, type V3 } from './builder';
 
 // ---------------------------------------------------------------------------------------------
 // Palette
@@ -115,6 +115,7 @@ export function prismXZ(pts: P2[], h: number, bevel = 0.01): THREE.BufferGeometr
 export function lathe(pts: P2[], seg = 16, phiStart = 0, phiLen = Math.PI * 2): THREE.BufferGeometry {
   // LatheGeometry expects the profile to run bottom -> top for outward-facing normals.
   const ordered = pts[0][1] > pts[pts.length - 1][1] ? [...pts].reverse() : pts;
+  seg = Math.min(seg, maxSeg(Math.max(...pts.map((p) => p[0]))));
   return new THREE.LatheGeometry(
     ordered.map(([r, y]) => new THREE.Vector2(Math.max(r, 0.0001), y)),
     seg,
@@ -124,18 +125,33 @@ export function lathe(pts: P2[], seg = 16, phiStart = 0, phiLen = Math.PI * 2): 
 }
 
 /** 5-pointed star lying flat (XZ plane), one point toward -Z, from y=0 to y=thick. */
-export function starGeo(rOut: number, thick = 0.004, inner = 0.42): THREE.BufferGeometry {
+export function starGeo(rOut: number, thick = 0, inner = 0.42): THREE.BufferGeometry {
   const pts: P2[] = [];
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
     const r = i % 2 === 0 ? rOut : rOut * inner;
     pts.push([Math.sin(a) * r, -Math.cos(a) * r]);
   }
-  return prismXZ(pts, thick, 0);
+  if (thick > 0.006) return prismXZ(pts, thick, 0);
+  return flatXZ(pts);
+}
+
+/** Flat polygon lying in the XZ plane (normal +Y), top-view coordinates (x, z). */
+export function flatXZ(pts: P2[]): THREE.BufferGeometry {
+  const g = new THREE.ShapeGeometry(shapeFrom(pts.map(([x, z]) => [x, -z] as P2)));
+  g.rotateX(-Math.PI / 2);
+  return g;
 }
 
 /** Flat disc lying in XZ (y=0..thick). */
 export function discGeo(r: number, thick = 0.004, seg = 24): THREE.BufferGeometry {
+  seg = Math.min(seg, maxSeg(r));
+  if (thick <= 0.006) {
+    const c = new THREE.CircleGeometry(r, seg);
+    c.rotateX(-Math.PI / 2);
+    c.translate(0, thick, 0);
+    return c;
+  }
   const g = new THREE.CylinderGeometry(r, r, thick, seg);
   g.translate(0, thick / 2, 0);
   return g;
@@ -143,6 +159,12 @@ export function discGeo(r: number, thick = 0.004, seg = 24): THREE.BufferGeometr
 
 /** Hollow ring (annulus) around Y from y=-h/2..h/2. */
 export function ringGeo(rIn: number, rOut: number, h: number, seg = 24): THREE.BufferGeometry {
+  if (h <= 0.006) {
+    const g = new THREE.RingGeometry(rIn, rOut, Math.min(seg, maxSeg(rOut)));
+    g.rotateX(-Math.PI / 2);
+    g.translate(0, h / 2, 0);
+    return g;
+  }
   return lathe(
     [
       [rIn, -h / 2],
@@ -163,7 +185,7 @@ export function trackBelt(L: number, H: number, W: number, thick = 0.022, link =
   const r = H / 2;
   const half = L / 2 - r;
   const path: { x: number; y: number; nx: number; ny: number }[] = [];
-  const arcSeg = 10;
+  const arcSeg = 4;
   // top run (rear -> front)
   path.push({ x: -half, y: r, nx: 0, ny: 1 });
   path.push({ x: half, y: r, nx: 0, ny: 1 });
@@ -224,15 +246,6 @@ export function trackBelt(L: number, H: number, W: number, thick = 0.022, link =
     0,
     1,
     false,
-  );
-  // inner surface
-  quadStrip(
-    (i) => [path[i].x - path[i].nx * thick, path[i].y - path[i].ny * thick, -hw],
-    (i) => [path[i].x - path[i].nx * thick, path[i].y - path[i].ny * thick, hw],
-    (i) => [-path[i].nx, -path[i].ny, 0],
-    0,
-    1,
-    true,
   );
   // side faces
   for (const side of [-1, 1]) {
@@ -304,7 +317,7 @@ export function hazard(nb: NB, len: number, h: number, p: V3, r: V3 = [0, 0, 0],
       -len / 2,
       len / 2,
     );
-    if (poly.length >= 3) n.add(prismXY(poly, 0.004, 0), M.yellow, { p: [0, 0, 0.005] });
+    if (poly.length >= 3) n.add(new THREE.ShapeGeometry(shapeFrom(poly)), M.yellow, { p: [0, 0, 0.0045] });
   }
   mergeChild(nb, n);
 }
@@ -329,23 +342,23 @@ export function mergeChild(nb: NB, child: NB): void {
 /** Soviet star with a thin yellow outline, flat on XZ; rotate to place on other faces. */
 export function sovietStar(nb: NB, size: number, p: V3, r: V3 = [0, 0, 0]): void {
   const n = new NB('_star', p, r);
-  n.add(starGeo(size * 1.22, 0.003), M.yellow);
-  n.add(starGeo(size, 0.003), M.red, { p: [0, 0.0025, 0] });
+  n.add(starGeo(size * 1.22), M.yellow, { p: [0, 0.001, 0] });
+  n.add(starGeo(size), M.red, { p: [0, 0.0025, 0] });
   mergeChild(nb, n);
 }
 
 /** Allied insignia: white star in a dark blue disc, flat on XZ. */
 export function alliedStar(nb: NB, size: number, p: V3, r: V3 = [0, 0, 0]): void {
   const n = new NB('_astar', p, r);
-  n.add(discGeo(size * 1.15, 0.003), M.navy);
-  n.add(starGeo(size, 0.003, 0.4), M.white, { p: [0, 0.0025, 0] });
+  n.add(discGeo(size * 1.15, 0.001, 10), M.navy);
+  n.add(starGeo(size, 0, 0.4), M.white, { p: [0, 0.0025, 0] });
   mergeChild(nb, n);
 }
 
 /** Lamp: glowing sphere + small dark housing below. */
 export function lamp(nb: NB, glow: Glow, p: V3, size = 0.022, slot?: string): void {
-  nb.box(M.dark, size * 1.5, size * 0.6, size * 1.5, p[0], p[1] - size * 0.6, p[2], { b: 0.002 });
-  nb.add(new THREE.SphereGeometry(size * 0.7, 8, 6), glow, { p, slot });
+  nb.box(M.dark, size * 1.5, size * 0.6, size * 1.5, p[0], p[1] - size * 0.6, p[2], { b: 0 });
+  nb.add(new THREE.OctahedronGeometry(size * 0.75, 0), glow, { p, slot });
 }
 
 /**
@@ -368,7 +381,7 @@ export function windows(
   const total = n * w + (n - 1) * gap;
   for (let i = 0; i < n; i++) {
     const x = -total / 2 + w / 2 + i * (w + gap);
-    row.box(M.dark, w + 0.012, h + 0.012, 0.01, x, 0, 0, { b: 0.002 });
+    row.box(M.dark, w + 0.012, h + 0.012, 0.01, x, 0, 0, { b: 0 });
     const on = lit ? lit.includes(i) : true;
     if (on) row.add(quadGeo(w, h), glow, { p: [x, 0, 0.0058], slot });
     else row.add(quadGeo(w, h), M.glass, { p: [x, 0, 0.0058] });
@@ -410,50 +423,46 @@ export function tracks(nb: NB, o: TrackOpts): void {
   const yC = o.H / 2;
   const nW = o.wheels ?? 5;
   const wr = o.H * 0.34;
+  const wheelDisc = new THREE.CircleGeometry(wr, 6);
+  const sprDisc = new THREE.CircleGeometry(o.H * 0.42, 7);
   for (const side of [-1, 1]) {
     const z = o.Z * side;
     nb.add(belt, M.dark, { p: [x0, yC, z], slot: 'track', keepUv: true });
-    // road wheels
+    // road wheel faces on the outer side only
     const span = o.L - o.H * 1.1;
+    const face = z + side * o.W * 0.42;
+    const rot: V3 = [0, side > 0 ? 0 : Math.PI, 0];
     for (let i = 0; i < nW; i++) {
       const x = x0 - span / 2 + (span * i) / (nW - 1);
-      nb.cyl(M.gun, wr, wr, o.W * 0.86, x, wr + 0.012, z, { r: [Math.PI / 2, 0, 0], seg: 12 });
-      nb.cyl(M.steel, wr * 0.42, wr * 0.42, o.W * 0.9, x, wr + 0.012, z, { r: [Math.PI / 2, 0, 0], seg: 8 });
+      nb.add(wheelDisc, M.gun, { p: [x, wr + 0.012, face], r: rot });
     }
-    // sprocket + idler
-    const sr = o.H * 0.4;
     for (const ex of [-1, 1]) {
-      const x = x0 + ex * (o.L / 2 - o.H / 2);
-      nb.cyl(M.dark, sr, sr, o.W * 0.92, x, yC, z, { r: [Math.PI / 2, 0, 0], seg: 10 });
-      nb.cyl(M.steel, sr * 0.45, sr * 0.45, o.W * 0.96, x, yC, z, { r: [Math.PI / 2, 0, 0], seg: 8 });
+      nb.add(sprDisc, M.dark, { p: [x0 + ex * (o.L / 2 - o.H / 2), yC, face + side * 0.002], r: rot });
     }
   }
 }
 
+/** Tyre: open cylinder (axis Z) whose UVs wrap the tread texture ~8 times; goes in the 'track' slot
+ *  so the scrolling tread makes the wheel appear to roll. */
+export function tyreGeo(r: number, w: number, seg = 8): THREE.BufferGeometry {
+  const g = new THREE.CylinderGeometry(r, r, w, seg, 1, true);
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+  const reps = Math.max(4, Math.round((Math.PI * 2 * r) / 0.05));
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * reps, uv.getY(i));
+  g.rotateX(Math.PI / 2);
+  return g;
+}
+
 /**
- * Wheel geometry centred at origin with axis along Z: tyre + rim + hub bolts.
- * Returns parts added to `nb` at position p.
+ * Wheel at p (axis along Z): scrolling tyre tread + rim/hub faces on the outer side.
  */
 export function wheel(nb: NB, r: number, w: number, p: V3): void {
-  const rot: V3 = [Math.PI / 2, 0, 0];
-  nb.cyl(M.rubber, r, r, w, p[0], p[1], p[2], { r: rot, seg: 14 });
-  // tread blocks
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    nb.box(M.rubber, r * 0.3, r * 0.14, w * 1.02, p[0] + Math.cos(a) * r * 0.98, p[1] + Math.sin(a) * r * 0.98, p[2], {
-      r: [0, 0, a + Math.PI / 2],
-      b: 0,
-    });
-  }
   const side = Math.sign(p[2]) || 1;
-  nb.cyl(M.gun, r * 0.62, r * 0.62, w * 1.04, p[0], p[1], p[2], { r: rot, seg: 12 });
-  nb.cyl(M.steel, r * 0.24, r * 0.3, w * 1.12, p[0], p[1], p[2], { r: rot, seg: 8 });
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    nb.box(M.dark, r * 0.12, r * 0.12, 0.006, p[0] + Math.cos(a) * r * 0.42, p[1] + Math.sin(a) * r * 0.42, p[2] + side * w * 0.53, {
-      b: 0,
-    });
-  }
+  nb.add(tyreGeo(r, w, 8), M.dark, { p, slot: 'track', keepUv: true });
+  const rot: V3 = [0, side > 0 ? 0 : Math.PI, 0];
+  nb.add(new THREE.CircleGeometry(r * 0.98, 8), M.rubber, { p: [p[0], p[1], p[2] + side * w * 0.48], r: rot });
+  nb.add(new THREE.CircleGeometry(r * 0.6, 6), M.gun, { p: [p[0], p[1], p[2] + side * w * 0.5], r: rot });
+  nb.add(new THREE.CircleGeometry(r * 0.25, 5), M.steel, { p: [p[0], p[1], p[2] + side * w * 0.52], r: rot });
 }
 
 /** Barrel along +X starting at local origin. */
@@ -467,25 +476,16 @@ export function barrel(
   const z = o.z ?? 0;
   const rot: V3 = [0, 0, -Math.PI / 2];
   const mat = o.mat ?? M.gun;
-  nb.cyl(mat, r * 0.92, r * 1.12, len, len / 2, y, z, { r: rot, seg: 12 });
-  if (o.sleeve) {
-    nb.cyl(M.dark, r * 1.35, r * 1.35, len * 0.16, len * 0.42, y, z, { r: rot, seg: 12 });
-    nb.cyl(M.dark, r * 1.3, r * 1.3, len * 0.12, len * 0.72, y, z, { r: rot, seg: 12 });
-  }
-  if (o.brake) {
-    nb.cyl(M.dark, r * 1.5, r * 1.5, len * 0.1, len * 0.96, y, z, { r: rot, seg: 10 });
-    nb.box(M.dark, len * 0.05, r * 0.9, r * 3.4, len * 0.96, y, z, { b: 0.002 });
-  } else {
-    nb.cyl(M.dark, r * 1.18, r * 1.18, len * 0.06, len * 0.97, y, z, { r: rot, seg: 10 });
-  }
-  // dark bore
-  nb.add(new THREE.CircleGeometry(r * 0.6, 10), M.darker, { p: [len + 0.0015, y, z], r: [0, Math.PI / 2, 0] });
+  nb.cyl(mat, r * 0.92, r * 1.12, len, len / 2, y, z, { r: rot, seg: 6, open: true });
+  if (o.sleeve) nb.cyl(M.dark, r * 1.35, r * 1.35, len * 0.18, len * 0.5, y, z, { r: rot, seg: 6, open: true });
+  if (o.brake) nb.box(M.dark, len * 0.08, r * 1.6, r * 3.0, len * 0.96, y, z, { b: 0 });
+  else nb.cyl(M.dark, r * 1.2, r * 1.2, len * 0.06, len * 0.97, y, z, { r: rot, seg: 6, open: true });
+  nb.add(new THREE.CircleGeometry(r * 0.75, 6), M.darker, { p: [len + 0.001, y, z], r: [0, Math.PI / 2, 0] });
 }
 
-/** Thin antenna whip with a tip ball. */
+/** Thin antenna whip. */
 export function antenna(nb: NB, x: number, y: number, z: number, h: number, mat: Surface = M.dark): void {
-  nb.cyl(M.dark, 0.006, 0.006, 0.02, x, y + 0.01, z, { seg: 6 });
-  nb.cyl(mat as Mat, 0.0022, 0.0035, h, x, y + h / 2, z, { seg: 5 });
+  nb.cyl(mat as Mat, 0.0022, 0.0045, h, x, y + h / 2, z, { seg: 3 });
 }
 
 /** Jerry can / stowage box. */
@@ -497,15 +497,15 @@ export function stowage(nb: NB, w: number, h: number, d: number, x: number, y: n
 /** Row of sandbags along X centred at p (rotation r). */
 export function sandbags(nb: NB, len: number, rows: number, p: V3, r: V3 = [0, 0, 0]): void {
   const n = new NB('_sb', p, r);
-  const bw = 0.085;
+  const bw = 0.11;
   const bh = 0.036;
   const count = Math.max(1, Math.round(len / bw));
   for (let row = 0; row < rows; row++) {
     const off = row % 2 ? bw / 2 : 0;
     const cnt = row % 2 ? count - 1 : count;
     for (let i = 0; i < cnt; i++) {
-      const x = -len / 2 + bw / 2 + i * (len - bw) / Math.max(1, count - 1) + off;
-      n.box(M.sand, bw * 0.98, bh, 0.05, x, row * bh * 0.92 + bh / 2, 0, { b: 0.014, seg: 1 });
+      const x = -len / 2 + bw / 2 + (i * (len - bw)) / Math.max(1, count - 1) + off;
+      n.box(M.sand, bw * 0.96, bh, 0.05, x, row * bh * 0.92 + bh / 2, 0, { b: i % 2 ? 0 : 0.01 });
     }
   }
   mergeChild(nb, n);
@@ -553,9 +553,10 @@ export function railing(nb: NB, w: number, d: number, y: number, x = 0, z = 0, h
 export function grille(nb: NB, w: number, d: number, p: V3, slats = 5, r: V3 = [0, 0, 0]): void {
   const n = new NB('_gr', p, r);
   n.box(M.darker, w, 0.008, d, 0, 0, 0, { b: 0 });
-  for (let i = 0; i < slats; i++) {
-    const x = -w / 2 + (w * (i + 0.5)) / slats;
-    n.box(M.gun, (w / slats) * 0.45, 0.012, d * 0.94, x, 0.003, 0, { b: 0 });
+  const k = Math.min(slats, 4);
+  for (let i = 0; i < k; i++) {
+    const x = -w / 2 + (w * (i + 0.5)) / k;
+    n.box(M.gun, (w / k) * 0.45, 0.012, d * 0.94, x, 0.003, 0, { b: 0 });
   }
   mergeChild(nb, n);
 }
@@ -576,19 +577,19 @@ export function faceRot(face: Face): V3 {
 
 /** Ore mound: earthy base with gold nuggets. */
 export function orePile(nb: NB, x: number, y: number, z: number, rad: number, h: number, seed = 3): void {
-  nb.add(lathe([[rad, 0], [rad * 0.78, h * 0.45], [rad * 0.4, h * 0.85], [0.0, h]], 12), ORE_DIRT, { p: [x, y, z], s: [1, 1, 0.85] });
+  nb.add(lathe([[rad, 0], [rad * 0.72, h * 0.5], [0.0, h]], 8), ORE_DIRT, { p: [x, y, z], s: [1, 1, 0.85] });
   let sd = seed;
   const rnd = () => {
     sd = (sd * 16807) % 2147483647;
     return sd / 2147483647;
   };
-  const n = Math.round(rad * 70);
+  const n = Math.round(rad * 32);
   for (let i = 0; i < n; i++) {
     const a = rnd() * Math.PI * 2;
     const d = Math.sqrt(rnd()) * rad * 0.85;
     const yy = h * (1 - (d / rad) ** 1.6) * 0.92;
     const sz = rad * (0.08 + rnd() * 0.1);
-    nb.add(new THREE.DodecahedronGeometry(sz, 0), i % 4 === 0 ? ORE_BRIGHT : M.gold, {
+    nb.add(new THREE.OctahedronGeometry(sz * 1.2, 0), i % 4 === 0 ? ORE_BRIGHT : M.gold, {
       p: [x + Math.cos(a) * d, y + yy, z + Math.sin(a) * d * 0.85],
       r: [rnd() * 3, rnd() * 3, rnd() * 3],
     });

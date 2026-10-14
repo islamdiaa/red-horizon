@@ -46,7 +46,7 @@ function fallbackTemplate(): ModelTemplate {
     glow: { glow: 3 },
     anim: (c, s) => {
       healthVariant(c, s);
-      c.setGlow('glow', s.powered ? 1 : 0.15);
+      c.setPowered(s.powered);
     },
   });
 }

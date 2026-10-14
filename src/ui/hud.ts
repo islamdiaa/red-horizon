@@ -440,6 +440,7 @@ export class Hud {
       }
       if (extra) {
         if (e instanceof Unit && e.ut.harvester) extra.textContent = `Cargo ${Math.round((e.cargo / 28) * 100)}% · ${e.hstate}`;
+        else if (e instanceof Unit && e.ut.passengers) extra.textContent = `Passengers ${e.passengers.length} / ${e.ut.passengers}${e.passengers.length ? ' · D to unload' : ''}`;
         else if (e instanceof Building && e.bt.power) extra.textContent = `Power ${e.bt.power > 0 ? '+' : ''}${e.bt.power}`;
         else if (e.kills) extra.textContent = `Kills: ${e.kills}`;
         else extra.textContent = '';
@@ -461,7 +462,8 @@ export class Hud {
       add('⚔', 'A', 'Attack-move');
       add('■', 'S', 'Stop');
       add('✳', 'X', 'Scatter');
-      if (units.some((u) => u.ut.deploysInto)) add('⬇', 'D', 'Deploy');
+      if (units.some((u) => u.ut.deploysInto || u.ut.passengers)) add('⬇', 'D', units.some((u) => u.ut.passengers) ? 'Unload' : 'Deploy');
+      else if (units.some((u) => u.kind === 'aircraft')) add('⬇', 'D', 'Return to base');
       add('⚑', 'G', 'Force-fire on ground (then click)');
     }
     if (blds.length === 1) {

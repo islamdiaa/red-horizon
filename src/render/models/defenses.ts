@@ -21,7 +21,7 @@ function dAnim(extra?: (c: Ctx, s: ModelAnimState) => void): AnimFn {
   return (c, s) => {
     healthVariant(c, s);
     if (c.v.seed === undefined) c.v.seed = Math.random() * 3;
-    c.setGlow('glow', s.powered ? 1 : 0.1);
+    c.setPowered(s.powered);
     c.setGlow('glow:blink', s.powered ? (blink(s.time + c.v.seed, 1.4, 0.3) ? 1 : 0.06) : 0.04);
     extra?.(c, s);
   };
@@ -432,7 +432,7 @@ function samSite(): ModelTemplate {
         const key = `hide${i}`;
         if (s.firing > 0.6 && s.firingMuzzle % 2 === i) c.v[key] = 1.2;
         c.v[key] = Math.max(0, (c.v[key] ?? 0) - dtOf(s));
-        c.n[`ms${i}`].visible = c.v[key] <= 0;
+        c.show(`ms${i}`, c.v[key] <= 0);
       }
     }),
   });

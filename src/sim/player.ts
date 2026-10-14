@@ -34,7 +34,7 @@ export interface PlayerStats {
 }
 
 /** Types that are not available yet (systems not implemented). */
-export const DISABLED_TYPES = new Set<string>(['apc']);
+export const DISABLED_TYPES = new Set<string>();
 
 export function queueKindOf(t: TypeDef): QueueKind {
   if (isBuildingType(t)) return 'structure';

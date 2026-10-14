@@ -257,6 +257,13 @@ function attackGround(world: World, u: Unit, o: Extract<Order, { type: 'attackGr
 function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
   const t = world.entities.get(o.target);
   if (!t || !t.alive) return finishOrder(world, u);
+  if (t instanceof Unit) {
+    // board a friendly transport
+    if (t.owner !== u.owner || !t.ut.passengers || u.kind !== 'infantry' || t.passengers.length >= t.ut.passengers) return finishOrder(world, u);
+    if (Math.hypot(t.x - u.x, t.y - u.y) < 0.9) { world.board(u, t); return; }
+    if (!u.pathPending && (!u.hasGoal || Math.hypot(t.x - u.goalX, t.y - u.goalY) > 1 || world.tick % 20 === 0)) world.requestPath(u, t.x, t.y);
+    return;
+  }
   if (!(t instanceof Building)) return finishOrder(world, u);
   const d = t.distTo(u.x, u.y);
   if (t.bt.repairPad && t.owner === u.owner && u.kind === 'vehicle') {

@@ -111,6 +111,8 @@ export class Unit extends Entity {
 
   // --- infantry / special
   passengers: Unit[] = [];
+  /** Id of the transport this unit is riding in (0 = on foot). */
+  transport = 0;
   /** Building being demolished by C4 (Tanya), seconds until detonation. */
   c4Timer = 0;
   c4Target = 0;

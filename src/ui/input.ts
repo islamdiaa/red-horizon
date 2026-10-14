@@ -427,6 +427,13 @@ export class InputController {
       this.h.audio.unitResponse('attack', voice);
       return;
     }
+    if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => u.kind === 'infantry')) {
+      const inf = units.filter((u) => u.kind === 'infantry').map((u) => u.id);
+      this.h.issue({ c: 'enter', player: local.id, units: inf, target: t.id });
+      this.marker(t.x, t.y, 'move');
+      this.h.audio.unitResponse('move', voice);
+      return;
+    }
     if (t instanceof Building && t.owner === local) {
       const harv = units.filter((u) => u.ut.harvester && t.bt.dock);
       const eng = units.filter((u) => u.ut.engineer && t.hp < t.maxHp);
@@ -619,6 +626,8 @@ export class InputController {
         if (!units.length) { c = t ? 'select' : ''; break; }
         if (t && local.isEnemy(t.owner)) {
           c = units.some((u) => u.weapons.length || u.ut.engineer || u.ut.c4) ? (units.every((u) => u.ut.engineer) ? 'enter' : 'attack') : 'select';
+        } else if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => u.kind === 'infantry')) {
+          c = 'enter';
         } else if (t instanceof Unit && t.ut.deploysInto && this.h.selection.has(t.id) && units.length === 1) {
           c = 'deploy';
         } else if (t instanceof Building && t.owner === local && ((t.bt.dock && units.some((u) => u.ut.harvester)) || (t.bt.repairPad && units.some((u) => u.kind === 'vehicle')) || (units.some((u) => u.ut.engineer) && t.hp < t.maxHp))) {

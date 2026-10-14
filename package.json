@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "simtest": "node --import tsx tools/simtest.ts"
   },
   "dependencies": {
     "three": "^0.186.1"
@@ -18,5 +19,6 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
-  }
+  },
+  "license": "GPL-3.0-or-later"
 }

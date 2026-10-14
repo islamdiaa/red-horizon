@@ -48,7 +48,7 @@ function sAnim(extra?: (c: Ctx, s: ModelAnimState, pw: number) => void): AnimFn 
     healthVariant(c, s);
     if (c.v.seed === undefined) c.v.seed = Math.random() * 3;
     const pw = s.powered ? 1 : 0.1;
-    c.setGlow('glow', pw);
+    c.setPowered(s.powered);
     c.setGlow('glow:blink', s.powered ? (blink(s.time + c.v.seed, 1.6, 0.3) ? 1 : 0.06) : 0.04);
     extra?.(c, s, pw);
   };

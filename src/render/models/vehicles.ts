@@ -24,7 +24,7 @@ import {
   wheel,
   orePile,
 } from './parts';
-import { animTracks, animWheels, approach, blink, dtOf, healthVariant, recoil } from './anim';
+import { animTracks, approach, blink, dtOf, healthVariant, recoil } from './anim';
 
 const VEH_AO = { h: 0.12, min: 0.55 };
 
@@ -471,10 +471,8 @@ function jeep(): ModelTemplate {
     ['w0', 0.175],
     ['w1', -0.17],
   ];
-  for (const [name, x] of axles) {
-    const a = r.node(name, [x, wr, 0]);
-    for (const s of [-1, 1]) wheel(a, wr, 0.05, [0, 0, 0.145 * s]);
-    a.cyl(M.dark, 0.012, 0.012, 0.26, 0, 0, 0, { r: [Math.PI / 2, 0, 0], seg: 6 });
+  for (const [, x] of axles) {
+    for (const s of [-1, 1]) wheel(r, wr, 0.05, [x, wr, 0.145 * s]);
   }
   r.box(M.dark, 0.52, 0.04, 0.2, 0, 0.075, 0, { b: 0.008 });
   // body tub
@@ -533,7 +531,6 @@ function jeep(): ModelTemplate {
   barrel(b0, 0.13, 0.006, { mat: M.dark });
   t.node('m0', [0.205, 0.09, 0]);
 
-  const wheels = ['w0', 'w1'] as const;
   return makeTemplate({
     root: r,
     height: 0.3,
@@ -543,7 +540,7 @@ function jeep(): ModelTemplate {
     glow: { glow: 2.5 },
     anim: (c, s) => {
       healthVariant(c, s);
-      animWheels(c, s, wheels, wr, 3);
+      animTracks(c, s, 14);
       recoil(c, s, ['b0'], 0.012);
     },
   });
@@ -747,10 +744,8 @@ function v2Launcher(): ModelTemplate {
     ['w1', -0.14],
     ['w2', -0.31],
   ];
-  for (const [name, x] of axles) {
-    const a = r.node(name, [x, wr, 0]);
-    for (const s of [-1, 1]) wheel(a, wr, 0.055, [0, 0, 0.165 * s]);
-    a.cyl(M.dark, 0.012, 0.012, 0.28, 0, 0, 0, { r: [Math.PI / 2, 0, 0], seg: 6 });
+  for (const [, x] of axles) {
+    for (const s of [-1, 1]) wheel(r, wr, 0.055, [x, wr, 0.165 * s]);
   }
   r.box(M.dark, 0.9, 0.05, 0.22, -0.01, 0.09, 0, { b: 0.008 });
   // cab
@@ -800,7 +795,6 @@ function v2Launcher(): ModelTemplate {
   v2Rocket(rocket);
   rail.node('m0', [0.68, 0.062, 0]);
 
-  const wheels = ['w0', 'w1', 'w2'] as const;
   return makeTemplate({
     root: r,
     height: 0.5,
@@ -809,10 +803,10 @@ function v2Launcher(): ModelTemplate {
     glow: { glow: 2.5, 'glow:beacon': 3.5 },
     anim: (c, s) => {
       healthVariant(c, s);
-      animWheels(c, s, wheels, wr, 2.4);
+      animTracks(c, s, 12);
       const dt = dtOf(s);
       const ready = s.charge >= 1;
-      c.n.rocket.visible = ready;
+      c.show('rocket', ready);
       // raise the erector when stationary & loaded, lower while driving / reloading
       const target = s.moving ? 0.1 : ready ? 0.52 : 0.22;
       const rl = c.n.rail;
@@ -917,8 +911,8 @@ function harvester(): ModelTemplate {
       if (s.harvesting) c.n.drum.rotation.z -= dt * 9;
       const load = Math.min(1, Math.max(0, s.load));
       const ore = c.n.ore;
-      ore.visible = load > 0.02;
-      ore.scale.set(0.6 + 0.4 * load, Math.max(0.05, load), 0.6 + 0.4 * load);
+      if (load <= 0.02) ore.scale.setScalar(1e-4);
+      else ore.scale.set(0.6 + 0.4 * load, Math.max(0.05, load), 0.6 + 0.4 * load);
       c.setGlow('glow:beacon', s.harvesting || s.moving ? (blink(s.time, 0.6, 0.5) ? 1 : 0.1) : 0.1);
     },
   });
