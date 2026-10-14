@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Red Horizon — model preview</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #1c2028;
+        font-family: system-ui, sans-serif;
+      }
+      .lbl {
+        color: #fff;
+        font-size: 11px;
+        background: rgba(10, 14, 20, 0.62);
+        padding: 1px 5px;
+        border-radius: 3px;
+        white-space: nowrap;
+      }
+      #info {
+        position: absolute;
+        left: 8px;
+        top: 6px;
+        color: #e8eef6;
+        font-size: 12px;
+        background: rgba(10, 14, 20, 0.6);
+        padding: 3px 8px;
+        border-radius: 4px;
+        z-index: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info"></div>
+    <script type="module" src="/src/render/models/preview.ts"></script>
+  </body>
+</html>

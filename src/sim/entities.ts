@@ -1,0 +1,217 @@
+import { BUILDINGS, UNITS, WEAPONS, type BuildingTypeDef, type TypeDef, type UnitTypeDef, type WeaponDef } from '../data/rules';
+import type { PathPoint } from './pathfinding';
+import type { Player } from './player';
+import type { Order } from './types';
+
+export class WeaponSlot {
+  cooldown = 0;     // seconds until ready
+  burstLeft = 0;
+  burstTimer = 0;
+  constructor(public def: WeaponDef) {}
+}
+
+export type HarvestState = 'seek' | 'toOre' | 'harvesting' | 'toRefinery' | 'waitDock' | 'unloading' | 'idle';
+
+export abstract class Entity {
+  id: number;
+  owner: Player;
+  hp: number;
+  alive = true;
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  weapons: WeaponSlot[] = [];
+  /** Current weapon target. */
+  target: Entity | null = null;
+  targetX = 0;
+  targetY = 0;
+  hasGroundTarget = false;
+  lastDamagedTick = -99999;
+  lastAttacker = 0;
+  /** Iron Curtain invulnerability, seconds remaining. */
+  invulnerable = 0;
+  /** Tick of last shot (render recoil). */
+  lastFireTick = -99999;
+  lastFireMuzzle = 0;
+  kills = 0;
+  scanTimer = 0;
+  abstract readonly kind: 'infantry' | 'vehicle' | 'aircraft' | 'building';
+  abstract readonly type: TypeDef;
+
+  constructor(id: number, owner: Player, x: number, y: number, hp: number) {
+    this.id = id;
+    this.owner = owner;
+    this.x = this.prevX = x;
+    this.y = this.prevY = y;
+    this.hp = hp;
+  }
+
+  get maxHp(): number {
+    return this.type.strength;
+  }
+  get healthFrac(): number {
+    return this.hp / this.type.strength;
+  }
+  isBuilding(): this is Building {
+    return this.kind === 'building';
+  }
+  isUnit(): this is Unit {
+    return this.kind !== 'building';
+  }
+}
+
+export class Unit extends Entity {
+  readonly kind: 'infantry' | 'vehicle' | 'aircraft';
+  readonly ut: UnitTypeDef;
+  heading = 0;
+  prevHeading = 0;
+  turret = 0;
+  prevTurret = 0;
+  order: Order = { type: 'idle' };
+  /** Queued orders (shift-click waypoints). */
+  orderQueue: Order[] = [];
+
+  // --- movement
+  path: PathPoint[] | null = null;
+  pathIdx = 0;
+  goalX = 0;
+  goalY = 0;
+  hasGoal = false;
+  pathPending = false;
+  moving = false;
+  speedFrac = 0;
+  progressTimer = 0;
+  progressDist = 0;
+  stuckCount = 0;
+  /** Group-move speed cap (cells/s, 0 = none) so mixed groups arrive together. */
+  speedCap = 0;
+  /** Building id the unit is currently driving out of (ignored for collision). */
+  exitBuilding = 0;
+  /** Where an idle unit returns after chasing a target. */
+  guardX: number;
+  guardY: number;
+  chasing = false;
+
+  // --- harvester
+  cargo = 0;
+  cargoValue = 0;
+  hstate: HarvestState = 'idle';
+  harvestTimer = 0;
+  lastOreX = -1;
+  lastOreY = -1;
+  dockAt = 0;
+  harvesting = false;
+  waitTimer = 0;
+
+  // --- aircraft
+  altitude = 0;
+  ammo = 0;
+  homePad = 0;
+
+  // --- infantry / special
+  passengers: Unit[] = [];
+  /** Building being demolished by C4 (Tanya), seconds until detonation. */
+  c4Timer = 0;
+  c4Target = 0;
+
+  constructor(id: number, type: UnitTypeDef, owner: Player, x: number, y: number) {
+    super(id, owner, x, y, type.strength);
+    this.ut = type;
+    this.kind = type.kind;
+    this.guardX = x;
+    this.guardY = y;
+    if (type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.primary]));
+    if (type.secondary && type.secondary !== type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.secondary]));
+    this.ammo = type.ammo ?? 0;
+  }
+
+  get type(): UnitTypeDef {
+    return this.ut;
+  }
+  get isAir(): boolean {
+    return this.kind === 'aircraft' && this.altitude > 0.2;
+  }
+}
+
+export class Building extends Entity {
+  readonly kind = 'building' as const;
+  readonly bt: BuildingTypeDef;
+  /** Top-left footprint cell. */
+  cx: number;
+  cy: number;
+  turret = 0;
+  prevTurret = 0;
+  /** 0..1 construction ("make") animation; building is inactive until 1. */
+  buildAnim = 0;
+  repairing = false;
+  repairTimer = 0;
+  primary = false;
+  rallyX = -1;
+  rallyY = -1;
+  door = 0;
+  doorHold = 0;
+  /** Refinery: harvester currently docked. */
+  dockOccupant = 0;
+  load = 0;
+  /** Tesla charge-up progress in seconds. */
+  charge = 0;
+  charging = false;
+  /** Selling animation seconds remaining (-1 = not selling). */
+  selling = -1;
+  powered = true;
+
+  constructor(id: number, type: BuildingTypeDef, owner: Player, cx: number, cy: number) {
+    super(id, owner, cx + type.size[0] / 2, cy + type.size[1] / 2, type.strength);
+    this.bt = type;
+    this.cx = cx;
+    this.cy = cy;
+    if (type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.primary]));
+    this.turret = Math.PI / 2; // face south (towards camera)
+    this.prevTurret = this.turret;
+  }
+
+  get type(): BuildingTypeDef {
+    return this.bt;
+  }
+  get w() {
+    return this.bt.size[0];
+  }
+  get h() {
+    return this.bt.size[1];
+  }
+  get active(): boolean {
+    return this.buildAnim >= 1 && this.selling < 0;
+  }
+  /** Distance from a point to this building's footprint rectangle. */
+  distTo(px: number, py: number): number {
+    const dx = Math.max(this.cx - px, 0, px - (this.cx + this.w));
+    const dy = Math.max(this.cy - py, 0, py - (this.cy + this.h));
+    return Math.hypot(dx, dy);
+  }
+  /** Closest point on the footprint to (px, py). */
+  closestPoint(px: number, py: number): [number, number] {
+    return [Math.min(Math.max(px, this.cx), this.cx + this.w), Math.min(Math.max(py, this.cy), this.cy + this.h)];
+  }
+  dockCell(): [number, number] | null {
+    const d = this.bt.dock;
+    return d ? [this.cx + d[0], this.cy + d[1]] : null;
+  }
+  exitCell(): [number, number] {
+    const e = this.bt.exit ?? [Math.floor(this.w / 2), this.h];
+    return [this.cx + e[0], this.cy + e[1]];
+  }
+}
+
+export function isUnitType(id: string) {
+  return id in UNITS;
+}
+export function isBuildingTypeId(id: string) {
+  return id in BUILDINGS;
+}
+
+/** Distance from point to entity (edge for buildings, centre for units). */
+export function distToEntity(px: number, py: number, e: Entity): number {
+  if (e.kind === 'building') return (e as Building).distTo(px, py);
+  return Math.hypot(e.x - px, e.y - py);
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Red Horizon — Audio Preview</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; padding: 16px 20px; background: #14161a; color: #d8dce2; font: 13px/1.4 system-ui, sans-serif; }
+    h1 { font-size: 18px; margin: 0 0 4px; color: #ff5a4a; letter-spacing: 0.5px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #8fa3b8; margin: 16px 0 6px; }
+    .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    button { background: #23272e; color: #e4e7eb; border: 1px solid #39404a; border-radius: 4px; padding: 4px 9px; cursor: pointer; font: inherit; }
+    button:hover { background: #2e343d; border-color: #5a6675; }
+    button.big { padding: 6px 14px; font-weight: 600; }
+    label { display: inline-flex; gap: 6px; align-items: center; margin-right: 14px; }
+    input[type=range] { width: 140px; }
+    .grp { color: #6f7c8b; font-size: 11px; width: 90px; }
+    #log { margin-top: 12px; height: 110px; overflow: auto; background: #0d0f12; border: 1px solid #2a2f36; padding: 6px 8px; font: 12px ui-monospace, monospace; }
+    #out { white-space: pre; font: 11px/1.35 ui-monospace, monospace; background: #0d0f12; padding: 8px; border: 1px solid #2a2f36; }
+    .hint { color: #7d8896; }
+  </style>
+</head>
+<body>
+  <h1>RED HORIZON — procedural audio preview</h1>
+  <div class="hint">Everything you hear is synthesised at runtime (Web Audio + Web Speech). Click anything to unlock audio. <a href="?selftest=1" style="color:#8fb8ff">Run self-test</a></div>
+  <div id="app"></div>
+  <pre id="out"></pre>
+  <script type="module" src="/src/audio/preview.ts"></script>
+</body>
+</html>
