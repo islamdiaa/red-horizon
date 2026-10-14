@@ -18,6 +18,7 @@ import { TrackMarks } from './render/tracks';
 import { Rubble } from './render/rubble';
 import { AmbientLife } from './render/ambientlife';
 import { WallRenderer } from './render/walls';
+import { TargetReticle } from './render/reticle';
 import type { EmitterHandle } from './render/effects/types';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
@@ -82,6 +83,7 @@ export class Game {
   rubble: Rubble;
   life: AmbientLife;
   walls: WallRenderer;
+  reticle: TargetReticle;
   private timedEmitters: { h: EmitterHandle; until: number }[] = [];
   hud: Hud | null = null;
   input: InputController | null = null;
@@ -154,6 +156,8 @@ export class Game {
     this.life = new AmbientLife(map, (x, y) => this.gfx.terrain.renderHeight(x, y));
     this.walls = new WallRenderer(this.world, this.gfx.fog, this.local);
     this.gfx.scene.add(this.walls.group);
+    this.reticle = new TargetReticle(map);
+    this.gfx.scene.add(this.reticle.mesh);
     this.gfx.scene.add(this.life.group);
     this.gfx.scene.add(this.crates.group);
     this.lightPools = new LightPools(this.world, this.ents);
@@ -199,7 +203,7 @@ export class Game {
       const game = this;
       this.input = new InputController({
         world: this.world, local: this.local, gfx: this.gfx, ents: this.ents, overlay: this.overlay, placement: this.placement,
-        effects: this.effects, audio: this.audio, selection: this.selection,
+        effects: this.effects, audio: this.audio, selection: this.selection, reticle: this.reticle,
         get alpha() { return game.alpha; },
         get paused() { return game.paused; },
         issue: (c) => this.issue(c),
@@ -458,6 +462,16 @@ export class Game {
         case 'nuke':
           this.audio.play('nuke_launch');
           break;
+        case 'captured': {
+          const b = world.getEntity(ev.id);
+          if (b instanceof Building && fog.visibilityAt(b.x, b.y) > 0.2) {
+            const p3 = new THREE.Vector3(b.x, world.map.heightAt(b.x, b.y) + 0.2, b.y);
+            this.effects.chronoFlash(p3);
+            this.effects.constructionBurst(p3, Math.max(b.w, b.h));
+            if (!demo && this.overlay && (ev.to === this.local.id || ev.from === this.local.id)) this.overlay.addFloat(b.x, p3.y + 1.2, b.y, ev.to === this.local.id ? 'CAPTURED' : 'STRUCTURE LOST', ev.to === this.local.id ? '#8dffb0' : '#ff6a5a');
+          }
+          break;
+        }
         case 'promoted': {
           const u = world.getEntity(ev.id);
           if (u && fog.visibilityAt(u.x, u.y) > 0.2) {

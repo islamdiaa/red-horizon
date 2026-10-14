@@ -14,6 +14,7 @@ import type { PlacementGhost } from '../render/placement';
 import type { Effects } from '../render/effects';
 import type { AudioSystem } from '../audio';
 import type { VoiceKind } from '../audio/types';
+import type { TargetReticle } from '../render/reticle';
 
 export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super';
 
@@ -28,6 +29,7 @@ export interface InputHost {
   audio: AudioSystem;
   selection: Set<number>;
   alpha: number;
+  reticle?: TargetReticle;
   issue(cmd: Command): void;
   message(text: string, warn?: boolean): void;
   openPauseMenu(): void;
@@ -656,6 +658,10 @@ export class InputController {
       const u = this.h.gfx.terrain.uniforms.uGrid.value;
       u.set(gx, gy, 7, 1);
     }
+    if (this.mode === 'super' && this.superKind && this.h.reticle) {
+      const k = this.superKind;
+      this.h.reticle.show(this.groundX, this.groundY, k === 'nuke' ? 4.5 : k === 'ironcurtain' ? 1.8 : 0.9, k === 'nuke' ? 0xff3a1a : k === 'ironcurtain' ? 0xff2050 : 0x30e0ff, time);
+    } else this.h.reticle?.hide();
     this.updateCursor();
   }
 
