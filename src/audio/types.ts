@@ -94,4 +94,6 @@ export interface AudioApi {
   thunder?(distanceCells: number, intensity: number, pan?: number): void;
   /** Short musical phrase in the current music key, aligned to the beat; ducks the score while it plays. */
   stinger?(kind: StingerKind): void;
+  /** Fade the soundscape out (e.g. back to the menu); the next setAmbience() fades it back in. */
+  stopAmbience?(): void;
 }

@@ -78,7 +78,7 @@ class Brown {
   }
 }
 
-/** Smooth random curve in [lo, hi]: cosine interpolation between random knots ~`period` s apart. */
+/** Smooth random curve in [lo, hi]: smoothstep interpolation between random knots ~`period` s apart. */
 class Wander {
   private a: number;
   private b: number;
@@ -97,7 +97,8 @@ class Wander {
       this.b = this.lo + (this.hi - this.lo) * this.rng();
       this.step = 1 / (this.sr * this.period * (0.6 + 0.8 * this.rng()));
     }
-    return this.a + (this.b - this.a) * (0.5 - 0.5 * Math.cos(Math.PI * this.t));
+    const x = this.t;
+    return this.a + (this.b - this.a) * x * x * (3 - 2 * x);
   }
 }
 
@@ -119,18 +120,36 @@ function tone(d: Float32Array, sr: number, t0: number, dur: number, f: (u: numbe
   const i0 = Math.round(t0 * sr);
   const n = Math.max(1, Math.round(dur * sr));
   const nyq = sr * 0.45;
+  const K = 16; // trajectories are evaluated every K samples and interpolated linearly
+  const w = TAU / sr;
   let ph = 0;
-  for (let i = 0; i < n; i++) {
-    const j = i0 + i;
-    if (j < 0) continue;
-    if (j >= d.length) break;
-    const u = i / n;
-    const fr = f(u);
-    ph += (TAU * fr) / sr;
-    let s = Math.sin(ph);
-    if (h2 && fr * 2 < nyq) s += h2 * Math.sin(2 * ph);
-    if (h3 && fr * 3 < nyq) s += h3 * Math.sin(3 * ph);
-    d[j] += amp * a(u) * s;
+  let f0 = f(0), a0 = a(0);
+  for (let c = 0; c < n; c += K) {
+    const ce = Math.min(n, c + K);
+    const f1 = f(ce / n), a1 = a(ce / n);
+    const k = ce - c;
+    const df = (f1 - f0) / k, da = (a1 - a0) / k;
+    const fm = f0 > f1 ? f0 : f1;
+    const u2 = h2 !== 0 && fm * 2 < nyq;
+    const u3 = h3 !== 0 && fm * 3 < nyq;
+    let fr = f0, am = a0 * amp;
+    const dam = da * amp;
+    for (let i = c; i < ce; i++) {
+      ph += w * fr;
+      const j = i0 + i;
+      if (j >= 0 && j < d.length) {
+        let v = Math.sin(ph);
+        if (u2) v += h2 * Math.sin(2 * ph);
+        if (u3) v += h3 * Math.sin(3 * ph);
+        d[j] += am * v;
+      }
+      fr += df;
+      am += dam;
+    }
+    if (ph > 1e4) ph %= TAU;
+    f0 = f1;
+    a0 = a1;
+    if (i0 + ce >= d.length) break;
   }
 }
 
@@ -188,7 +207,7 @@ function finishEvent(sr: number, ch: Float32Array[], peak = 0.9): Gen {
   }
   const g = p > 1e-9 ? peak / p : 0;
   let end = 0;
-  const thr = peak * 0.0008; // −62 dB
+  const thr = peak * 0.002; // −54 dB: event tails below that vanish under the beds anyway (shorter voices = less CPU)
   for (const d of ch) {
     for (let i = 0; i < d.length; i++) d[i] *= g;
     for (let i = d.length - 1; i > end; i--) if (Math.abs(d[i]) > thr) { end = i; break; }
@@ -242,17 +261,18 @@ function windBed(rng: Rng, sr: number, dark: boolean): Gen {
     const lp = new BQ(sr, 'lp', dark ? 520 : 1300, 0.6);
     const wh = new BQ(sr, 'bp', 700, 14);
     const body = new BQ(sr, 'lp', 140, 0.7);
-    let g = 0.5, wf = 0;
+    let g = 0.5, wf = 0, gw = 0;
     for (let i = 0; i < d.length; i++) {
       if ((i & 31) === 0) {
         g = gustA.next() * 0.65 + gustB.next() * 0.35;
         wf = whistleF.next();
+        gw = 1.8 * Math.pow(g, 2.2);
         bp.set('bp', (dark ? 120 : 170) + (dark ? 260 : 560) * g, 0.55);
         if (!dark) wh.set('bp', 480 + 620 * wf * (0.6 + 0.4 * g), 16);
       } else { gustA.next(); gustB.next(); whistleF.next(); }
       const p = pink.next();
       let v = lp.run(bp.run(p)) * (0.25 + 0.75 * g) * 2.2 + body.run(brown.next()) * (0.3 + 0.4 * g) * 0.6;
-      if (!dark) v += wh.run(p) * 1.8 * Math.pow(g, 2.2);
+      if (!dark) v += wh.run(p) * gw;
       d[i] = v;
     }
   }, 0.1);
@@ -265,9 +285,10 @@ function leavesBed(rng: Rng, sr: number): Gen {
     const bp = new BQ(sr, 'bp', 3400, 0.5);
     const hp = new BQ(sr, 'hp', 1300, 0.7);
     const grainEnv = new LP1(sr, 90);
-    let grain = 0;
+    let grain = 0, g = 0;
     for (let i = 0; i < d.length; i++) {
-      const g = Math.pow(gust.next() * slow.next(), 1.4);
+      const gv = gust.next() * slow.next();
+      if ((i & 31) === 0) g = Math.pow(gv, 1.4);
       // leaf contacts: sparse decaying impulses, denser with the gust
       if (rng() < (40 + 900 * g) / sr) grain += rr(rng, 0.3, 1);
       grain *= 0.996;
@@ -298,8 +319,8 @@ function insectBed(rng: Rng, sr: number): Gen {
         for (let i = 0; i < m && i0 + i < n; i++) {
           const u = i / m;
           ph += pr / sr;
-          const am = Math.pow(0.5 + 0.5 * Math.sin(TAU * ph), 3);
-          d[i0 + i] += bp.run(rng() * 2 - 1) * am * lvl * win(u, 0.18, 0.3) * 0.9;
+          const x = 0.5 + 0.5 * Math.sin(TAU * ph);
+          d[i0 + i] += bp.run(rng() * 2 - 1) * x * x * x * lvl * win(u, 0.18, 0.3) * 0.9;
         }
         t += len + rr(rng, 0.6, 3.5);
       }
@@ -314,7 +335,8 @@ function insectBed(rng: Rng, sr: number): Gen {
         for (let r = 0; r < reps; r++) {
           const i0 = Math.round((t + r * 0.22) * sr), m = Math.round(rr(rng, 0.07, 0.12) * sr);
           for (let i = 0; i < m && i0 + i < n; i++) {
-            const am = Math.pow(0.5 + 0.5 * Math.sin((TAU * 210 * i) / sr), 4);
+            const x = 0.5 + 0.5 * Math.sin((TAU * 210 * i) / sr);
+            const am = x * x * x * x;
             d[i0 + i] += bp.run(rng() * 2 - 1) * am * lvl * win(i / m, 0.2, 0.3);
           }
         }
@@ -333,7 +355,7 @@ function cricketBed(rng: Rng, sr: number): Gen {
       while (t < T) {
         const p = pulses + (rng() < 0.3 ? (rng() < 0.5 ? -1 : 1) : 0);
         for (let k = 0; k < Math.max(2, p); k++) {
-          tone(d, sr, t + k * (pulseLen + pulseGap), pulseLen, (u) => fc * (1 - 0.025 * u), (u) => Math.sin(Math.PI * u) ** 1.5, lvl, 0.12);
+          tone(d, sr, t + k * (pulseLen + pulseGap), pulseLen, (u) => fc * (1 - 0.025 * u), (u) => { const x = Math.sin(Math.PI * u); return x * Math.sqrt(x); }, lvl, 0.12);
         }
         t += period * rr(rng, 0.94, 1.06);
       }
@@ -498,11 +520,12 @@ function howlBed(rng: Rng, sr: number): Gen {
     const h2 = new BQ(sr, 'bp', 600, 14);
     const grit = new BQ(sr, 'hp', 3200, 0.7);
     const gritEnv = new LP1(sr, 400);
-    let g = 0.5, sand = 0;
+    let g = 0.5, sand = 0, gh = 0;
     for (let i = 0; i < d.length; i++) {
       const ga = gust.next(), gb = gust2.next(), a = fA.next(), b = fB.next();
       if ((i & 31) === 0) {
         g = ga * 0.7 + gb * 0.3;
+        gh = Math.pow(g, 1.6) * 2.4;
         const f1 = 260 + 420 * a * (0.6 + 0.4 * g);
         h1.set('bp', f1, 12);
         h2.set('bp', f1 * (1.45 + 0.2 * b), 15);
@@ -512,7 +535,7 @@ function howlBed(rng: Rng, sr: number): Gen {
       sand *= 0.985;
       const s = gritEnv.run(sand);
       d[i] = base2.run(base.run(pink.next())) * (0.35 + 0.65 * g) * 1.6
-        + (h1.run(w) * 1.0 + h2.run(w) * 0.6) * Math.pow(g, 1.6) * 2.4
+        + (h1.run(w) * 1.0 + h2.run(w) * 0.6) * gh
         + grit.run(w) * s * 0.35;
     }
   }, 0.1);
@@ -720,7 +743,8 @@ function flyby(rng: Rng, sr: number): Gen {
     const f = f0 * dop * (1 + 0.03 * jit.next());
     ph = (ph + f / sr) % 1;
     const saw = 2 * ph - 1;
-    const near = 1 / (1 + Math.pow((t - tp) * 2.2, 2));
+    const q = (t - tp) * 2.2;
+    const near = 1 / (1 + q * q);
     d[i] = hp.run(bp.run(saw)) * near * win(t / len, 0.1, 0.15);
   }
   return finishEvent(sr, [d], 0.8);
@@ -738,7 +762,7 @@ function cricketSolo(rng: Rng, sr: number): Gen {
   const pulses = 3 + Math.floor(rng() * 3);
   const pl = rr(rng, 0.013, 0.019), pg = rr(rng, 0.014, 0.02);
   for (let t = 0.02; t < len - 0.3; t += period * rr(rng, 0.96, 1.04)) {
-    for (let k = 0; k < pulses; k++) tone(d, sr, t + k * (pl + pg), pl, (u) => fc * (1 - 0.03 * u), (u) => Math.sin(Math.PI * u) ** 1.5, 1, 0.15);
+    for (let k = 0; k < pulses; k++) tone(d, sr, t + k * (pl + pg), pl, (u) => fc * (1 - 0.03 * u), (u) => { const x = Math.sin(Math.PI * u); return x * Math.sqrt(x); }, 1, 0.15);
   }
   return finishEvent(sr, [d], 0.7);
 }
@@ -868,16 +892,22 @@ function foghorn(rng: Rng, sr: number, variation: number): Gen {
   const f0 = rr(rng, 82, 110);
   const blast = (t0: number, dur: number, f: number, a: number) => {
     const i0 = Math.round(t0 * sr), m = Math.round((dur + 0.6) * sr);
-    const phs = new Float64Array(14);
+    const H = 14;
+    const phs = new Float64Array(H);
+    const amps = new Float64Array(H);
+    for (let k = 1; k <= H; k++) amps[k - 1] = Math.pow(k, -0.7) * Math.exp((-k * f) / 520);
+    let grunt = 1, env = 0;
     for (let i = 0; i < m && i0 + i < d.length; i++) {
-      const t = i / sr;
-      const grunt = t > dur - 0.35 ? 1 - 0.16 * Math.min(1, (t - (dur - 0.35)) / 0.35) : 1;
-      const env = (t < 0.35 ? 0.5 - 0.5 * Math.cos((Math.PI * t) / 0.35) : 1) * (t > dur ? Math.exp(-(t - dur) / 0.12) : 1) * (t > dur - 0.35 ? 0.6 + 0.4 * grunt : 1);
+      if ((i & 15) === 0) {
+        const t = i / sr;
+        grunt = t > dur - 0.35 ? 1 - 0.16 * Math.min(1, (t - (dur - 0.35)) / 0.35) : 1;
+        env = (t < 0.35 ? 0.5 - 0.5 * Math.cos((Math.PI * t) / 0.35) : 1) * (t > dur ? Math.exp(-(t - dur) / 0.12) : 1) * (t > dur - 0.35 ? 0.6 + 0.4 * grunt : 1);
+      }
       let v = 0;
-      for (let k = 1; k <= 14; k++) {
-        const fk = f * grunt * k * (1 + 0.0015 * k);
-        phs[k - 1] += (TAU * fk) / sr;
-        v += Math.sin(phs[k - 1]) * Math.pow(k, -0.7) * Math.exp((-k * f) / 520);
+      const base = (TAU * f * grunt) / sr;
+      for (let k = 0; k < H; k++) {
+        phs[k] += base * (k + 1) * (1 + 0.0015 * (k + 1));
+        v += Math.sin(phs[k]) * amps[k];
       }
       d[i0 + i] += v * env * a;
     }
@@ -904,7 +934,11 @@ function bell(rng: Rng, sr: number): Gen {
   const parts: [number, number, number][] = [[0.5, 0.5, 3.5], [1, 1, 2.6], [1.19, 0.5, 2], [1.5, 0.35, 1.5], [2.0, 0.4, 1.2], [2.74, 0.2, 0.8], [3.4, 0.12, 0.5]];
   const strikes = rng() < 0.5 ? [0.02] : [0.02, rr(rng, 0.7, 1.1)];
   for (const s of strikes) {
-    for (const [r, a, tau] of parts) tone(d, sr, s, Math.min(4.4 - s, tau * 4), () => f0 * r * rr(rng, 0.998, 1.002), (u) => Math.min(1, u * 400) * Math.exp((-u * Math.min(4.4 - s, tau * 4)) / tau), a * (s > 0.1 ? 0.7 : 1));
+    for (const [r, a, tau] of parts) {
+      const fr = f0 * r * rr(rng, 0.998, 1.002);
+      const len = Math.min(4.4 - s, tau * 4);
+      tone(d, sr, s, len, () => fr, (u) => Math.min(1, u * 400) * Math.exp((-u * len) / tau), a * (s > 0.1 ? 0.7 : 1));
+    }
   }
   const lp = new BQ(sr, 'lp', 2200, 0.7);
   for (let i = 0; i < d.length; i++) d[i] = lp.run(d[i]);
@@ -1009,6 +1043,7 @@ function thunderRoll(rng: Rng, sr: number): Gen {
     const th = ((rr(rng, -0.85, 0.85) + 1) * Math.PI) / 4;
     rolls.push([t0, rr(rng, 0.06, 0.45), rr(rng, 0.5, 1.9), amp * Math.cos(th), amp * Math.sin(th)]);
   }
+  let gl0 = 0, gr0 = 0, gl1 = 0, gr1 = 0;
   for (let i = 0; i < L.length; i++) {
     const t = i / sr;
     if ((i & 63) === 0) {
@@ -1016,17 +1051,26 @@ function thunderRoll(rng: Rng, sr: number): Gen {
       fl.set('lp', fc, 0.8);
       fr.set('lp', fc * 1.05, 0.8);
     } else cw.next();
-    let gl = 0, gr = 0;
-    for (const [t0, a, dk, al, ar] of rolls) {
-      if (t < t0) continue;
-      const tt = t - t0;
-      const e = tt < a ? 0.5 - 0.5 * Math.cos((Math.PI * tt) / a) : Math.exp(-(tt - a) / dk);
-      gl += e * al;
-      gr += e * ar;
+    if ((i & 31) === 0) {
+      // roll envelopes at control rate (they are smooth), interpolated over the next 32 samples
+      const env = (tq: number): [number, number] => {
+        let l = 0, r = 0;
+        for (const [t0, a, dk, al, ar] of rolls) {
+          if (tq < t0) continue;
+          const tt = tq - t0;
+          const e = tt < a ? 0.5 - 0.5 * Math.cos((Math.PI * tt) / a) : Math.exp(-(tt - a) / dk);
+          l += e * al;
+          r += e * ar;
+        }
+        const fade = tq > len - 1.5 ? Math.max(0, (len - tq) / 1.5) : 1;
+        return [l * fade, r * fade];
+      };
+      [gl0, gr0] = env(t);
+      [gl1, gr1] = env(t + 32 / sr);
     }
-    const fade = t > len - 1.5 ? (len - t) / 1.5 : 1;
-    L[i] = fl.run(bl.next()) * gl * flutterL.next() * fade;
-    R[i] = fr.run(br.next()) * gr * flutterR.next() * fade;
+    const k = (i & 31) / 32;
+    L[i] = fl.run(bl.next()) * (gl0 + (gl1 - gl0) * k) * flutterL.next();
+    R[i] = fr.run(br.next()) * (gr0 + (gr1 - gr0) * k) * flutterR.next();
   }
   return finishEvent(sr, [L, R], 0.9);
 }
@@ -1052,15 +1096,21 @@ export function envImpulse(sr: number, s: EnvIrSpec, seed = 1): Float32Array {
   const d = new Float32Array(len);
   const pre = Math.floor(s.pre * sr);
   const ratio = s.bright1 / s.bright0;
-  let y = 0;
+  let y = 0, a = 0, comp = 0, env = 0;
+  const lr = Math.log(ratio) / s.len;
+  const dk = Math.exp(-6.9 / s.t60 / sr);
   for (let i = pre; i < len; i++) {
     const t = (i - pre) / sr;
-    const fc = s.bright0 * Math.pow(ratio, t / s.len);
-    const a = 1 - Math.exp((-TAU * fc) / sr);
+    if (((i - pre) & 31) === 0) {
+      // filter coefficient & loudness compensation at control rate
+      const fc = s.bright0 * Math.exp(lr * t);
+      a = 1 - Math.exp((-TAU * fc) / sr);
+      comp = Math.sqrt(1 / Math.max(a, 0.02)) * 0.25;
+      env = Math.exp((-6.9 * t) / s.t60);
+    } else env *= dk;
     y += a * (rng() * 2 - 1 - y);
     // slow build-up (diffuse field arriving) then exponential decay
-    const env = Math.exp((-6.9 * t) / s.t60) * Math.min(1, 0.25 + t / 0.06);
-    d[i] = y * env * Math.sqrt(1 / Math.max(a, 0.02)) * 0.25;
+    d[i] = y * env * comp * Math.min(1, 0.25 + t / 0.06);
   }
   for (let e = 0; e < 4; e++) {
     const idx = Math.floor((s.pre + 0.004 + rng() * 0.05) * sr);
@@ -1127,10 +1177,19 @@ export const GENERATORS: Record<BankKey, GenSpec> = {
   thunder_roll: { vars: 3, make: (r) => thunderRoll(r, 11025) },
 };
 
-/** Render one bank item (deterministic per key, variation and seed) into an AudioBuffer. */
-export function renderBankItem(key: BankKey, variation: number, seed: number): AudioBuffer {
-  const g = GENERATORS[key].make(mulberry32((hashStr(key) ^ Math.imul(variation + 1, 0x9e3779b1) ^ seed) >>> 0), variation);
+/** Render one bank item as raw PCM (deterministic per key, variation and seed). Worker-safe. */
+export function renderGen(key: BankKey, variation: number, seed: number): Gen {
+  return GENERATORS[key].make(mulberry32((hashStr(key) ^ Math.imul(variation + 1, 0x9e3779b1) ^ seed) >>> 0), variation);
+}
+
+/** Wrap rendered PCM in an AudioBuffer (main thread). */
+export function genToBuffer(g: Gen): AudioBuffer {
   const buf = makeBuffer(g.ch.length, g.ch[0].length, g.sr);
   g.ch.forEach((d, i) => buf.getChannelData(i).set(d));
   return buf;
+}
+
+/** Render one bank item into an AudioBuffer on the calling thread. */
+export function renderBankItem(key: BankKey, variation: number, seed: number): AudioBuffer {
+  return genToBuffer(renderGen(key, variation, seed));
 }

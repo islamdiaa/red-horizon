@@ -49,6 +49,8 @@ export const ANNOUNCER_THROTTLE: Partial<Record<AnnouncerKey, number>> = {
   structure_lost: 5000,
   low_power: 8000,
   silos_needed: 10000,
+  // promotions come in bursts during big fights: one call-out is enough
+  unit_promoted: 6000,
 };
 export const DEFAULT_THROTTLE = 4000;
 
@@ -57,6 +59,7 @@ export const ANNOUNCER_PRIORITY: Partial<Record<AnnouncerKey, number>> = {
   nuke_warning: 10, mission_accomplished: 9, mission_failed: 9, nuke_launched: 8, base_under_attack: 7,
   nuke_ready: 6, iron_curtain_ready: 6, chrono_ready: 6, harvester_under_attack: 5, structure_lost: 4,
   mission_start: 4, building_captured: 4, low_power: 3, construction_complete: 3, unit_ready: 3,
+  unit_promoted: 2,
 };
 
 type Lines = Record<ResponseKind, string[]>;

@@ -9,7 +9,7 @@ import { Synth, type Vowel } from './synth';
 import type { SfxKey } from './types';
 
 /** Internal (non-public) sounds used by the announcer / unit responses. */
-export type InternalKey = '_chirp' | '_radio';
+export type InternalKey = '_chirp' | '_radio' | '_rankup';
 export type AnyKey = SfxKey | InternalKey;
 
 export interface Recipe {
@@ -75,6 +75,34 @@ function explosion(s: Synth, dest: AudioNode, t: number, size: number, verb: IrK
     s.jitter(r.gain, t + 0.05, 0.5 + 3 * size, lvl * 0.45, lvl, 0.11);
   }
   s.grains(dry, t + 0.02, 0.25 + 1.6 * size, Math.round(6 + 30 * size), { fMin: 600, fMax: 5000, q: 1.5, dMin: 0.002, dMax: 0.015 + 0.02 * size, level: 0.25, decay: 1.8 });
+  if (size > 0.3) {
+    // dirt clods & stones raining back down a moment later (sparse, dull, thinning out)
+    const n = Math.round(8 + 22 * size);
+    const span = 0.6 + 1.2 * size;
+    for (let i = 0; i < n; i++) {
+      const u = Math.pow(s.rng(), 0.8);
+      s.noiseHit(dry, t + 0.32 + u * span, { color: 'pink', type: 'bandpass', f0: s.r(300, 1700), q: s.r(1.5, 3), attack: 0.0008, tau: s.r(0.004, 0.014), level: s.r(0.05, 0.13) * (1 - 0.75 * u) });
+    }
+  }
+}
+
+/** Short brassy note (saw + square, filter "blat" and pitch scoop). */
+function brassNote(s: Synth, dest: AudioNode, t: number, f: number, len: number, level: number): void {
+  const o = s.osc('sawtooth', f, t, len + 0.5);
+  o.detune.setValueAtTime(-35, t);
+  o.detune.linearRampToValueAtTime(0, t + 0.04);
+  const o2 = s.osc('square', f * 1.003, t, len + 0.5);
+  const mix = s.gain(1);
+  o.connect(mix);
+  o2.connect(s.gain(0.35)).connect(mix);
+  const lp = s.filter('lowpass', 600, 1.4);
+  lp.frequency.setValueAtTime(600, t);
+  lp.frequency.exponentialRampToValueAtTime(Math.min(f * 4.5, 14000), t + 0.03);
+  lp.frequency.setTargetAtTime(f * 2, t + 0.03, 0.08);
+  const env = s.gain(0);
+  s.lin(env.gain, [[t, 0], [t + 0.012, 1], [t + Math.max(0.02, len), 0.7]]);
+  env.gain.setTargetAtTime(0, t + Math.max(0.02, len), 0.06);
+  s.chain(mix, lp, env, s.gain(level), dest);
 }
 
 /** Dog bark: formant-filtered saw + breath "huff". */
@@ -173,6 +201,10 @@ export const RECIPES: Record<AnyKey, Recipe> = {
       for (let i = 0; i < n; i++) {
         shot(s, dry, tt, { hp: 1100, tau: 0.009, body: 600, bodyTau: 0.022, f0: 170, f1: 70, thumpTau: 0.022, level: s.r(0.8, 1), drive: 3 });
         tt += s.r(0.054, 0.064);
+      }
+      // spent brass casings tinkling on the ground
+      for (let i = 0; i < 4; i++) {
+        s.metal(s.out, t + 0.14 + i * s.r(0.06, 0.09), s.r(3600, 5200), [1, 1.48, 2.21], s.r(0.02, 0.035), s.r(0.012, 0.025));
       }
     },
   },
@@ -777,13 +809,31 @@ export const RECIPES: Record<AnyKey, Recipe> = {
   },
 
   promote: {
-    dur: 1.4, peak: -9, vars: 1, maxVoices: 2,
+    dur: 2.0, peak: -8, vars: 1, maxVoices: 2,
     build(s, t) {
-      // rising three-note fanfare chime
-      const dry = bus(s, 'room', 0.3);
-      chime(s, dry, t, 987.8, 0.2, 0.5);
-      chime(s, dry, t + 0.1, 1318.5, 0.22, 0.5);
-      chime(s, dry, t + 0.2, 1975.5, 0.35, 0.55);
+      // airy rising whoosh → three quick brassy notes (G5 C6 E6, chime-doubled) → held G6 with a
+      // shimmering high chord and sparkle: a short, bright "rank up" that reads over battle noise
+      const dry = bus(s, 'hall', 0.3);
+      s.noiseHit(dry, t, { type: 'bandpass', f0: 700, f1: 5200, sweep: 0.2, q: 1.4, attack: 0.15, tau: 0.05, level: 0.16 });
+      const step = 0.075;
+      const t1 = t + 0.12;
+      [783.99, 1046.5, 1318.5].forEach((f, i) => {
+        brassNote(s, dry, t1 + i * step, f, 0.055, 0.5);
+        chime(s, dry, t1 + i * step, f * 2, 0.1, 0.12);
+      });
+      const tp = t1 + 3 * step;
+      brassNote(s, dry, tp, 1568, 0.32, 0.55);
+      s.thump(dry, tp, 220, 110, 0.04, 0.05, 0.25);
+      for (const [f, a] of [[2093, 0.16], [2637, 0.12], [3136, 0.1]] as const) {
+        const o = s.osc('sine', f, tp, 1.6);
+        const trem = s.gain(0.65);
+        const lfo = s.osc('sine', 13, tp, 1.6);
+        lfo.connect(s.gain(0.35)).connect(trem.gain);
+        const g = s.gain(0);
+        s.perc(g.gain, tp, a, 0.01, 0.32);
+        s.chain(o, trem, g, dry);
+      }
+      s.grains(dry, tp, 0.7, 20, { fMin: 5000, fMax: 9500, q: 6, dMin: 0.002, dMax: 0.008, level: 0.1, decay: 1.2 });
     },
   },
 
@@ -794,6 +844,16 @@ export const RECIPES: Record<AnyKey, Recipe> = {
       s.noiseHit(s.out, t, { type: 'bandpass', f0: 2500, q: 1.2, attack: 0.002, tau: 0.012, level: 0.35 });
       tone(s, s.out, t + 0.03, 1450, 0.035, 0.3, 'square', 4500);
       tone(s, s.out, t + 0.075, 2150, 0.04, 0.3, 'square', 4500);
+    },
+  },
+  _rankup: {
+    dur: 0.6, peak: -15, vars: 1, maxVoices: 1,
+    build(s, t) {
+      // announcer pre-chirp for promotions: radio click + two rising blips + a glint
+      s.noiseHit(s.out, t, { type: 'bandpass', f0: 2500, q: 1.2, attack: 0.002, tau: 0.01, level: 0.3 });
+      tone(s, s.out, t + 0.03, 1318.5, 0.045, 0.25, 'square', 5000);
+      tone(s, s.out, t + 0.085, 1760, 0.05, 0.25, 'square', 5000);
+      chime(s, s.out, t + 0.15, 2637, 0.12, 0.28);
     },
   },
   _radio: {
@@ -825,7 +885,7 @@ export async function renderSfx(key: AnyKey, sampleRate: number, variation = 0):
 
 /** Rendering priority: UI + announcer first, then common combat sounds, then the long rare ones. */
 const PRIORITY: AnyKey[] = [
-  'click', 'hover', 'tab', 'error', 'ready_ping', '_chirp', '_radio', 'cash_tick',
+  'click', 'hover', 'tab', 'error', 'ready_ping', '_chirp', '_radio', '_rankup', 'cash_tick',
   'rifle', 'mg', 'pistol', 'cannon_small', 'cannon_med', 'cannon_heavy', 'rocket', 'expl_piff', 'expl_small',
   'expl_medium', 'inf_die', 'build_place', 'build_rise', 'dog_bark',
 ];

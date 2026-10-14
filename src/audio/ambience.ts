@@ -16,7 +16,7 @@
  * Works with any BaseAudioContext: realtime uses a 100 ms timer; offline tests drive `tick()`.
  */
 import { clamp, lerp, mulberry32, smoothstep, type Rng } from './dsp';
-import { GENERATORS, envImpulse, renderBankItem, type BankKey, type EnvIrSpec, type EventKey, type LoopKey } from './ambgen';
+import { GENERATORS, envImpulse, genToBuffer, renderBankItem, type BankKey, type EnvIrSpec, type EventKey, type LoopKey } from './ambgen';
 import type { AmbienceState, WeatherKind } from './types';
 
 export type { AmbienceState, WeatherKind } from './types';
@@ -24,6 +24,11 @@ export type { AmbienceState, WeatherKind } from './types';
 type Wx = Exclude<WeatherKind, 'clear'>;
 const WEATHERS: Wx[] = ['rain', 'storm', 'snow', 'fog', 'dust'];
 const TICK = 0.1;
+
+/** Per-quantum (k-rate) automation: our gains/filters move slowly, so per-sample automation is wasted CPU. */
+function kRate(p: AudioParam): void {
+  try { if ('automationRate' in p) p.automationRate = 'k-rate'; } catch { /* unsupported: stay a-rate */ }
+}
 const LOOK = 0.15;
 const MAX_EVENTS = 28;
 
@@ -63,12 +68,25 @@ const BANK_ORDER: BankKey[] = [
   'woodpecker', 'bird_crow', 'flyby', 'owl', 'dog', 'frog', 'plop', 'foghorn', 'bell', 'thunder_crack', 'thunder_roll',
 ];
 
+interface WorkerReply { id: number; key: BankKey; v: number; sr?: number; ch?: Float32Array[]; error?: string; ms: number }
+
+/**
+ * Buffer bank. In the game the items are rendered by a Web Worker (./ambworker.ts, two in flight,
+ * whatever the current mix needs first); without worker support it falls back to main-thread
+ * rendering in idle slices. Tests render everything synchronously with renderAll().
+ */
 export class AmbBank {
   private bufs = new Map<BankKey, AudioBuffer[]>();
+  private have = new Set<string>();
   private queue: [BankKey, number][] = [];
   private wanted: BankKey[] = [];
+  private worker: Worker | null = null;
+  private inFlight = new Map<number, [BankKey, number]>();
+  private nextId = 1;
+  /** Called when the worker dies (the owner then pumps the rest on the main thread). */
+  onWorkerFail: (() => void) | null = null;
   /** Per-item generation time (diagnostics). */
-  readonly timings: { key: string; ms: number }[] = [];
+  readonly timings: { key: string; ms: number; worker: boolean }[] = [];
   /** Total PCM memory of rendered buffers (bytes). */
   bytes = 0;
 
@@ -77,51 +95,115 @@ export class AmbBank {
     for (const k of BANK_ORDER) for (let v = 1; v < GENERATORS[k].vars; v++) this.queue.push([k, v]);
   }
 
-  get done(): boolean { return this.queue.length === 0; }
-  get pending(): number { return this.queue.length; }
+  get done(): boolean { return this.queue.length === 0 && this.inFlight.size === 0; }
+  get pending(): number { return this.queue.length + this.inFlight.size; }
+  get usingWorker(): boolean { return this.worker !== null; }
   get(key: BankKey): AudioBuffer[] | undefined { return this.bufs.get(key); }
 
   /** Move `key` to the front of the queue. */
   want(key: BankKey): void {
-    if (!this.bufs.has(key) && !this.wanted.includes(key)) this.wanted.push(key);
+    if (!this.bufs.has(key) && !this.wanted.includes(key)) {
+      this.wanted.push(key);
+      this.feed();
+    }
   }
 
-  /** Render one queued item; returns false when nothing is left. */
-  renderNext(): boolean {
-    if (!this.queue.length) return false;
+  private take(): [BankKey, number] | null {
+    if (!this.queue.length) return null;
     let idx = 0;
     while (this.wanted.length) {
-      const w = this.wanted[0];
+      const w = this.wanted.shift()!;
       const i = this.queue.findIndex(([k]) => k === w);
-      this.wanted.shift();
       if (i >= 0) { idx = i; break; }
     }
-    const [key, v] = this.queue.splice(idx, 1)[0];
-    this.renderItem(key, v);
+    return this.queue.splice(idx, 1)[0];
+  }
+
+  /** Start background rendering in a Web Worker; false when workers are unavailable. */
+  startWorker(): boolean {
+    if (this.worker) return true;
+    try {
+      if (typeof Worker === 'undefined') return false;
+      const w = new Worker(new URL('./ambworker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<WorkerReply>) => this.onReply(e.data);
+      w.onerror = (e) => { e.preventDefault?.(); this.failWorker(); };
+      this.worker = w;
+      this.feed();
+      return true;
+    } catch {
+      this.worker = null;
+      return false;
+    }
+  }
+
+  private failWorker(): void {
+    if (!this.worker) return;
+    try { this.worker.terminate(); } catch { /* ignore */ }
+    this.worker = null;
+    // re-queue whatever was in flight
+    for (const item of this.inFlight.values()) this.queue.unshift(item);
+    this.inFlight.clear();
+    this.onWorkerFail?.();
+  }
+
+  private feed(): void {
+    const w = this.worker;
+    while (w && this.inFlight.size < 2) {
+      const item = this.take();
+      if (!item) return;
+      const id = this.nextId++;
+      this.inFlight.set(id, item);
+      try { w.postMessage({ id, key: item[0], v: item[1], seed: this.seed }); } catch { this.failWorker(); return; }
+    }
+  }
+
+  private onReply(r: WorkerReply): void {
+    if (!this.inFlight.has(r.id)) return;
+    this.inFlight.delete(r.id);
+    if (!r.error && r.ch && r.sr) {
+      try { this.add(r.key, r.v, genToBuffer({ sr: r.sr, ch: r.ch })); } catch { /* ignore */ }
+    }
+    this.timings.push({ key: `${r.key}#${r.v}`, ms: r.ms, worker: true });
+    this.feed();
+  }
+
+  private add(key: BankKey, v: number, buf: AudioBuffer): void {
+    const id = `${key}#${v}`;
+    if (this.have.has(id)) return;
+    this.have.add(id);
+    const arr = this.bufs.get(key) ?? [];
+    arr.push(buf);
+    this.bufs.set(key, arr);
+    this.bytes += buf.length * buf.numberOfChannels * 4;
+  }
+
+  /** Render one queued item on this thread; returns false when nothing is left. */
+  renderNext(): boolean {
+    const item = this.take();
+    if (!item) return false;
+    this.renderItem(item[0], item[1]);
     return true;
   }
 
-  /** Synchronously render the first pending variation of `key` (used when something is needed *now*). */
+  /** Synchronously render the first missing variation of `key` (used when something is needed *now*). */
   renderNow(key: BankKey): void {
     if (this.bufs.has(key)) return;
     const i = this.queue.findIndex(([k]) => k === key);
-    if (i < 0) return;
-    const [k, v] = this.queue.splice(i, 1)[0];
-    this.renderItem(k, v);
+    if (i >= 0) {
+      const [k, v] = this.queue.splice(i, 1)[0];
+      this.renderItem(k, v);
+      return;
+    }
+    // in flight in the worker: render a copy now; the late worker result is ignored
+    for (const [k, v] of this.inFlight.values()) if (k === key) { this.renderItem(k, v); return; }
   }
 
   renderAll(): void { while (this.renderNext()) { /* keep going */ } }
 
   private renderItem(key: BankKey, v: number): void {
     const t0 = performance.now();
-    try {
-      const buf = renderBankItem(key, v, this.seed);
-      const arr = this.bufs.get(key) ?? [];
-      arr.push(buf);
-      this.bufs.set(key, arr);
-      this.bytes += buf.length * buf.numberOfChannels * 4;
-    } catch { /* a broken generator must never take the soundscape down */ }
-    this.timings.push({ key: `${key}#${v}`, ms: performance.now() - t0 });
+    try { this.add(key, v, renderBankItem(key, v, this.seed)); } catch { /* a broken generator must never take the soundscape down */ }
+    this.timings.push({ key: `${key}#${v}`, ms: performance.now() - t0, worker: false });
   }
 }
 
@@ -146,16 +228,16 @@ interface LoopSpec {
 
 export const LOOP_SPECS: LoopSpec[] = [
   { key: 'wind', wide: true, gust: 1, gain: 0.5, level: (m) => (0.2 + 0.8 * m.wind) * (0.5 + 0.9 * m.zoom) * (1 - 0.75 * m.snow) * (1 + 0.8 * m.storm + 0.25 * m.dust) * (1 - 0.5 * m.fog) },
-  { key: 'snowWind', wide: true, gust: 1, gain: 0.85, level: (m) => m.snow * (0.45 + 0.55 * m.wind) * (0.75 + 0.5 * m.zoom) },
-  { key: 'howl', wide: true, gust: 1, gain: 0.6, level: (m) => (m.dust * (0.6 + 0.4 * m.wind) + 0.35 * m.storm * (0.3 + 0.7 * m.wind)) * (0.75 + 0.4 * m.zoom) },
-  { key: 'leaves', wide: true, gust: 1, gain: 0.42, level: (m) => m.forest * (0.3 + 0.7 * m.wind) * m.detail * (1 - m.snow) * (1 - 0.45 * (m.rain + m.storm)) * (1 - 0.5 * m.dust) },
+  { key: 'snowWind', wide: true, gust: 1, gain: 0.6, level: (m) => m.snow * (0.45 + 0.55 * m.wind) * (0.75 + 0.5 * m.zoom) },
+  { key: 'howl', wide: true, gust: 1, gain: 0.75, level: (m) => (m.dust * (0.6 + 0.4 * m.wind) + 0.35 * m.storm * (0.3 + 0.7 * m.wind)) * (0.75 + 0.4 * m.zoom) },
+  { key: 'leaves', wide: true, gust: 1, gain: 0.36, level: (m) => m.forest * (0.3 + 0.7 * m.wind) * m.detail * (1 - m.snow) * (1 - 0.45 * (m.rain + m.storm)) * (1 - 0.5 * m.dust) },
   { key: 'insects', wide: true, gust: 0, gain: 0.2, level: (m) => m.day * fair(m) * m.detail * (1 - 0.45 * m.forest) * (1 - 0.5 * m.battle) * (1 - 0.5 * m.wind) },
   { key: 'crickets', wide: true, gust: 0, gain: 0.3, level: (m) => m.night * calmNight(m) * (0.25 + 0.75 * m.detail) * (1 - 0.5 * m.battle) * (1 - 0.3 * m.wind) },
-  { key: 'water', wide: true, gust: 0, gain: 0.55, level: (m) => m.water * (0.3 + 0.7 * m.detail) * (1 + 0.4 * m.wind + 0.5 * m.storm) },
+  { key: 'water', wide: true, gust: 0, gain: 0.45, level: (m) => m.water * (0.3 + 0.7 * m.detail) * (1 + 0.4 * m.wind + 0.5 * m.storm) },
   { key: 'rain', wide: true, gust: 0, gain: 0.7, level: (m) => (m.rain + 0.4 * m.storm) * (0.75 + 0.25 * m.detail) },
   { key: 'rainHeavy', wide: true, gust: 2, gain: 0.8, level: (m) => (m.storm + 0.1 * m.rain) * (0.85 + 0.15 * m.detail) },
   { key: 'fogDrone', wide: false, gust: 0, gain: 0.22, level: (m) => m.fog * (0.6 + 0.4 * m.night) },
-  { key: 'rumble', wide: false, gust: 0, gain: 0.85, level: (m) => m.off },
+  { key: 'rumble', wide: false, gust: 0, gain: 0.65, level: (m) => m.off },
 ];
 
 interface EventSpec {
@@ -199,13 +281,13 @@ export const EVENT_SPECS: EventSpec[] = [
   { name: 'cricket', gain: 0.28, vol: [0.4, 1], pan: 0.9, pitch: [0.95, 1.05], verb: [0.1, 0.3], rate: (m) => 0.12 * m.night * calmNight(m) * m.detail, pick: () => 'cricket' },
   { name: 'owl', gain: 0.42, vol: [0.4, 1], pan: 0.85, pitch: [0.94, 1.06], verb: [0.4, 0.8], minGap: 12, rate: (m) => 0.035 * m.night * m.night * (0.25 + m.forest) * calmNight(m), pick: () => 'owl' },
   { name: 'dog', gain: 0.3, vol: [0.4, 1], pan: 0.9, pitch: [0.92, 1.08], verb: [0.5, 0.9], minGap: 20, rate: (m) => 0.018 * m.night * (1 - 0.6 * m.forest) * calmNight(m) * (1 - m.battle), pick: () => 'dog' },
-  { name: 'frog', gain: 0.32, vol: [0.3, 1], pan: 0.9, pitch: [0.9, 1.1], verb: [0.1, 0.35], rate: (m) => 0.5 * m.night * m.water * calmNight(m) * m.detail, pick: () => 'frog' },
+  { name: 'frog', gain: 0.25, vol: [0.3, 1], pan: 0.9, pitch: [0.9, 1.1], verb: [0.1, 0.35], rate: (m) => 0.5 * m.night * m.water * calmNight(m) * m.detail, pick: () => 'frog' },
   { name: 'drip', gain: 0.32, vol: [0.2, 1], pan: 0.95, pitch: [0.85, 1.2], verb: [0.05, 0.2], rate: (m) => (m.rain + m.storm) * (0.5 + 3 * m.forest) * m.detail, pick: () => 'drip' },
   { name: 'plop', gain: 0.28, vol: [0.3, 1], pan: 0.9, pitch: [0.85, 1.15], verb: [0.1, 0.3], rate: (m) => 0.06 * m.water * m.detail * (1 - m.storm), pick: () => 'plop' },
   { name: 'foghorn', gain: 0.5, vol: [0.6, 1], pan: 0.8, pitch: [0.97, 1.03], verb: [0.6, 0.9], minGap: 16, rate: (m) => 0.035 * m.fog * (0.3 + 0.7 * m.water), pick: () => 'foghorn' },
   { name: 'bell', gain: 0.22, vol: [0.5, 1], pan: 0.8, pitch: [0.95, 1.05], verb: [0.6, 0.9], minGap: 25, rate: (m) => 0.02 * m.fog * (0.3 + m.water), pick: () => 'bell' },
-  { name: 'boom', gain: 0.8, vol: [0.25, 1], pan: 1, pitch: [0.85, 1.12], verb: [0.3, 0.6], rate: (m) => 1.8 * m.off, pick: () => 'boom_far' },
-  { name: 'mg', gain: 0.32, vol: [0.3, 1], pan: 1, pitch: [0.9, 1.1], verb: [0.3, 0.5], rate: (m) => 0.7 * m.off, pick: () => 'mg_far' },
+  { name: 'boom', gain: 0.6, vol: [0.25, 1], pan: 1, pitch: [0.85, 1.12], verb: [0.3, 0.6], rate: (m) => 1.2 * m.off, pick: () => 'boom_far' },
+  { name: 'mg', gain: 0.28, vol: [0.3, 1], pan: 1, pitch: [0.9, 1.1], verb: [0.3, 0.5], rate: (m) => 0.5 * m.off, pick: () => 'mg_far' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -214,10 +296,11 @@ export const EVENT_SPECS: EventSpec[] = [
 
 type WxClass = 'clear' | 'wet' | 'snow' | 'fog' | 'dust';
 
+// day: short & bright open field · dusk: a little longer · night: long dark tail with valley echoes
 const ENV_BASE: EnvIrSpec[] = [
-  { len: 1.6, t60: 1.15, bright0: 6500, bright1: 1500, pre: 0.012, echoes: [[0.19, 0.16], [0.43, 0.09]] },
-  { len: 2.3, t60: 1.75, bright0: 5500, bright1: 1000, pre: 0.018, echoes: [[0.26, 0.2], [0.6, 0.13], [1.1, 0.07]] },
-  { len: 3.0, t60: 2.5, bright0: 4500, bright1: 600, pre: 0.025, echoes: [[0.34, 0.26], [0.8, 0.18], [1.4, 0.11], [2.1, 0.06]] },
+  { len: 1.2, t60: 0.9, bright0: 6500, bright1: 1500, pre: 0.012, echoes: [[0.19, 0.16], [0.43, 0.09]] },
+  { len: 1.6, t60: 1.35, bright0: 5500, bright1: 1000, pre: 0.018, echoes: [[0.26, 0.2], [0.6, 0.13], [1.05, 0.07]] },
+  { len: 2.0, t60: 1.8, bright0: 4500, bright1: 600, pre: 0.025, echoes: [[0.34, 0.24], [0.8, 0.16], [1.35, 0.1]] },
 ];
 
 export function envSpec(band: number, w: WxClass): EnvIrSpec {
@@ -260,6 +343,8 @@ export class EnvReverb {
     this.damp.Q.value = 0.5;
     this.wet = ctx.createGain();
     this.wet.gain.value = 0;
+    kRate(this.damp.frequency);
+    kRate(this.wet.gain);
     this.sum.connect(this.damp).connect(this.wet);
     if (typeof ctx.createStereoPanner === 'function') {
       const l = ctx.createStereoPanner(); l.pan.value = -0.6;
@@ -293,6 +378,7 @@ export class EnvReverb {
     conv.buffer = this.ir(key, spec);
     const feed = this.ctx.createGain();
     feed.gain.value = 0;
+    kRate(feed.gain);
     this.input.connect(feed).connect(conv).connect(this.sum);
     if (!this.cur) {
       feed.gain.setValueAtTime(1, now);
@@ -345,6 +431,8 @@ export interface SoundscapeOpts {
   seamTest?: boolean;
   /** Debug: force every layer on (CPU worst case). */
   forceAll?: boolean;
+  /** Debug: loop beds only, no random events (strict click test). */
+  noEvents?: boolean;
 }
 
 export class Soundscape {
@@ -356,6 +444,8 @@ export class Soundscape {
   readonly reverb: EnvReverb | null;
   /** Diagnostics: events fired per layer, thunder count, main-thread ms spent in tick(). */
   stats = { events: 0, thunders: 0, tickMs: 0, ticks: 0 };
+  /** Debug: force every bed and event layer on (CPU worst case). */
+  debugForce = false;
 
   private readonly rng: Rng;
   private readonly realtime: boolean;
@@ -396,7 +486,8 @@ export class Soundscape {
     this.realtime = typeof AudioContext !== 'undefined' && ctx instanceof AudioContext;
     this.bank = opts.bank ?? new AmbBank(opts.seed ?? 1);
     this.shelf = opts.shelf ?? null;
-    const g = (v: number) => { const n = ctx.createGain(); n.gain.value = v; return n; };
+    const g = (v: number) => { const n = ctx.createGain(); n.gain.value = v; kRate(n.gain); return n; };
+    if (this.shelf) { kRate(this.shelf.gain); kRate(this.shelf.frequency); }
     this.bus = g(1);
     this.bus.connect(dest);
     this.mix = g(1);
@@ -449,8 +540,21 @@ export class Soundscape {
     if (!this.hasState) {
       this.hasState = true;
       this.smooth(0, true); // first state: start from it instead of fading from defaults
+      if (this.started) this.startTime = this.ctx.currentTime; // and fade in from now
     }
   }
+
+  /** Fade everything out and go idle until the next setState(). */
+  reset(): void {
+    this.hasState = false;
+    const now = this.ctx.currentTime;
+    this.duck.gain.setTargetAtTime(0, now, 0.6);
+    this.duckV.gain.setTargetAtTime(0, now, 0.6);
+    this.duckApplied = 0;
+  }
+
+  /** True once setState() has been called (the soundscape is silent before that). */
+  get active(): boolean { return this.hasState; }
 
   getState(): AmbienceState { return { ...this.target }; }
 
@@ -466,7 +570,8 @@ export class Soundscape {
     this.started = true;
     this.startTime = this.ctx.currentTime;
     this.lastWall = performance.now();
-    this.pumpBank();
+    this.bank.onWorkerFail = () => this.pumpBank();
+    if (!this.bank.startWorker()) this.pumpBank();
     this.timer = setInterval(() => {
       const now = performance.now();
       const dt = clamp((now - this.lastWall) / 1000, 0, 1);
@@ -491,8 +596,9 @@ export class Soundscape {
     for (const L of this.loops) this.stopLoop(L, this.ctx.currentTime);
   }
 
+  /** Main-thread fallback: render bank items in idle slices. */
   private pumpBank = (): void => {
-    if (!this.started || this.bank.done) return;
+    if (!this.started || this.bank.done || this.bank.usingWorker) return;
     const w = globalThis as unknown as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void, o?: { timeout: number }) => number };
     const work = (budget: () => number) => {
       let n = 0;
@@ -535,12 +641,13 @@ export class Soundscape {
       const now = ctx.currentTime;
       this.smooth(dt);
       const m = this.m;
-      const force = !!this.opts.forceAll;
-      const live = !this.realtime || (ctx as AudioContext).state === 'running';
+      const force = this.debugForce || !!this.opts.forceAll;
+      const on = this.hasState;
+      const live = on && (!this.realtime || (ctx as AudioContext).state === 'running');
 
       // --- loop beds
       for (const L of this.loops) {
-        const lv = (force ? 0.6 : clamp(L.spec.level(m), 0, 1.6)) * L.spec.gain;
+        const lv = on ? (force ? 0.6 : clamp(L.spec.level(m), 0, 1.6)) * L.spec.gain : 0;
         if (lv > 2e-4) {
           L.quiet = 0;
           if (!L.srcs) this.startLoop(L, now);
@@ -559,9 +666,11 @@ export class Soundscape {
 
       // --- gusts
       this.gusts(now, m);
+      // thunder is caller-driven: make sure its buffers exist before the first strike
+      if (on && m.rain + m.storm > 0.05 && !this.bank.get('thunder_roll')) { this.bank.want('thunder_roll'); this.bank.want('thunder_crack'); }
 
       // --- events
-      if (live && dt > 0) {
+      if (live && dt > 0 && !this.opts.noEvents) {
         for (const E of this.events) {
           const r = force ? Math.max(0.6, E.spec.rate(m)) : E.spec.rate(m);
           if (r <= 1e-5) continue;
@@ -589,7 +698,7 @@ export class Soundscape {
     const m = this.m;
     const fadeIn = this.opts.fadeIn ?? 3;
     const fi = fadeIn > 0 ? clamp((now - this.startTime) / fadeIn, 0, 1) : 1;
-    const d = (1 - 0.42 * m.battle) * (this.annDuck ? 0.55 : 1) * fi * fi;
+    const d = this.hasState ? (1 - 0.42 * m.battle) * (this.annDuck ? 0.55 : 1) * fi * fi : 0;
     if (!fast && Math.abs(d - this.duckApplied) < 0.004) return;
     const tau = fast ? (this.annDuck ? 0.1 : 0.5) : 0.25;
     this.duck.gain.setTargetAtTime(d, now, tau);
@@ -639,7 +748,8 @@ export class Soundscape {
     if (rv) {
       const key = `${band}:${this.wxClass}`;
       rv.setPreset(key, envSpec(band, this.wxClass), now);
-      const wet = 0.55 * (0.55 + 0.45 * n) * (1 - 0.6 * m.snow) * (1 + 0.2 * m.fog) * (1 - 0.2 * (m.rain + m.storm)) * (1 - 0.3 * m.dust);
+      // the night IR itself is longer/denser (≈ +5 dB of tail energy); the wet gain only follows the weather
+      const wet = 0.3 * (1 - 0.6 * m.snow) * (1 - 0.1 * m.fog) * (1 - 0.2 * (m.rain + m.storm)) * (1 - 0.3 * m.dust);
       const damp = 9000 * (1 - 0.55 * m.snow) * (1 - 0.45 * m.fog) * (1 - 0.3 * (m.rain + m.storm)) * (1 - 0.45 * m.dust) * (1 - 0.25 * n);
       if (Math.abs(wet - this.verbApplied) > 0.004) {
         rv.setParams(wet, damp, now);
@@ -830,7 +940,7 @@ export class Soundscape {
     const loops: Record<string, number> = {};
     for (const L of this.loops) loops[L.spec.key] = L.applied;
     const events: Record<string, number> = {};
-    for (const E of this.events) events[E.spec.name] = E.spec.rate(this.m) * 60;
+    for (const E of this.events) events[E.spec.name] = this.hasState ? E.spec.rate(this.m) * 60 : 0;
     return { loops, events, reverb: this.reverb?.presetKey ?? '-', activeEvents: this.activeEv };
   }
 
@@ -855,12 +965,13 @@ export interface OfflineAmbOpts {
   chunk?: number;
   /** Called at every chunk boundary (for scripted state changes / thunder). */
   script?: (t: number, s: Soundscape) => void;
-  /** Extra source to feed through the env reverb (calibration): played at t=0.2 via a send of 1. */
+  /** Extra source to feed through the env reverb (calibration): played at t=1.5 s via a send of 1. */
   probe?: AudioBuffer;
   probeDry?: boolean;
+  noEvents?: boolean;
 }
 
-export async function renderSoundscapeOffline(state: Partial<AmbienceState>, seconds: number, o: OfflineAmbOpts = {}): Promise<{ buffer: AudioBuffer; renderMs: number; tickMs: number; events: number; loops: number }> {
+export async function renderSoundscapeOffline(state: Partial<AmbienceState> | null, seconds: number, o: OfflineAmbOpts = {}): Promise<{ buffer: AudioBuffer; renderMs: number; tickMs: number; events: number; loops: number }> {
   const sr = o.sr ?? 48000;
   const oc = new OfflineAudioContext(2, Math.ceil(seconds * sr), sr);
   const shelf = oc.createBiquadFilter();
@@ -872,9 +983,9 @@ export async function renderSoundscapeOffline(state: Partial<AmbienceState>, sec
   shelf.connect(out).connect(oc.destination);
   const bank = o.bank ?? new AmbBank(o.seed ?? 1);
   bank.renderAll();
-  const s = new Soundscape(oc, shelf, { seed: o.seed ?? 7, bank, shelf, reverb: o.reverb, seamTest: o.seamTest, forceAll: o.forceAll, fadeIn: 0 });
+  const s = new Soundscape(oc, shelf, { seed: o.seed ?? 7, bank, shelf, reverb: o.reverb, seamTest: o.seamTest, forceAll: o.forceAll, noEvents: o.noEvents, fadeIn: 0 });
   s.setVolume(1, 0.001);
-  s.setState(state);
+  if (state) s.setState(state);
   if (o.probe) {
     const p = oc.createBufferSource();
     p.buffer = o.probe;
@@ -883,7 +994,7 @@ export async function renderSoundscapeOffline(state: Partial<AmbienceState>, sec
     p.connect(pg);
     if (o.probeDry) pg.connect(shelf);
     if (s.verbIn) pg.connect(s.verbIn);
-    p.start(0.2);
+    p.start(1.5);
   }
   s.startOffline();
   const chunk = o.chunk ?? TICK;

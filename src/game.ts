@@ -86,6 +86,13 @@ export class Game {
   walls: WallRenderer;
   reticle: TargetReticle;
   private wxSeq: WeatherStep[] | null = null;
+  private ambT = 0;
+  private envT = 0;
+  private offHeat = 0;
+  private waterFrac = 0;
+  private forestFrac = 0;
+  private lastSpotted = -1e9;
+  private spottedCheckT = 0;
   private wxIdx = 0;
   private wxTimer = 0;
   private timedEmitters: { h: EmitterHandle; until: number }[] = [];
@@ -173,8 +180,8 @@ export class Game {
     }
     this.gfx.weather.onLightning = (intensity, pos, cloud) => {
       const d = Math.hypot(pos.x - this.gfx.cam.x, pos.z - this.gfx.cam.y);
-      const a = this.audio as unknown as { thunder?: (dist: number, i: number) => void };
-      window.setTimeout(() => a.thunder?.(d, intensity * (cloud ? 0.6 : 1)), Math.min(3500, d * 22));
+      const pan = Math.max(-1, Math.min(1, (pos.x - this.gfx.cam.x) / Math.max(8, this.gfx.cam.viewRadius)));
+      window.setTimeout(() => this.audio.thunder(d, intensity * (cloud ? 0.6 : 1), pan), Math.min(3500, d * 30));
     };
     this.gfx.scene.add(this.life.group);
     this.gfx.scene.add(this.crates.group);
@@ -276,6 +283,7 @@ export class Game {
     if (!this.setup.demo) {
       const begin = () => {
         this.audio.announce('mission_start');
+        this.audio.stinger('mission_start');
         this.audio.startMusic();
         this.audio.setMusicIntensity(0.1);
       };
@@ -401,6 +409,8 @@ export class Game {
     // audio listener & adaptive music
     this.audio.setListener(this.gfx.cam.x, this.gfx.cam.y, this.gfx.cam.viewRadius);
     this.heat = Math.max(0, this.heat - dt * 2.5);
+    this.offHeat = Math.max(0, this.offHeat - dt * 1.5);
+    this.updateAmbience(dt);
     if (!this.setup.demo) this.audio.setMusicIntensity(Math.min(1, 0.12 + this.heat / 40));
     this.audio.update(dt);
 
@@ -429,6 +439,9 @@ export class Game {
           if (vis) {
             this.audio.play(ev.weapon.report as SfxKey, { x: ev.fx, y: ev.fy });
             if (this.inView(ev.fx, ev.fy)) this.heat += ev.weapon.damage >= 100 ? 2 : 0.6;
+            else this.offHeat = Math.min(30, this.offHeat + 0.4);
+          } else if (!this.inView(ev.fx, ev.fy)) {
+            this.offHeat = Math.min(30, this.offHeat + 0.25);
           }
           break;
         }
@@ -473,6 +486,8 @@ export class Game {
         case 'announce':
           if (!demo && ev.player === this.local.id) {
             this.audio.announce(ev.key);
+            if (ev.key === 'nuke_ready' || ev.key === 'iron_curtain_ready' || ev.key === 'chrono_ready') this.audio.stinger('superweapon_ready');
+            else if (ev.key === 'reinforcements') this.audio.stinger('reinforcements');
             if (ev.key === 'base_under_attack' || ev.key === 'harvester_under_attack') this.hud?.minimap.ping(this.local.lastAttackX, this.local.lastAttackY);
           }
           break;
@@ -506,7 +521,10 @@ export class Game {
             const p3 = new THREE.Vector3(u.x, world.map.surfaceAt(u.x, u.y) + 0.4, u.y);
             this.effects.oreSparkle(p3, false);
             this.effects.healPulse(p3);
-            if (!demo && u.owner === this.local && this.overlay) this.overlay.addFloat(u.x, p3.y + 0.5, u.y, ev.rank >= 2 ? '★ ELITE' : '▲ VETERAN', '#ffe27a');
+            if (!demo && u.owner === this.local && this.overlay) {
+              this.overlay.addFloat(u.x, p3.y + 0.5, u.y, ev.rank >= 2 ? '★ ELITE' : '▲ VETERAN', '#ffe27a');
+              this.audio.stinger('promotion');
+            }
           }
           break;
         }
@@ -533,6 +551,7 @@ export class Game {
           if (!demo) {
             const won = world.winnerTeam === this.local.team;
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
+            this.audio.stinger(won ? 'victory' : 'defeat');
             this.endTimer = 4;
             // slow-motion sweep to the final explosion
             this.speed = 0.35;
@@ -546,6 +565,55 @@ export class Game {
       }
     }
     world.events.length = 0;
+  }
+
+  /** Feed the soundscape: time of day, weather, nearby water/forest, combat on and off screen, zoom. */
+  private updateAmbience(dt: number) {
+    const cam = this.gfx.cam;
+    const map = this.world.map;
+    this.envT -= dt;
+    if (this.envT <= 0) {
+      this.envT = 0.6;
+      // sample the terrain around the camera focus
+      let water = 0, forest = 0, n = 0;
+      const R = Math.max(6, cam.viewRadius * 0.8);
+      for (let dy = -R; dy <= R; dy += 2) for (let dx = -R; dx <= R; dx += 2) {
+        const x = Math.floor(cam.x + dx), y = Math.floor(cam.y + dy);
+        if (!map.inBounds(x, y)) continue;
+        const i = map.idx(x, y);
+        n++;
+        if (map.terrain[i] === 1) water++;
+        if (map.tree[i]) forest++;
+      }
+      this.waterFrac = n ? Math.min(1, (water / n) * 4) : 0;
+      this.forestFrac = n ? Math.min(1, (forest / n) * 3) : 0;
+    }
+    // first contact with the enemy after a quiet spell
+    this.spottedCheckT -= dt;
+    if (!this.setup.demo && this.spottedCheckT <= 0) {
+      this.spottedCheckT = 1;
+      const fog = this.gfx.fog;
+      const seen = this.world.units.some((u) => u.alive && this.local.isEnemy(u.owner) && fog.visibilityAt(u.x, u.y) > 0.6);
+      if (seen) {
+        if (this.time - this.lastSpotted > 120 && this.time > 20) this.audio.stinger('enemy_spotted');
+        this.lastSpotted = this.time;
+      }
+    }
+    this.ambT -= dt;
+    if (this.ambT > 0) return;
+    this.ambT = 0.1;
+    const w = this.gfx.weather;
+    this.audio.setAmbience({
+      night: this.gfx.night,
+      weather: w.kind,
+      intensity: w.weights[w.kind] ?? 1,
+      wind: Math.min(1, w.levels.wind),
+      water: this.waterFrac,
+      forest: this.forestFrac,
+      battle: Math.min(1, this.heat / 30),
+      offscreenBattle: Math.min(1, this.offHeat / 20),
+      zoom: (cam.dist - cam.minDist) / (cam.maxDist - cam.minDist),
+    });
   }
 
   /** Cinematic camera for the menu background: drift towards the action. */
@@ -573,6 +641,7 @@ export class Game {
 
   dispose() {
     this.running = false;
+    this.audio.stopAmbience();
     cancelAnimationFrame(this.raf);
     this.input?.dispose();
     this.ents.dispose();

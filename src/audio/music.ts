@@ -273,6 +273,25 @@ export class MusicEngine {
 
   get isRunning(): boolean { return this.running; }
 
+  /**
+   * Harmonic context and beat grid (used to fit stingers to the score): current tonic (MIDI),
+   * 16th-note duration and the context time of the next quarter-note beat at least 60 ms ahead.
+   */
+  harmony(): { key: number; stepDur: number; nextBeat: number } {
+    const sec = this.sec as Section | undefined;
+    const key = sec ? sec.key : this.key;
+    const now = this.ctx.currentTime + 0.06;
+    let nextBeat = now;
+    if (this.running && this.nextTime > 0) {
+      // steps before nextTime are already scheduled; find the first beat (step % 4 == 0) at/after `now`
+      const idx = this.step - (this.nextTime - now) / this.stepDur;
+      const s = Math.ceil(idx / 4 - 1e-6) * 4;
+      nextBeat = this.nextTime + (s - this.step) * this.stepDur;
+      while (nextBeat < now) nextBeat += 4 * this.stepDur;
+    }
+    return { key, stepDur: this.stepDur, nextBeat };
+  }
+
   /** Begin playback at context time `when`. */
   start(when: number, fadeIn = 1.2): void {
     this.running = true;

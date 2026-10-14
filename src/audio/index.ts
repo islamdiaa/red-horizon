@@ -1,35 +1,44 @@
 /**
  * AudioSystem — procedural audio for the game (raw Web Audio API, no asset files).
  *
- *   sources ─┬─ sfxBus ───┐
- *            ├─ musicBus ─┼─ master ─ limiter (DynamicsCompressor) ─ destination
- *            └─ voiceBus ─┘
+ *   sfx voices ─┬──────── sfxBus ─────┐
+ *               └ distance send ┐      ├─ world (high-shelf: snow/fog) ─┐
+ *   soundscape (./ambience.ts) ─┼ ambience bus ──┘                     │
+ *                               └─ env reverb (night/weather) ─────────┤
+ *   music engine ─ musicIn (stinger duck) ─ musicBus ──────────────────┼─ master ─ limiter ─ destination
+ *   stingers (./stingers.ts) ──────────────┘                           │
+ *   voice chirps ─ voiceBus ───────────────────────────────────────────┘
  *
  * - SFX are synthesised once per variation in OfflineAudioContexts (background, after unlock)
  *   and played back as AudioBufferSourceNode → [lowpass] → gain → StereoPanner → sfxBus.
  * - Music is a seeded procedural engine with intensity-crossfaded layers (./music.ts).
  * - Announcer / unit responses use the Web Speech API (./speech.ts) plus synthesized radio chirps.
+ * - The living soundscape (./ambience.ts, beds rendered in a Web Worker by ./ambgen.ts) follows
+ *   setAmbience(); it also owns the environment reverb (fed by distance-scaled SFX sends) and the
+ *   world high-shelf. Stingers (./stingers.ts) follow the score's key and beat and duck it.
  * Everything is a silent no-op until unlock() succeeds, and never throws.
  */
-import type { AnnouncerKey, AudioApi, AudioVolumes, ResponseKind, SfxKey, VoiceKind } from './types';
+import type { AmbienceState, AnnouncerKey, AudioApi, AudioVolumes, ResponseKind, SfxKey, StingerKind, VoiceKind } from './types';
 import { clamp } from './dsp';
+import { Soundscape } from './ambience';
 import { MusicEngine } from './music';
 import { RECIPES, SfxBank, type AnyKey } from './sfx';
+import { STINGER_INFO, StingerEngine } from './stingers';
 import {
   ANNOUNCER_PRIORITY, ANNOUNCER_TEXT, ANNOUNCER_THROTTLE, DEFAULT_THROTTLE, RESPONSE_LINES, Speech, VOICE_PARAMS,
 } from './speech';
 
-export type { AnnouncerKey, AudioApi, AudioVolumes, ResponseKind, SfxKey, VoiceKind } from './types';
+export type { AmbienceState, AnnouncerKey, AudioApi, AudioVolumes, ResponseKind, SfxKey, StingerKind, VoiceKind, WeatherKind } from './types';
 
 const STORAGE_KEY = 'rh.audio.volumes';
-const DEFAULT_VOLUMES: AudioVolumes = { master: 0.85, sfx: 0.9, music: 0.6, voice: 0.9 };
+const DEFAULT_VOLUMES: AudioVolumes = { master: 0.85, sfx: 0.9, music: 0.6, voice: 0.9, ambience: 0.7 };
 const MAX_VOICES = 40;
 const MAX_PER_KEY = 4;
 const MERGE_WINDOW = 0.03; // s
 const PITCH_VARIATION = 0.05;
 const RESPONSE_GAP_MS = 600;
 /** Keys that should always play at their exact pitch (UI consistency). */
-const STEADY = new Set<AnyKey>(['click', 'hover', 'tab', 'error', 'ready_ping', 'cash_tick', '_chirp', '_radio']);
+const STEADY = new Set<AnyKey>(['click', 'hover', 'tab', 'error', 'ready_ping', 'cash_tick', '_chirp', '_radio', '_rankup']);
 
 /** Slider value (0..1) → linear gain. Squared curve ≈ perceptually even steps. */
 const curve = (v: number): number => v * v;
@@ -38,6 +47,7 @@ interface Voice {
   key: AnyKey;
   src: AudioBufferSourceNode;
   gain: GainNode;
+  send: GainNode | null;
   start: number;
   end: number;
   vol: number;
@@ -60,6 +70,14 @@ export class AudioSystem implements AudioApi {
   private sfxBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
   private voiceBus: GainNode | null = null;
+  private musicIn: GainNode | null = null;
+  private world: BiquadFilterNode | null = null;
+  private sfxVerb: GainNode | null = null;
+  private scape: Soundscape | null = null;
+  private pendingAmb: Partial<AmbienceState> | null = null;
+  private stingers: StingerEngine | null = null;
+  private stingerEnd = 0;
+  private stingerPri = 0;
   private bank: SfxBank | null = null;
 
   private voices: Voice[] = [];
@@ -156,6 +174,7 @@ export class AudioSystem implements AudioApi {
     if (this.unlocked || !this.ctx) return;
     this.unlocked = true;
     this.bank?.start();
+    try { this.scape?.start(); } catch { /* ambience is optional */ }
     this.resolveUnlock?.();
     if (this.musicWanted) this.startMusicNow();
   }
@@ -170,9 +189,27 @@ export class AudioSystem implements AudioApi {
     limiter.connect(ctx.destination);
     const mk = (v: number, to: AudioNode) => { const g = ctx.createGain(); g.gain.value = v; g.connect(to); return g; };
     this.master = mk(curve(this.vol.master), limiter);
-    this.sfxBus = mk(curve(this.vol.sfx), this.master);
+    // "world" = everything diegetic (sfx, ambience, env reverb); snow / fog dull its highs a little
+    const world = ctx.createBiquadFilter();
+    world.type = 'highshelf';
+    world.frequency.value = 3200;
+    world.gain.value = 0;
+    world.connect(this.master);
+    this.world = world;
+    this.sfxBus = mk(curve(this.vol.sfx), world);
     this.musicBus = mk(curve(this.vol.music), this.master);
+    this.musicIn = mk(1, this.musicBus);
     this.voiceBus = mk(curve(this.vol.voice), this.master);
+    try {
+      const scape = new Soundscape(ctx, world, { shelf: world });
+      scape.setVolume(curve(this.vol.ambience), 0.001);
+      if (scape.verbIn) this.sfxVerb = mk(curve(this.vol.sfx), scape.verbIn);
+      if (this.pendingAmb) scape.setState(this.pendingAmb);
+      this.pendingAmb = null;
+      this.scape = scape;
+    } catch {
+      this.scape = null;
+    }
     // render at ≤48 kHz (playback resamples if the device runs faster)
     const rate = ctx.sampleRate > 48000 ? 48000 : ctx.sampleRate < 22050 ? 44100 : ctx.sampleRate;
     this.bank = new SfxBank(rate);
@@ -209,10 +246,13 @@ export class AudioSystem implements AudioApi {
     let att = 1;
     let pan = 0;
     let lp = 0;
+    let send = 0;
     if (pos && this.hasListener && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
       const dx = pos.x - this.lx;
       const dy = pos.y - this.ly;
       const d = Math.hypot(dx, dy * 1.15) / (this.lr * (recipe.range ?? 1));
+      // distant sounds are more reverberant (env reverb send grows with distance)
+      send = 0.3 + 0.7 * clamp((d - 0.2) / 1.4, 0, 1);
       att = d <= 0.6 ? 1 : Math.pow(Math.max(0, 1 - (d - 0.6) / 1.6), 2);
       if (att < 0.015) return; // well off-screen: cull
       pan = clamp(dx / (this.lr * 1.1), -1, 1) * 0.85;
@@ -286,8 +326,15 @@ export class AudioSystem implements AudioApi {
       node = p;
     }
     node.connect(bus);
+    let sg: GainNode | null = null;
+    if (send > 0 && this.sfxVerb && bus === this.sfxBus) {
+      sg = ctx.createGain();
+      sg.gain.value = send;
+      g.connect(sg);
+      sg.connect(this.sfxVerb);
+    }
     src.start(now);
-    const voice: Voice = { key, src, gain: g, start: now, end: now + buf.duration / rate + 0.05, vol, stopping: false };
+    const voice: Voice = { key, src, gain: g, send: sg, start: now, end: now + buf.duration / rate + 0.05, vol, stopping: false };
     src.onended = () => this.release(voice);
     this.voices.push(voice);
     this.lastByKey.set(key, voice);
@@ -308,7 +355,7 @@ export class AudioSystem implements AudioApi {
     const i = this.voices.indexOf(v);
     if (i >= 0) this.voices.splice(i, 1);
     if (this.lastByKey.get(v.key) === v) this.lastByKey.delete(v.key);
-    try { v.gain.disconnect(); } catch { /* ignore */ }
+    try { v.gain.disconnect(); v.send?.disconnect(); } catch { /* ignore */ }
   }
 
   /** Drop voices whose `ended` event was missed. */
@@ -381,7 +428,7 @@ export class AudioSystem implements AudioApi {
     this.annCurrent = key;
     this.emitSubtitle(text, key);
     if (this.speech.speaking) this.speech.cancel(); // announcements override unit chatter
-    this.playKey('_chirp', this.voiceBus, undefined, 1, 1);
+    this.playKey(key === 'unit_promoted' ? '_rankup' : '_chirp', this.voiceBus, undefined, 1, 1);
     this.setDuck(true);
     let done = false;
     const finish = () => {
@@ -405,6 +452,7 @@ export class AudioSystem implements AudioApi {
     this.musicDucked = on;
     const ctx = this.ctx;
     if (ctx && this.musicBus) this.musicBus.gain.setTargetAtTime(this.musicGain(), ctx.currentTime, on ? 0.08 : 0.4);
+    this.scape?.setAnnouncerDuck(on);
   }
 
   private musicGain(): number {
@@ -464,7 +512,7 @@ export class AudioSystem implements AudioApi {
       if (this.music) this.music.stop(1.2);
       const seed = this.musicSeed ?? (Math.floor(Math.random() * 0xffffffff) >>> 0);
       this.musicSeed = undefined;
-      const eng = new MusicEngine(ctx, this.musicBus, seed);
+      const eng = new MusicEngine(ctx, this.musicIn ?? this.musicBus, seed);
       eng.setIntensity(this.intensity, true);
       eng.start(ctx.currentTime + 0.1, 2.5);
       eng.startTimer();
@@ -506,6 +554,8 @@ export class AudioSystem implements AudioApi {
         this.sfxBus?.gain.setTargetAtTime(curve(this.vol.sfx), t, 0.02);
         this.musicBus?.gain.setTargetAtTime(this.musicGain(), t, 0.02);
         this.voiceBus?.gain.setTargetAtTime(curve(this.vol.voice), t, 0.02);
+        this.sfxVerb?.gain.setTargetAtTime(curve(this.vol.sfx), t, 0.02);
+        this.scape?.setVolume(curve(this.vol.ambience));
       }
       if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(this.vol));
     } catch { /* storage may be unavailable */ }
@@ -514,6 +564,70 @@ export class AudioSystem implements AudioApi {
   getVolumes(): AudioVolumes {
     return { ...this.vol };
   }
+
+  // -------------------------------------------------------------------------
+  // Living soundscape, thunder & stingers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Ambience state (call ~10×/s). Values are smoothed internally; missing fields keep their previous
+   * value. The soundscape stays silent until the first call (and after stopAmbience()).
+   */
+  setAmbience(a: Partial<AmbienceState>): void {
+    try {
+      if (!a || typeof a !== 'object') return;
+      if (this.scape) this.scape.setState(a);
+      else this.pendingAmb = { ...(this.pendingAmb ?? {}), ...a };
+    } catch { /* never throw */ }
+  }
+
+  /** Fade the soundscape out (e.g. back to the main menu); the next setAmbience() fades it back in. */
+  stopAmbience(): void {
+    this.pendingAmb = null;
+    try { this.scape?.reset(); } catch { /* ignore */ }
+  }
+
+  /**
+   * Thunder: crack + long rolling rumble. `distanceCells` 0 = overhead … ≥ 48 = far (low-passed, no
+   * crack); `intensity` 0..1 (up to 1.5 for a monster strike); `pan` −1..1 optional. Call it after the
+   * flash with a delay of ≈ distanceCells × 0.03 s.
+   */
+  thunder(distanceCells: number, intensity: number, pan?: number): void {
+    try {
+      if (!this.unlocked || !this.ctx || this.ctx.state !== 'running') return;
+      this.scape?.thunder(distanceCells, intensity, pan);
+    } catch { /* never throw */ }
+  }
+
+  /** Short musical phrase in the current key of the score, on its next beat; ducks the music meanwhile. */
+  stinger(kind: StingerKind): void {
+    try {
+      const ctx = this.ctx;
+      const info = STINGER_INFO[kind];
+      if (!info || !this.unlocked || !ctx || !this.musicBus || ctx.state !== 'running') return;
+      const now = ctx.currentTime;
+      // one at a time: a stinger only interrupts a lower-priority one
+      if (now < this.stingerEnd && info.priority <= this.stingerPri) return;
+      if (!this.stingers) this.stingers = new StingerEngine(ctx, this.musicBus);
+      const h = this.music?.isRunning ? this.music.harmony() : { key: 26, stepDur: 60 / 140 / 4, nextBeat: now + 0.03 };
+      let when = Math.max(h.nextBeat, now + 0.03);
+      // don't make the player wait more than ~half a bar: fall back to the next 8th
+      if (when - now > 0.75) when = now + 0.05 + ((when - now - 0.05) % (h.stepDur * 2));
+      const len = this.stingers.play(kind, { key: h.key, stepDur: h.stepDur, when });
+      this.stingerEnd = when + len * 0.8;
+      this.stingerPri = info.priority;
+      const g = this.musicIn?.gain;
+      if (g) {
+        g.cancelScheduledValues(now);
+        g.setValueAtTime(g.value, now);
+        g.setTargetAtTime(info.duck, Math.max(now, when - 0.12), 0.05);
+        g.setTargetAtTime(1, when + len * (info.duck < 0.2 ? 0.95 : 0.7), info.duck < 0.2 ? 1.2 : 0.6);
+      }
+    } catch { /* never throw */ }
+  }
+
+  /** The soundscape (diagnostics / preview UI); null before the graph exists. */
+  get ambience(): Soundscape | null { return this.scape; }
 
   update(dt: number): void {
     try {
