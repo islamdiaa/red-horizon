@@ -150,6 +150,7 @@ export class Game {
     this.effects.setSunDirection?.(this.gfx.sunDir);
     if (setup.quality === 'low') this.effects.setDensity?.(0.5);
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
+    this.ents.weatherUniforms = this.gfx.weather.surfaceUniforms;
     this.placement = new PlacementGhost(map);
     this.gfx.scene.add(this.placement.group);
     this.crates = new CrateRenderer(this.world, this.gfx.fog);

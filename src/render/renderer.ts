@@ -15,7 +15,7 @@ import { Water } from './water';
 import { Vegetation } from './vegetation';
 import { OreRenderer } from './ore';
 import { FogOfWar, FogPass } from './fog';
-import { Weather } from './weather';
+import { Weather, patchMaterialForWeather } from './weather';
 import { WATER_LEVEL } from '../sim/map';
 
 export type Quality = 'low' | 'medium' | 'high';
@@ -283,6 +283,12 @@ export class GameRenderer {
       scene: this.scene, camera: this.cam.camera, renderer: this.renderer,
       getHeight: (x, z) => this.terrain.renderHeight(x, z), mapW: map.w, mapH: map.h, waterLevel: WATER_LEVEL,
       quality: q === 'high' ? 1 : q === 'medium' ? 0.6 : 0.3, seed: map.seed,
+    });
+    // vegetation and rocks get wet / snow-covered too
+    const patched = new Set<THREE.Material>();
+    this.vegetation.group.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); }
     });
 
     // post-processing

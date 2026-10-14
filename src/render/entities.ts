@@ -12,6 +12,7 @@ import type { Effects } from './effects';
 import type { EmitterHandle, ProjectileHandle } from './effects/types';
 import type { FogOfWar } from './fog';
 import { createHoloMaterial } from './holo';
+import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -76,6 +77,8 @@ export class EntityRenderer {
   });
   private ringGeo2 = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private time = 0;
+  /** When set, model materials get rain gloss / snow cover from the weather system. */
+  weatherUniforms: WeatherSurfaceUniforms | null = null;
   /** Vehicles whose wrecks linger. */
   private wreckTime = 22;
 
@@ -121,6 +124,20 @@ export class EntityRenderer {
       ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
       : createModel(e.type.id, this.teamColor(e.owner));
     this.scene.add(model.root);
+    if (this.weatherUniforms) {
+      const wu = this.weatherUniforms;
+      model.root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          const sm = m as THREE.MeshStandardMaterial;
+          if (sm.isMeshStandardMaterial && !sm.userData.wx && !sm.transparent) {
+            sm.userData.wx = true;
+            patchMaterialForWeather(sm, wu);
+          }
+        }
+      });
+    }
     const anim: ModelAnimState = {
       time: 0, dt: 0, moving: false, speed: 0, firing: 0, firingMuzzle: 0, powered: true, health: 1,
       door: 0, load: 0, harvesting: false, charge: 0, dying: 0, altitude: 0,
