@@ -14,6 +14,7 @@ import { renderThumbnails } from './render/thumbnails';
 import { LightPools } from './render/lightpools';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
+import { Hints } from './ui/hints';
 import type { AudioSystem } from './audio';
 import type { SfxKey } from './audio/types';
 import type { SuperKind } from './sim/superweapons';
@@ -62,6 +63,7 @@ export class Game {
   lightPools: LightPools | null = null;
   hud: Hud | null = null;
   input: InputController | null = null;
+  hints: Hints | null = null;
   local;
   selection = new Set<number>();
   paused = false;
@@ -118,7 +120,12 @@ export class Game {
     }
 
     const start = map.startPositions[0];
-    this.gfx.cam.jumpTo(start.x, start.y + 2);
+    this.gfx.cam.jumpTo(start.x, start.y + 1);
+    if (!setup.demo) {
+      // cinematic drop-in from high altitude
+      this.gfx.cam.dist = 48;
+      this.gfx.cam.targetDist = 20;
+    }
     this.gfx.fog.snap(this.local);
 
     if (!setup.demo) {
@@ -158,6 +165,7 @@ export class Game {
         openPauseMenu: () => this.pause(),
       });
       this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost');
+      this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
       // select the MCV at start
       const mcv = this.world.units.find((u) => u.owner === this.local && u.ut.deploysInto);
       if (mcv) this.selection.add(mcv.id);
@@ -286,6 +294,7 @@ export class Game {
     if (this.overlay) this.overlay.draw(this.gfx.cam.camera, world, this.ents, this.local, this.selection, this.input?.hovered ?? 0, this.alpha, fdt);
     if (this.hud) {
       this.hud.update(dt);
+      if (this.world.tick % 10 === 0) this.hints?.update();
       this.minimapT -= dt;
       if (this.minimapT <= 0) {
         this.minimapT = 0.1;

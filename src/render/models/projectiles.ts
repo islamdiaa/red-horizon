@@ -30,8 +30,8 @@ function fins(nb: NB, x0: number, len: number, h: number, mat = M.dark): void {
 }
 
 function flame(nb: NB, x: number, r: number, len: number): void {
-  nb.add(new THREE.ConeGeometry(r, len, 10), G.fire, { p: [x - len / 2, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
-  nb.add(new THREE.ConeGeometry(r * 0.55, len * 0.6, 8), G.white, { p: [x - len * 0.3 - 0.002, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
+  nb.add(new THREE.ConeGeometry(r, len, 6), G.fire, { p: [x - len / 2, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
+  nb.add(new THREE.ConeGeometry(r * 0.55, len * 0.6, 5), G.white, { p: [x - len * 0.3 - 0.002, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
 }
 
 function build(kind: ProjectileModelKind): ModelTemplate {
@@ -39,8 +39,8 @@ function build(kind: ProjectileModelKind): ModelTemplate {
   let glow = 4;
   switch (kind) {
     case 'shell': {
-      r.add(new THREE.CapsuleGeometry(0.022, 0.1, 4, 8), { glow: 0xffd890 }, { r: [0, 0, Math.PI / 2] });
-      r.add(new THREE.ConeGeometry(0.018, 0.12, 8), { glow: 0xff9a40, i: 0.6 }, { p: [-0.11, 0, 0], r: [0, 0, Math.PI / 2] });
+      r.add(new THREE.CapsuleGeometry(0.022, 0.1, 2, 6), { glow: 0xffd890, i: 2 }, { r: [0, 0, Math.PI / 2] });
+      r.add(new THREE.ConeGeometry(0.018, 0.12, 5), { glow: 0xff9a40, i: 1.2 }, { p: [-0.11, 0, 0], r: [0, 0, Math.PI / 2] });
       glow = 5;
       break;
     }
@@ -71,8 +71,8 @@ function build(kind: ProjectileModelKind): ModelTemplate {
     case 'nuke': {
       const R = 0.07;
       r.cyl(M.white, R, R, 0.56, -0.05, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 16 });
-      r.add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.05, 16), M.yellow, { p: [0.12, 0, 0], r: [0, 0, -Math.PI / 2] });
-      r.add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.03, 16), M.dark, { p: [-0.25, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.05, 10, 1, true), M.yellow, { p: [0.12, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.03, 10, 1, true), M.dark, { p: [-0.25, 0, 0], r: [0, 0, -Math.PI / 2] });
       r.add(lathe([[R, 0], [R * 0.92, 0.08], [R * 0.6, 0.18], [0.005, 0.27]], 16), M.red, { p: [0.23, 0, 0], r: [0, 0, -Math.PI / 2] });
       // radiation trefoil hint (yellow band with dark dots)
       for (let i = 0; i < 3; i++) {

@@ -69,6 +69,7 @@ export class InputController {
   private canvas: HTMLCanvasElement;
   private disposers: (() => void)[] = [];
   edgeScroll = true;
+  unitVoices = true;
 
   constructor(private h: InputHost) {
     this.canvas = h.gfx.canvas;
@@ -188,7 +189,7 @@ export class InputController {
     if (!add) sel.clear();
     for (const id of ids) sel.add(id);
     const units = this.ownSelectedUnits();
-    if (units.length) this.h.audio.unitResponse('select', voiceOf(units[0]));
+    if (units.length) this.voice('select', voiceOf(units[0]));
     else if (this.ownSelectedBuildings().length) this.h.audio.play('click');
   }
 
@@ -315,7 +316,7 @@ export class InputController {
           else this.h.issue({ c: 'move', player: local.id, units: units.map((u) => u.id), x: gx, y: gy, attackMove: true, queue: e.shiftKey });
         }
         this.marker(gx, gy, 'attack');
-        if (units.length) this.h.audio.unitResponse('attack', voiceOf(units[0]));
+        if (units.length) this.voice('attack', voiceOf(units[0]));
         if (!e.shiftKey) this.setMode('normal');
         return;
       }
@@ -418,20 +419,20 @@ export class InputController {
     if (t && t.owner !== local && local.isEnemy(t.owner)) {
       this.h.issue({ c: 'attack', player: local.id, units: ids, target: t.id });
       this.marker(t.x, t.y, 'attack');
-      this.h.audio.unitResponse('attack', voice);
+      this.voice('attack', voice);
       return;
     }
     if (t && e.ctrlKey) {
       this.h.issue({ c: 'attack', player: local.id, units: ids, target: t.id, forced: true });
       this.marker(t.x, t.y, 'attack');
-      this.h.audio.unitResponse('attack', voice);
+      this.voice('attack', voice);
       return;
     }
     if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => u.kind === 'infantry')) {
       const inf = units.filter((u) => u.kind === 'infantry').map((u) => u.id);
       this.h.issue({ c: 'enter', player: local.id, units: inf, target: t.id });
       this.marker(t.x, t.y, 'move');
-      this.h.audio.unitResponse('move', voice);
+      this.voice('move', voice);
       return;
     }
     if (t instanceof Building && t.owner === local) {
@@ -444,14 +445,14 @@ export class InputController {
         const rest = ids.filter((id) => !special.has(id));
         if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: gx, y: gy, queue: e.shiftKey });
         this.marker(t.x, t.y, 'move');
-        this.h.audio.unitResponse('move', voice);
+        this.voice('move', voice);
         return;
       }
     }
     if (e.ctrlKey) {
       this.h.issue({ c: 'attackGround', player: local.id, units: ids, x: gx, y: gy });
       this.marker(gx, gy, 'attack');
-      this.h.audio.unitResponse('attack', voice);
+      this.voice('attack', voice);
       return;
     }
     const map = world.map;
@@ -462,13 +463,17 @@ export class InputController {
       const rest = units.filter((u) => !u.ut.harvester).map((u) => u.id);
       if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: gx, y: gy, queue: e.shiftKey });
       this.marker(gx, gy, 'move');
-      this.h.audio.unitResponse('move', voice);
+      this.voice('move', voice);
       return;
     }
     if (!map.inBounds(cx, cy)) return;
     this.h.issue({ c: 'move', player: local.id, units: ids, x: gx, y: gy, queue: e.shiftKey });
     this.marker(gx, gy, 'move');
-    this.h.audio.unitResponse('move', voice);
+    this.voice('move', voice);
+  }
+
+  private voice(kind: 'select' | 'move' | 'attack', v: VoiceKind) {
+    if (this.unitVoices || v === 'dog') this.h.audio.unitResponse(kind, v);
   }
 
   private marker(x: number, y: number, kind: 'move' | 'attack' | 'rally') {

@@ -44,7 +44,7 @@ function rotorBlades(nb: NB, n: number, R: number, chord: number, mat = M.dark):
 
 function rotorDisc(parent: NB, y: number, R: number): void {
   const d = parent.node('rotorDisc', [0, y, 0]);
-  d.add(new THREE.CircleGeometry(R + 0.02, 32), M.dark, { r: [-Math.PI / 2, 0, 0], slot: 'fx:rotor', keepUv: true });
+  d.add(new THREE.CircleGeometry(R + 0.02, 20), M.dark, { r: [-Math.PI / 2, 0, 0], slot: 'fx:rotor', keepUv: true });
 }
 
 // =============================================================================================
@@ -134,7 +134,7 @@ function longbow(): ModelTemplate {
         [-0.034, 0.012],
       ]) {
         r.cyl(M.oliveDark, 0.008, 0.008, 0.09, 0.01, 0.1 + dy, z * s + dz, { r: [0, 0, -Math.PI / 2], seg: 6 });
-        r.add(new THREE.ConeGeometry(0.008, 0.016, 6), M.gun, { p: [0.063, 0.1 + dy, z * s + dz], r: [0, 0, -Math.PI / 2] });
+        r.add(new THREE.ConeGeometry(0.008, 0.016, 4), M.gun, { p: [0.063, 0.1 + dy, z * s + dz], r: [0, 0, -Math.PI / 2] });
       }
     }
   }
@@ -248,7 +248,7 @@ function hind(): ModelTemplate {
     r.box(M.teamDark, 0.12, 0.012, 0.2, 0.0, 0.13, 0.17 * s, { b: 0.004, r: [-0.18 * s, 0, 0] });
     for (const z of [0.15, 0.23]) {
       r.cyl(M.oliveDark, 0.024, 0.024, 0.11, 0.0, 0.1 - (z - 0.15) * 0.18, z * s, { r: [0, 0, -Math.PI / 2], seg: 10 });
-      r.add(new THREE.ConeGeometry(0.024, 0.03, 10), M.gun, { p: [0.07, 0.1 - (z - 0.15) * 0.18, z * s], r: [0, 0, -Math.PI / 2] });
+      r.add(new THREE.ConeGeometry(0.024, 0.03, 6), M.gun, { p: [0.07, 0.1 - (z - 0.15) * 0.18, z * s], r: [0, 0, -Math.PI / 2] });
     }
     r.box(M.dark, 0.03, 0.03, 0.01, 0.0, 0.11, 0.265 * s, { b: 0.003 });
   }
@@ -386,10 +386,10 @@ function mig(): ModelTemplate {
     );
     // engine nozzles + afterburner glow
     r.cyl(M.dark, 0.03, 0.034, 0.05, -0.4, cy - 0.005, 0.03 * s, { r: [0, 0, Math.PI / 2], seg: 12 });
-    r.add(new THREE.CircleGeometry(0.024, 12), G.fire, { p: [-0.426, cy - 0.005, 0.03 * s], r: [0, -Math.PI / 2, 0], slot: 'glow:ab' });
+    r.add(new THREE.CircleGeometry(0.024, 8), G.fire, { p: [-0.426, cy - 0.005, 0.03 * s], r: [0, -Math.PI / 2, 0], slot: 'glow:ab' });
     // missiles under wings
     r.cyl(M.offwhite, 0.011, 0.011, 0.15, -0.06, cy - 0.04, 0.17 * s, { r: [0, 0, -Math.PI / 2], seg: 8 });
-    r.add(new THREE.ConeGeometry(0.011, 0.03, 8), M.red, { p: [0.03, cy - 0.04, 0.17 * s], r: [0, 0, -Math.PI / 2] });
+    r.add(new THREE.ConeGeometry(0.011, 0.03, 4), M.red, { p: [0.03, cy - 0.04, 0.17 * s], r: [0, 0, -Math.PI / 2] });
     r.box(M.dark, 0.05, 0.02, 0.006, -0.06, cy - 0.022, 0.17 * s, { b: 0 });
     sovietStar(r, 0.032, [-0.17, cy + 0.0035, 0.21 * s]);
     r.sph(s < 0 ? G.red : G.green, 0.007, -0.235, cy - 0.004, 0.3 * s, { seg: 6, slot: 'glow:nav' });
@@ -525,7 +525,7 @@ function yak(): ModelTemplate {
     });
   }
   const disc = r.node('rotorDisc', [0.292, cy, 0]);
-  disc.add(new THREE.CircleGeometry(0.16, 24), M.dark, { r: [0, Math.PI / 2, 0], slot: 'fx:rotor', keepUv: true });
+  disc.add(new THREE.CircleGeometry(0.16, 14), M.dark, { r: [0, Math.PI / 2, 0], slot: 'fx:rotor', keepUv: true });
 
   return makeTemplate({
     root: r,

@@ -9,13 +9,15 @@ import type { AudioSystem } from '../audio';
 export interface Settings {
   quality: Quality;
   edgeScroll: boolean;
+  unitVoices: boolean;
+  hints: boolean;
 }
 
 const SETTINGS_KEY = 'rh.settings';
 const SETUP_KEY = 'rh.setup';
 
 export function loadSettings(): Settings {
-  const def: Settings = { quality: 'high', edgeScroll: true };
+  const def: Settings = { quality: 'high', edgeScroll: true, unitVoices: true, hints: true };
   try {
     return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') };
   } catch {
@@ -217,6 +219,8 @@ export class Menus {
     panel.appendChild(h('h2', '', 'Settings'));
     panel.appendChild(row('Graphics', seg<Quality>([['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], this.settings.quality, (v) => { this.settings.quality = v; })));
     panel.appendChild(row('Edge scroll', seg<boolean>([[true, 'On'], [false, 'Off']], this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; })));
+    panel.appendChild(row('Unit voices', seg<boolean>([[true, 'On'], [false, 'Off']], this.settings.unitVoices, (v) => { this.settings.unitVoices = v; })));
+    panel.appendChild(row('Hints', seg<boolean>([[true, 'On'], [false, 'Off']], this.settings.hints, (v) => { this.settings.hints = v; })));
     const vols = this.audio.getVolumes();
     for (const [k, label] of [['master', 'Master'], ['sfx', 'Effects'], ['music', 'Music'], ['voice', 'Voices']] as const) {
       const sl = h('input', 'slider') as HTMLInputElement;

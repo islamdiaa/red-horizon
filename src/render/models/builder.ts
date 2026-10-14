@@ -282,7 +282,7 @@ export function boxGeo(w: number, h: number, d: number, bevel = 0.012): THREE.Bu
   const key = `${w.toFixed(4)},${h.toFixed(4)},${d.toFixed(4)},${b.toFixed(4)}`;
   let g = boxCache.get(key);
   if (!g) {
-    g = b >= 0.004 ? chamferBox(w, h, d, b) : new THREE.BoxGeometry(w, h, d);
+    g = b >= 0.004 && Math.min(w, h, d) >= 0.03 ? chamferBox(w, h, d, b) : new THREE.BoxGeometry(w, h, d);
     boxCache.set(key, g);
   }
   return g;

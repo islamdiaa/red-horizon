@@ -37,7 +37,7 @@ function root(): NB {
 function headlights(nb: NB, x: number, y: number, z: number, size = 0.014): void {
   for (const s of [-1, 1]) {
     nb.box(M.dark, 0.016, size * 1.6, size * 1.8, x - 0.004, y, z * s, { b: 0.003 });
-    nb.add(new THREE.SphereGeometry(size * 0.75, 8, 6), G.head, { p: [x + 0.003, y, z * s], s: [0.5, 1, 1] });
+    nb.add(new THREE.OctahedronGeometry(size * 0.75, 0), G.head, { p: [x + 0.003, y, z * s], s: [0.5, 1, 1] });
   }
 }
 
@@ -293,7 +293,7 @@ function heavyTank(): ModelTemplate {
   t.box(M.gun, 0.11, 0.01, 0.01, 0.0, 0.14, -0.07, { b: 0 });
   t.box(M.gun, 0.02, 0.025, 0.01, -0.04, 0.128, -0.07, { b: 0 });
   t.cyl(M.dark, 0.022, 0.022, 0.03, 0.14, 0.1, 0.11, { r: [0, 0, -Math.PI / 2], seg: 10 });
-  t.add(new THREE.CircleGeometry(0.017, 10), G.white, { p: [0.156, 0.1, 0.11], r: [0, Math.PI / 2, 0], slot: 'glow' });
+  t.add(new THREE.CircleGeometry(0.017, 6), G.white, { p: [0.156, 0.1, 0.11], r: [0, Math.PI / 2, 0], slot: 'glow' });
   // smoke dischargers
   for (const s of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
@@ -437,7 +437,7 @@ function mammothTank(): ModelTemplate {
     for (const dy of [-0.024, 0.024]) {
       for (const dz of [-0.024, 0.024]) {
         t.cyl(M.darker, 0.017, 0.017, 0.012, 0.106, 0.06 + dy, z + dz, { r: [0, 0, -Math.PI / 2], seg: 10 });
-        t.add(new THREE.ConeGeometry(0.013, 0.028, 8), M.red, { p: [0.112, 0.06 + dy, z + dz], r: [0, 0, -Math.PI / 2] });
+        t.add(new THREE.ConeGeometry(0.013, 0.028, 4), M.red, { p: [0.112, 0.06 + dy, z + dz], r: [0, 0, -Math.PI / 2] });
       }
     }
     sovietStar(t, 0.022, [-0.04, 0.06, z + 0.0505 * s], faceRot(s > 0 ? '+z' : '-z'));

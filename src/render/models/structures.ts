@@ -355,7 +355,7 @@ function advPowerPlant(): ModelTemplate {
   const rx = -0.62;
   const rz = 0.62;
   r.cyl(M.concreteLight, 0.48, 0.5, 0.34, rx, y0 + 0.17, rz, { seg: 28 });
-  r.add(new THREE.SphereGeometry(0.48, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2), M.offwhite, { p: [rx, y0 + 0.34, rz] });
+  r.add(new THREE.SphereGeometry(0.48, 14, 5, 0, Math.PI * 2, 0, Math.PI / 2), M.offwhite, { p: [rx, y0 + 0.34, rz] });
   r.add(ringGeo(0.47, 0.51, 0.05, 28), M.team, { p: [rx, y0 + 0.33, rz] });
   r.add(ringGeo(0.0, 0.12, 0.02, 16), M.gun, { p: [rx, y0 + 0.82, rz] });
   for (let i = 0; i < 10; i++) {
@@ -539,24 +539,24 @@ function alliedBarracks(): ModelTemplate {
   const L = 1.25;
   const hz = -0.15;
   // corrugated half-cylinder along Z
-  const hut = new THREE.CylinderGeometry(R, R, L, 20, 1, true, -Math.PI / 2, Math.PI);
+  const hut = new THREE.CylinderGeometry(R, R, L, 12, 1, true, -Math.PI / 2, Math.PI);
   r.add(hut, M.oliveDark, { p: [0, y0, hz], r: [-Math.PI / 2, 0, 0] });
-  for (let i = 0; i < 9; i++) {
-    const z = hz - L / 2 + 0.06 + i * ((L - 0.12) / 8);
-    r.add(new THREE.CylinderGeometry(R + 0.008, R + 0.008, 0.025, 20, 1, true, -Math.PI / 2, Math.PI), M.olive, {
+  for (let i = 0; i < 5; i++) {
+    const z = hz - L / 2 + 0.06 + i * ((L - 0.12) / 4);
+    r.add(new THREE.CylinderGeometry(R + 0.008, R + 0.008, 0.03, 12, 1, true, -Math.PI / 2, Math.PI), M.olive, {
       p: [0, y0, z],
       r: [-Math.PI / 2, 0, 0],
     });
   }
   // team stripe along the ridge
-  r.add(new THREE.CylinderGeometry(R + 0.012, R + 0.012, L * 0.98, 12, 1, true, -0.25, 0.5), M.team, {
+  r.add(new THREE.CylinderGeometry(R + 0.012, R + 0.012, L * 0.98, 3, 1, true, -0.25, 0.5), M.team, {
     p: [0, y0, hz],
     r: [-Math.PI / 2, 0, 0],
   });
   alliedStar(r, 0.13, [0, y0 + R + 0.014, hz - 0.15]);
   // end walls
   for (const s of [-1, 1]) {
-    r.add(new THREE.CircleGeometry(R, 20, 0, Math.PI), M.concreteLight, {
+    r.add(new THREE.CircleGeometry(R, 12, 0, Math.PI), M.concreteLight, {
       p: [0, y0, hz + (L / 2) * s],
       r: [0, s > 0 ? 0 : Math.PI, 0],
     });
@@ -719,7 +719,7 @@ function kennel(): ModelTemplate {
   r.box(M.teamDark, 0.03, 0.03, 0.64, 0, y0 + 0.47, kz, { b: 0.008 });
   // arched door
   r.box(M.darker, 0.17, 0.13, 0.02, 0, y0 + 0.065, kz + 0.251, { b: 0 });
-  r.add(new THREE.CircleGeometry(0.085, 12, 0, Math.PI), M.darker, { p: [0, y0 + 0.13, kz + 0.262] });
+  r.add(new THREE.CircleGeometry(0.085, 6, 0, Math.PI), M.darker, { p: [0, y0 + 0.13, kz + 0.262] });
   r.box(M.teamDark, 0.22, 0.02, 0.025, 0, y0 + 0.24, kz + 0.26, { b: 0.004 });
   sovietStar(r, 0.045, [0, y0 + 0.33, kz + 0.256], faceRot('+z'));
   // bowl, bone, chain stake
@@ -782,7 +782,7 @@ function warFactory(): ModelTemplate {
   // arched roof segments
   for (let i = 0; i < 3; i++) {
     const x = -hw / 2 + hw / 6 + (i * hw) / 3;
-    r.add(new THREE.CylinderGeometry(0.44, 0.44, hd - 0.04, 16, 1, false, -Math.PI / 2, Math.PI), M.team, {
+    r.add(new THREE.CylinderGeometry(0.44, 0.44, hd - 0.04, 10, 1, false, -Math.PI / 2, Math.PI), M.team, {
       p: [x, y0 + hh - 0.02, hz],
       r: [-Math.PI / 2, 0, 0],
       s: [1, 1, 0.5],
@@ -1014,7 +1014,7 @@ function alliedTech(): ModelTemplate {
   r.box(M.darker, 0.24, 0.22, 0.02, 0.55, y0 + 0.11, 0.525, { b: 0 });
   // observatory dome
   r.cyl(M.offwhite, 0.25, 0.25, 0.08, 0.5, y0 + 0.44, -0.45, { seg: 20 });
-  r.add(new THREE.SphereGeometry(0.25, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.white, { p: [0.5, y0 + 0.48, -0.45] });
+  r.add(new THREE.SphereGeometry(0.25, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2), M.white, { p: [0.5, y0 + 0.48, -0.45] });
   r.box(M.dark, 0.06, 0.02, 0.3, 0.5, y0 + 0.66, -0.45, { b: 0.004, r: [0.7, 0, 0] });
   // rotating satellite dish
   const dish = r.node('dish', [-0.5, y0 + 0.77, -0.45]);
@@ -1081,9 +1081,9 @@ function sovietTech(): ModelTemplate {
   r.add(ringGeo(0.34, 0.37, 0.05, 24), M.team, { p: [dx, y0 + 0.56, dz] });
   r.sph(G.green, 0.13, dx, y0 + 0.66, dz, { seg: 14, slot: 'glow:core' });
   r.cyl(M.dark, 0.05, 0.08, 0.1, dx, y0 + 0.57, dz, { seg: 10 });
-  r.add(new THREE.SphereGeometry(0.33, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2), shade(M.glassBlue, 0x3a7a6a), { p: [dx, y0 + 0.56, dz] });
-  for (let i = 0; i < 6; i++) {
-    r.add(new THREE.TorusGeometry(0.332, 0.008, 4, 24, Math.PI), M.gun, { p: [dx, y0 + 0.56, dz], r: [0, (i * Math.PI) / 6, 0] });
+  r.add(new THREE.SphereGeometry(0.33, 14, 5, 0, Math.PI * 2, 0, Math.PI / 2), shade(M.glassBlue, 0x3a7a6a), { p: [dx, y0 + 0.56, dz] });
+  for (let i = 0; i < 3; i++) {
+    r.add(new THREE.TorusGeometry(0.332, 0.008, 3, 12, Math.PI), M.gun, { p: [dx, y0 + 0.56, dz], r: [0, (i * Math.PI) / 3, 0] });
   }
   // radio masts (right)
   for (const [x, z, h] of [
@@ -1168,8 +1168,8 @@ function helipad(): ModelTemplate {
   // windsock
   r.cyl(M.steel, 0.008, 0.01, 0.42, -0.85, y0 + 0.21, -0.85, { seg: 6 });
   const sock = r.node('sock', [-0.85, y0 + 0.4, -0.85]);
-  sock.add(new THREE.CylinderGeometry(0.018, 0.035, 0.14, 8, 1, true), M.red, { p: [0.07, 0, 0], r: [0, 0, Math.PI / 2] });
-  sock.add(new THREE.CylinderGeometry(0.0181, 0.0251, 0.05, 8, 1, true), M.white, { p: [0.11, 0, 0], r: [0, 0, Math.PI / 2] });
+  sock.add(new THREE.CylinderGeometry(0.018, 0.035, 0.14, 5, 1, true), M.red, { p: [0.07, 0, 0], r: [0, 0, Math.PI / 2] });
+  sock.add(new THREE.CylinderGeometry(0.0181, 0.0251, 0.05, 5, 1, true), M.white, { p: [0.11, 0, 0], r: [0, 0, Math.PI / 2] });
 
   return makeTemplate({
     root: r,
@@ -1205,7 +1205,7 @@ function airfield(): ModelTemplate {
   }
   // apron + hangar at back
   r.box(M.concrete, 1.6, 0.36, 0.55, -0.55, y0 + 0.18, -0.62, { b: 0.02 });
-  r.add(new THREE.CylinderGeometry(0.28, 0.28, 1.6, 16, 1, false, -Math.PI / 2, Math.PI), M.team, {
+  r.add(new THREE.CylinderGeometry(0.28, 0.28, 1.6, 10, 1, false, -Math.PI / 2, Math.PI), M.team, {
     p: [-0.55, y0 + 0.34, -0.62],
     r: [-Math.PI / 2, 0, -Math.PI / 2],
     s: [1, 1, 1],
@@ -1442,17 +1442,17 @@ function chronosphere(): ModelTemplate {
   r.sph(M.glassBlue, 0.24, 0, cy, 0, { seg: 18 });
   // gyroscopic rings
   const ringA = r.node('ringA', [0, cy, 0]);
-  ringA.add(new THREE.TorusGeometry(0.42, 0.03, 8, 40), M.steel);
-  ringA.add(new THREE.TorusGeometry(0.42, 0.034, 6, 40, Math.PI * 0.3), M.team, { r: [0, 0, 0.3] });
-  ringA.add(new THREE.TorusGeometry(0.42, 0.034, 6, 40, Math.PI * 0.3), M.team, { r: [0, 0, 0.3 + Math.PI] });
+  ringA.add(new THREE.TorusGeometry(0.42, 0.03, 5, 22), M.steel);
+  ringA.add(new THREE.TorusGeometry(0.42, 0.034, 4, 6, Math.PI * 0.3), M.team, { r: [0, 0, 0.3] });
+  ringA.add(new THREE.TorusGeometry(0.42, 0.034, 4, 6, Math.PI * 0.3), M.team, { r: [0, 0, 0.3 + Math.PI] });
   const ringB = ringA.node('ringB', [0, 0, 0], [0, 0, 0]);
-  ringB.add(new THREE.TorusGeometry(0.34, 0.025, 8, 36), M.offwhite, { r: [Math.PI / 2, 0, 0] });
+  ringB.add(new THREE.TorusGeometry(0.34, 0.025, 5, 20), M.offwhite, { r: [Math.PI / 2, 0, 0] });
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
     ringB.sph(G.cyan, 0.016, Math.cos(a) * 0.34, 0, Math.sin(a) * 0.34, { seg: 6, slot: 'glow:core' });
   }
   const ringC = ringB.node('ringC', [0, 0, 0]);
-  ringC.add(new THREE.TorusGeometry(0.28, 0.018, 8, 32), M.team, { r: [0, Math.PI / 2, 0] });
+  ringC.add(new THREE.TorusGeometry(0.28, 0.018, 4, 16), M.team, { r: [0, Math.PI / 2, 0] });
   const halo = r.node('halo', [0, cy, 0]);
   halo.add(new THREE.PlaneGeometry(1.1, 1.1), M.dark, { slot: 'fx:add:3a8cff:0.9', keepUv: true, r: [-Math.PI / 2, 0, 0] });
   // consoles

@@ -17,6 +17,7 @@ export class Minimap {
   private cellCtx: CanvasRenderingContext2D;
   private img: ImageData;
   private base: Uint8ClampedArray;
+  private noiseCanvas = document.createElement('canvas');
   private onlineT = 0;
   private wasOnline = false;
   private dragging = false;
@@ -98,14 +99,17 @@ export class Minimap {
 
     if (!online) {
       // static noise
-      const id = ctx.createImageData(W / 4, H / 4);
+      const nc = this.noiseCanvas;
+      if (nc.width !== W / 4) { nc.width = W / 4; nc.height = H / 4; }
+      const nctx = nc.getContext('2d')!;
+      const id = nctx.createImageData(nc.width, nc.height);
       for (let i = 0; i < id.data.length; i += 4) {
         const v = Math.random() * 40;
         id.data[i] = v * 0.6; id.data[i + 1] = v * 0.8; id.data[i + 2] = v; id.data[i + 3] = 255;
       }
-      this.cellCtx.putImageData(id, 0, 0);
+      nctx.putImageData(id, 0, 0);
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(this.cellCanvas, 0, 0, W / 4, H / 4, 0, 0, W, H);
+      ctx.drawImage(nc, 0, 0, W, H);
       return;
     }
 

@@ -229,6 +229,13 @@ body.cur-pan #game-canvas { cursor: grabbing; }
 #fps { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .speed-ctl { display: flex; gap: 2px; }
 
+.hint { position: absolute; top: 54px; left: 10px; max-width: 420px; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.4;
+  display: none; gap: 10px; align-items: flex-start; cursor: pointer; border-color: rgba(var(--accent-rgb), 0.35); animation: msgIn 0.3s ease-out; }
+.hint.on { display: flex; }
+.hint b { color: #fff; }
+.hint kbd { font-family: var(--mono); background: rgba(255, 255, 255, 0.1); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+.hint-ic { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: rgba(var(--accent-rgb), 0.35); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 12px; font-style: italic; }
+.hint-x { margin-left: auto; color: var(--muted); padding-left: 8px; }
 @keyframes blink { 50% { opacity: 0.4; } }
 @keyframes pulse { from { opacity: 0.75; } to { opacity: 1; } }
 @keyframes readyPulse { from { box-shadow: 0 0 6px rgba(88, 255, 138, 0.35); } to { box-shadow: 0 0 20px rgba(88, 255, 138, 0.8); } }

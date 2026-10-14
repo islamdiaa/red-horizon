@@ -30,55 +30,46 @@ interface SoldierSpec {
   fire?: 'rifle' | 'throw' | 'rocket' | 'flame' | 'pistols' | 'heal' | 'none';
 }
 
+// Low-poly primitives shared by all soldiers (each ~10-40 triangles).
+const ARM_GEO = new THREE.CylinderGeometry(0.019, 0.016, 0.1, 4, 1, false);
+ARM_GEO.translate(0, -0.05, 0);
+ARM_GEO.rotateY(Math.PI / 4);
+const HAND_GEO = new THREE.OctahedronGeometry(0.017, 0);
+const LEG_GEO = new THREE.CylinderGeometry(0.024, 0.019, 0.12, 5, 1, false);
+LEG_GEO.translate(0, -0.06, 0);
+const HEAD_GEO = new THREE.SphereGeometry(0.04, 6, 4);
+
 function arm(nb: NB, sleeve: Mat, bare = false): void {
-  // hangs down from shoulder pivot (origin)
-  nb.add(lathe([[0.0, 0.01], [0.021, 0.0], [0.019, -0.05], [0.016, -0.1], [0.0, -0.105]], 8), bare ? M.skin : sleeve, {});
-  nb.sph(sleeve, 0.024, 0, -0.004, 0, { seg: 8 });
-  nb.sph(M.skin, 0.017, 0, -0.112, 0, { seg: 8 });
+  // hangs down from the shoulder pivot (origin)
+  nb.add(ARM_GEO, bare ? M.skin : sleeve);
+  nb.add(HAND_GEO, M.skin, { p: [0, -0.108, 0] });
 }
 
 function leg(nb: NB, trousers: Mat): void {
-  nb.add(lathe([[0.0, 0.0], [0.026, -0.005], [0.023, -0.07], [0.019, -0.12], [0.0, -0.125]], 8), trousers, { s: [1, 1, 1] });
-  nb.box(M.boot, 0.058, 0.03, 0.04, 0.01, -0.135, 0, { b: 0.01 });
+  nb.add(LEG_GEO, trousers);
+  nb.box(M.boot, 0.056, 0.03, 0.04, 0.01, -0.132, 0, { b: 0 });
 }
 
 function headgear(t: NB, kind: Headgear, headY: number): void {
   const hy = headY;
   switch (kind) {
     case 'helmet':
-      t.add(lathe([[0.0, 0.05], [0.03, 0.045], [0.045, 0.025], [0.05, 0.0], [0.052, -0.004], [0.0, -0.004]], 12), M.teamDark, {
-        p: [0, hy + 0.012, 0],
-      });
-      t.box(M.webbing, 0.006, 0.02, 0.06, 0.03, hy - 0.025, 0, { b: 0.002 });
+      t.add(lathe([[0.0, 0.05], [0.04, 0.035], [0.053, -0.004]], 6), M.teamDark, { p: [0, hy + 0.012, 0], r: [0, Math.PI / 6, 0] });
       break;
     case 'ushanka':
-      t.add(lathe([[0.0, 0.045], [0.04, 0.04], [0.05, 0.0], [0.0, 0.0]], 12), shade(M.khaki, 0x5a4a3a), { p: [0, hy + 0.012, 0] });
+      t.add(lathe([[0.0, 0.045], [0.045, 0.035], [0.05, 0.0]], 6), shade(M.khaki, 0x5a4a3a), { p: [0, hy + 0.012, 0] });
       break;
     case 'hardhat':
-      t.add(lathe([[0.0, 0.045], [0.032, 0.04], [0.045, 0.018], [0.046, 0.003], [0.058, 0.0], [0.058, -0.004], [0.0, -0.004]], 12), M.yellow, {
-        p: [0, hy + 0.014, 0],
-      });
+      t.add(lathe([[0.0, 0.045], [0.04, 0.032], [0.046, 0.004], [0.06, -0.002]], 6), M.yellow, { p: [0, hy + 0.014, 0] });
       break;
     case 'medic':
-      t.add(lathe([[0.0, 0.05], [0.03, 0.045], [0.045, 0.025], [0.05, 0.0], [0.052, -0.004], [0.0, -0.004]], 12), M.white, {
-        p: [0, hy + 0.012, 0],
-      });
-      // red crosses on helmet sides/front
-      for (const [x, z, ry] of [
-        [0.046, 0, Math.PI / 2],
-        [0, 0.046, 0],
-        [0, -0.046, Math.PI],
-      ] as const) {
-        const rot: V3 = [0, ry, 0];
-        t.box(M.red, 0.026, 0.008, 0.004, x, hy + 0.025, z, { r: rot, b: 0 });
-        t.box(M.red, 0.008, 0.026, 0.004, x, hy + 0.025, z, { r: rot, b: 0 });
-      }
+      t.add(lathe([[0.0, 0.05], [0.04, 0.035], [0.053, -0.004]], 6), M.white, { p: [0, hy + 0.012, 0], r: [0, Math.PI / 6, 0] });
+      t.box(M.red, 0.004, 0.02, 0.022, 0.047, hy + 0.024, 0, { b: 0 });
+      t.box(M.red, 0.022, 0.004, 0.022, 0.0, hy + 0.062, 0, { b: 0 });
       break;
     case 'tanya':
-      // hair cap + ponytail
-      t.add(new THREE.SphereGeometry(0.043, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), M.hair, { p: [-0.004, hy + 0.003, 0] });
-      t.sph(M.hair, 0.016, -0.045, hy + 0.01, 0, { seg: 8 });
-      t.add(new THREE.ConeGeometry(0.014, 0.07, 8), M.hair, { p: [-0.065, hy - 0.025, 0], r: [0, 0, -0.5] });
+      t.add(lathe([[0.0, 0.046], [0.036, 0.034], [0.045, 0.0]], 6), M.hair, { p: [-0.006, hy, 0] });
+      t.add(new THREE.ConeGeometry(0.016, 0.075, 4), M.hair, { p: [-0.06, hy - 0.022, 0], r: [0, 0, -0.5] });
       break;
   }
 }
@@ -88,20 +79,13 @@ function soldier(spec: SoldierSpec): ModelTemplate {
   const body = r.node('body');
   const torso = body.node('torso', [0, HIP_Y, 0]);
   // pelvis + belt
-  torso.box(spec.trousers, 0.07, 0.04, 0.1, 0, 0.0, 0, { b: 0.018 });
-  torso.box(M.webbing, 0.074, 0.016, 0.104, 0, 0.022, 0, { b: 0.006 });
-  torso.box(M.brass, 0.006, 0.01, 0.014, 0.038, 0.022, 0, { b: 0 });
-  // chest
-  torso.add(
-    lathe([[0.0, 0.025], [0.05, 0.03], [0.058, 0.07], [0.062, 0.1], [0.048, 0.125], [0.0, 0.128]], 10),
-    spec.uniform,
-    { s: [0.78, 1, 1.05] },
-  );
-  // neck + head
+  torso.box(spec.trousers, 0.066, 0.04, 0.096, 0, 0.0, 0, { b: 0 });
+  torso.box(M.webbing, 0.07, 0.014, 0.1, 0, 0.022, 0, { b: 0 });
+  // chest (6-sided, slightly barrel shaped)
+  torso.add(lathe([[0.048, 0.028], [0.06, 0.08], [0.05, 0.122], [0.0, 0.13]], 6), spec.uniform, { s: [0.78, 1, 1.05], r: [0, Math.PI / 6, 0] });
+  // head
   const headY = 0.163;
-  torso.cyl(M.skin, 0.016, 0.018, 0.025, 0, 0.135, 0, { seg: 8 });
-  torso.sph(M.skin, 0.04, 0.003, headY, 0, { seg: 12, s: [0.95, 1.05, 0.95] });
-  // face hint: eyes band (dark) + nose
+  torso.add(HEAD_GEO, M.skin, { p: [0.003, headY, 0], s: [0.95, 1.05, 0.95] });
   torso.box(M.darker, 0.004, 0.006, 0.03, 0.039, headY + 0.006, 0, { b: 0 });
   headgear(torso, spec.headgear, headY);
   const armL = torso.node('armL', [0, SHOULDER_Y, -SHOULDER_Z], [spec.armL[1], 0, spec.armL[0]]);
@@ -289,10 +273,10 @@ function deathPose(c: Ctx, s: ModelAnimState, body: THREE.Object3D): void {
 
 function rifle(t: NB, z = 0.035, y = 0.075): void {
   // held across the chest, pointing +X
-  t.box(M.wood, 0.07, 0.022, 0.016, -0.0, y - 0.006, z, { b: 0.005 });
-  t.box(M.gun, 0.08, 0.02, 0.014, 0.07, y, z, { b: 0.004 });
+  t.box(M.wood, 0.07, 0.022, 0.016, -0.0, y - 0.006, z, { b: 0 });
+  t.box(M.gun, 0.08, 0.02, 0.014, 0.07, y, z, { b: 0 });
   t.cyl(M.dark, 0.0045, 0.0045, 0.09, 0.15, y + 0.004, z, { r: [0, 0, -Math.PI / 2], seg: 6 });
-  t.box(M.dark, 0.014, 0.03, 0.01, 0.07, y - 0.022, z, { b: 0.002, r: [0, 0, 0.3] });
+  t.box(M.dark, 0.014, 0.03, 0.01, 0.07, y - 0.022, z, { b: 0, r: [0, 0, 0.3] });
 }
 
 const E1: SoldierSpec = {
@@ -306,9 +290,9 @@ const E1: SoldierSpec = {
   build: (t) => {
     rifle(t);
     // canteen + pouches
-    t.box(M.webbing, 0.03, 0.03, 0.024, -0.03, 0.03, 0.05, { b: 0.008 });
-    t.box(M.webbing, 0.026, 0.03, 0.03, 0.036, 0.035, -0.035, { b: 0.008 });
-    t.box(M.webbing, 0.03, 0.05, 0.06, -0.052, 0.085, 0, { b: 0.012 });
+    t.box(M.webbing, 0.03, 0.03, 0.024, -0.03, 0.03, 0.05, { b: 0 });
+    t.box(M.webbing, 0.026, 0.03, 0.03, 0.036, 0.035, -0.035, { b: 0 });
+    t.box(M.webbing, 0.03, 0.05, 0.06, -0.052, 0.085, 0, { b: 0 });
   },
 };
 
@@ -322,9 +306,9 @@ const E2: SoldierSpec = {
   fire: 'throw',
   build: (t, _l, armR) => {
     // grenade bandolier + pouches
-    t.box(M.webbing, 0.075, 0.018, 0.11, 0, 0.075, 0, { b: 0.006, r: [0.5, 0, 0] });
+    t.box(M.webbing, 0.075, 0.018, 0.11, 0, 0.075, 0, { b: 0, r: [0.5, 0, 0] });
     for (const z of [-0.035, 0, 0.035]) t.sph(M.oliveDark, 0.013, 0.045, 0.04, z, { seg: 8 });
-    t.box(M.webbing, 0.04, 0.05, 0.07, -0.05, 0.08, 0, { b: 0.012 });
+    t.box(M.webbing, 0.04, 0.05, 0.07, -0.05, 0.08, 0, { b: 0 });
     armR.sph(M.oliveDark, 0.017, 0.008, -0.125, 0, { seg: 8 });
   },
 };
@@ -345,9 +329,9 @@ const E3: SoldierSpec = {
     t.cyl(M.oliveDark, 0.025, 0.025, 0.03, 0.15, y, z, { r: [0, 0, -Math.PI / 2], seg: 10 });
     t.cyl(M.oliveDark, 0.025, 0.022, 0.03, -0.09, y, z, { r: [0, 0, -Math.PI / 2], seg: 10 });
     t.add(new THREE.ConeGeometry(0.019, 0.04, 8), M.red, { p: [0.18, y, z], r: [0, 0, -Math.PI / 2] });
-    t.box(M.dark, 0.03, 0.02, 0.01, 0.04, y + 0.025, z - 0.01, { b: 0.002 });
-    t.box(M.dark, 0.012, 0.035, 0.012, 0.04, y - 0.03, z, { b: 0.002 });
-    t.box(M.webbing, 0.03, 0.06, 0.06, -0.052, 0.08, -0.005, { b: 0.012 });
+    t.box(M.dark, 0.03, 0.02, 0.01, 0.04, y + 0.025, z - 0.01, { b: 0 });
+    t.box(M.dark, 0.012, 0.035, 0.012, 0.04, y - 0.03, z, { b: 0 });
+    t.box(M.webbing, 0.03, 0.06, 0.06, -0.052, 0.08, -0.005, { b: 0 });
   },
 };
 
@@ -370,7 +354,7 @@ const E4: SoldierSpec = {
     t.box(M.yellow, 0.004, 0.02, 0.07, -0.09, 0.07, 0, { b: 0 });
     // hose + wand
     t.cyl(M.dark, 0.006, 0.006, 0.12, -0.02, 0.03, 0.045, { r: [0, 0, -1.2], seg: 6 });
-    t.box(M.gun, 0.14, 0.018, 0.018, 0.09, 0.05, 0.035, { b: 0.005 });
+    t.box(M.gun, 0.14, 0.018, 0.018, 0.09, 0.05, 0.035, { b: 0 });
     t.cyl(M.dark, 0.012, 0.009, 0.03, 0.17, 0.05, 0.035, { r: [0, 0, -Math.PI / 2], seg: 8 });
     t.sph(G.fire, 0.008, 0.19, 0.05, 0.035, { seg: 6, slot: 'glow:pilot' });
     // gas mask hint
@@ -388,15 +372,15 @@ const E6: SoldierSpec = {
   fire: 'none',
   build: (t, armL) => {
     // hi-vis stripes on vest
-    t.box(M.yellow, 0.084, 0.008, 0.114, 0, 0.07, 0, { b: 0.002 });
-    t.box(M.yellow, 0.084, 0.008, 0.118, 0, 0.1, 0, { b: 0.002 });
+    t.box(M.yellow, 0.084, 0.008, 0.114, 0, 0.07, 0, { b: 0 });
+    t.box(M.yellow, 0.084, 0.008, 0.118, 0, 0.1, 0, { b: 0 });
     // tool belt
-    t.box(M.wood, 0.03, 0.025, 0.02, 0.03, 0.01, 0.05, { b: 0.006 });
+    t.box(M.wood, 0.03, 0.025, 0.02, 0.03, 0.01, 0.05, { b: 0 });
     // toolbox in left hand
-    armL.box(M.red, 0.07, 0.04, 0.03, 0.0, -0.14, 0, { b: 0.006 });
+    armL.box(M.red, 0.07, 0.04, 0.03, 0.0, -0.14, 0, { b: 0 });
     armL.box(M.dark, 0.035, 0.006, 0.006, 0.0, -0.118, 0, { b: 0 });
     // wrench on back
-    t.box(M.steel, 0.012, 0.09, 0.008, -0.05, 0.08, -0.02, { b: 0.002, r: [0.4, 0, 0] });
+    t.box(M.steel, 0.012, 0.09, 0.008, -0.05, 0.08, -0.02, { b: 0, r: [0.4, 0, 0] });
   },
 };
 
@@ -418,10 +402,10 @@ const MEDI: SoldierSpec = {
     armR.cyl(M.red, 0.021, 0.021, 0.014, 0, -0.03, 0, { seg: 8 });
     armR.box(M.white, 0.006, 0.008, 0.012, 0.02, -0.03, 0, { b: 0 });
     // medkit bag
-    armL.box(M.white, 0.06, 0.045, 0.03, 0.0, -0.14, 0, { b: 0.008 });
+    armL.box(M.white, 0.06, 0.045, 0.03, 0.0, -0.14, 0, { b: 0 });
     armL.box(M.red, 0.004, 0.026, 0.008, 0.0, -0.14, 0.016, { b: 0 });
     armL.box(M.red, 0.026, 0.008, 0.004, 0.0, -0.14, 0.016, { b: 0 });
-    t.box(M.webbing, 0.03, 0.05, 0.06, -0.052, 0.08, 0, { b: 0.012 });
+    t.box(M.webbing, 0.03, 0.05, 0.06, -0.052, 0.08, 0, { b: 0 });
   },
 };
 
@@ -435,15 +419,15 @@ const E7: SoldierSpec = {
   fire: 'pistols',
   build: (t, armL, armR) => {
     // crossed bandoliers
-    t.box(M.webbing, 0.084, 0.012, 0.13, 0, 0.075, 0, { b: 0.003, r: [0.6, 0, 0] });
-    t.box(M.webbing, 0.084, 0.012, 0.13, 0, 0.075, 0, { b: 0.003, r: [-0.6, 0, 0] });
+    t.box(M.webbing, 0.084, 0.012, 0.13, 0, 0.075, 0, { b: 0, r: [0.6, 0, 0] });
+    t.box(M.webbing, 0.084, 0.012, 0.13, 0, 0.075, 0, { b: 0, r: [-0.6, 0, 0] });
     // holsters
-    t.box(M.boot, 0.03, 0.035, 0.015, 0.0, -0.01, 0.058, { b: 0.006 });
-    t.box(M.boot, 0.03, 0.035, 0.015, 0.0, -0.01, -0.058, { b: 0.006 });
+    t.box(M.boot, 0.03, 0.035, 0.015, 0.0, -0.01, 0.058, { b: 0 });
+    t.box(M.boot, 0.03, 0.035, 0.015, 0.0, -0.01, -0.058, { b: 0 });
     // pistols in both hands (pointing along arm -> forward when raised)
     for (const a of [armL, armR]) {
-      a.box(M.dark, 0.016, 0.05, 0.012, 0.004, -0.14, 0, { b: 0.003 });
-      a.box(M.dark, 0.022, 0.014, 0.012, 0.016, -0.118, 0, { b: 0.003 });
+      a.box(M.dark, 0.016, 0.05, 0.012, 0.004, -0.14, 0, { b: 0 });
+      a.box(M.dark, 0.022, 0.014, 0.012, 0.016, -0.118, 0, { b: 0 });
     }
   },
 };
@@ -464,14 +448,14 @@ function dog(): ModelTemplate {
     r: [0, 0, -Math.PI / 2],
     s: [1, 1, 0.85],
   });
-  body.box(FUR_DARK, 0.15, 0.03, 0.06, -0.01, 0.03, 0, { b: 0.014 }); // saddle
+  body.box(FUR_DARK, 0.15, 0.03, 0.06, -0.01, 0.03, 0, { b: 0 }); // saddle
   body.cyl(M.teamCloth, 0.032, 0.034, 0.016, 0.085, 0.025, 0, { r: [0, 0, -0.9], seg: 10 }); // collar
   body.box(M.brass, 0.008, 0.012, 0.008, 0.1, 0.0, 0, { b: 0 });
   // head (part of the body mesh; lunges with the body)
   const hx = 0.1;
   const hy = 0.045;
-  body.box(FUR_TAN, 0.06, 0.05, 0.05, hx + 0.02, hy + 0.02, 0, { b: 0.016 });
-  body.box(FUR_DARK, 0.05, 0.028, 0.032, hx + 0.065, hy + 0.008, 0, { b: 0.01 }); // muzzle
+  body.box(FUR_TAN, 0.06, 0.05, 0.05, hx + 0.02, hy + 0.02, 0, { b: 0 });
+  body.box(FUR_DARK, 0.05, 0.028, 0.032, hx + 0.065, hy + 0.008, 0, { b: 0 }); // muzzle
   body.sph(M.darker, 0.008, hx + 0.09, hy + 0.016, 0, { seg: 6 }); // nose
   for (const s of [-1, 1]) {
     body.add(new THREE.ConeGeometry(0.012, 0.035, 6), FUR_DARK, { p: [hx + 0.005, hy + 0.058, 0.016 * s], r: [0.25 * s, 0, 0] });
@@ -489,7 +473,7 @@ function dog(): ModelTemplate {
   for (const [name, x, z] of legs) {
     const l = r.node(name, [x, 0.11, z]);
     l.add(lathe([[0.0, 0.0], [0.016, -0.01], [0.012, -0.06], [0.009, -0.1], [0.0, -0.105]], 6), name.endsWith('b') ? FUR : FUR_TAN);
-    l.box(FUR_DARK, 0.024, 0.012, 0.02, 0.006, -0.105, 0, { b: 0.004 });
+    l.box(FUR_DARK, 0.024, 0.012, 0.02, 0.006, -0.105, 0, { b: 0 });
   }
 
   r.node('m0', [0.17, 0.15, 0]);

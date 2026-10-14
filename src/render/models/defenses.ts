@@ -267,13 +267,11 @@ function teslaCoil(): ModelTemplate {
     const x = Math.cos(a);
     const z = Math.sin(a);
     pipe(r, [x * 0.3, y0 + 0.12, tz + z * 0.3], [x * 0.1, y0 + 0.9, tz + z * 0.1], 0.022, M.dark, 6);
-    pipe(r, [x * 0.24, y0 + 0.3, tz + z * 0.24], [-z * 0.19, y0 + 0.55, tz + x * 0.19], 0.008, M.dark, 4);
   }
-  // central coil column
-  r.cyl(M.dark, 0.11, 0.13, 0.5, 0, y0 + 0.37, tz, { seg: 14 });
-  r.cyl(M.copper, 0.085, 0.085, 1.05, 0, y0 + 1.1, tz, { seg: 14 });
-  for (let i = 0; i < 18; i++) {
-    r.add(new THREE.TorusGeometry(0.088, 0.008, 4, 14), M.copper, { p: [0, y0 + 0.62 + i * 0.055, tz], r: [Math.PI / 2, 0, 0] });
+  // central coil column: copper windings as alternating bands
+  r.cyl(M.dark, 0.11, 0.13, 0.5, 0, y0 + 0.37, tz, { seg: 8 });
+  for (let i = 0; i < 7; i++) {
+    r.cyl(i % 2 ? M.dark : M.copper, 0.09, 0.09, 0.15, 0, y0 + 0.66 + i * 0.15, tz, { seg: 8, open: true });
   }
   // stacked coil rings (decreasing radius)
   const rings: [number, number][] = [
@@ -284,20 +282,15 @@ function teslaCoil(): ModelTemplate {
     [1.72, 0.15],
   ];
   for (const [h, rad] of rings) {
-    r.add(new THREE.TorusGeometry(rad, 0.028, 8, 28), M.gun, { p: [0, y0 + h, tz], r: [Math.PI / 2, 0, 0] });
-    r.add(new THREE.TorusGeometry(rad, 0.012, 6, 28), M.team, { p: [0, y0 + h + 0.025, tz], r: [Math.PI / 2, 0, 0] });
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2;
-      r.box(M.dark, rad - 0.08, 0.012, 0.012, Math.cos(a) * (rad / 2 + 0.04), y0 + h, tz + Math.sin(a) * (rad / 2 + 0.04), {
-        b: 0,
-        r: [0, -a, 0],
-      });
-    }
-    r.add(new THREE.TorusGeometry(rad - 0.005, 0.008, 4, 28), G.tesla, { p: [0, y0 + h - 0.026, tz], r: [Math.PI / 2, 0, 0], slot: 'glow:coil' });
+    r.add(new THREE.TorusGeometry(rad, 0.03, 4, 12), M.gun, { p: [0, y0 + h, tz], r: [Math.PI / 2, 0, Math.PI / 12] });
+    r.add(new THREE.RingGeometry(rad - 0.012, rad + 0.012, 12), M.team, { p: [0, y0 + h + 0.031, tz], r: [-Math.PI / 2, 0, 0] });
+    r.box(M.dark, rad * 2 - 0.05, 0.012, 0.012, 0, y0 + h, tz, { b: 0, r: [0, Math.PI / 4, 0] });
+    r.box(M.dark, rad * 2 - 0.05, 0.012, 0.012, 0, y0 + h, tz, { b: 0, r: [0, -Math.PI / 4, 0] });
+    r.add(new THREE.TorusGeometry(rad - 0.004, 0.009, 3, 12), G.tesla, { p: [0, y0 + h - 0.028, tz], r: [Math.PI / 2, 0, Math.PI / 12], slot: 'glow:coil' });
   }
   // top cap + orb
   r.add(lathe([[0.1, 0], [0.13, 0.04], [0.09, 0.09], [0.0, 0.1]], 16), M.gun, { p: [0, y0 + 1.78, tz] });
-  r.sph(G.tesla, 0.15, 0, y0 + 2.02, tz, { seg: 18, slot: 'glow:orb' });
+  r.add(new THREE.IcosahedronGeometry(0.15, 1), G.tesla, { p: [0, y0 + 2.02, tz], slot: 'glow:orb' });
   const halo = r.node('halo', [0, y0 + 2.02, tz]);
   halo.add(new THREE.PlaneGeometry(0.75, 0.75), M.dark, { slot: 'fx:add:5aa2ff:0.9', keepUv: true, r: [-Math.PI / 2, 0, 0] });
   r.node('m0', [0, y0 + 2.02, tz]);
@@ -308,7 +301,7 @@ function teslaCoil(): ModelTemplate {
   for (let i = 0; i < 3; i++) {
     const x = -0.18 + i * 0.18;
     r.cyl(M.offwhite, 0.04, 0.05, 0.05, x, y0 + 0.29, gz - 0.1, { seg: 10 });
-    for (let k = 0; k < 3; k++) r.cyl(M.offwhite, 0.035, 0.035, 0.012, x, y0 + 0.33 + k * 0.022, gz - 0.1, { seg: 10 });
+    r.cyl(M.offwhite, 0.03, 0.036, 0.07, x, y0 + 0.35, gz - 0.1, { seg: 6 });
     r.box(G.tesla, 0.1, 0.06, 0.006, x, y0 + 0.14, gz + 0.283, { b: 0, slot: 'glow:coil' });
     r.box(M.dark, 0.12, 0.08, 0.008, x, y0 + 0.14, gz + 0.279, { b: 0 });
   }

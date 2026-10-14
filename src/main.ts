@@ -27,8 +27,13 @@ const menus = new Menus(audio, {
   resume: () => game?.resume(),
   restart: () => { if (lastSetup) void startGame({ ...lastSetup, seed: (Math.random() * 1e9) | 0 }); },
   quit: () => { audio.stopMusic(); startDemo(); },
-  settingsChanged: (s: Settings) => { if (game?.input) game.input.edgeScroll = s.edgeScroll; },
+  settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
 });
+
+function applySettings(g: Game, s: Settings) {
+  if (g.input) { g.input.edgeScroll = s.edgeScroll; g.input.unitVoices = s.unitVoices; }
+  if (g.hints) g.hints.enabled = s.hints;
+}
 
 function setLoading(frac: number, label: string) {
   loading.style.display = 'flex';
@@ -55,7 +60,7 @@ async function startGame(setup: GameSetup) {
       onEnd: (g, won) => { g.paused = true; menus.showEnd(g, won); },
       onProgress: (f, l) => setLoading(f, l),
     });
-    if (game.input) game.input.edgeScroll = menus.settings.edgeScroll;
+    applySettings(game, menus.settings);
     (window as any).__game = game;
     applyTestParams(game);
     game.start();
