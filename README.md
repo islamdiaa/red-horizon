@@ -11,9 +11,9 @@ game ships **zero copyrighted assets** — the whole thing is ~340 KB gzipped.
 
 | | |
 |---|---|
-| ![Allied base](docs/base.png) | ![Battle at dusk](docs/battle.png) |
-| ![Night](docs/night.png) | ![Main menu](docs/menu.png) |
-| ![Soviet armour close-up](docs/closeup.png) | ![Nuclear strike](docs/nuke.png) |
+| ![Allied base](docs/base.jpg) | ![Battle at dusk](docs/battle.jpg) |
+| ![Night](docs/night.jpg) | ![Main menu](docs/menu.jpg) |
+| ![Soviet armour close-up](docs/closeup.jpg) | ![Nuclear strike](docs/nuke.jpg) |
 
 ## Running it
 
