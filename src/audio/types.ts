@@ -13,7 +13,7 @@ export type SfxKey =
   | 'build_place' | 'build_rise' | 'sell' | 'repair' | 'cash_tick' | 'harvest' | 'ore_dump' | 'door'
   | 'deploy' | 'power_down' | 'radar_on' | 'chrono' | 'iron_curtain' | 'crate'
   // ui
-  | 'click' | 'hover' | 'error' | 'tab' | 'ready_ping';
+  | 'click' | 'hover' | 'error' | 'tab' | 'ready_ping' | 'promote';
 
 export type AnnouncerKey =
   | 'mission_start' | 'building' | 'construction_complete' | 'unit_ready' | 'training' | 'on_hold'
@@ -22,7 +22,7 @@ export type AnnouncerKey =
   | 'repairing' | 'silos_needed' | 'select_target' | 'radar_online' | 'radar_offline'
   | 'mission_accomplished' | 'mission_failed' | 'nuke_ready' | 'nuke_launched' | 'nuke_warning'
   | 'iron_curtain_ready' | 'chrono_ready' | 'building_captured' | 'reinforcements' | 'primary_selected'
-  | 'enemy_destroyed';
+  | 'enemy_destroyed' | 'unit_promoted';
 
 export type VoiceKind = 'infantry' | 'vehicle' | 'dog' | 'tanya' | 'engineer' | 'medic' | 'harvester' | 'aircraft';
 export type ResponseKind = 'select' | 'move' | 'attack';

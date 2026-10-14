@@ -38,6 +38,7 @@ export const ANNOUNCER_TEXT: Record<AnnouncerKey, string> = {
   reinforcements: 'Reinforcements have arrived.',
   primary_selected: 'Primary building selected.',
   enemy_destroyed: 'Enemy destroyed.',
+  unit_promoted: 'Unit promoted.',
 };
 
 /** Minimum ms between two announcements of the same key. */

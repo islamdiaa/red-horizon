@@ -35,6 +35,9 @@ export abstract class Entity {
   lastFireTick = -99999;
   lastFireMuzzle = 0;
   kills = 0;
+  /** Veterancy: experience (credits worth destroyed) and rank 0 = rookie, 1 = veteran, 2 = elite. */
+  xp = 0;
+  rank = 0;
   scanTimer = 0;
   abstract readonly kind: 'infantry' | 'vehicle' | 'aircraft' | 'building';
   abstract readonly type: TypeDef;

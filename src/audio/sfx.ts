@@ -776,6 +776,17 @@ export const RECIPES: Record<AnyKey, Recipe> = {
     },
   },
 
+  promote: {
+    dur: 1.4, peak: -9, vars: 1, maxVoices: 2,
+    build(s, t) {
+      // rising three-note fanfare chime
+      const dry = bus(s, 'room', 0.3);
+      chime(s, dry, t, 987.8, 0.2, 0.5);
+      chime(s, dry, t + 0.1, 1318.5, 0.22, 0.5);
+      chime(s, dry, t + 0.2, 1975.5, 0.35, 0.55);
+    },
+  },
+
   // ---------------------------------------------------------------- internal
   _chirp: {
     dur: 0.2, peak: -16, vars: 1, maxVoices: 1,
