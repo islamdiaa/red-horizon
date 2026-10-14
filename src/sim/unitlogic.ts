@@ -94,8 +94,13 @@ function idle(world: World, u: Unit) {
     return;
   }
   if (u.ut.harvester) {
-    // idle harvesters go back to work after a while
-    if (world.tick % (TICK_HZ * 4) === 0 && !u.moving && !u.owner.isHuman) world.setOrder(u, { type: 'harvest' });
+    // idle harvesters go back to work after a while (players get a longer grace period)
+    u.waitTimer += DT;
+    if (u.waitTimer > (u.owner.isHuman ? 8 : 4) && !u.moving && !u.path) {
+      u.waitTimer = 0;
+      u.hstate = u.cargo >= 28 ? 'toRefinery' : 'seek';
+      world.setOrder(u, { type: 'harvest' });
+    }
     return;
   }
   if (u.ut.medic) {

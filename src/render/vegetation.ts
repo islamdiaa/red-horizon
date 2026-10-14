@@ -205,7 +205,7 @@ export class Vegetation {
         const x = cx + 0.5 + (hash2(cx, cy, 1) - 0.5) * 0.4;
         const y = cy + 0.5 + (hash2(cx, cy, 2) - 0.5) * 0.4;
         const z = heightAt(x, y) - 0.03;
-        const sc = 0.85 + hash2(cx, cy, 3) * 0.5;
+        const sc = (0.85 + hash2(cx, cy, 3) * 0.5) * 0.8;
         dummy.position.set(x, z, y);
         dummy.rotation.set((hash2(cx, cy, 6) - 0.5) * 0.12, hash2(cx, cy, 4) * Math.PI * 2, (hash2(cx, cy, 7) - 0.5) * 0.12);
         dummy.scale.set(sc, sc * (0.9 + hash2(cx, cy, 5) * 0.25), sc);

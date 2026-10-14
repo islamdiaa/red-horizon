@@ -527,6 +527,7 @@ export class World {
       this.releaseDock(u);
     }
     if (o.type === 'move') { u.guardX = o.x; u.guardY = o.y; }
+    u.waitTimer = 0;
   }
 
   releaseDock(u: Unit) {

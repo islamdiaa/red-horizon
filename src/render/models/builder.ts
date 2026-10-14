@@ -391,6 +391,8 @@ interface SkinT {
   geo: THREE.BufferGeometry;
   inverses: THREE.Matrix4[];
   sphere: THREE.Sphere;
+  /** Only the root bone carries geometry: render as a plain (non-skinned) Mesh. */
+  rigid: boolean;
 }
 
 export interface ModelTemplate {
@@ -495,7 +497,12 @@ export function makeTemplate(spec: TemplateSpec): ModelTemplate {
     geo.computeBoundingBox();
     const sphere = geo.boundingSphere!.clone();
     sphere.radius *= 1.15;
-    skin = { geo, inverses, sphere };
+    const rigid = boneCount === 1;
+    if (rigid) {
+      geo.deleteAttribute('skinIndex');
+      geo.deleteAttribute('skinWeight');
+    }
+    skin = { geo, inverses, sphere, rigid };
   }
 
   return {
@@ -629,13 +636,20 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
   const top = buildNode(tpl.root, ctx, bones);
   root.add(top);
   if (tpl.skin) {
-    const mesh = new THREE.SkinnedMesh(tpl.skin.geo, bodyMaterial(ctx.team, 0, true));
+    const mat = bodyMaterial(ctx.team, 0, true);
+    let mesh: THREE.Mesh;
+    if (tpl.skin.rigid) {
+      mesh = new THREE.Mesh(tpl.skin.geo, mat);
+    } else {
+      const sk = new THREE.SkinnedMesh(tpl.skin.geo, mat);
+      sk.boundingSphere = tpl.skin.sphere;
+      sk.bind(new THREE.Skeleton(bones, tpl.skin.inverses), IDENTITY);
+      mesh = sk;
+    }
     mesh.name = 'body';
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.boundingSphere = tpl.skin.sphere;
     root.add(mesh);
-    mesh.bind(new THREE.Skeleton(bones, tpl.skin.inverses), IDENTITY);
     ctx.bodies.push(mesh);
   }
   tpl.init?.(ctx);
