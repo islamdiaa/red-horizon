@@ -528,7 +528,7 @@ export class InputController {
     this.keyCommand(k);
   }
 
-  keyCommand(k: string) {
+  keyCommand(k: string, fromButton = false) {
     const { local } = this.h;
     const units = this.ownSelectedUnits();
     const ids = units.map((u) => u.id);
@@ -550,7 +550,8 @@ export class InputController {
         if (ids.length) this.h.issue({ c: 'deploy', player: local.id, units: ids });
         break;
       case 'z':
-        if (blds.length === 1 && blds[0].alive) this.h.issue({ c: 'sell', player: local.id, building: blds[0].id });
+        // the hotkey only arms sell mode (avoids accidental sales); the panel button sells directly
+        if (fromButton && blds.length === 1 && blds[0].alive) this.h.issue({ c: 'sell', player: local.id, building: blds[0].id });
         else this.setMode(this.mode === 'sell' ? 'normal' : 'sell');
         break;
       case 'r':

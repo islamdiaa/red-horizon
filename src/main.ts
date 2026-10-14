@@ -19,7 +19,12 @@ const loadingBar = loading.querySelector('.bar div') as HTMLElement;
 const loadingLabel = loading.querySelector('.label') as HTMLElement;
 
 // Web Audio needs a user gesture.
-const unlock = () => { audio.unlock().catch(() => {}); };
+const unlock = () => {
+  audio.unlock().then(() => {
+    // calm menu music behind the title screen
+    if (!game || game.setup.demo) { audio.startMusic(); audio.setMusicIntensity(0); }
+  }).catch(() => {});
+};
 window.addEventListener('pointerdown', unlock, { once: true });
 window.addEventListener('keydown', unlock, { once: true });
 

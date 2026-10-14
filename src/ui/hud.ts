@@ -27,7 +27,7 @@ export interface HudHost {
   openPauseMenu(): void;
   setSpeed(s: number): void;
   getSpeed(): number;
-  keyCommand(key: string): void;
+  keyCommand(key: string, fromButton?: boolean): void;
   stats?(): string;
 }
 
@@ -453,7 +453,7 @@ export class Hud {
     const add = (icon: string, key: string, title: string) => {
       const b = el('button', 'cmd', `${icon}<small>${key}</small>`);
       b.title = `${title} (${key})`;
-      b.onclick = () => this.host.keyCommand(key.toLowerCase());
+      b.onclick = () => this.host.keyCommand(key.toLowerCase(), true);
       box.appendChild(b);
     };
     const units = ents.filter((e): e is Unit => e instanceof Unit);

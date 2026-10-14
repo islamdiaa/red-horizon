@@ -81,6 +81,7 @@ export class Game {
   private minimapT = 0;
   private harvestSfxT = 0;
   private endTimer = -1;
+  private lastDeath: [number, number] | null = null;
   private demoCam = { angle: 0, tx: 0, ty: 0, retarget: 0 };
   private canvas: HTMLCanvasElement;
 
@@ -155,7 +156,7 @@ export class Game {
         openPauseMenu: () => this.pause(),
         setSpeed: (s) => { this.speed = s; },
         getSpeed: () => this.speed,
-        keyCommand: (k) => this.input?.keyCommand(k),
+        keyCommand: (k, b) => this.input?.keyCommand(k, b),
         stats: () => `${this.gfx.stats.calls} calls · ${(this.gfx.stats.tris / 1000).toFixed(0)}k tris`,
       });
       const game = this;
@@ -235,6 +236,7 @@ export class Game {
 
   resume() {
     this.paused = false;
+    if (this.world.gameOver && this.speed < 1) this.speed = 1;
     this.last = performance.now();
   }
 
@@ -351,7 +353,7 @@ export class Game {
         case 'death': {
           const e = world.getEntity(ev.id);
           if (ev.how === 'sold' || fog.visibilityAt(ev.x, ev.y) < 0.2) break;
-          if (e instanceof Building) this.audio.play('expl_building', { x: ev.x, y: ev.y });
+          if (e instanceof Building) { this.audio.play('expl_building', { x: ev.x, y: ev.y }); this.lastDeath = [ev.x, ev.y]; }
           else if (e instanceof Unit && e.kind === 'infantry') {
             const key: SfxKey = ev.how === 'burn' ? 'inf_burn' : ev.how === 'electro' ? 'inf_electro' : ev.how === 'crushed' ? 'crush' : world.rng.chance(0.4) ? 'inf_scream' : 'inf_die';
             this.audio.play(key, { x: ev.x, y: ev.y });
@@ -410,7 +412,12 @@ export class Game {
           if (!demo) {
             const won = world.winnerTeam === this.local.team;
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
-            this.endTimer = 3.5;
+            this.endTimer = 4;
+            // slow-motion sweep to the final explosion
+            this.speed = 0.35;
+            if (this.lastDeath) this.gfx.cam.flyToPoint(this.lastDeath[0], this.lastDeath[1]);
+            this.gfx.cam.targetDist = 16;
+            this.input?.setMode('normal');
           } else {
             this.endTimer = -1;
           }
