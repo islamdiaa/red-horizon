@@ -87,12 +87,13 @@ function snowCover(g: THREE.BufferGeometry, amount: number): THREE.BufferGeometr
   return g;
 }
 
-/** Recolour broadleaf foliage (desert scrub: dusty olive). */
-function tintFoliage(g: THREE.BufferGeometry, r: number, gg: number, b: number): THREE.BufferGeometry {
+/** Recolour foliage towards a target colour, keeping some of the original shading variation. */
+function tintFoliage(g: THREE.BufferGeometry, r: number, gg: number, b: number, minY = 0.55): THREE.BufferGeometry {
   const c = g.attributes.color, p = g.attributes.position;
   for (let i = 0; i < c.count; i++) {
-    if (p.getY(i) < 0.55) continue;
-    c.setXYZ(i, c.getX(i) * r, c.getY(i) * gg, c.getZ(i) * b);
+    if (p.getY(i) < minY) continue;
+    const v = 0.75 + (c.getY(i) / 0.25) * 0.25;
+    c.setXYZ(i, r * v, gg * v, b * v);
   }
   return g;
 }
@@ -216,7 +217,7 @@ export class Vegetation {
     // ---- trees -------------------------------------------------------------
     let treeGeos = [pineGeometry(1, 1.0), pineGeometry(2, 1.25), broadleafGeometry(3), broadleafGeometry(4)];
     if (climate === 'winter') treeGeos = [snowCover(pineGeometry(1, 1.0), 0.85), snowCover(pineGeometry(2, 1.25), 0.8), snowCover(pineGeometry(5, 1.1), 0.9), snowCover(pineGeometry(6, 0.9), 0.75)];
-    else if (climate === 'desert') treeGeos = [tintFoliage(broadleafGeometry(3), 3.4, 1.35, 0.75), tintFoliage(broadleafGeometry(4), 3.8, 1.4, 0.7), tintFoliage(pineGeometry(7, 0.8), 2.6, 1.2, 0.7), tintFoliage(broadleafGeometry(8), 4.2, 1.45, 0.65)];
+    else if (climate === 'desert') treeGeos = [tintFoliage(broadleafGeometry(3), 0.17, 0.17, 0.08), tintFoliage(broadleafGeometry(4), 0.2, 0.18, 0.09), tintFoliage(pineGeometry(7, 0.8), 0.12, 0.14, 0.07, 0.4), tintFoliage(broadleafGeometry(8), 0.23, 0.2, 0.1)];
     const treeMat = windMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }, this.uTime, 0.04, 0.35, 'tree');
     this.treeGeos = treeGeos;
     this.treeMat = treeMat;
@@ -296,7 +297,7 @@ export class Vegetation {
     if (bushItems.length) {
       let bushGeo = bushGeometry(5);
       if (climate === 'winter') bushGeo = snowCover(bushGeo, 0.7);
-      else if (climate === 'desert') bushGeo = tintFoliage(bushGeo, 3.2, 1.3, 0.7);
+      else if (climate === 'desert') bushGeo = tintFoliage(bushGeo, 0.2, 0.18, 0.09, -1);
       const ch = new ChunkedInstances(this.group, bushGeo, windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true);
       bushItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), ...ch.ref(k)));
     }

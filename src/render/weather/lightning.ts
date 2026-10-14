@@ -160,7 +160,7 @@ export class Lightning {
       uRes: { value: res },
       uCore: { value: new THREE.Color(6.0, 6.5, 8.5) },
       uGlow: { value: new THREE.Color(0.55, 0.62, 1.35) },
-      uCloud: { value: new THREE.Color(0.45, 0.5, 0.78) },
+      uCloud: { value: new THREE.Color(0.85, 0.92, 1.4) },
     };
     this.material = new THREE.ShaderMaterial({
       name: 'weather-lightning',
@@ -332,7 +332,7 @@ export class Lightning {
     }
     let cloudEnv = 0;
     if (this.cloudAge < 1.5) {
-      cloudEnv = Math.min(1.3, Lightning.env(this.cloudStrokes, this.nCloud, this.cloudAge, 11)) * this.cloudIntensity;
+      cloudEnv = Math.min(1.3, Lightning.env(this.cloudStrokes, this.nCloud, this.cloudAge, 8)) * this.cloudIntensity;
       flash = Math.max(flash, Math.min(1, Lightning.env(this.cloudStrokes, this.nCloud, this.cloudAge, 6)) * this.cloudIntensity);
     }
     this.uniforms.uBoltEnv.value = boltEnv;

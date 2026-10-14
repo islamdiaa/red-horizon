@@ -19,6 +19,7 @@ import { Rubble } from './render/rubble';
 import { AmbientLife } from './render/ambientlife';
 import { WallRenderer } from './render/walls';
 import { TargetReticle } from './render/reticle';
+import { randomWeatherSequence, type WeatherKind, type WeatherStep } from './render/weather';
 import type { EmitterHandle } from './render/effects/types';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
@@ -84,6 +85,9 @@ export class Game {
   life: AmbientLife;
   walls: WallRenderer;
   reticle: TargetReticle;
+  private wxSeq: WeatherStep[] | null = null;
+  private wxIdx = 0;
+  private wxTimer = 0;
   private timedEmitters: { h: EmitterHandle; until: number }[] = [];
   hud: Hud | null = null;
   input: InputController | null = null;
@@ -158,6 +162,19 @@ export class Game {
     this.gfx.scene.add(this.walls.group);
     this.reticle = new TargetReticle(map);
     this.gfx.scene.add(this.reticle.mesh);
+    // weather: a natural sequence for the climate, or a fixed kind
+    const wx = setup.weather ?? 'auto';
+    if (wx === 'auto') {
+      this.wxSeq = randomWeatherSequence(setup.seed, climate, 7200);
+      this.gfx.weather.set(this.wxSeq[0].kind, 0);
+    } else {
+      this.gfx.weather.set(wx as WeatherKind, 0);
+    }
+    this.gfx.weather.onLightning = (intensity, pos, cloud) => {
+      const d = Math.hypot(pos.x - this.gfx.cam.x, pos.z - this.gfx.cam.y);
+      const a = this.audio as unknown as { thunder?: (dist: number, i: number) => void };
+      window.setTimeout(() => a.thunder?.(d, intensity * (cloud ? 0.6 : 1)), Math.min(3500, d * 22));
+    };
     this.gfx.scene.add(this.life.group);
     this.gfx.scene.add(this.crates.group);
     this.lightPools = new LightPools(this.world, this.ents);
@@ -335,6 +352,16 @@ export class Game {
     }
     this.gfx.setTimeOfDay(this.hours);
     this.effects.setSunDirection?.(this.gfx.sunDir);
+    if (this.wxSeq && !this.paused) {
+      this.wxTimer += dt * this.speed;
+      const cur = this.wxSeq[this.wxIdx];
+      if (cur && this.wxTimer > cur.duration && this.wxIdx + 1 < this.wxSeq.length) {
+        this.wxTimer = 0;
+        const next = this.wxSeq[++this.wxIdx];
+        this.gfx.weather.set(next.kind, next.fade);
+      }
+    }
+    this.effects.setWind?.(this.gfx.weather.wind.x, this.gfx.weather.wind.y);
     if (this.lightPools) {
       this.lightPools.mesh.visible = this.gfx.night > 0.05;
       if (this.lightPools.mesh.visible) this.lightPools.update(this.alpha, this.time, this.gfx.night);

@@ -33,21 +33,21 @@ export function randomWeatherSequence(seed: number, climate: Climate = 'temperat
   while (total < totalSeconds) {
     const r = rng.next();
     if (climate === 'winter') {
-      if (r < 0.42) push('snow', 150, 330, 30);
-      else if (r < 0.6) push('fog', 100, 220, 25);
-      else if (r < 0.7) rainSpell(0.15);
-      push('clear', 150, 360, 25);
+      if (r < 0.45) push('snow', 150, 330, 30);
+      else if (r < 0.65) push('fog', 100, 220, 25);
+      else if (r < 0.73) rainSpell(0.15);
+      push('clear', 140, 330, 25);
     } else if (climate === 'desert') {
-      if (r < 0.32) push('dust', 70, 170, 18);
-      else if (r < 0.39) rainSpell(0.45);
-      else if (r < 0.42) push('fog', 70, 140, 25);
-      push('clear', 220, 480, 25);
+      if (r < 0.42) push('dust', 70, 170, 18);
+      else if (r < 0.49) rainSpell(0.45);
+      else if (r < 0.52) push('fog', 70, 140, 25);
+      push('clear', 180, 400, 25);
     } else {
-      if (r < 0.42) rainSpell(0.42);
-      else if (r < 0.54) push('fog', 90, 200, 25);
-      else if (r < 0.575) push('snow', 100, 200, 30);
-      else if (r < 0.59) push('dust', 60, 120, 20);
-      push('clear', 180, 420, 25);
+      if (r < 0.45) rainSpell(0.45);
+      else if (r < 0.58) push('fog', 90, 200, 25);
+      else if (r < 0.615) push('snow', 100, 200, 30);
+      else if (r < 0.63) push('dust', 60, 120, 20);
+      push('clear', 150, 360, 25);
     }
   }
   return out;

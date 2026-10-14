@@ -107,7 +107,7 @@ export class Weather {
    */
   onLightning?: (intensity: number, pos: THREE.Vector3, cloud?: boolean) => void;
   /** Uniforms for patchMaterialForWeather() / custom shaders; updated every frame. */
-  readonly surfaceUniforms: WeatherSurfaceUniforms = { uWxWet: { value: 0 }, uWxSnow: { value: 0 } };
+  readonly surfaceUniforms: WeatherSurfaceUniforms = { uWxWet: { value: 0 }, uWxSnow: { value: 0 }, uWxSky: { value: new THREE.Color() } };
   /** Current eased blend weight of each kind (sums to 1). */
   readonly weights: Record<WeatherKind, number> = { clear: 1, rain: 0, storm: 0, snow: 0, fog: 0, dust: 0 };
   /** Effect intensities 0..1, handy for ambience audio (rain loop volume, wind howl, …). */
@@ -322,6 +322,7 @@ export class Weather {
     const lum = 0.2126 * L.r + 0.7152 * L.g + 0.0722 * L.b;
     this.hazeLight.setRGB(L.r * 0.6 + lum * 0.4, L.g * 0.6 + lum * 0.4, L.b * 0.6 + lum * 0.4);
     this.hazeColorLit.copy(this.hazeColor).multiply(this.hazeLight);
+    this.surfaceUniforms.uWxSky.value.copy(this.hazeLight).multiplyScalar(0.05 + 0.05 * overcast + 0.06 * this.flash);
     this.renderer.getDrawingBufferSize(this.res);
 
     // --- camera frame ---------------------------------------------------------------------
@@ -341,6 +342,9 @@ export class Weather {
     this.lastD = D;
     const camH = Math.max(2, this.camPos.y - gy);
     const flash = this.flash;
+    // keep particles readable when zoomed out: grow them a little with camera distance
+    const zs = Math.max(0.6, D / 26);
+    const zw = Math.pow(zs, 0.75), zl = Math.pow(zs, 0.5);
     let draws = 0, parts = 0;
 
     // --- rain -----------------------------------------------------------------------------
@@ -353,6 +357,8 @@ export class Weather {
       u.uVel.value.copy(this.vel);
       u.uNear.value.set(D * 0.26, D * 0.5);
       u.uTime.value = clock;
+      u.uWidth.value = 0.022 * zw;
+      u.uStreak.value = 0.036 * zl;
       u.uColor.value.copy(L).multiplyScalar(0.55).add(this.tmpC.setRGB(0.035, 0.045, 0.065)).add(this.tmpC.setRGB(1.6, 1.7, 2.0).multiplyScalar(flash));
       draws++; parts += this.rain.geometry.instanceCount;
     }
@@ -365,6 +371,7 @@ export class Weather {
       this.splash.setFrame(this.vBase, this.vA, this.vB);
       const u = this.splash.uniforms;
       u.uTime.value = clock;
+      u.uSize.value.set(0.17 * zw, 0.3 * zw, 0.13 * zw);
       u.uColor.value.copy(L).multiplyScalar(0.7).add(this.tmpC.setRGB(0.04, 0.05, 0.07)).add(this.tmpC.setRGB(1.2, 1.3, 1.6).multiplyScalar(flash));
       draws++; parts += this.splash.geometry.instanceCount;
     }
@@ -378,6 +385,7 @@ export class Weather {
       u.uVel.value.copy(this.vel);
       u.uNear.value.set(D * 0.2, D * 0.42);
       u.uTime.value = clock;
+      u.uWidth.value = 0.085 * zw;
       u.uColor.value.copy(L).multiplyScalar(0.95).add(this.tmpC.setRGB(0.06, 0.065, 0.085)).add(this.tmpC.setRGB(1.0, 1.05, 1.2).multiplyScalar(flash));
       draws++; parts += this.snowFx.geometry.instanceCount;
     }
@@ -391,6 +399,8 @@ export class Weather {
       u.uVel.value.copy(this.vel);
       u.uNear.value.set(D * 0.3, D * 0.55);
       u.uTime.value = clock;
+      u.uWidth.value = 0.02 * zw;
+      u.uStreak.value = 0.05 * zl;
       u.uColor.value.setRGB(srgb(0.88), srgb(0.72), srgb(0.5)).multiply(L).multiplyScalar(0.9).add(this.tmpC.setRGB(0.03, 0.022, 0.012));
       draws++; parts += this.grit.geometry.instanceCount;
     }
@@ -535,12 +545,16 @@ export class Weather {
 
   private doCloud(intensity: number): void {
     const R = this.lastR, rng = this.rng;
-    const camH = Math.max(2, this.camPos.y - this.focus.y);
-    const x = this.focus.x + rng.spread(R * 1.1);
-    const z = this.focus.z - R * rng.range(0.1, 0.9);
-    const y = this.focus.y + camH * rng.range(0.35, 0.6);
-    this.bolt.cloudFlash(x, y, z, R * rng.range(0.6, 1.0), intensity, rng);
-    this.onLightning?.(intensity * 0.6, new THREE.Vector3(x, y + 20, z), true);
+    // a point on the line of sight to a visible ground spot, part-way up to the camera: always on
+    // screen, glowing "in the clouds" between the camera and the battlefield
+    const gx = this.focus.x + rng.spread(R * 0.75);
+    const gz = this.focus.z - R * 0.7 + rng.next() * R * 0.9;
+    const f = rng.range(0.3, 0.5);
+    const x = gx + (this.camPos.x - gx) * f;
+    const y = this.focus.y + (this.camPos.y - this.focus.y) * f;
+    const z = gz + (this.camPos.z - gz) * f;
+    this.bolt.cloudFlash(x, y, z, R * rng.range(0.45, 0.75), intensity, rng);
+    this.onLightning?.(intensity * 0.6, new THREE.Vector3(gx, y + 25, gz), true);
   }
 
   dispose(): void {

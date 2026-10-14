@@ -8,12 +8,15 @@ import * as THREE from 'three';
 export interface WeatherSurfaceUniforms {
   uWxWet: { value: number };
   uWxSnow: { value: number };
+  /** Sky light reflected by puddles (linear RGB, already scaled by the scene light). */
+  uWxSky: { value: THREE.Color };
 }
 
 /** GLSL: declarations for the fragment shader (needs world position + world normal varyings). */
 export const WEATHER_SURFACE_DECL = /* glsl */ `
 uniform float uWxWet;
 uniform float uWxSnow;
+uniform vec3 uWxSky;
 float wx_vh(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float wx_vnoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -24,7 +27,7 @@ float wx_vnoise(vec2 p) {
 
 /**
  * GLSL: apply wetness + snow. Expects `wxPos` (world position) and `wxNrm` (world normal) in scope and
- * modifies `diffuseColor.rgb` and `roughnessFactor` (insert after <roughnessmap_fragment>).
+ * modifies `diffuseColor.rgb`, `roughnessFactor` and `totalEmissiveRadiance` (insert after <roughnessmap_fragment>).
  */
 export const WEATHER_SURFACE_APPLY = /* glsl */ `
 {
@@ -37,10 +40,11 @@ export const WEATHER_SURFACE_APPLY = /* glsl */ `
   float wxCover = smoothstep(0.45, 0.8, wxUp - (1.0 - uWxSnow) * 0.15) * max(wxDust, wxDrift);
   // wet: darker and glossier; flat spots collect puddles
   float wxWet = uWxWet * (1.0 - wxCover);
-  float wxPud = wxWet * smoothstep(0.6, 0.66, wx_vnoise(wxPos.xz * 0.45) * 0.72 + wxN * 0.28 + uWxWet * 0.1) * smoothstep(0.93, 0.99, wxUp);
-  diffuseColor.rgb *= 1.0 - 0.4 * wxWet - 0.25 * wxPud;
+  float wxPud = wxWet * smoothstep(0.8, 0.84, wx_vnoise(wxPos.xz * 1.1 + 7.3) * 0.7 + wx_vnoise(wxPos.xz * 3.7) * 0.3 + uWxWet * 0.06) * smoothstep(0.93, 0.99, wxUp);
+  diffuseColor.rgb *= 1.0 - 0.38 * wxWet - 0.3 * wxPud;
+  totalEmissiveRadiance += uWxSky * wxPud;   // puddles mirror the (overcast) sky
   roughnessFactor = mix(roughnessFactor, min(roughnessFactor, 0.38), wxWet);
-  roughnessFactor = mix(roughnessFactor, 0.05, wxPud);
+  roughnessFactor = mix(roughnessFactor, 0.2, wxPud);   // not mirror-sharp: env maps are often studio-like
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.84, 0.9), wxCover);
   roughnessFactor = mix(roughnessFactor, 0.72, wxCover);
 }

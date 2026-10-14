@@ -15,6 +15,8 @@ import { Water } from './water';
 import { Vegetation } from './vegetation';
 import { OreRenderer } from './ore';
 import { FogOfWar, FogPass } from './fog';
+import { Weather } from './weather';
+import { WATER_LEVEL } from '../sim/map';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
@@ -198,6 +200,9 @@ export class GameRenderer {
   readonly ore: OreRenderer;
   readonly fog: FogOfWar;
   readonly fogPass: FogPass;
+  readonly weather: Weather;
+  private baseFogDensity = 0.0042;
+  private hazeBase = new THREE.Color();
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private grade: ShaderPass;
@@ -274,6 +279,11 @@ export class GameRenderer {
     this.ore = new OreRenderer(map, hFn);
     this.scene.add(this.ore.group);
     this.cam.heightAt = (x, y) => map.heightAt(x, y);
+    this.weather = new Weather({
+      scene: this.scene, camera: this.cam.camera, renderer: this.renderer,
+      getHeight: (x, z) => this.terrain.renderHeight(x, z), mapW: map.w, mapH: map.h, waterLevel: WATER_LEVEL,
+      quality: q === 'high' ? 1 : q === 'medium' ? 0.6 : 0.3, seed: map.seed,
+    });
 
     // post-processing
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -356,7 +366,9 @@ export class GameRenderer {
   }
 
   /** Blend lighting, sun position, haze and grading for a time of day (hours 0..24). */
+  private todFresh = false;
   setTimeOfDay(hours: number) {
+    this.todFresh = true;
     hours = ((hours % 24) + 24) % 24;
     this.hours = hours;
     let i = 0;
@@ -403,6 +415,25 @@ export class GameRenderer {
     this.water.material.uniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(0.6 + 0.4 * (1 - this.night));
   }
 
+  /** Weather on top of the time-of-day lighting (call after setTimeOfDay each frame). */
+  private applyWeather(dt: number, time: number) {
+    const w = this.weather;
+    w.update(dt, time, this.cam.x, this.cam.y, this.cam.viewRadius);
+    const oc = w.overcast;
+    this.sun.intensity *= 1 - 0.72 * oc;
+    this.hemi.color.lerp(_ca.setRGB(0.42, 0.45, 0.5), oc * 0.45);
+    this.hemi.intensity = this.hemi.intensity * (1 - 0.25 * oc) + w.flash * 1.6;
+    this.scene.environmentIntensity = this.scene.environmentIntensity * (1 - 0.3 * oc) + w.flash * 0.2;
+    this.terrain.uniforms.uWet.value = w.wetness;
+    this.terrain.uniforms.uSnow.value = w.snow;
+    // distance haze: time-of-day haze blended towards the weather's lit haze colour
+    const fog = this.scene.fog as THREE.FogExp2;
+    this.hazeBase.copy(fog.color);
+    fog.color.lerp(w.hazeColorLit, Math.min(1, w.haze * 1.2));
+    (this.scene.background as THREE.Color).copy(fog.color);
+    fog.density = this.baseFogDensity + w.haze * 0.016;
+  }
+
   /** Keep the sun's shadow frustum tight around what the camera sees. */
   private updateShadowFrustum() {
     const c = this.cam;
@@ -422,6 +453,10 @@ export class GameRenderer {
 
   render(dt: number, time: number) {
     this.cam.update(dt);
+    // weather modulates the time-of-day lighting, so start from fresh base values every frame
+    if (!this.todFresh) this.setTimeOfDay(this.hours);
+    this.todFresh = false;
+    this.applyWeather(dt, time);
     this.updateShadowFrustum();
     this.terrain.uniforms.uTime.value = time;
     this.water.update(time);
@@ -444,6 +479,7 @@ export class GameRenderer {
 
   dispose() {
     window.removeEventListener('resize', this.onResize);
+    this.weather.dispose();
     this.composer.dispose();
     this.renderer.dispose();
   }

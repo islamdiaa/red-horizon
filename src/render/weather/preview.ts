@@ -5,8 +5,8 @@
  *   w=clear|rain|storm|snow|fog|dust   weather (default rain)
  *   from=KIND&at=S&fade=S              start with KIND, cross-fade to w at sim time `at` (default 2) over `fade` s
  *   tod=day|dusk|night                 lighting preset (same values as the game renderer)
- *   t=SECONDS                          fast-forward the simulation (fixed 1/30 steps); add pause=1 to freeze there
- *   strike=S[,S…]                      force a lightning strike at these sim times;  cloud=S[,S…] cloud flashes
+ *   t=SECONDS                          fast-forward the simulation (fixed 1/30 steps, default 30); add pause=1 to freeze there
+ *   strike=S[,S…]                      force a lightning strike at these sim times (spos=x,z to place it);  cloud=S[,S…] cloud flashes
  *   dist=N                             camera distance (default 26), cx/cz focus point
  *   q=0.2..1                           particle quality, seed=N
  *   bench=1                            CPU benchmark of Weather.update() (results via console.warn)
@@ -28,11 +28,12 @@ const from = params.get('from') as WeatherKind | null;
 const fadeAt = parseFloat(params.get('at') ?? '2');
 const fade = parseFloat(params.get('fade') ?? '8');
 const tod = (params.get('tod') ?? 'day') as 'day' | 'dusk' | 'night';
-const tTarget = parseFloat(params.get('t') ?? '0');
+const tTarget = parseFloat(params.get('t') ?? '30');
 const pause = params.get('pause') === '1';
 const listParam = (k: string) => (params.get(k) ?? '').split(',').filter((s) => s !== '').map(Number);
 const strikes = listParam('strike');
 const clouds = listParam('cloud');
+const spos = listParam('spos');
 let dist = parseFloat(params.get('dist') ?? '26');
 const bench = params.get('bench') === '1';
 const showHud = params.get('hud') !== '0';
@@ -251,7 +252,7 @@ function applyWeatherToScene(): void {
   hemi.groundColor.copy(baseGround);
   // lightning: add the flash to the sky light (bluish-white)
   hemi.intensity = preset.hemiIntensity * (1 - 0.25 * w.overcast) + w.flash * 1.6;
-  scene.environmentIntensity = preset.env * (1 - 0.3 * w.overcast) + w.flash * 0.5;
+  scene.environmentIntensity = preset.env * (1 - 0.3 * w.overcast) + w.flash * 0.2;
   // haze: distance fog starting a bit in front of the focus, thicker with haze
   const hz = w.haze;
   if (hz > 0.005) {
@@ -281,7 +282,7 @@ function step(dt: number): void {
     switched = true;
   }
   strikes.forEach((s, i) => {
-    if (!firedStrikes.has(i) && simTime >= s) { firedStrikes.add(i); weather.strike(); }
+    if (!firedStrikes.has(i) && simTime >= s) { firedStrikes.add(i); weather.strike(spos[0], spos[1]); }
   });
   clouds.forEach((s, i) => {
     if (!firedClouds.has(i) && simTime >= s) { firedClouds.add(i); weather.cloudFlash(0.5); }
@@ -371,9 +372,10 @@ if (bench) {
   let frames = 0, acc = 0, hudTick = 0;
   const frame = () => {
     const now = performance.now();
-    const dt = Math.min(0.1, (now - last) / 1000);
+    const real = (now - last) / 1000;
+    const dt = Math.min(0.1, real);
     last = now;
-    acc += dt;
+    acc += real;
     frames++;
     if (acc > 0.5) { fps = frames / acc; frames = 0; acc = 0; }
     if (!pause) step(dt);
