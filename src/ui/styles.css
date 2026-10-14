@@ -85,7 +85,7 @@ body.cur-pan #game-canvas { cursor: grabbing; }
 .power.low .fill { background: linear-gradient(90deg, #d4302a, #ff7a3a); box-shadow: 0 0 12px rgba(255, 70, 40, 0.6); animation: pulse 0.8s infinite alternate; }
 .power .txt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; letter-spacing: 1px; font-weight: 700; text-shadow: 0 1px 2px #000; }
 
-.radar { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid rgba(var(--accent-rgb), 0.35); background: #020406; box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8); }
+.radar { position: relative; aspect-ratio: 1; width: 100%; max-width: min(100%, 34vh); margin: 0 auto; flex-shrink: 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(var(--accent-rgb), 0.35); background: #020406; box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8); }
 .radar canvas { width: 100%; height: 100%; display: block; image-rendering: auto; cursor: crosshair; }
 .radar .offline { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; color: var(--muted); font-size: 12px; letter-spacing: 3px; pointer-events: none; }
 .radar .offline b { color: var(--danger); font-size: 14px; }
@@ -248,3 +248,10 @@ body.cur-pan #game-canvas { cursor: grabbing; }
 .mode-btn { display: flex; align-items: center; justify-content: center; }
 #topbar button { display: flex; align-items: center; gap: 6px; }
 #topbar button svg { width: 16px; height: 16px; }
+
+@media (max-height: 760px) {
+  :root { --sidebar-w: 284px; }
+  #sidebar { gap: 6px; padding: 8px; }
+  .tab { height: 30px; }
+  .credits .val { font-size: 19px; }
+}

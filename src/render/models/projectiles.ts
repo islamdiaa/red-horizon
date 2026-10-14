@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { ProjectileModelKind } from './types';
 import { NB, instantiate, makeTemplate, type ModelTemplate } from './builder';
-import { M, G, lathe, prismXY } from './parts';
+import { M, lathe, prismXY } from './parts';
 
 const NEUTRAL = new THREE.Color(0x8a8a8a);
 const cache = new Map<ProjectileModelKind, ModelTemplate>();
@@ -30,8 +30,8 @@ function fins(nb: NB, x0: number, len: number, h: number, mat = M.dark): void {
 }
 
 function flame(nb: NB, x: number, r: number, len: number): void {
-  nb.add(new THREE.ConeGeometry(r, len, 6), G.fire, { p: [x - len / 2, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
-  nb.add(new THREE.ConeGeometry(r * 0.55, len * 0.6, 5), G.white, { p: [x - len * 0.3 - 0.002, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
+  nb.add(new THREE.ConeGeometry(r, len, 6), { glow: 0xff7a20, i: 2.6 }, { p: [x - len / 2, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
+  nb.add(new THREE.ConeGeometry(r * 0.55, len * 0.6, 5), { glow: 0xfff0c0, i: 3.2 }, { p: [x - len * 0.3 - 0.002, 0, 0], r: [0, 0, Math.PI / 2], slot: 'glow' });
 }
 
 function build(kind: ProjectileModelKind): ModelTemplate {
@@ -84,8 +84,8 @@ function build(kind: ProjectileModelKind): ModelTemplate {
       break;
     }
     case 'fireball': {
-      r.sph({ glow: 0xffd070 }, 0.055, 0, 0, 0, { seg: 12 });
-      r.sph({ glow: 0xff6010, i: 0.7 }, 0.08, -0.03, 0, 0, { seg: 12, s: [1.4, 1, 1] });
+      r.sph({ glow: 0xffd070, i: 2.4 }, 0.055, 0, 0, 0, { seg: 8 });
+      r.sph({ glow: 0xff6010, i: 1.6 }, 0.08, -0.03, 0, 0, { seg: 8, s: [1.4, 1, 1] });
       r.add(new THREE.PlaneGeometry(0.4, 0.4), M.dark, { slot: 'fx:add:ff7018:2.5', keepUv: true, r: [-Math.PI / 2, 0, 0] });
       r.add(new THREE.PlaneGeometry(0.4, 0.4), M.dark, { slot: 'fx:add:ff7018:2.5', keepUv: true });
       glow = 5;

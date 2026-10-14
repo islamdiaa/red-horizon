@@ -24,16 +24,6 @@ export function animTracks(c: Ctx, s: ModelAnimState, rate = 11): void {
   c.setTrackPhase(c.v.tp);
 }
 
-/** Spin wheel axles (nodes rotating about local Z) while moving. */
-export function animWheels(c: Ctx, s: ModelAnimState, names: readonly string[], radius: number, speedCells = 2.2): void {
-  if (!s.moving) return;
-  const w = Math.min((dtOf(s) * speedCells * Math.max(0.3, s.speed)) / radius, 0.35);
-  for (let i = 0; i < names.length; i++) {
-    const n = c.n[names[i]];
-    if (n) n.rotation.z -= w;
-  }
-}
-
 /**
  * Barrel recoil: barrels[i] belongs to muzzle index i. Single-barrel models recoil on any shot.
  * Barrels slide along their parent's local -X.

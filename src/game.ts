@@ -11,6 +11,7 @@ import { EntityRenderer } from './render/entities';
 import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
+import { prewarmModels } from './render/models';
 import { LightPools } from './render/lightpools';
 import { CrateRenderer } from './render/crates';
 import { Hud } from './ui/hud';
@@ -103,6 +104,8 @@ export class Game {
     this.world = new World({ map, players, credits: setup.credits, startUnits: setup.startUnits, fog: setup.fog && !setup.demo, seed: setup.seed });
     this.local = this.world.players[0];
 
+    cb.onProgress?.(0.2, 'Assembling armies');
+    prewarmModels();
     cb.onProgress?.(0.3, 'Rendering terrain');
     const old = document.getElementById('game-canvas');
     old?.remove();
@@ -345,7 +348,7 @@ export class Game {
           if (fog.visibilityAt(ev.x, ev.y) > 0.2 || ev.kind === 'nuke') {
             this.audio.play(('expl_' + ev.kind) as SfxKey, { x: ev.x, y: ev.y });
             if (ev.kind === 'nuke') {
-              this.gfx.flash = 1.4;
+              this.gfx.flash = 0.45;
               this.effects.shake += 3;
               this.heat += 40;
             }

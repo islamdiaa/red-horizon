@@ -127,6 +127,15 @@ export class EntityRenderer {
     v.chimneys = [];
   }
 
+  /** Secondary weapons use the second pair of fire points when the model has them (Mammoth missile pods). */
+  private muzzleIndex(id: number, weaponId: string, muzzle: number): number {
+    const v = this.views.get(id);
+    if (!v) return muzzle;
+    const e = v.ent;
+    if (e instanceof Unit && e.ut.secondary === weaponId && e.ut.primary !== weaponId && v.model.muzzles.length >= 4) return 2 + (muzzle % 2);
+    return muzzle;
+  }
+
   /** World-space muzzle position of an entity (falls back to body centre). */
   muzzleWorld(id: number, muzzle: number, out: THREE.Vector3): boolean {
     const v = this.views.get(id);
@@ -230,7 +239,7 @@ export class EntityRenderer {
       v.anim.firingMuzzle = ev.muzzle;
     }
     const from = new THREE.Vector3(ev.fx, ev.fz, ev.fy);
-    this.muzzleWorld(ev.shooter, ev.muzzle, from);
+    this.muzzleWorld(ev.shooter, this.muzzleIndex(ev.shooter, ev.weapon.id, ev.muzzle), from);
     const to = new THREE.Vector3(ev.tx, ev.tz, ev.ty);
     const dir = _v2.copy(to).sub(from).normalize();
     const w = ev.weapon;
@@ -521,7 +530,8 @@ export class EntityRenderer {
         if (!visible) continue;
         const handle = this.effects.spawnProjectile(p.special === 'nuke' ? 'scud' : p.kind);
         const muzzle = new THREE.Vector3(p.sx, p.sz, p.sy);
-        const ok = this.muzzleWorld(p.shooter, 0, muzzle);
+        const shooter = this.world.getEntity(p.shooter);
+        const ok = this.muzzleWorld(p.shooter, this.muzzleIndex(p.shooter, p.weapon.id, shooter ? shooter.lastFireMuzzle : 0), muzzle);
         const offset = ok ? muzzle.sub(_v.set(p.sx, p.sz, p.sy)) : new THREE.Vector3();
         pv = { handle, offset, startDist: Math.max(0.01, Math.hypot(p.tx - p.sx, p.ty - p.sy)) };
         this.projViews.set(p.id, pv);

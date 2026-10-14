@@ -9,6 +9,12 @@ procedural audio and an adaptive soundtrack.
 Everything (models, textures, sound effects, music) is generated procedurally at runtime, so the
 game ships **zero copyrighted assets** — the whole thing is ~340 KB gzipped.
 
+| | |
+|---|---|
+| ![Allied base](docs/base.png) | ![Battle at dusk](docs/battle.png) |
+| ![Night](docs/night.png) | ![Main menu](docs/menu.png) |
+| ![Soviet armour close-up](docs/closeup.png) | ![Nuclear strike](docs/nuke.png) |
+
 ## Running it
 
 ```bash
