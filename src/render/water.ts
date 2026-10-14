@@ -7,7 +7,7 @@ export class Water {
   readonly mesh: THREE.Mesh;
   readonly material: THREE.ShaderMaterial;
 
-  constructor(map: GameMap, heightAt: (x: number, y: number) => number, sunDir: THREE.Vector3) {
+  constructor(map: GameMap, heightAt: (x: number, y: number) => number, sunDir: THREE.Vector3, frozen = false) {
     // height texture (one texel per 0.5 cell) used for depth-based shading
     const res = 2;
     const tw = map.w * res + 1, th = map.h * res + 1;
@@ -47,6 +47,7 @@ export class Water {
         uDeep: { value: new THREE.Color(0.008, 0.045, 0.075) },
         uShallow: { value: new THREE.Color(0.03, 0.16, 0.18) },
         uWaterLevel: { value: WATER_LEVEL },
+        uIce: { value: frozen ? 1 : 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vWPos;
@@ -61,6 +62,7 @@ export class Water {
         uniform vec2 uMapSize;
         uniform vec3 uSunDir, uSunColor, uSky, uHorizon, uDeep, uShallow;
         uniform float uWaterLevel;
+        uniform float uIce;
         varying vec3 vWPos;
         ${NOISE_GLSL}
         float waves(vec2 p) {
@@ -98,6 +100,17 @@ export class Water {
           foam *= smoothstep(0.25, 0.7, rh_noise(p * 6.0 + uTime * 0.3) + 0.35);
           col = mix(col, vec3(0.92, 0.95, 0.95), clamp(foam, 0.0, 1.0) * 0.85);
           float alpha = clamp(0.72 + d * 0.28 + fres * 0.3 + foam, 0.0, 0.98);
+          if (uIce > 0.5) {
+            // frozen lake: pale blue ice with cracks, snow drifts and a glossy glint
+            float cr = abs(rh_noise(p * 2.2) - 0.5);
+            float crack = smoothstep(0.03, 0.0, cr) * 0.6 + smoothstep(0.02, 0.0, abs(rh_noise(p * 5.0 + 3.0) - 0.5)) * 0.3;
+            vec3 ice = mix(vec3(0.42, 0.58, 0.68), vec3(0.72, 0.82, 0.88), smoothstep(0.0, 0.6, d) * 0.4 + rh_fbm(p * 0.8) * 0.6);
+            ice = mix(ice, vec3(0.92, 0.95, 0.98), smoothstep(0.55, 0.8, rh_fbm(p * 1.4 + 7.0)));
+            ice *= 1.0 - crack * 0.45;
+            float dif = max(dot(vec3(0.0, 1.0, 0.0), uSunDir), 0.0);
+            col = ice * (0.45 + 0.55 * dif) + uSunColor * pow(max(dot(normalize(vec3(0.0, 1.0, 0.0) + (N - vec3(0.0, 1.0, 0.0)) * 0.15), H), 0.0), 120.0) * 2.5;
+            alpha = smoothstep(-0.02, 0.04, depth);
+          }
           alpha *= smoothstep(-0.02, 0.03, depth);
           gl_FragColor = vec4(col, alpha);
         }`,

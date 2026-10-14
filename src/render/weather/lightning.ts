@@ -241,7 +241,7 @@ export class Lightning {
     // forks: thinner, dimmer channels that die out in mid-air
     const nb = 4 + Math.floor(rng.next() * 6);
     for (let b = 0; b < nb; b++) {
-      const i = Math.floor((0.08 + rng.next() * 0.7) * (n - 8));
+      const i = Math.floor((0.05 + rng.next() * 0.72) * (n - 8));
       const px = this.main[i * 3], py = this.main[i * 3 + 1], pz = this.main[i * 3 + 2];
       let dx = this.main[(i + 6) * 3] - px, dy = this.main[(i + 6) * 3 + 1] - py, dz = this.main[(i + 6) * 3 + 2] - pz;
       const dl = Math.hypot(dx, dy, dz) || 1;
@@ -266,8 +266,9 @@ export class Lightning {
     }
     // glow sprites: a soft halo in the air around the lower channel and a hot spot on the ground
     const k = Math.floor((n - 1) * 0.72);
-    this.writeQuad(0, this.main[k * 3], this.main[k * 3 + 1], this.main[k * 3 + 2], 0, 0, 0, 7.5, 0.55, 1, 0);
-    this.writeQuad(1, gx, gy + 0.06, gz, 0, 0, 0, 3.4, 1.0, 2, 0);
+    const glowR = Math.max(3, Math.min(6, Math.hypot(tx - gx, ty - gy, tz - gz) * 0.2));
+    this.writeQuad(0, this.main[k * 3], this.main[k * 3 + 1], this.main[k * 3 + 2], 0, 0, 0, glowR, 0.32, 1, 0);
+    this.writeQuad(1, gx, gy + 0.06, gz, 0, 0, 0, 3.2, 1.0, 2, 0);
     this.upload();
     this.boltAge = 0;
     this.boltIntensity = intensity;

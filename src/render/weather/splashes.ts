@@ -42,9 +42,9 @@ void main() {
   bool crown = position.z > 0.5;
   vec3 world;
   if (h < uWater - 0.02) {
-    float dur = 0.9 + 0.3 * vRnd.z;
+    float dur = 0.65 + 0.3 * vRnd.y;
     vLife = secs / dur;
-    if (crown || vLife >= 1.0 || alpha < 0.004) { ${COLLAPSE}; return; }
+    if (crown || vLife >= 1.0 || alpha < 0.004 || vRnd.z > 0.45) { ${COLLAPSE}; return; }
     vType = 1.0;
     float R = uSize.y * (0.7 + 0.6 * vRnd.x);
     world = vec3(wp.x + position.x * R, uWater + 0.015, wp.z + position.y * R);

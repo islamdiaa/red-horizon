@@ -76,6 +76,27 @@ function lumpy(g: THREE.BufferGeometry, amount: number, seed: number, flattenBot
   return m;
 }
 
+/** Whiten upward-facing foliage (snow lying on branches). */
+function snowCover(g: THREE.BufferGeometry, amount: number): THREE.BufferGeometry {
+  const n = g.attributes.normal, c = g.attributes.color, p = g.attributes.position;
+  for (let i = 0; i < n.count; i++) {
+    if (p.getY(i) < 0.4) continue; // keep trunks dark
+    const up = Math.max(0, Math.min(1, (n.getY(i) - 0.15) / 0.5)) * amount;
+    c.setXYZ(i, c.getX(i) + (0.86 - c.getX(i)) * up, c.getY(i) + (0.9 - c.getY(i)) * up, c.getZ(i) + (0.95 - c.getZ(i)) * up);
+  }
+  return g;
+}
+
+/** Recolour broadleaf foliage (desert scrub: dusty olive). */
+function tintFoliage(g: THREE.BufferGeometry, r: number, gg: number, b: number): THREE.BufferGeometry {
+  const c = g.attributes.color, p = g.attributes.position;
+  for (let i = 0; i < c.count; i++) {
+    if (p.getY(i) < 0.55) continue;
+    c.setXYZ(i, c.getX(i) * r, c.getY(i) * gg, c.getZ(i) * b);
+  }
+  return g;
+}
+
 function pineGeometry(seed: number, tall: number): THREE.BufferGeometry {
   const trunk = colorize(new THREE.CylinderGeometry(0.045, 0.075, 0.5, 6).translate(0, 0.25, 0), new THREE.Color(0.12, 0.07, 0.04), 0.2, seed);
   const parts = [trunk];
@@ -108,10 +129,10 @@ function broadleafGeometry(seed: number): THREE.BufferGeometry {
   return mergeGeometries(parts.map((p) => p.toNonIndexed()))!;
 }
 
-function boulderGeometry(seed: number): THREE.BufferGeometry {
+function boulderGeometry(seed: number, tint: [number, number, number] = [0.2, 0.19, 0.17]): THREE.BufferGeometry {
   const g = lumpy(new THREE.IcosahedronGeometry(0.5, 1), 0.55, seed, true);
   g.scale(1, 0.75, 1);
-  return colorize(g, new THREE.Color(0.2, 0.19, 0.17), 0.3, seed);
+  return colorize(g, new THREE.Color(...tint), 0.3, seed);
 }
 
 function bushGeometry(seed: number): THREE.BufferGeometry {
@@ -185,7 +206,7 @@ export class Vegetation {
   private treeGeos: THREE.BufferGeometry[] = [];
   private treeMat!: THREE.Material;
 
-  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'high') {
+  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'high', readonly climate: 'temperate' | 'winter' | 'desert' = 'temperate') {
     this.lastTreeVersion = map.treeVersion;
     this.treeState = map.tree.slice();
     const m = map;
@@ -193,7 +214,9 @@ export class Vegetation {
     const mat4 = () => { dummy.updateMatrix(); return dummy.matrix.clone(); };
 
     // ---- trees -------------------------------------------------------------
-    const treeGeos = [pineGeometry(1, 1.0), pineGeometry(2, 1.25), broadleafGeometry(3), broadleafGeometry(4)];
+    let treeGeos = [pineGeometry(1, 1.0), pineGeometry(2, 1.25), broadleafGeometry(3), broadleafGeometry(4)];
+    if (climate === 'winter') treeGeos = [snowCover(pineGeometry(1, 1.0), 0.85), snowCover(pineGeometry(2, 1.25), 0.8), snowCover(pineGeometry(5, 1.1), 0.9), snowCover(pineGeometry(6, 0.9), 0.75)];
+    else if (climate === 'desert') treeGeos = [tintFoliage(broadleafGeometry(3), 3.4, 1.35, 0.75), tintFoliage(broadleafGeometry(4), 3.8, 1.4, 0.7), tintFoliage(pineGeometry(7, 0.8), 2.6, 1.2, 0.7), tintFoliage(broadleafGeometry(8), 4.2, 1.45, 0.65)];
     const treeMat = windMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }, this.uTime, 0.04, 0.35, 'tree');
     this.treeGeos = treeGeos;
     this.treeMat = treeMat;
@@ -225,7 +248,9 @@ export class Vegetation {
     });
 
     // ---- boulders on rocky ground ------------------------------------------
-    const rockGeos = [boulderGeometry(11), boulderGeometry(12), boulderGeometry(13)];
+    const rockTint: [number, number, number] = climate === 'winter' ? [0.19, 0.2, 0.23] : climate === 'desert' ? [0.3, 0.19, 0.13] : [0.2, 0.19, 0.17];
+    let rockGeos = [boulderGeometry(11, rockTint), boulderGeometry(12, rockTint), boulderGeometry(13, rockTint)];
+    if (climate === 'winter') rockGeos = rockGeos.map((g) => snowCover(g, 0.75));
     const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
     const rockItems: Item[][] = [[], [], []];
     const addRock = (v: number, x: number, y: number, sc: number, r: number) => {
@@ -269,12 +294,16 @@ export class Vegetation {
       }
     }
     if (bushItems.length) {
-      const ch = new ChunkedInstances(this.group, bushGeometry(5), windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true);
+      let bushGeo = bushGeometry(5);
+      if (climate === 'winter') bushGeo = snowCover(bushGeo, 0.7);
+      else if (climate === 'desert') bushGeo = tintFoliage(bushGeo, 3.2, 1.3, 0.7);
+      const ch = new ChunkedInstances(this.group, bushGeo, windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true);
       bushItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), ...ch.ref(k)));
     }
 
     // ---- grass tufts ----------------------------------------------------------
-    const density = quality === 'high' ? 2.2 : 0.9;
+    const density = (quality === 'high' ? 2.2 : 0.9) * (climate === 'winter' ? 0.25 : climate === 'desert' ? 0.45 : 1);
+    const grassTint = climate === 'winter' ? [1.6, 1.35, 1.6] : climate === 'desert' ? [2.0, 1.45, 0.75] : [1, 1, 1];
     const grassItems: Item[] = [];
     const gn = new Noise2D(m.seed + 77);
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
@@ -290,7 +319,7 @@ export class Vegetation {
         const sc = 0.8 + r * 0.9;
         dummy.scale.set(sc, sc * (0.8 + hash2(cx * 7 + k, cy, 7) * 0.6), sc);
         const l2 = gn.fbm(x * 0.12, y * 0.12, 3);
-        grassItems.push({ m: mat4(), c: new THREE.Color(0.85 + l2 * 0.3 + r * 0.2, 0.9 + l2 * 0.2, 0.75 + r * 0.1), x, y });
+        grassItems.push({ m: mat4(), c: new THREE.Color((0.85 + l2 * 0.3 + r * 0.2) * grassTint[0], (0.9 + l2 * 0.2) * grassTint[1], (0.75 + r * 0.1) * grassTint[2]), x, y });
       }
     }
     if (grassItems.length) {

@@ -77,7 +77,7 @@ interface PuffLook {
 }
 const LOOK_FOG: PuffLook = { color: [0.72, 0.76, 0.82], shadow: [0.5, 0.55, 0.62], opacity: 0.4, size: 7.5, lo: 0.2, hi: 2.2, aniso: 0.3, valley: 1, shapeLo: 0.3, shapeHi: 0.85, noise: 0.045, stretch: 0.15, tilt: 0.12 };
 const LOOK_MIST: PuffLook = { color: [0.52, 0.57, 0.64], shadow: [0.36, 0.4, 0.47], opacity: 0.16, size: 9, lo: 0.3, hi: 2.4, aniso: 0.8, valley: 0.5, shapeLo: 0.44, shapeHi: 0.95, noise: 0.05, stretch: 0.4, tilt: 0.2 };
-const LOOK_DUST: PuffLook = { color: [0.86, 0.64, 0.38], shadow: [0.58, 0.4, 0.23], opacity: 0.3, size: 8.5, lo: 0.15, hi: 1.9, aniso: 1.9, valley: 0, shapeLo: 0.36, shapeHi: 0.9, noise: 0.035, stretch: 2.6, tilt: 0.25 };
+const LOOK_DUST: PuffLook = { color: [0.86, 0.64, 0.38], shadow: [0.55, 0.37, 0.2], opacity: 0.42, size: 8.5, lo: 0.1, hi: 1.5, aniso: 1.9, valley: 0, shapeLo: 0.46, shapeHi: 0.92, noise: 0.03, stretch: 4.0, tilt: 0.25 };
 const LOOK_SNOW: PuffLook = { color: [0.86, 0.89, 0.94], shadow: [0.66, 0.7, 0.78], opacity: 0.25, size: 8, lo: 0.3, hi: 2.2, aniso: 0.3, valley: 0.6, shapeLo: 0.4, shapeHi: 0.9, noise: 0.045, stretch: 0.2, tilt: 0.15 };
 
 const srgb = (c: number) => Math.pow(c, 2.2);
@@ -517,7 +517,14 @@ export class Weather {
     const ax = this.vA.set(e[4], e[5], e[6]).normalize().multiplyScalar(1.0);
     ax.y += 0.55;
     ax.addScaledVector(this.right, rng.spread(0.18)).normalize();
-    const len = Math.max(30, this.lastD * 1.7);
+    // length: just past the edge of the screen, so the forks are in view and the bolt never starts mid-air
+    let len = 6;
+    const pr = this.vB;
+    for (; len < 90; len += 1.5) {
+      pr.set(gx + ax.x * len, gy + ax.y * len, gz + ax.z * len).project(this.camera);
+      if (pr.z > 1 || Math.abs(pr.x) > 1.02 || Math.abs(pr.y) > 1.02) break;
+    }
+    len += 4;
     this.bolt.strike(gx + ax.x * len, gy + ax.y * len, gz + ax.z * len, gx, gy, gz, intensity, rng);
     this.onLightning?.(intensity, new THREE.Vector3(gx, gy, gz), false);
   }

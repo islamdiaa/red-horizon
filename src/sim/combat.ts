@@ -112,10 +112,14 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     const d = Math.hypot(u.x - e.x, u.y - e.y);
     if (d > range) return;
     if (!world.canSee(owner, u)) return;
-    if (!pickWeapon(e, u)) return;
+    const slot = pickWeapon(e, u);
+    if (!slot) return;
     let score = d;
     if (u.weapons.length) score -= 2.5; // threats first
     if (u.ut.harvester) score += 1;
+    // prefer targets our weapon is good against, and finish off the wounded (natural focus fire)
+    score -= WARHEADS[slot.def.warhead].verses[ARMOR_INDEX[u.type.armor]] * 2;
+    score -= (1 - u.healthFrac) * 2;
     if (score < bestScore) { bestScore = score; best = u; }
   });
   // structures (defences first)

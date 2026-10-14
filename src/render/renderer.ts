@@ -22,6 +22,7 @@ export type TimeOfDay = 'day' | 'dusk' | 'night';
 export interface GraphicsSettings {
   quality: Quality;
   timeOfDay: TimeOfDay;
+  climate?: 'temperate' | 'winter' | 'desert';
 }
 
 interface LightPreset {
@@ -259,14 +260,15 @@ export class GameRenderer {
     this.scene.add(this.sun.target);
 
     // world layers
-    this.terrain = new TerrainMesh(map);
+    const climate = settings.climate ?? 'temperate';
+    this.terrain = new TerrainMesh(map, climate);
     this.scene.add(this.terrain.mesh);
     this.skirt = new TerrainSkirt(map, this.terrain.mesh.material as THREE.Material);
     this.scene.add(this.skirt.mesh);
     const hFn = (x: number, y: number) => this.terrain.renderHeight(x, y);
-    this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir);
+    this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir, climate === 'winter');
     this.scene.add(this.water.mesh);
-    this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high');
+    this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high', climate);
     this.vegetation.addSceneryTrees(this.skirt.treeSpots);
     this.scene.add(this.vegetation.group);
     this.ore = new OreRenderer(map, hFn);

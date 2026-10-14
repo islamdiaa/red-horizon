@@ -108,7 +108,12 @@ export class Game {
   constructor(readonly setup: GameSetup, readonly audio: AudioSystem, private cb: GameCallbacks) {
     cb.onProgress?.(0.05, 'Generating battlefield');
     const nPlayers = 1 + setup.opponents.length;
-    const map = generateMap({ size: setup.mapSize, players: nPlayers, seed: setup.seed, water: setup.water, trees: setup.trees, ore: setup.ore });
+    const climate = (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
+    const map = generateMap({
+      size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
+      water: climate === 'desert' ? Math.min(setup.water, 0.2) : setup.water,
+      trees: climate === 'desert' ? setup.trees * 0.35 : climate === 'winter' ? Math.min(1, setup.trees * 1.2) : setup.trees,
+    });
     const rngFaction = (i: number): Faction => ((setup.seed >> i) & 1 ? 'allies' : 'soviet');
     const usedColors = new Set([setup.color]);
     const players: PlayerSetup[] = [{ name: setup.demo ? 'Allied Command' : 'Commander', faction: setup.faction, color: setup.color, team: 0, isHuman: !setup.demo, ai: setup.demo ? 'hard' : undefined }];
@@ -131,7 +136,7 @@ export class Game {
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'game-canvas';
     document.body.prepend(this.canvas);
-    this.gfx = new GameRenderer(this.canvas, map, { quality: setup.quality, timeOfDay: setup.timeOfDay });
+    this.gfx = new GameRenderer(this.canvas, map, { quality: setup.quality, timeOfDay: setup.timeOfDay, climate });
     this.gfx.fog.enabled = this.world.fog;
     this.effects = new Effects({ scene: this.gfx.scene, camera: this.gfx.cam.camera, renderer: this.gfx.renderer, getHeight: (x, z) => map.surfaceAt(x, z) });
     this.effects.setSunDirection?.(this.gfx.sunDir);

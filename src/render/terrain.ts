@@ -25,12 +25,22 @@ float rh_fbm(vec2 p) {
 
 const SUB = 2; // vertices per cell edge
 
+export type Climate = 'temperate' | 'winter' | 'desert';
+
+/** Ground palettes (sRGB) per climate: grassDark, grassLight, grassDry, sand, dirt, rockDark, rockLight. */
+const PALETTES: Record<Climate, number[][]> = {
+  temperate: [[0.22, 0.31, 0.13], [0.38, 0.46, 0.2], [0.55, 0.5, 0.3], [0.68, 0.6, 0.44], [0.47, 0.36, 0.23], [0.33, 0.31, 0.29], [0.5, 0.47, 0.43]],
+  winter: [[0.74, 0.79, 0.85], [0.88, 0.91, 0.95], [0.55, 0.58, 0.58], [0.6, 0.6, 0.6], [0.42, 0.4, 0.39], [0.36, 0.37, 0.4], [0.55, 0.57, 0.6]],
+  desert: [[0.66, 0.52, 0.33], [0.78, 0.64, 0.42], [0.5, 0.46, 0.26], [0.86, 0.73, 0.52], [0.6, 0.42, 0.27], [0.5, 0.33, 0.25], [0.68, 0.48, 0.36]],
+};
+
 export interface TerrainUniforms {
   uTime: { value: number };
   uGrid: { value: THREE.Vector4 };      // x, z, radius, strength
   uGridColor: { value: THREE.Color };
   uWet: { value: number };
   uSnow: { value: number };
+  uPal: { value: THREE.Vector3[] };
 }
 
 export class TerrainMesh {
@@ -41,7 +51,7 @@ export class TerrainMesh {
   private vw: number;
   private vh: number;
 
-  constructor(private map: GameMap) {
+  constructor(private map: GameMap, readonly climate: Climate = 'temperate') {
     const vw = map.w * SUB + 1, vh = map.h * SUB + 1;
     this.vw = vw;
     this.vh = vh;
@@ -124,6 +134,7 @@ export class TerrainMesh {
       uGridColor: { value: new THREE.Color(0.3, 1.0, 0.6) },
       uWet: { value: 0 },
       uSnow: { value: 0 },
+      uPal: { value: PALETTES[climate].map(([r, g, b]) => new THREE.Vector3(r, g, b)) },
     };
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.93, metalness: 0.0 });
     const uni = this.uniforms;
@@ -149,6 +160,7 @@ export class TerrainMesh {
           uniform vec3 uGridColor;
           uniform float uWet;
           uniform float uSnow;
+          uniform vec3 uPal[7];
           varying vec4 vSplat;
           varying vec2 vOre;
           varying vec3 vWPos;
@@ -161,17 +173,17 @@ export class TerrainMesh {
           float n2 = rh_fbm(p * 0.9 + 3.7);
           float n3 = rh_noise(p * 7.0);
           float n4 = rh_noise(p * 23.0);
-          vec3 grassDark = srgb(vec3(0.22, 0.31, 0.13));
-          vec3 grassLight = srgb(vec3(0.38, 0.46, 0.2));
-          vec3 grassDry = srgb(vec3(0.55, 0.5, 0.3));
+          vec3 grassDark = srgb(uPal[0]);
+          vec3 grassLight = srgb(uPal[1]);
+          vec3 grassDry = srgb(uPal[2]);
           vec3 grass = mix(grassDark, grassLight, smoothstep(0.3, 0.7, n1));
           grass = mix(grass, grassDry, smoothstep(0.55, 0.85, n2) * 0.55);
           grass *= 0.86 + 0.28 * n3;
           grass = mix(grass, grass * vec3(0.7, 0.8, 0.6), step(0.82, n4) * 0.5);
-          vec3 sand = srgb(vec3(0.68, 0.6, 0.44)) * (0.9 + 0.18 * n2) * (0.94 + 0.12 * n4);
-          vec3 dirt = srgb(vec3(0.47, 0.36, 0.23)) * (0.85 + 0.3 * n2) * (0.9 + 0.2 * n3);
+          vec3 sand = srgb(uPal[3]) * (0.9 + 0.18 * n2) * (0.94 + 0.12 * n4);
+          vec3 dirt = srgb(uPal[4]) * (0.85 + 0.3 * n2) * (0.9 + 0.2 * n3);
           float strata = sin(vWPos.y * 9.0 + n2 * 4.0) * 0.5 + 0.5;
-          vec3 rock = mix(srgb(vec3(0.33, 0.31, 0.29)), srgb(vec3(0.5, 0.47, 0.43)), strata * 0.6 + n3 * 0.4);
+          vec3 rock = mix(srgb(uPal[5]), srgb(uPal[6]), strata * 0.6 + n3 * 0.4);
           vec4 sp = vSplat / max(0.001, dot(vSplat, vec4(1.0)));
           // noisy blend borders
           sp.y = smoothstep(0.0, 1.0, sp.y + (n3 - 0.5) * 0.35 * sp.y * (1.0 - sp.y) * 4.0);
