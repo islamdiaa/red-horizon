@@ -182,6 +182,8 @@ export class Vegetation {
   private grassMeshes: THREE.InstancedMesh[] = [];
   private lastTreeVersion: number;
   private treeState: Uint8Array;
+  private treeGeos: THREE.BufferGeometry[] = [];
+  private treeMat!: THREE.Material;
 
   constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'high') {
     this.lastTreeVersion = map.treeVersion;
@@ -193,6 +195,8 @@ export class Vegetation {
     // ---- trees -------------------------------------------------------------
     const treeGeos = [pineGeometry(1, 1.0), pineGeometry(2, 1.25), broadleafGeometry(3), broadleafGeometry(4)];
     const treeMat = windMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }, this.uTime, 0.04, 0.35, 'tree');
+    this.treeGeos = treeGeos;
+    this.treeMat = treeMat;
     const treeCells: number[][] = [[], [], [], []];
     for (let i = 0; i < m.w * m.h; i++) if (m.tree[i]) treeCells[(m.tree[i] - 1) % 4].push(i);
     treeGeos.forEach((g, v) => {
@@ -295,6 +299,23 @@ export class Vegetation {
       grassItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), ...ch.ref(k)));
       this.grassMeshes = ch.meshes;
     }
+  }
+
+  /** Scenery trees outside the playable area (no gameplay, no shadows cast). */
+  addSceneryTrees(spots: [number, number, number][]) {
+    const lists: Item[][] = [[], [], [], []];
+    const dummy = new THREE.Object3D();
+    spots.forEach(([x, h, y], k) => {
+      const v = Math.floor(hash2(Math.floor(x * 3), Math.floor(y * 3), 5) * 4);
+      const sc = (0.8 + hash2(k, 3, 9) * 0.6) * 0.85;
+      dummy.position.set(x, h, y);
+      dummy.rotation.set(0, hash2(k, 4, 9) * 6.28, 0);
+      dummy.scale.set(sc, sc * (0.9 + hash2(k, 5, 9) * 0.3), sc);
+      dummy.updateMatrix();
+      const tint = 0.8 + hash2(k, 6, 9) * 0.3;
+      lists[v].push({ m: dummy.matrix.clone(), c: new THREE.Color(tint, tint, tint * 0.95), x, y });
+    });
+    lists.forEach((items, v) => { if (items.length) new ChunkedInstances(this.group, this.treeGeos[v], this.treeMat, items, false); });
   }
 
   private addCellRef(cell: number, mesh: THREE.InstancedMesh, index: number) {

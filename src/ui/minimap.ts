@@ -3,11 +3,11 @@ import type { Player } from '../sim/player';
 import type { World } from '../sim/world';
 
 const TERRAIN_RGB: Record<number, [number, number, number]> = {
-  [T.Clear]: [62, 86, 40],
-  [T.Water]: [20, 52, 72],
-  [T.Rock]: [92, 88, 82],
-  [T.Sand]: [150, 132, 92],
-  [T.Dirt]: [96, 76, 50],
+  [T.Clear]: [58, 84, 44],
+  [T.Water]: [16, 46, 70],
+  [T.Rock]: [96, 94, 90],
+  [T.Sand]: [146, 128, 92],
+  [T.Dirt]: [92, 74, 52],
 };
 
 export class Minimap {
@@ -21,6 +21,7 @@ export class Minimap {
   private onlineT = 0;
   private wasOnline = false;
   private dragging = false;
+  private vignette: CanvasGradient | null = null;
   pings: { x: number; y: number; t: number; color: string }[] = [];
 
   constructor(
@@ -133,42 +134,73 @@ export class Minimap {
 
     const sx = W / map.w, sy = H / map.h;
     // structures
+    // subtle vignette so the edges read as a scope
+    if (!this.vignette) {
+      this.vignette = ctx.createRadialGradient(W / 2, H / 2, W * 0.32, W / 2, H / 2, W * 0.75);
+      this.vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      this.vignette.addColorStop(1, 'rgba(0,6,12,0.55)');
+    }
+    ctx.fillStyle = this.vignette;
+    ctx.fillRect(0, 0, W, H);
+
     for (const b of world.buildings) {
       if (!b.alive) continue;
       if (b.owner.team !== p.team && fogOn && !p.explored[map.idx(b.cx, b.cy)]) continue;
+      const x = b.cx * sx, y = b.cy * sy, w = b.w * sx, h = b.h * sy;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
       ctx.fillStyle = hex(b.owner.color);
-      ctx.fillRect(b.cx * sx, b.cy * sy, b.w * sx, b.h * sy);
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(b.cx * sx + 0.5, b.cy * sy + 0.5, b.w * sx - 1, b.h * sy - 1);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
     }
     // units
     for (const u of world.units) {
       if (!u.alive) continue;
       if (u.owner.team !== p.team && fogOn && !world.isVisible(p, u.x, u.y)) continue;
-      ctx.fillStyle = hex(u.owner.color);
-      const s = u.kind === 'infantry' ? 3 : 5;
-      ctx.fillRect(u.x * sx - s / 2, u.y * sy - s / 2, s, s);
+      const s = u.kind === 'infantry' ? 4 : u.kind === 'aircraft' ? 7 : 6;
+      const x = u.x * sx - s / 2, y = u.y * sy - s / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(x - 1, y - 1, s + 2, s + 2);
+      ctx.fillStyle = u.owner === p ? lighten(u.owner.color) : hex(u.owner.color);
+      ctx.fillRect(x, y, s, s);
     }
     // camera view
     if (view.length === 4) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = 2;
+      ctx.save();
       ctx.beginPath();
       view.forEach(([x, y], k) => (k ? ctx.lineTo(x * sx, y * sy) : ctx.moveTo(x * sx, y * sy)));
       ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fill();
+      ctx.shadowColor = 'rgba(255,255,255,0.8)';
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.lineWidth = 2.5;
       ctx.stroke();
+      ctx.restore();
     }
-    // attack pings
+    // attack pings: double ripple + beacon
     for (const pg of this.pings) {
       pg.t += dt;
       const k = pg.t / 2;
+      const cx = pg.x * sx, cy = pg.y * sy;
       ctx.strokeStyle = pg.color;
-      ctx.globalAlpha = Math.max(0, 1 - k);
-      ctx.lineWidth = 2;
+      for (const off of [0, 0.3]) {
+        const kk = k - off;
+        if (kk < 0) continue;
+        ctx.globalAlpha = Math.max(0, 1 - kk) * 0.9;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6 + kk * 46, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(pg.t * 14);
+      ctx.fillStyle = pg.color;
       ctx.beginPath();
-      ctx.arc(pg.x * sx, pg.y * sy, 6 + k * 40, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+      ctx.fill();
       ctx.globalAlpha = 1;
     }
     this.pings = this.pings.filter((pg) => pg.t < 2);
@@ -193,4 +225,11 @@ export class Minimap {
 
 function hex(c: number): string {
   return '#' + c.toString(16).padStart(6, '0');
+}
+
+/** Own units are drawn slightly brighter so they pop against allied structures. */
+function lighten(c: number): string {
+  const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+  const l = (v: number) => Math.min(255, Math.round(v + (255 - v) * 0.35));
+  return `rgb(${l(r)},${l(g)},${l(b)})`;
 }

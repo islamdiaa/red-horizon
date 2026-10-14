@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BUILDINGS, WEAPONS } from '../data/rules';
 import type { GameMap } from '../sim/map';
 import { createModel } from './models';
+import { createHoloMaterial } from './holo';
 import type { ModelInstance } from './models/types';
 
 /** Holographic building preview with per-cell validity tiles and a weapon-range ring. */
@@ -15,30 +16,7 @@ export class PlacementGhost {
   private tileColor = new THREE.Color();
 
   constructor(private map: GameMap) {
-    this.holo = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0.3, 0.9, 1.0) } },
-      vertexShader: /* glsl */ `
-        varying vec3 vN; varying vec3 vW; varying vec3 vV;
-        void main() {
-          vec4 w = modelMatrix * vec4(position, 1.0);
-          vW = w.xyz;
-          vN = normalize(mat3(modelMatrix) * normal);
-          vV = normalize(cameraPosition - w.xyz);
-          gl_Position = projectionMatrix * viewMatrix * w;
-        }`,
-      fragmentShader: /* glsl */ `
-        uniform float uTime; uniform vec3 uColor;
-        varying vec3 vN; varying vec3 vW; varying vec3 vV;
-        void main() {
-          float f = pow(1.0 - abs(dot(normalize(vN), vV)), 2.0);
-          float scan = smoothstep(0.0, 0.08, fract(vW.y * 6.0 - uTime * 1.5)) * 0.35 + 0.65;
-          float a = (0.12 + f * 0.6) * scan;
-          gl_FragColor = vec4(uColor * (0.6 + f * 2.0), a);
-        }`,
-    });
+    this.holo = createHoloMaterial();
     const tileGeo = new THREE.PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2);
     const tileMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending });
     this.tiles = new THREE.InstancedMesh(tileGeo, tileMat, 16);

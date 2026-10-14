@@ -5,10 +5,12 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { GameMap } from '../sim/map';
 import { RTSCamera } from './camera';
-import { TerrainMesh } from './terrain';
+import { TerrainMesh, TerrainSkirt } from './terrain';
 import { Water } from './water';
 import { Vegetation } from './vegetation';
 import { OreRenderer } from './ore';
@@ -28,13 +30,28 @@ interface LightPreset {
   env: number; exposure: number; bg: number;
   bloom: number;
   tint: [number, number, number];
+  haze: number;
 }
 
 const PRESETS: Record<TimeOfDay, LightPreset> = {
-  day:   { sunColor: 0xffeedd, sunIntensity: 2.5, elevation: 0.86, azimuth: 2.35, hemiSky: 0xb0c8ef, hemiGround: 0x5a4a32, hemiIntensity: 0.75, env: 0.25, exposure: 0.92, bg: 0x05070b, bloom: 0.5, tint: [1, 1, 1] },
-  dusk:  { sunColor: 0xffa868, sunIntensity: 2.6, elevation: 0.42, azimuth: 2.6, hemiSky: 0x8a98c8, hemiGround: 0x4a3426, hemiIntensity: 0.65, env: 0.22, exposure: 1.0, bg: 0x05070b, bloom: 0.65, tint: [1.06, 0.99, 0.92] },
-  night: { sunColor: 0x86a0ff, sunIntensity: 0.85, elevation: 0.95, azimuth: 2.0, hemiSky: 0x22335c, hemiGround: 0x0a0908, hemiIntensity: 0.42, env: 0.1, exposure: 1.05, bg: 0x020305, bloom: 1.15, tint: [0.72, 0.84, 1.12] },
+  day:   { sunColor: 0xffeedd, sunIntensity: 2.5, elevation: 0.86, azimuth: 2.35, hemiSky: 0xb0c8ef, hemiGround: 0x5a4a32, hemiIntensity: 0.75, env: 0.25, exposure: 0.92, bg: 0x05070b, bloom: 0.5, tint: [1, 1, 1], haze: 0x9db0c2 },
+  dusk:  { sunColor: 0xffa868, sunIntensity: 2.6, elevation: 0.42, azimuth: 2.6, hemiSky: 0x8a98c8, hemiGround: 0x4a3426, hemiIntensity: 0.65, env: 0.22, exposure: 1.0, bg: 0x05070b, bloom: 0.65, tint: [1.06, 0.99, 0.92], haze: 0xb98f78 },
+  night: { sunColor: 0x86a0ff, sunIntensity: 0.85, elevation: 0.95, azimuth: 2.0, hemiSky: 0x22335c, hemiGround: 0x0a0908, hemiIntensity: 0.42, env: 0.1, exposure: 1.05, bg: 0x020305, bloom: 1.15, tint: [0.72, 0.84, 1.12], haze: 0x0c1322 },
 };
+
+/** Dawn: like dusk but cooler and pinker. */
+const DAWN: LightPreset = { sunColor: 0xffc2a0, sunIntensity: 2.3, elevation: 0.3, azimuth: 0, hemiSky: 0x93a3d0, hemiGround: 0x4a3a30, hemiIntensity: 0.6, env: 0.2, exposure: 1.0, bg: 0x05070b, bloom: 0.7, tint: [1.02, 0.97, 1.0], haze: 0xb0a0a8 };
+
+/** Keyframes over a 24h day: [hour, preset]. */
+const DAY_KEYS: [number, LightPreset][] = [
+  [0, PRESETS.night], [5, PRESETS.night], [6.5, DAWN], [8.5, PRESETS.day], [16.5, PRESETS.day],
+  [18.6, PRESETS.dusk], [20.2, PRESETS.night], [24, PRESETS.night],
+];
+
+const _ca = new THREE.Color(), _cb = new THREE.Color();
+function mixHex(a: number, b: number, t: number, out: THREE.Color) {
+  return out.copy(_ca.setHex(a)).lerp(_cb.setHex(b), t);
+}
 
 const GradeShader = {
   uniforms: {
@@ -79,6 +96,93 @@ const GradeShader = {
     }`,
 };
 
+/**
+ * Renders the scene into its own target (colour + depth texture) and copies the colour into the
+ * post chain. Later passes can sample the scene depth without ever drawing into it (no feedback loops).
+ */
+class SceneRenderPass extends Pass {
+  readonly target: THREE.WebGLRenderTarget;
+  private copy: FullScreenQuad;
+  private copyMat: THREE.ShaderMaterial;
+  constructor(private scene: THREE.Scene, private camera: THREE.Camera, w: number, h: number) {
+    super();
+    this.target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
+    this.target.depthTexture = new THREE.DepthTexture(w, h);
+    this.target.depthTexture.type = THREE.UnsignedIntType;
+    this.copyMat = new THREE.ShaderMaterial({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }`,
+      depthTest: false, depthWrite: false,
+    });
+    this.copy = new FullScreenQuad(this.copyMat);
+  }
+  get depth(): THREE.Texture {
+    return this.target.depthTexture!;
+  }
+  render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget) {
+    renderer.setRenderTarget(this.target);
+    renderer.clear();
+    renderer.render(this.scene, this.camera);
+    this.copyMat.uniforms.tDiffuse.value = this.target.texture;
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    this.copy.render(renderer);
+  }
+  setSize(w: number, h: number) {
+    this.target.setSize(w, h);
+  }
+}
+
+/** Wraps GTAOPass so it reuses the main scene depth (no extra geometry pass). */
+class SceneAOPass extends Pass {
+  constructor(private gtao: GTAOPass, private depth: () => THREE.Texture | null) {
+    super();
+  }
+  render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget, deltaTime: number, maskActive: boolean) {
+    const d = this.depth();
+    if (d) {
+      (this.gtao as any).gtaoMaterial.uniforms.tDepth.value = d;
+      (this.gtao as any).pdMaterial.uniforms.tDepth.value = d;
+    }
+    this.gtao.renderToScreen = this.renderToScreen;
+    this.gtao.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+  }
+  setSize(w: number, h: number) {
+    this.gtao.setSize(Math.round(w / 2), Math.round(h / 2));
+  }
+}
+
+/** Miniature / diorama lens: blur grows towards the top and bottom of the screen. */
+const TiltShiftShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    uRes: { value: new THREE.Vector2(1, 1) },
+    uStrength: { value: 1 },
+    uFocus: { value: 0.46 },
+  },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform vec2 uRes; uniform float uStrength, uFocus;
+    varying vec2 vUv;
+    void main() {
+      float d = abs(vUv.y - uFocus);
+      float amt = smoothstep(0.16, 0.62, d) * uStrength;
+      vec4 base = texture2D(tDiffuse, vUv);
+      if (amt < 0.02) { gl_FragColor = base; return; }
+      vec3 acc = base.rgb; float w = 1.0;
+      float r = amt * 5.5 * (uRes.y / 1080.0);
+      for (int i = 0; i < 12; i++) {
+        float fi = float(i);
+        float a = fi * 2.39996;
+        float rr = sqrt((fi + 0.5) / 12.0) * r;
+        vec2 o = vec2(cos(a), sin(a)) * rr / uRes;
+        acc += texture2D(tDiffuse, vUv + o).rgb;
+        w += 1.0;
+      }
+      gl_FragColor = vec4(acc / w, base.a);
+    }`,
+};
+
 /** Owns the WebGL renderer, scene, environment layers and post-processing chain. */
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
@@ -87,6 +191,7 @@ export class GameRenderer {
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
   readonly terrain: TerrainMesh;
+  readonly skirt: TerrainSkirt;
   readonly water: Water;
   readonly vegetation: Vegetation;
   readonly ore: OreRenderer;
@@ -96,7 +201,14 @@ export class GameRenderer {
   private bloom: UnrealBloomPass;
   private grade: ShaderPass;
   private smaa: SMAAPass | null = null;
+  private aoPass: SceneAOPass | null = null;
+  private tiltShift: ShaderPass | null = null;
+  /** 0..1 user preference for the miniature lens. */
+  tiltShiftAmount = 1;
   private preset: LightPreset;
+  /** Current time of day in hours (0..24) and how dark it is (0 = day, 1 = night). */
+  hours = 12;
+  night = 0;
   readonly sunDir = new THREE.Vector3();
   flash = 0;
   /** Per-frame totals across all passes. */
@@ -121,7 +233,8 @@ export class GameRenderer {
     this.renderer.info.autoReset = false;
 
     this.cam = new RTSCamera(map.w, map.h, window.innerWidth / window.innerHeight);
-    this.scene.background = new THREE.Color(this.preset.bg);
+    this.scene.background = new THREE.Color(this.preset.haze);
+    this.scene.fog = new THREE.FogExp2(this.preset.haze, 0.0042);
 
     // environment reflections for PBR metals
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -148,10 +261,13 @@ export class GameRenderer {
     // world layers
     this.terrain = new TerrainMesh(map);
     this.scene.add(this.terrain.mesh);
+    this.skirt = new TerrainSkirt(map, this.terrain.mesh.material as THREE.Material);
+    this.scene.add(this.skirt.mesh);
     const hFn = (x: number, y: number) => this.terrain.renderHeight(x, y);
     this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir);
     this.scene.add(this.water.mesh);
     this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high');
+    this.vegetation.addSceneryTrees(this.skirt.treeSpots);
     this.scene.add(this.vegetation.group);
     this.ore = new OreRenderer(map, hFn);
     this.scene.add(this.ore.group);
@@ -160,15 +276,30 @@ export class GameRenderer {
     // post-processing
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
-    rt.depthTexture = new THREE.DepthTexture(size.x, size.y);
-    rt.depthTexture.type = THREE.UnsignedIntType;
     this.composer = new EffectComposer(this.renderer, rt);
-    this.composer.addPass(new RenderPass(this.scene, this.cam.camera));
+    const scenePass = new SceneRenderPass(this.scene, this.cam.camera, size.x, size.y);
+    this.composer.addPass(scenePass);
+    const sceneDepth = () => scenePass.depth;
+    if (q === 'high') {
+      const gtao = new GTAOPass(this.scene, this.cam.camera, Math.round(size.x / 2), Math.round(size.y / 2));
+      // reuse the scene depth (normals reconstructed from depth): no extra geometry pass
+      gtao.setGBuffer(scenePass.depth as THREE.DepthTexture, undefined);
+      gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 2.0, scale: 2.0, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      gtao.blendIntensity = 1.0;
+      this.aoPass = new SceneAOPass(gtao, sceneDepth);
+      this.composer.addPass(this.aoPass);
+    }
     this.fog = new FogOfWar(map.w, map.h);
     this.fogPass = new FogPass(this.cam.camera, this.fog.texture, map.w, map.h);
+    this.fogPass.depthSource = sceneDepth;
     this.composer.addPass(this.fogPass);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), p.bloom, 0.5, 1.15);
     if (q !== 'low') this.composer.addPass(this.bloom);
+    if (q !== 'low') {
+      this.tiltShift = new ShaderPass(TiltShiftShader);
+      this.composer.addPass(this.tiltShift);
+    }
     this.grade = new ShaderPass(GradeShader);
     (this.grade.uniforms.uTint.value as THREE.Vector3).set(...p.tint);
     this.composer.addPass(this.grade);
@@ -179,6 +310,7 @@ export class GameRenderer {
     }
 
     window.addEventListener('resize', this.onResize);
+    this.onResize();
   }
 
   private onResize = () => {
@@ -190,6 +322,7 @@ export class GameRenderer {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     this.bloom.resolution.set(size.x / 2, size.y / 2);
     (this.grade.uniforms.uRes.value as THREE.Vector2).set(size.x, size.y);
+    if (this.tiltShift) (this.tiltShift.uniforms.uRes.value as THREE.Vector2).set(size.x, size.y);
   };
 
   resize() {
@@ -220,6 +353,54 @@ export class GameRenderer {
     }
   }
 
+  /** Blend lighting, sun position, haze and grading for a time of day (hours 0..24). */
+  setTimeOfDay(hours: number) {
+    hours = ((hours % 24) + 24) % 24;
+    this.hours = hours;
+    let i = 0;
+    while (i < DAY_KEYS.length - 2 && hours >= DAY_KEYS[i + 1][0]) i++;
+    const [h0, a] = DAY_KEYS[i], [h1, b] = DAY_KEYS[i + 1];
+    const t0 = Math.min(1, Math.max(0, (hours - h0) / Math.max(0.001, h1 - h0)));
+    const t = t0 * t0 * (3 - 2 * t0);
+    const L = (x: number, y: number) => x + (y - x) * t;
+    mixHex(a.sunColor, b.sunColor, t, this.sun.color);
+    mixHex(a.hemiSky, b.hemiSky, t, this.hemi.color);
+    mixHex(a.hemiGround, b.hemiGround, t, this.hemi.groundColor);
+    this.hemi.intensity = L(a.hemiIntensity, b.hemiIntensity);
+    this.scene.environmentIntensity = L(a.env, b.env);
+    this.renderer.toneMappingExposure = L(a.exposure, b.exposure);
+    this.bloom.strength = L(a.bloom, b.bloom);
+    (this.grade.uniforms.uTint.value as THREE.Vector3).set(L(a.tint[0], b.tint[0]), L(a.tint[1], b.tint[1]), L(a.tint[2], b.tint[2]));
+    const haze = mixHex(a.haze, b.haze, t, new THREE.Color());
+    (this.scene.background as THREE.Color).copy(haze);
+    (this.scene.fog as THREE.FogExp2).color.copy(haze);
+    // night factor from the keyframes (night preset weight)
+    const nightW = (p: LightPreset) => (p === PRESETS.night ? 1 : p === PRESETS.dusk || p === DAWN ? 0.35 : 0);
+    this.night = L(nightW(a), nightW(b));
+    // sun path: rises in the east (+X), passes south (+Z, behind the camera) and sets in the west.
+    // At night the moon takes over from the opposite side of the sky.
+    const dayT = (hours - 6) / 12; // 0 at sunrise, 1 at sunset
+    let az: number, elev: number;
+    if (dayT >= 0 && dayT <= 1) {
+      az = dayT * Math.PI;
+      elev = 0.18 + Math.sin(dayT * Math.PI) * 0.85;
+      this.sun.intensity = L(a.sunIntensity, b.sunIntensity) * Math.min(1, 0.35 + Math.sin(dayT * Math.PI) * 1.4);
+    } else {
+      const nt = ((hours + 6) % 24) / 12; // moon arc
+      az = nt * Math.PI;
+      elev = 0.35 + Math.sin(nt * Math.PI) * 0.6;
+      this.sun.intensity = L(a.sunIntensity, b.sunIntensity);
+    }
+    // dim through the sun/moon hand-off so shadows don't visibly flip direction
+    const tw = (h: number) => { const d = Math.min(1, Math.abs(hours - h) / 0.45); return d * d * (3 - 2 * d); };
+    this.sun.intensity *= 0.08 + 0.92 * Math.min(tw(6), tw(18));
+    // keep shadows pointing away from the camera a little: bias the azimuth towards the south
+    const ax = Math.cos(az), az2 = 0.35 + Math.sin(az) * 0.65;
+    this.sunDir.set(ax * Math.cos(elev), Math.sin(elev) + 0.15, az2 * Math.cos(elev)).normalize();
+    this.water.material.uniforms.uSunDir.value.copy(this.sunDir);
+    this.water.material.uniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(0.6 + 0.4 * (1 - this.night));
+  }
+
   /** Keep the sun's shadow frustum tight around what the camera sees. */
   private updateShadowFrustum() {
     const c = this.cam;
@@ -248,6 +429,11 @@ export class GameRenderer {
     this.grade.uniforms.uTime.value = time;
     this.flash = Math.max(0, this.flash - dt * 1.4);
     this.grade.uniforms.uFlash.value = Math.min(1, this.flash);
+    if (this.tiltShift) {
+      // stronger miniature look when zoomed in, subtle when zoomed out
+      const z = (this.cam.dist - this.cam.minDist) / (this.cam.maxDist - this.cam.minDist);
+      this.tiltShift.uniforms.uStrength.value = this.tiltShiftAmount * (1.0 - Math.min(1, Math.max(0, z)) * 0.65);
+    }
     this.renderer.info.reset();
     this.composer.render(dt);
     this.stats.calls = this.renderer.info.render.calls;

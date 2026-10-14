@@ -11,6 +11,7 @@ import type { ModelAnimState, ModelInstance } from './models/types';
 import type { Effects } from './effects';
 import type { EmitterHandle, ProjectileHandle } from './effects/types';
 import type { FogOfWar } from './fog';
+import { createHoloMaterial } from './holo';
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -30,6 +31,9 @@ interface View {
   baseScale: number;
   pos: THREE.Vector3;
   quat: THREE.Quaternion;
+  /** Hologram shell shown while a structure is being built. */
+  holo: ModelInstance | null;
+  holoRing: THREE.Mesh | null;
 }
 
 interface ProjView {
@@ -56,6 +60,21 @@ export class EntityRenderer {
   private ringMats: Record<'own' | 'ally' | 'enemy' | 'iron', THREE.MeshBasicMaterial>;
   private rings = new Map<number, THREE.Mesh>();
   private bracketMat: THREE.ShaderMaterial;
+  private holoMat = createHoloMaterial(0x46c8ff);
+  private ringMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { opacity: { value: 0.8 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform float opacity; varying vec2 vUv;
+      void main(){
+        vec2 d = min(vUv, 1.0 - vUv);
+        float edge = min(d.x, d.y);
+        float line = smoothstep(0.035, 0.0, edge);
+        float glow = smoothstep(0.18, 0.0, edge) * 0.25;
+        gl_FragColor = vec4(vec3(1.0, 2.6, 3.4) * (line + glow), (line + glow + 0.03) * opacity);
+      }`,
+  });
+  private ringGeo2 = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private time = 0;
   /** Vehicles whose wrecks linger. */
   private wreckTime = 6;
@@ -106,7 +125,7 @@ export class EntityRenderer {
     };
     const v: View = {
       ent: e, model, anim, dead: false, deathT: 0, deathHow: 'normal', smoke: null, fire: null, chimneys: [],
-      dustT: 0, fade: 0, lastBuildAnim: 0, baseScale: 1, pos: new THREE.Vector3(), quat: new THREE.Quaternion(),
+      dustT: 0, fade: 0, lastBuildAnim: 0, baseScale: 1, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), holo: null, holoRing: null,
     };
     if (e instanceof Building) {
       model.root.position.set(e.x, this.world.map.heightAt(e.x, e.y), e.y);
@@ -278,9 +297,15 @@ export class EntityRenderer {
     }
   }
 
+  private clearHolo(v: View) {
+    if (v.holo) { v.holo.dispose(); v.holo = null; }
+    if (v.holoRing) { this.scene.remove(v.holoRing); v.holoRing = null; }
+  }
+
   private removeView(id: number) {
     const v = this.views.get(id);
     if (!v) return;
+    this.clearHolo(v);
     v.model.dispose();
     v.smoke?.dispose();
     v.fire?.dispose();
@@ -344,17 +369,36 @@ export class EntityRenderer {
     const root = v.model.root;
     const g = this.world.map.heightAt(b.x, b.y);
     root.position.set(b.x, g, b.y);
-    // construction rise / selling shrink
+    // construction: hologram shell + solid structure rising inside it with a scanning ring
     let sy = 1;
     if (b.buildAnim < 1) {
       const t = b.buildAnim;
-      sy = Math.max(0.02, 1 - Math.pow(1 - t, 3) + Math.sin(t * Math.PI) * 0.08);
+      sy = Math.max(0.02, 1 - Math.pow(1 - t, 2.2));
+      if (!v.holo && root.visible) {
+        v.holo = createModel(b.bt.id, this.teamColor(b.owner));
+        v.holo.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = this.holoMat; m.castShadow = false; m.receiveShadow = false; } });
+        v.holo.root.position.set(b.x, g, b.y);
+        this.scene.add(v.holo.root);
+        v.holoRing = new THREE.Mesh(this.ringGeo2, this.ringMat);
+        v.holoRing.scale.set(b.w + 0.1, 1, b.h + 0.1);
+        v.holoRing.renderOrder = 4;
+        this.scene.add(v.holoRing);
+      }
+      if (v.holoRing) {
+        v.holoRing.position.set(b.x, g + v.model.height * sy + 0.02, b.y);
+        this.ringMat.uniforms.opacity.value = 0.65 + 0.25 * Math.sin(this.time * 12);
+      }
+      this.holoMat.uniforms.uTime.value = this.time;
     } else if (b.selling >= 0) {
       sy = Math.max(0.02, b.selling / 0.9);
     }
     root.scale.set(1, sy, 1);
-    if (v.lastBuildAnim < 1 && b.buildAnim >= 1 && root.visible) {
-      this.effects.dust(new THREE.Vector3(b.x, g, b.y + b.h / 2), 1.5);
+    if (v.lastBuildAnim < 1 && b.buildAnim >= 1) {
+      if (root.visible) {
+        this.effects.dust(new THREE.Vector3(b.x, g, b.y + b.h / 2), 1.5);
+        this.effects.constructionBurst(new THREE.Vector3(b.x, g + 0.1, b.y), Math.max(b.w, b.h));
+      }
+      this.clearHolo(v);
     }
     v.lastBuildAnim = b.buildAnim;
 

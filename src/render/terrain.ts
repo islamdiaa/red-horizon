@@ -29,6 +29,8 @@ export interface TerrainUniforms {
   uTime: { value: number };
   uGrid: { value: THREE.Vector4 };      // x, z, radius, strength
   uGridColor: { value: THREE.Color };
+  uWet: { value: number };
+  uSnow: { value: number };
 }
 
 export class TerrainMesh {
@@ -120,6 +122,8 @@ export class TerrainMesh {
       uTime: { value: 0 },
       uGrid: { value: new THREE.Vector4(0, 0, 0, 0) },
       uGridColor: { value: new THREE.Color(0.3, 1.0, 0.6) },
+      uWet: { value: 0 },
+      uSnow: { value: 0 },
     };
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.93, metalness: 0.0 });
     const uni = this.uniforms;
@@ -143,6 +147,8 @@ export class TerrainMesh {
           uniform float uTime;
           uniform vec4 uGrid;
           uniform vec3 uGridColor;
+          uniform float uWet;
+          uniform float uSnow;
           varying vec4 vSplat;
           varying vec2 vOre;
           varying vec3 vWPos;
@@ -181,8 +187,20 @@ export class TerrainMesh {
           float ore = clamp(vOre.x * 1.25, 0.0, 1.0);
           vec3 oreStain = mix(srgb(vec3(0.52, 0.33, 0.16)), srgb(vec3(0.36, 0.28, 0.42)), vOre.y);
           col = mix(col, oreStain * (0.8 + 0.4 * n3), ore * 0.85);
+          // snow-capped peaks (outer mountains) and weather snow cover on flat ground
+          float upward = smoothstep(0.55, 0.85, normalize(vWNormal).y);
+          float peak = smoothstep(3.2, 5.0, vWPos.y + n2 * 0.8) * smoothstep(0.35, 0.7, normalize(vWNormal).y);
+          float snowCover = max(peak, uSnow * upward * smoothstep(0.25, 0.6, n1 * 0.6 + n3 * 0.4 + uSnow * 0.5));
+          col = mix(col, srgb(vec3(0.86, 0.9, 0.95)) * (0.92 + 0.08 * n3), snowCover);
+          // rain-soaked ground is darker
+          col *= 1.0 - uWet * 0.38 * (1.0 - snowCover);
           diffuseColor.rgb = col;
         `)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          // wet ground turns glossy (puddles in low spots)
+          float puddle = smoothstep(0.55, 0.75, rh_fbm(vWPos.xz * 0.6)) * uWet;
+          roughnessFactor = mix(roughnessFactor, 0.32, uWet * 0.55);
+          roughnessFactor = mix(roughnessFactor, 0.06, puddle);`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           {
             // cheap procedural bump for ground detail
@@ -260,6 +278,97 @@ export class TerrainMesh {
       }
     }
     this.oreAttr.needsUpdate = true;
+  }
+}
+
+/**
+ * Landscape beyond the playable area: forested foothills rising into snow-capped mountains,
+ * so the battlefield sits in a world instead of a black void. Shares the terrain material.
+ */
+export class TerrainSkirt {
+  readonly mesh: THREE.Mesh;
+  /** Candidate tree spots on gentle outer slopes: [x, y(height), z] */
+  readonly treeSpots: [number, number, number][] = [];
+  private noise: Noise2D;
+
+  constructor(private map: GameMap, material: THREE.Material, readonly margin = 44) {
+    this.noise = new Noise2D(map.seed + 911);
+    const M = margin, W = map.w, H = map.h;
+    const vw = W + 2 * M + 1, vh = H + 2 * M + 1;
+    const pos = new Float32Array(vw * vh * 3);
+    const splat = new Float32Array(vw * vh * 4);
+    const ore = new Float32Array(vw * vh * 2);
+    for (let j = 0; j < vh; j++) {
+      for (let i = 0; i < vw; i++) {
+        const x = i - M, y = j - M;
+        const k = j * vw + i;
+        const h = this.heightAt(x, y);
+        pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = y;
+        const rock = Math.min(1, Math.max(0, (h - 1.6) / 2.5));
+        splat[k * 4] = 1 - rock; splat[k * 4 + 2] = rock;
+      }
+    }
+    const idx: number[] = [];
+    for (let j = 0; j < vh - 1; j++) {
+      for (let i = 0; i < vw - 1; i++) {
+        const x = i - M, y = j - M;
+        // skip cells well inside the playable map (a one-cell overlap hides seams)
+        if (x >= 1 && y >= 1 && x + 1 <= W - 1 && y + 1 <= H - 1) continue;
+        const a = j * vw + i, b = a + 1, c = a + vw, d = c + 1;
+        if ((i + j) & 1) idx.push(a, c, b, b, c, d); else idx.push(a, c, d, a, d, b);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aSplat', new THREE.BufferAttribute(splat, 4));
+    geo.setAttribute('aOre', new THREE.BufferAttribute(ore, 2));
+    geo.setIndex(new THREE.Uint32BufferAttribute(idx, 1));
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    this.mesh = new THREE.Mesh(geo, material);
+    this.mesh.receiveShadow = true;
+    this.mesh.castShadow = false;
+    this.mesh.name = 'terrain-skirt';
+
+    // forest band on the foothills
+    for (let y = -M + 1; y < H + M - 1; y += 1) {
+      for (let x = -M + 1; x < W + M - 1; x += 1) {
+        const d = this.outside(x + 0.5, y + 0.5);
+        if (d < 1.5 || d > 26) continue;
+        const f = this.noise.fbm(x * 0.09 + 50, y * 0.09 - 20, 3);
+        if (f < 0.47 + d * 0.004) continue;
+        if (hash2(x, y, 77) > 0.75) continue;
+        const px = x + 0.2 + hash2(x, y, 78) * 0.6, py = y + 0.2 + hash2(x, y, 79) * 0.6;
+        const hh = this.heightAt(px, py);
+        const slope = Math.abs(this.heightAt(px + 0.5, py) - this.heightAt(px - 0.5, py)) + Math.abs(this.heightAt(px, py + 0.5) - this.heightAt(px, py - 0.5));
+        if (hh > 2.6 || slope > 1.1 || hh < -0.1) continue;
+        this.treeSpots.push([px, hh - 0.05, py]);
+      }
+    }
+  }
+
+  /** Distance of a point outside the map rectangle (0 inside). */
+  private outside(x: number, y: number): number {
+    const dx = Math.max(0 - x, 0, x - this.map.w);
+    const dy = Math.max(0 - y, 0, y - this.map.h);
+    return Math.hypot(dx, dy);
+  }
+
+  heightAt(x: number, y: number): number {
+    const m = this.map;
+    const cx = Math.min(m.w, Math.max(0, x)), cy = Math.min(m.h, Math.max(0, y));
+    const edge = Math.max(m.heightAt(cx, cy), -0.05);
+    const d = this.outside(x, y);
+    if (d <= 0) return m.heightAt(cx, cy) - (x >= 0 && y >= 0 && x <= m.w && y <= m.h ? 0.04 : 0);
+    const n = this.noise;
+    const hills = (n.fbm(x * 0.06, y * 0.06, 4) - 0.35) * 2.2;
+    const r = n.fbm(x * 0.028 + 7, y * 0.028 - 3, 4);
+    const ridge = 1 - Math.abs(2 * r - 1);
+    const mountains = ridge * ridge * ridge * 9 + n.fbm(x * 0.15, y * 0.15, 2) * 0.8;
+    const t1 = Math.min(1, Math.max(0, (d - 1) / 10));
+    const t2 = Math.min(1, Math.max(0, (d - 8) / 22));
+    const s1 = t1 * t1 * (3 - 2 * t1), s2 = t2 * t2 * (3 - 2 * t2);
+    return edge * (1 - s1) + hills * s1 * (1 - s2) + (hills * 0.5 + mountains) * s2;
   }
 }
 

@@ -224,6 +224,7 @@ export class World {
       killer.kills++;
       if (e.kind === 'building') killer.owner.stats.buildingsKilled++;
       else killer.owner.stats.unitsKilled++;
+      if (killer instanceof Unit && killer.alive) this.grantXp(killer, e.type.cost * (e.kind === 'building' ? 0.6 : 1));
     }
     if (e instanceof Building) {
       this.unstamp(e);
@@ -253,6 +254,21 @@ export class World {
         owner.stats.unitsLost++;
       }
       e.passengers.length = 0;
+    }
+  }
+
+  /** Veterancy: experience from kills; veteran at its own cost destroyed, elite at three times that. */
+  grantXp(u: Unit, amount: number) {
+    if (u.rank >= 2) return;
+    u.xp += amount;
+    const vet = Math.max(300, u.ut.cost), elite = Math.max(900, u.ut.cost * 3);
+    const rank = u.xp >= elite ? 2 : u.xp >= vet ? 1 : 0;
+    if (rank > u.rank) {
+      u.rank = rank;
+      u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.25);
+      this.events.push({ e: 'promoted', id: u.id, rank });
+      this.announce(u.owner, 'unit_promoted', 4);
+      this.sfx('promote', u.x, u.y);
     }
   }
 

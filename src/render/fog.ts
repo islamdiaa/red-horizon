@@ -72,6 +72,9 @@ export class FogPass extends Pass {
   private quad: FullScreenQuad;
   readonly material: THREE.ShaderMaterial;
 
+  /** Returns the depth texture of the main scene render (set by the renderer). */
+  depthSource: (() => THREE.Texture | null) | null = null;
+
   constructor(private camera: THREE.PerspectiveCamera, fogTex: THREE.Texture, mapW: number, mapH: number) {
     super();
     this.material = new THREE.ShaderMaterial({
@@ -107,11 +110,15 @@ export class FogPass extends Pass {
           vec2 drift = vec2(rh_fbm(p * 0.35 + uTime * 0.04), rh_fbm(p * 0.35 - uTime * 0.03 + 7.0)) - 0.5;
           vec2 uv = (p + drift * 0.9) / uMapSize;
           vec2 f = texture2D(tFog, uv).rg;
-          float inside = step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
-          if (depth >= 0.99999) inside = 0.0;
-          float vis = f.r * inside;
-          float exp = f.g * inside;
-          if (uEnabled < 0.5) { vis = inside; exp = inside; }
+          if (depth >= 0.99999) { gl_FragColor = col; return; }
+          // outside the playable area: scenery, shown dimmed like explored fog
+          vec2 ruv = world.xz / uMapSize;
+          vec2 o = max(max(-ruv, ruv - 1.0), 0.0) * uMapSize;
+          float outsideD = length(o);
+          float inside = 1.0 - smoothstep(0.0, 1.5, outsideD);
+          float vis = mix(0.5, f.r, inside);
+          float exp = mix(1.0, f.g, inside);
+          if (uEnabled < 0.5) { vis = mix(0.5, 1.0, inside); exp = 1.0; }
           // fog: desaturated, darker, cool tint
           float l = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
           vec3 fogged = mix(vec3(l), col.rgb, 0.35) * vec3(0.42, 0.46, 0.55);
@@ -134,7 +141,7 @@ export class FogPass extends Pass {
   render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
     const u = this.material.uniforms;
     u.tDiffuse.value = readBuffer.texture;
-    u.tDepth.value = readBuffer.depthTexture;
+    u.tDepth.value = this.depthSource?.() ?? readBuffer.depthTexture;
     u.uProjInv.value.copy(this.camera.projectionMatrixInverse);
     u.uCamWorld.value.copy(this.camera.matrixWorld);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);

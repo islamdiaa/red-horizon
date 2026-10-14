@@ -1,5 +1,6 @@
 import type { Player } from '../sim/player';
 import type { World } from '../sim/world';
+import { ICONS } from './icons';
 
 interface Hint {
   text: string;
@@ -47,7 +48,10 @@ export class Hints {
     if (i === this.idx) return;
     this.idx = i;
     if (i < 0) { this.el.classList.remove('on'); return; }
-    this.el.innerHTML = `<span class="hint-ic">i</span><span>${HINTS[i].text}</span><span class="hint-x">×</span>`;
+    const step = `${i + 1}/${HINTS.length}`;
+    this.el.innerHTML = `<span class="hint-ic">${ICONS.bulb}</span><span class="hint-body"><span class="hint-k">Field manual <i>${step}</i></span><span class="hint-t">${HINTS[i].text}</span></span><span class="hint-x" title="Dismiss">${ICONS.close}</span>`;
+    this.el.classList.remove('on');
+    void this.el.offsetWidth;
     this.el.classList.add('on');
   }
 }

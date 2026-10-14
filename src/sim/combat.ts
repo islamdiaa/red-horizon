@@ -163,7 +163,7 @@ export function fire(world: World, shooter: Entity, slot: WeaponSlot, target: En
   if (shooter instanceof Unit && shooter.kind === 'aircraft') shooter.ammo = Math.max(0, shooter.ammo - 1);
   const twin = shooter instanceof Unit && shooter.ut.twinShot && shooter.weapons[0] === slot;
   const shots = w.burst * (twin ? 2 : 1);
-  let rof = raTicksToSeconds(w.rof);
+  let rof = raTicksToSeconds(w.rof) * (1 - 0.1 * shooter.rank);
   if (shooter instanceof Building && shooter.owner.lowPower && !shooter.bt.requiresPower) rof *= 1.5;
   slot.cooldown = rof;
   slot.burstLeft = shots - 1;
@@ -266,8 +266,9 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
       if (d <= R) victims.push([b, d]);
     }
   }
+  const firepower = attacker ? 1 + 0.15 * attacker.rank : 1;
   for (const [v, d] of victims) {
-    const dmg = modifyDamage(w.damage, wh, ARMOR_INDEX[v.type.armor], d);
+    const dmg = modifyDamage(w.damage, wh, ARMOR_INDEX[v.type.armor], d) * firepower * (1 - 0.12 * v.rank);
     if (dmg > 0) damageEntity(world, v, dmg, attacker, wh.infDeath);
   }
 

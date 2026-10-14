@@ -31,7 +31,7 @@ export class LightPools {
     this.mesh.renderOrder = 1;
   }
 
-  update(alpha: number, time: number) {
+  update(alpha: number, time: number, strength = 1) {
     const w = this.world;
     const map = w.map;
     const d = this.dummy;
@@ -44,7 +44,7 @@ export class LightPools {
       d.scale.set(sx, 1, sz);
       d.updateMatrix();
       this.mesh.setMatrixAt(n, d.matrix);
-      this.color.setRGB(r, gc, b);
+      this.color.setRGB(r * strength, gc * strength, b * strength);
       this.mesh.setColorAt(n, this.color);
       n++;
     };

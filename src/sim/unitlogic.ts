@@ -20,6 +20,8 @@ export function unitSpeed(u: Unit): number {
 export function updateUnit(world: World, u: Unit) {
   if (u.invulnerable > 0) u.invulnerable = Math.max(0, u.invulnerable - DT);
   if (u.ut.selfHealing && u.hp < u.maxHp * 0.5 && world.tick % TICK_HZ === 0) u.hp = Math.min(u.maxHp * 0.5, u.hp + u.maxHp * 0.01);
+  // elite units field-repair
+  if (u.rank >= 2 && u.hp < u.maxHp && world.tick % TICK_HZ === 0 && world.tick - u.lastDamagedTick > TICK_HZ * 3) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.02);
   if (u.c4Timer > 0) {
     u.c4Timer -= DT;
     if (u.c4Timer <= 0) {

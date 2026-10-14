@@ -14,6 +14,7 @@ import { renderThumbnails } from './render/thumbnails';
 import { prewarmModels } from './render/models';
 import { LightPools } from './render/lightpools';
 import { CrateRenderer } from './render/crates';
+import { TrackMarks } from './render/tracks';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
 import { Hints } from './ui/hints';
@@ -43,6 +44,12 @@ export interface GameSetup {
   quality: Quality;
   seed: number;
   demo?: boolean;
+  /** Real-time day/night cycle (time of day advances during the match). */
+  dayCycle?: boolean;
+  /** Weather: 'auto' cycles naturally, or a fixed kind. */
+  weather?: string;
+  /** Climate for automatic weather: temperate | winter | desert. */
+  climate?: string;
 }
 
 export interface GameCallbacks {
@@ -64,6 +71,7 @@ export class Game {
   placement: PlacementGhost;
   lightPools: LightPools | null = null;
   crates: CrateRenderer;
+  tracks: TrackMarks;
   hud: Hud | null = null;
   input: InputController | null = null;
   hints: Hints | null = null;
@@ -74,6 +82,8 @@ export class Game {
   alpha = 0;
   time = 0;
   thumbs = new Map<string, string>();
+  /** In-game clock (hours) driving the day/night cycle. */
+  hours = 12;
   private acc = 0;
   private last = 0;
   private raf = 0;
@@ -121,11 +131,13 @@ export class Game {
     this.placement = new PlacementGhost(map);
     this.gfx.scene.add(this.placement.group);
     this.crates = new CrateRenderer(this.world, this.gfx.fog);
+    this.tracks = new TrackMarks(this.world, this.gfx.fog);
+    this.gfx.scene.add(this.tracks.mesh);
     this.gfx.scene.add(this.crates.group);
-    if (setup.timeOfDay === 'night') {
-      this.lightPools = new LightPools(this.world, this.ents);
-      this.gfx.scene.add(this.lightPools.mesh);
-    }
+    this.lightPools = new LightPools(this.world, this.ents);
+    this.gfx.scene.add(this.lightPools.mesh);
+    this.hours = setup.timeOfDay === 'night' ? 22.5 : setup.timeOfDay === 'dusk' ? 17.9 : 10.5;
+    this.gfx.setTimeOfDay(this.hours);
 
     const start = map.startPositions[0];
     this.gfx.cam.jumpTo(start.x, start.y + 1);
@@ -287,8 +299,18 @@ export class Game {
     this.input?.update(dt, this.time);
     this.gfx.fog.update(this.local, dt);
     this.ents.update(this.alpha, fdt, this.time, this.selection, this.input?.hovered ?? 0);
-    this.lightPools?.update(this.alpha, this.time);
+    if (this.setup.dayCycle !== false && !this.paused) {
+      // a full day passes in ~18 minutes of play
+      this.hours = (this.hours + (dt * this.speed) / 45) % 24;
+    }
+    this.gfx.setTimeOfDay(this.hours);
+    this.effects.setSunDirection?.(this.gfx.sunDir);
+    if (this.lightPools) {
+      this.lightPools.mesh.visible = this.gfx.night > 0.05;
+      if (this.lightPools.mesh.visible) this.lightPools.update(this.alpha, this.time, this.gfx.night);
+    }
     this.crates.update(this.time);
+    if (!this.paused) this.tracks.update(this.alpha, this.time);
     for (const p of this.gfx.vegetation.syncTrees()) {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
     }
@@ -393,6 +415,16 @@ export class Game {
         case 'nuke':
           this.audio.play('nuke_launch');
           break;
+        case 'promoted': {
+          const u = world.getEntity(ev.id);
+          if (u && fog.visibilityAt(u.x, u.y) > 0.2) {
+            const p3 = new THREE.Vector3(u.x, world.map.surfaceAt(u.x, u.y) + 0.4, u.y);
+            this.effects.oreSparkle(p3, false);
+            this.effects.healPulse(p3);
+            if (!demo && u.owner === this.local && this.overlay) this.overlay.addFloat(u.x, p3.y + 0.5, u.y, ev.rank >= 2 ? '★ ELITE' : '▲ VETERAN', '#ffe27a');
+          }
+          break;
+        }
         case 'crate': {
           const p3 = new THREE.Vector3(ev.x, world.map.surfaceAt(ev.x, ev.y) + 0.3, ev.y);
           if (fog.visibilityAt(ev.x, ev.y) > 0.2) {

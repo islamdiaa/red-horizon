@@ -6,7 +6,7 @@ import { GAME_TITLE } from './config';
 import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
 import type { TimeOfDay } from './render/renderer';
-import { chargeArmies } from './debug';
+import { chargeArmies, debugConstruct } from './debug';
 import { AIController } from './sim/ai';
 
 document.title = GAME_TITLE;
@@ -68,6 +68,7 @@ async function startGame(setup: GameSetup) {
     });
     applySettings(game, menus.settings);
     (window as any).__game = game;
+    (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
     game.start();
   } catch (e) {
@@ -94,6 +95,7 @@ function applyTestParams(g: Game) {
     const m = g.world.map;
     g.gfx.cam.jumpTo(m.w / 2, m.h / 2 + 2);
   }
+  if (params.get('hour')) g.hours = +params.get('hour')!;
   const sp = params.get('selfplay');
   if (sp) g.world.ais.push(new AIController(g.world, g.local, sp as AIDifficulty));
   if (params.get('speed')) g.speed = +params.get('speed')!;
@@ -134,6 +136,7 @@ if (params.get('autostart')) {
     mapSize: +(params.get('size') ?? 96), water: 0.5, trees: 0.5, ore: 0.6, credits: +(params.get('credits') ?? 10000),
     startUnits: (params.get('units') as any) ?? 'light', fog: params.get('fog') !== '0', timeOfDay: (params.get('tod') as TimeOfDay) ?? 'day',
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: +(params.get('seed') ?? 1234),
+    dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear',
   });
 } else {
   setLoading(0.5, 'Loading');

@@ -32,7 +32,33 @@ export interface AudioVolumes {
   sfx: number;
   music: number;
   voice: number;
+  /** Environmental ambience beds, weather and thunder (default 0.7). */
+  ambience: number;
 }
+
+export type WeatherKind = 'clear' | 'rain' | 'storm' | 'snow' | 'fog' | 'dust';
+
+/** Inputs of the living soundscape; see AudioApi.setAmbience. All numbers are 0..1. */
+export interface AmbienceState {
+  /** 0 = full day, 1 = deep night (continuous; dusk ≈ 0.5). */
+  night: number;
+  weather: WeatherKind;
+  /** Weather strength (ramp it 0→1 / 1→0 during transitions). */
+  intensity: number;
+  wind: number;
+  /** How much water is near the camera focus. */
+  water: number;
+  /** How much forest is near the camera focus. */
+  forest: number;
+  /** Combat intensity on screen. */
+  battle: number;
+  /** Combat happening off-screen (distant rumble). */
+  offscreenBattle: number;
+  /** Camera height: 0 = closest, 1 = max zoom-out (detail thins, wind takes over). */
+  zoom: number;
+}
+
+export type StingerKind = 'victory' | 'defeat' | 'superweapon_ready' | 'promotion' | 'reinforcements' | 'mission_start' | 'enemy_spotted';
 
 /** Public surface of the audio system (implemented in ./index.ts as `class AudioSystem`). */
 export interface AudioApi {
@@ -55,4 +81,17 @@ export interface AudioApi {
   setVolumes(v: Partial<AudioVolumes>): void;
   getVolumes(): AudioVolumes;
   update(dt: number): void;
+  /**
+   * Living soundscape state; call ~10×/s. Everything cross-fades smoothly (weather ≈ 2 s, day/night ≈ 1.5 s,
+   * camera-dependent values faster). Missing fields keep their previous value.
+   */
+  setAmbience?(a: Partial<AmbienceState>): void;
+  /**
+   * Thunder: crack + long rolling rumble. `distanceCells` 0 = overhead … ≥ 48 = far (low-passed, no crack).
+   * The caller delays the call after the lightning flash (≈ distanceCells × 0.03 s feels right).
+   * `pan` −1..1 is optional (random-ish when omitted).
+   */
+  thunder?(distanceCells: number, intensity: number, pan?: number): void;
+  /** Short musical phrase in the current music key, aligned to the beat; ducks the score while it plays. */
+  stinger?(kind: StingerKind): void;
 }

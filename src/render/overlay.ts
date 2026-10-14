@@ -72,6 +72,7 @@ export class Overlay {
       else if (e.kind === 'infantry') w = 22;
       else w = 34;
       this.healthBar(sx - w / 2, sy, w, e.healthFrac, isSel, e.owner === local);
+      if (e.rank > 0) this.chevrons(sx - w / 2 - 9, sy + 2, e.rank);
       let yy = sy + 6;
       if (e instanceof Unit && e.ut.harvester && (isSel || hovered === e.id)) {
         this.bar(sx - w / 2, yy, w, 3, e.cargo / BAIL_COUNT, '#ffc93c');
@@ -160,6 +161,33 @@ export class Overlay {
       ctx.fillStyle = col;
       ctx.globalAlpha = selected || own ? 1 : 0.85;
       ctx.fillRect(x + i * sw + 0.5, y, sw * f - 1, h);
+    }
+    ctx.restore();
+  }
+
+  /** Gold rank chevrons (1 = veteran, 2 = elite). */
+  private chevrons(x: number, y: number, rank: number) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 3;
+    ctx.strokeStyle = rank >= 2 ? '#ffe27a' : '#e8b84a';
+    for (let k = 0; k < rank; k++) {
+      const yy = y - k * 4;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, yy - 1);
+      ctx.lineTo(x, yy + 2);
+      ctx.lineTo(x + 4, yy - 1);
+      ctx.stroke();
+    }
+    if (rank >= 2) {
+      ctx.fillStyle = '#fff3b0';
+      ctx.beginPath();
+      ctx.arc(x, y - 9, 1.6, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
   }

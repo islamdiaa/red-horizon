@@ -2,6 +2,16 @@ import { BUILDINGS } from './data/rules';
 import type { Player } from './sim/player';
 import type { World } from './sim/world';
 
+let debugUnderConstruction = false;
+
+/** Debug: start constructing a structure for the player near (x, y) (shows the build animation). */
+export function debugConstruct(world: World, p: Player, type: string, x: number, y: number) {
+  debugUnderConstruction = true;
+  const ok = placeNear(world, p, type, x, y, true);
+  debugUnderConstruction = false;
+  return ok;
+}
+
 /** Place a structure near (x, y) for player p using a spiral search (debug / scenarios). */
 function placeNear(world: World, p: Player, type: string, x: number, y: number, needAdjacent: boolean): boolean {
   const bt = BUILDINGS[type];
@@ -12,7 +22,8 @@ function placeNear(world: World, p: Player, type: string, x: number, y: number, 
       if (needAdjacent ? !world.canPlace(p, type, cx, cy) : !footprintFree(world, type, cx, cy)) continue;
       // keep a walkway around non-defenses
       if (bt.category !== 'defense' && !margin(world, type, cx, cy)) continue;
-      world.addBuilding(type, p, cx, cy, true);
+      const b = world.addBuilding(type, p, cx, cy, !debugUnderConstruction);
+      if (debugUnderConstruction) world.events.push({ e: 'placed', id: b.id });
       return true;
     }
   }
