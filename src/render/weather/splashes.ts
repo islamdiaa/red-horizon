@@ -97,8 +97,8 @@ void main() {
     float x1 = (r - e) / w;
     float R2 = e - 0.35;
     float x2 = (r - R2) / w;
-    a = exp(-x1 * x1) + 0.45 * step(0.0, R2) * exp(-x2 * x2);
-    a *= pow(1.0 - L, 2.0) * (1.0 - smoothstep(0.85, 1.0, r)) * 0.5;
+    a = exp(-x1 * x1) + 0.3 * step(0.0, R2) * exp(-x2 * x2);
+    a *= pow(1.0 - L, 2.0) * (1.0 - smoothstep(0.85, 1.0, r)) * 0.4;
     a += exp(-r * r * 90.0) * (1.0 - smoothstep(0.0, 0.15, L)) * 0.8;
   } else {
     // droplet crown: a few drops thrown up and out on parabolas

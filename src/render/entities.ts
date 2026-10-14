@@ -77,7 +77,7 @@ export class EntityRenderer {
   private ringGeo2 = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private time = 0;
   /** Vehicles whose wrecks linger. */
-  private wreckTime = 6;
+  private wreckTime = 22;
 
   constructor(
     private scene: THREE.Scene,
@@ -512,11 +512,18 @@ export class EntityRenderer {
       if (v.deathT > 4) root.position.y -= dt * 0.15;
       return v.deathT < 6;
     }
-    // vehicles: wreck lingers, then sinks
-    if (v.deathT > this.wreckTime - 1.5) {
-      root.position.y -= dt * 0.3;
-      v.fire?.setIntensity(0);
+    // vehicles: the wreck burns, then smoulders, then sinks away
+    if (v.fire) {
+      const k = v.deathT < 6 ? 0.7 : Math.max(0, 0.7 - (v.deathT - 6) * 0.25);
+      v.fire.setIntensity(k);
+      if (k <= 0) { v.fire.dispose(); v.fire = null; }
     }
+    if (v.deathT > 4 && !v.smoke && v.deathT < this.wreckTime - 4 && root.visible) {
+      v.smoke = this.effects.createEmitter('smoke', root.position.clone().setY(root.position.y + 0.3));
+      v.smoke.setIntensity(0.45);
+    }
+    if (v.smoke && v.deathT > this.wreckTime - 4) v.smoke.setIntensity(Math.max(0, (this.wreckTime - 1.5 - v.deathT) / 2.5) * 0.45);
+    if (v.deathT > this.wreckTime - 1.5) root.position.y -= dt * 0.3;
     return v.deathT < this.wreckTime;
   }
 

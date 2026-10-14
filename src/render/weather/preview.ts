@@ -254,8 +254,8 @@ function applyWeatherToScene(): void {
   const hz = w.haze;
   if (hz > 0.005) {
     fog.color.copy(w.hazeColorLit);
-    fog.near = dist * (1.05 - 0.5 * hz);
-    fog.far = fog.near + dist * (0.6 + 3.4 * (1 - hz)) / Math.max(0.05, hz);
+    fog.near = dist * (1 - 0.45 * hz);
+    fog.far = fog.near + dist / Math.max(0.05, hz);
   } else {
     fog.near = 1000;
     fog.far = 2000;

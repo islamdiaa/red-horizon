@@ -107,8 +107,8 @@ void main() {
   // gentle tilt towards the camera so the banks read as volume rather than decals
   vec3 toCam = normalize(cameraPosition - c);
   vec3 world = vec3(c.x + off.x, y, c.z + off.y);
-  float dToCam = dot(vec2(off.x, off.y), normalize(toCam.xz + 1e-4));
-  world.y += dToCam * uTilt;
+  float dToCam = dot(position.xy, vec2(dot(wd, normalize(toCam.xz + 1e-4)), dot(wp, normalize(toCam.xz + 1e-4))));
+  world.y += clamp(dToCam * size * uTilt, -0.5, 0.8);
   vWorld = world;
   vUv = position.xy;
   vAlpha = alpha;

@@ -90,6 +90,40 @@ export class Overlay {
     for (const b of world.buildings) if (b.alive) drawFor(b);
     for (const u of world.units) if (u.alive) drawFor(u);
 
+    // order lines for selected own units (current order + shift-queued waypoints)
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    for (const id of selected) {
+      const u = world.getEntity(id);
+      if (!(u instanceof Unit) || u.owner !== local || !u.alive) continue;
+      const pts: [number, number, string][] = [];
+      const push = (o: typeof u.order) => {
+        if (o.type === 'move' || o.type === 'attackGround' || o.type === 'guard') pts.push([o.x, o.y, o.type === 'move' && !o.attackMove ? '#58ff8a' : '#ff6a4a']);
+        else if (o.type === 'attack' || o.type === 'enter') {
+          const t = world.getEntity(o.target);
+          if (t && t.alive) pts.push([t.x, t.y, o.type === 'attack' ? '#ff4a3a' : '#ffd34d']);
+        }
+      };
+      push(u.order);
+      for (const q of u.orderQueue) push(q);
+      if (!pts.length) continue;
+      let [px, py] = this.project(camera, lerp(u.prevX, u.x, alpha), map.surfaceAt(u.x, u.y) + 0.05, lerp(u.prevY, u.y, alpha));
+      for (const [x, y, col] of pts) {
+        const [qx, qy, ok] = this.project(camera, x, map.surfaceAt(x, y) + 0.05, y);
+        if (!ok) break;
+        ctx.strokeStyle = col;
+        ctx.globalAlpha = 0.35;
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(qx, qy, 2.5, 0, Math.PI * 2); ctx.fill();
+        px = qx; py = qy;
+      }
+    }
+    ctx.restore();
+
     // rally points of selected factories
     for (const id of selected) {
       const b = world.getEntity(id);

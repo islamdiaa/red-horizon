@@ -158,7 +158,7 @@ export class Lightning {
       uCloudEnv: { value: 0 },
       uReveal: { value: 2 },
       uRes: { value: res },
-      uCore: { value: new THREE.Color(9.0, 9.5, 12.0) },
+      uCore: { value: new THREE.Color(6.0, 6.5, 8.5) },
       uGlow: { value: new THREE.Color(0.55, 0.62, 1.35) },
       uCloud: { value: new THREE.Color(0.45, 0.5, 0.78) },
     };
