@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Weather preview</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      canvas { display: block; }
+      #hud {
+        position: fixed; left: 8px; top: 6px; color: #dfe6ee; font: 12px/1.35 monospace;
+        text-shadow: 0 1px 2px #000; pointer-events: none; white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud"></div>
+    <script type="module" src="/src/render/weather/preview.ts"></script>
+  </body>
+</html>

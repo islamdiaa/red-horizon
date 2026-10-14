@@ -282,6 +282,10 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   agun: DEF({ id: 'agun', name: 'AA Gun', cost: 600, strength: 400, size: [1, 1], power: -50, prereq: ['dome'], owner: ['allies'], primary: 'ZSU-23', turret: true, description: 'Anti-aircraft flak cannon.' }),
   ftur: DEF({ id: 'ftur', name: 'Flame Tower', cost: 600, strength: 400, size: [1, 1], power: -20, prereq: ['barr'], owner: ['soviet'], primary: 'FireballLauncher', description: 'Hurls fireballs at nearby enemies.' }),
   tsla: DEF({ id: 'tsla', name: 'Tesla Coil', cost: 1500, strength: 400, size: [1, 2], power: -150, prereq: ['weap'], owner: ['soviet'], primary: 'TeslaZap', requiresPower: true, sight: 8, description: 'Fires devastating bolts of lightning. Requires power.' }),
+  // walls: placed in lines, block movement, only explosive warheads (Wall=yes) damage them
+  sbag: DEF({ id: 'sbag', name: 'Sandbags', cost: 25, strength: 150, armor: 'wood', size: [1, 1], power: 0, prereq: ['fact'], owner: ['allies'], wall: true, sight: 1, description: 'Cheap sandbag wall. Drag to build a line. Blocks movement.' }),
+  barb: DEF({ id: 'barb', name: 'Barbed Wire', cost: 25, strength: 100, armor: 'wood', size: [1, 1], power: 0, prereq: ['fact'], owner: ['soviet'], wall: true, sight: 1, description: 'Barbed-wire barrier. Drag to build a line. Blocks movement.' }),
+  brik: DEF({ id: 'brik', name: 'Concrete Wall', cost: 100, strength: 500, armor: 'concrete', size: [1, 1], power: 0, prereq: ['fact', 'weap'], wall: true, sight: 1, description: 'Heavy concrete wall. Drag to build a line. Only explosives breach it.' }),
   sam:  DEF({ id: 'sam', name: 'SAM Site', cost: 750, strength: 400, size: [2, 1], power: -20, prereq: ['dome'], owner: ['soviet'], primary: 'Nike', turret: true, description: 'Surface-to-air missile launcher.' }),
 };
 

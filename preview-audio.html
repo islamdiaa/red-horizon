@@ -23,7 +23,12 @@
 </head>
 <body>
   <h1>RED HORIZON — procedural audio preview</h1>
-  <div class="hint">Everything you hear is synthesised at runtime (Web Audio + Web Speech). Click anything to unlock audio. <a href="?selftest=1" style="color:#8fb8ff">Run self-test</a></div>
+  <div class="hint">Everything you hear is synthesised at runtime (Web Audio + Web Speech). Click anything to unlock audio.
+    Self-tests: <a href="?selftest=1" style="color:#8fb8ff">all</a> ·
+    <a href="?selftest=amb" style="color:#8fb8ff">ambience / thunder / stingers</a> ·
+    <a href="?selftest=cpu-amb" style="color:#8fb8ff">ambience CPU (best of 3)</a> ·
+    <a href="?selftest=sfx" style="color:#8fb8ff">sfx</a> ·
+    <a href="?selftest=music" style="color:#8fb8ff">music</a></div>
   <div id="app"></div>
   <pre id="out"></pre>
   <script type="module" src="/src/audio/preview.ts"></script>
