@@ -126,15 +126,10 @@ function longbow(): ModelTemplate {
   for (const s of [-1, 1]) {
     r.box(M.teamDark, 0.08, 0.012, 0.16, 0.0, 0.12, 0.13 * s, { b: 0.004, r: [0.08 * s, 0, 0] });
     for (const z of [0.12, 0.19]) {
-      r.box(M.dark, 0.05, 0.02, 0.012, 0.0, 0.1, z * s, { b: 0.002 });
-      for (const [dy, dz] of [
-        [-0.012, -0.012],
-        [-0.012, 0.012],
-        [-0.034, -0.012],
-        [-0.034, 0.012],
-      ]) {
-        r.cyl(M.oliveDark, 0.008, 0.008, 0.09, 0.01, 0.1 + dy, z * s + dz, { r: [0, 0, -Math.PI / 2], seg: 6 });
-        r.add(new THREE.ConeGeometry(0.008, 0.016, 4), M.gun, { p: [0.063, 0.1 + dy, z * s + dz], r: [0, 0, -Math.PI / 2] });
+      r.box(M.dark, 0.05, 0.02, 0.012, 0.0, 0.1, z * s, { b: 0 });
+      for (const dz of [-0.012, 0.012]) {
+        r.cyl(M.oliveDark, 0.009, 0.009, 0.09, 0.01, 0.084, z * s + dz, { r: [0, 0, -Math.PI / 2], seg: 4 });
+        r.add(new THREE.ConeGeometry(0.009, 0.016, 4), M.gun, { p: [0.063, 0.084, z * s + dz], r: [0, 0, -Math.PI / 2] });
       }
     }
   }
@@ -152,8 +147,8 @@ function longbow(): ModelTemplate {
   alliedStar(r, 0.025, [-0.3, 0.15, 0.036], faceRot('+z'));
   alliedStar(r, 0.025, [-0.3, 0.15, -0.036], faceRot('-z'));
   // nav lights
-  r.sph(G.red, 0.008, 0.0, 0.12, -0.215, { seg: 6, slot: 'glow:nav' });
-  r.sph(G.green, 0.008, 0.0, 0.12, 0.215, { seg: 6, slot: 'glow:nav' });
+  r.sph(G.red, 0.008, 0.0, 0.12, -0.215, { seg: 6, slot: 'glow' });
+  r.sph(G.green, 0.008, 0.0, 0.12, 0.215, { seg: 6, slot: 'glow' });
   r.sph(G.white, 0.007, -0.555, 0.29, 0, { seg: 6, slot: 'glow:strobe' });
   // mast + Longbow radar dome
   r.cyl(M.gun, 0.018, 0.022, 0.07, 0.02, 0.23, 0, { seg: 10 });
@@ -169,7 +164,7 @@ function longbow(): ModelTemplate {
     height: 0.36,
     radius: 0.45,
     muzzles: ['m0', 'm1'],
-    glow: { 'glow:nav': 3, 'glow:strobe': 5 },
+    glow: { 'glow:strobe': 5 },
     anim: (c, s) => {
       healthVariant(c, s);
       animRotors(c, s, 'rotor', 'trotor', 28);
@@ -265,8 +260,8 @@ function hind(): ModelTemplate {
   r.cyl(M.rubber, 0.02, 0.02, 0.016, 0.28, 0.02, 0, { r: [Math.PI / 2, 0, 0], seg: 8 });
   sovietStar(r, 0.03, [-0.42, 0.17, 0.04], faceRot('+z'));
   sovietStar(r, 0.03, [-0.42, 0.17, -0.04], faceRot('-z'));
-  r.sph(G.red, 0.008, 0.0, 0.11, -0.275, { seg: 6, slot: 'glow:nav' });
-  r.sph(G.green, 0.008, 0.0, 0.11, 0.275, { seg: 6, slot: 'glow:nav' });
+  r.sph(G.red, 0.008, 0.0, 0.11, -0.275, { seg: 6, slot: 'glow' });
+  r.sph(G.green, 0.008, 0.0, 0.11, 0.275, { seg: 6, slot: 'glow' });
   r.sph(G.red, 0.009, -0.05, 0.27, 0, { seg: 6, slot: 'glow:strobe' });
   // rotor
   r.cyl(M.gun, 0.024, 0.03, 0.06, 0.0, 0.29, 0, { seg: 10 });
@@ -281,7 +276,7 @@ function hind(): ModelTemplate {
     height: 0.4,
     radius: 0.52,
     muzzles: ['m0', 'm1'],
-    glow: { 'glow:nav': 3, 'glow:strobe': 5 },
+    glow: { 'glow:strobe': 5 },
     anim: (c, s) => {
       healthVariant(c, s);
       animRotors(c, s, 'rotor', 'trotor', 24);
@@ -392,7 +387,7 @@ function mig(): ModelTemplate {
     r.add(new THREE.ConeGeometry(0.011, 0.03, 4), M.red, { p: [0.03, cy - 0.04, 0.17 * s], r: [0, 0, -Math.PI / 2] });
     r.box(M.dark, 0.05, 0.02, 0.006, -0.06, cy - 0.022, 0.17 * s, { b: 0 });
     sovietStar(r, 0.032, [-0.17, cy + 0.0035, 0.21 * s]);
-    r.sph(s < 0 ? G.red : G.green, 0.007, -0.235, cy - 0.004, 0.3 * s, { seg: 6, slot: 'glow:nav' });
+    r.sph(s < 0 ? G.red : G.green, 0.007, -0.235, cy - 0.004, 0.3 * s, { seg: 6, slot: 'glow' });
   }
   r.node('m0', [0.05, cy - 0.04, -0.17]);
   r.node('m1', [0.05, cy - 0.04, 0.17]);
@@ -411,12 +406,11 @@ function mig(): ModelTemplate {
     height: 0.24,
     radius: 0.45,
     muzzles: ['m0', 'm1'],
-    glow: { 'glow:ab': 4, 'glow:nav': 3 },
+    glow: { 'glow:ab': 4 },
     anim: (c, s) => {
       healthVariant(c, s);
       const fly = airborne(s);
       c.setGlow('glow:ab', fly ? 0.7 + 0.3 * Math.sin(s.time * 40) : 0.1);
-      c.setGlow('glow:nav', fly ? (blink(s.time, 1.2, 0.5) ? 1 : 0.4) : 0.3);
     },
   });
 }
@@ -505,7 +499,7 @@ function yak(): ModelTemplate {
     sovietStar(r, 0.04, [0.04, cy - 0.015, 0.25 * s]);
     // wing cannons
     r.cyl(M.dark, 0.005, 0.005, 0.07, 0.15, cy - 0.025, 0.12 * s, { r: [0, 0, -Math.PI / 2], seg: 6 });
-    r.sph(s < 0 ? G.red : G.green, 0.007, 0.04, cy - 0.02, 0.38 * s, { seg: 6, slot: 'glow:nav' });
+    r.sph(s < 0 ? G.red : G.green, 0.007, 0.04, cy - 0.02, 0.38 * s, { seg: 6, slot: 'glow' });
     // gear
     r.box(M.dark, 0.01, 0.06, 0.01, 0.09, 0.04, 0.1 * s, { b: 0 });
     r.cyl(M.rubber, 0.022, 0.022, 0.014, 0.09, 0.022, 0.1 * s, { r: [Math.PI / 2, 0, 0], seg: 10 });
@@ -532,7 +526,7 @@ function yak(): ModelTemplate {
     height: 0.22,
     radius: 0.4,
     muzzles: ['m0', 'm1'],
-    glow: { 'glow:nav': 3 },
+    glow: {},
     anim: (c, s) => {
       healthVariant(c, s);
       const dt = dtOf(s);

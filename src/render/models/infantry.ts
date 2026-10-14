@@ -346,9 +346,7 @@ const E4: SoldierSpec = {
   build: (t) => {
     // twin fuel tanks on back
     for (const z of [-0.026, 0.026]) {
-      t.cyl(M.red, 0.024, 0.024, 0.1, -0.065, 0.07, z, { seg: 10 });
-      t.sph(M.red, 0.024, -0.065, 0.12, z, { seg: 10 });
-      t.sph(M.red, 0.024, -0.065, 0.02, z, { seg: 10 });
+      t.cyl(M.red, 0.022, 0.024, 0.12, -0.065, 0.07, z, { seg: 6 });
     }
     t.cyl(M.steel, 0.008, 0.008, 0.06, -0.065, 0.13, 0, { r: [Math.PI / 2, 0, 0], seg: 6 });
     t.box(M.yellow, 0.004, 0.02, 0.07, -0.09, 0.07, 0, { b: 0 });
@@ -357,8 +355,6 @@ const E4: SoldierSpec = {
     t.box(M.gun, 0.14, 0.018, 0.018, 0.09, 0.05, 0.035, { b: 0 });
     t.cyl(M.dark, 0.012, 0.009, 0.03, 0.17, 0.05, 0.035, { r: [0, 0, -Math.PI / 2], seg: 8 });
     t.sph(G.fire, 0.008, 0.19, 0.05, 0.035, { seg: 6, slot: 'glow:pilot' });
-    // gas mask hint
-    t.cyl(M.dark, 0.012, 0.014, 0.02, 0.04, 0.155, 0, { r: [0, 0, -Math.PI / 2], seg: 8 });
   },
 };
 
@@ -396,8 +392,6 @@ const MEDI: SoldierSpec = {
     // red cross on chest and back
     t.box(M.red, 0.004, 0.034, 0.012, 0.047, 0.08, 0, { b: 0 });
     t.box(M.red, 0.004, 0.012, 0.034, 0.047, 0.08, 0, { b: 0 });
-    t.box(M.red, 0.004, 0.034, 0.012, -0.047, 0.08, 0, { b: 0 });
-    t.box(M.red, 0.004, 0.012, 0.034, -0.047, 0.08, 0, { b: 0 });
     // armband
     armR.cyl(M.red, 0.021, 0.021, 0.014, 0, -0.03, 0, { seg: 8 });
     armR.box(M.white, 0.006, 0.008, 0.012, 0.02, -0.03, 0, { b: 0 });
@@ -472,7 +466,7 @@ function dog(): ModelTemplate {
   ];
   for (const [name, x, z] of legs) {
     const l = r.node(name, [x, 0.11, z]);
-    l.add(lathe([[0.0, 0.0], [0.016, -0.01], [0.012, -0.06], [0.009, -0.1], [0.0, -0.105]], 6), name.endsWith('b') ? FUR : FUR_TAN);
+    l.cyl(name.endsWith('b') ? FUR : FUR_TAN, 0.015, 0.009, 0.1, 0, -0.05, 0, { seg: 4 });
     l.box(FUR_DARK, 0.024, 0.012, 0.02, 0.006, -0.105, 0, { b: 0 });
   }
 

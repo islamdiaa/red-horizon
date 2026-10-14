@@ -412,8 +412,10 @@ export interface TrackOpts {
   wheels?: number;
   /** x offset */
   x?: number;
-  /** extra belts at other z (e.g. mammoth outer tracks) */
+  /** tread link length */
   link?: number;
+  /** draw road-wheel faces (false for hidden inner tracks) */
+  faces?: boolean;
 }
 
 /** Pair of tracks with road wheels and sprockets (belts in 'track' slot). */
@@ -432,6 +434,7 @@ export function tracks(nb: NB, o: TrackOpts): void {
     const span = o.L - o.H * 1.1;
     const face = z + side * o.W * 0.42;
     const rot: V3 = [0, side > 0 ? 0 : Math.PI, 0];
+    if (o.faces === false) continue;
     for (let i = 0; i < nW; i++) {
       const x = x0 - span / 2 + (span * i) / (nW - 1);
       nb.add(wheelDisc, M.gun, { p: [x, wr + 0.012, face], r: rot });

@@ -52,5 +52,6 @@ export type GameEvent =
   | { e: 'teleport'; id: number; fromX: number; fromY: number; x: number; y: number }
   | { e: 'ironcurtain'; x: number; y: number }
   | { e: 'nuke'; x: number; y: number; stage: 'launch' | 'incoming' }
+  | { e: 'crate'; x: number; y: number; player: number; reward: 'money' | 'unit' | 'heal' | 'reveal'; amount: number }
   | { e: 'eliminated'; player: number }
   | { e: 'gameover'; winnerTeam: number };

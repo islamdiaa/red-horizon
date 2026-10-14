@@ -7,6 +7,7 @@ import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
 import type { TimeOfDay } from './render/renderer';
 import { chargeArmies } from './debug';
+import { AIController } from './sim/ai';
 
 document.title = GAME_TITLE;
 const params = new URLSearchParams(location.search);
@@ -87,6 +88,9 @@ function applyTestParams(g: Game) {
     const m = g.world.map;
     g.gfx.cam.jumpTo(m.w / 2, m.h / 2 + 2);
   }
+  const sp = params.get('selfplay');
+  if (sp) g.world.ais.push(new AIController(g.world, g.local, sp as AIDifficulty));
+  if (params.get('speed')) g.speed = +params.get('speed')!;
   if (params.get('sel') === 'army') {
     for (const u of g.world.units) if (u.alive && u.owner === g.local && u.weapons.length) g.selection.add(u.id);
   }

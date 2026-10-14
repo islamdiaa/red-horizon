@@ -245,24 +245,21 @@ function heavyTank(): ModelTemplate {
   );
   // ERA bricks on the glacis
   for (let row = 0; row < 2; row++) {
-    for (let i = 0; i < 5; i++) {
-      const z = -0.16 + i * 0.08;
+    for (let i = 0; i < 3; i++) {
+      const z = -0.13 + i * 0.13;
       const x = 0.37 + row * 0.055;
       const y = 0.217 - row * 0.024;
-      r.box(M.teamDark, 0.05, 0.014, 0.072, x, y, z, { b: 0.004, r: [0, 0, -0.41] });
+      r.box(M.teamDark, 0.05, 0.014, 0.11, x, y, z, { b: 0, r: [0, 0, -0.41] });
     }
   }
   // fenders with stowage boxes (rear half)
   for (const s of [-1, 1]) {
     r.box(M.teamDark, 0.86, 0.01, 0.07, 0, 0.16, 0.268 * s, { b: 0.003 });
-    stowage(r, 0.14, 0.04, 0.05, -0.2, 0.165, 0.27 * s, M.teamDark);
-    stowage(r, 0.1, 0.04, 0.05, -0.04, 0.165, 0.27 * s, M.olive);
+    stowage(r, 0.2, 0.04, 0.05, -0.15, 0.165, 0.27 * s, s > 0 ? M.olive : M.teamDark);
   }
   // fuel drums at rear
   for (const z of [-0.1, 0.1]) {
-    r.cyl(M.oliveDark, 0.035, 0.035, 0.17, -0.475, 0.23, z, { r: [Math.PI / 2, 0, 0], seg: 12 });
-    r.cyl(M.steel, 0.037, 0.037, 0.008, -0.475, 0.23, z - 0.06, { r: [Math.PI / 2, 0, 0], seg: 12 });
-    r.cyl(M.steel, 0.037, 0.037, 0.008, -0.475, 0.23, z + 0.06, { r: [Math.PI / 2, 0, 0], seg: 12 });
+    r.cyl(M.oliveDark, 0.035, 0.035, 0.17, -0.475, 0.23, z, { r: [Math.PI / 2, 0, 0], seg: 6 });
   }
   grille(r, 0.14, 0.26, [-0.33, 0.241, 0], 7);
   headlights(r, 0.43, 0.19, 0.15, 0.012);
@@ -296,9 +293,7 @@ function heavyTank(): ModelTemplate {
   t.add(new THREE.CircleGeometry(0.017, 6), G.white, { p: [0.156, 0.1, 0.11], r: [0, Math.PI / 2, 0], slot: 'glow' });
   // smoke dischargers
   for (const s of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      t.cyl(M.dark, 0.008, 0.008, 0.03, 0.14 - i * 0.025, 0.07, 0.17 * s, { r: [0.5 * s, 0, -0.6], seg: 6 });
-    }
+    t.box(M.dark, 0.06, 0.016, 0.02, 0.12, 0.075, 0.17 * s, { b: 0, r: [0.5 * s, 0, 0] });
   }
   sovietStar(t, 0.03, [0.06, 0.1135, 0], [0, 0, -0.05]);
   antenna(t, -0.18, 0.06, -0.12, 0.2);
@@ -332,8 +327,8 @@ function heavyTank(): ModelTemplate {
 
 function mammothTank(): ModelTemplate {
   const r = root();
-  tracks(r, { L: 1.06, H: 0.17, W: 0.12, Z: 0.2, wheels: 7 });
-  tracks(r, { L: 1.1, H: 0.17, W: 0.125, Z: 0.345, wheels: 7 });
+  tracks(r, { L: 1.06, H: 0.17, W: 0.12, Z: 0.2, wheels: 6, faces: false });
+  tracks(r, { L: 1.1, H: 0.17, W: 0.125, Z: 0.345, wheels: 5 });
   r.box(M.dark, 1.0, 0.09, 0.62, 0, 0.11, 0, { b: 0.012 });
   r.add(
     prismXY(
@@ -352,29 +347,13 @@ function mammothTank(): ModelTemplate {
   );
   // armoured track pods between the track pairs
   for (const s of [-1, 1]) {
-    r.add(
-      prismXY(
-        [
-          [-0.52, 0.16],
-          [0.5, 0.16],
-          [0.56, 0.2],
-          [0.48, 0.215],
-          [-0.5, 0.215],
-          [-0.55, 0.19],
-        ],
-        0.07,
-        0.01,
-      ),
-      M.teamDark,
-      { p: [0, 0, 0.272 * s] },
-    );
+    r.box(M.teamDark, 1.04, 0.05, 0.07, -0.01, 0.19, 0.272 * s, { b: 0 });
     // exhaust stacks
-    r.cyl(M.dark, 0.02, 0.024, 0.08, -0.43, 0.3, 0.17 * s, { seg: 10 });
-    r.cyl(M.darker, 0.016, 0.016, 0.005, -0.43, 0.342, 0.17 * s, { seg: 10 });
+    r.cyl(M.dark, 0.02, 0.024, 0.08, -0.43, 0.3, 0.17 * s, { seg: 5 });
   }
   grille(r, 0.18, 0.3, [-0.38, 0.286, 0], 8);
   // front armour plate seams
-  for (let i = 0; i < 4; i++) r.box(M.teamDark, 0.06, 0.02, 0.1, 0.5, 0.235, -0.165 + i * 0.11, { b: 0.006, r: [0, 0, -0.5] });
+  for (let i = 0; i < 3; i++) r.box(M.teamDark, 0.06, 0.02, 0.13, 0.5, 0.235, -0.14 + i * 0.14, { b: 0, r: [0, 0, -0.5] });
   headlights(r, 0.55, 0.22, 0.18, 0.015);
   taillights(r, -0.57, 0.23, 0.18);
 
@@ -433,14 +412,12 @@ function mammothTank(): ModelTemplate {
   ] as const) {
     const z = 0.27 * s;
     t.box(M.teamDark, 0.26, 0.1, 0.1, -0.02, 0.06, z, { b: 0.016, seg: 1 });
-    t.box(M.gun, 0.05, 0.03, 0.06, -0.02, 0.02, 0.215 * s, { b: 0.006 });
     for (const dy of [-0.024, 0.024]) {
       for (const dz of [-0.024, 0.024]) {
-        t.cyl(M.darker, 0.017, 0.017, 0.012, 0.106, 0.06 + dy, z + dz, { r: [0, 0, -Math.PI / 2], seg: 10 });
-        t.add(new THREE.ConeGeometry(0.013, 0.028, 4), M.red, { p: [0.112, 0.06 + dy, z + dz], r: [0, 0, -Math.PI / 2] });
+        t.add(new THREE.CircleGeometry(0.018, 5), M.darker, { p: [0.111, 0.06 + dy, z + dz], r: [0, Math.PI / 2, 0] });
+        t.add(new THREE.CircleGeometry(0.01, 4), M.red, { p: [0.112, 0.06 + dy, z + dz], r: [0, Math.PI / 2, 0] });
       }
     }
-    sovietStar(t, 0.022, [-0.04, 0.06, z + 0.0505 * s], faceRot(s > 0 ? '+z' : '-z'));
     t.node(`m${i}`, [0.13, 0.06, z]);
   }
 
@@ -868,11 +845,11 @@ function harvester(): ModelTemplate {
   hazard(r, 0.46, 0.03, [0.46, 0.2, 0], [0, Math.PI / 2, 0.0]);
   const drum = r.node('drum', [0.53, 0.075, 0]);
   drum.cyl(M.gun, 0.062, 0.062, 0.46, 0, 0, 0, { r: [Math.PI / 2, 0, 0], seg: 14 });
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    for (let k = 0; k < 4; k++) {
-      const z = -0.18 + k * 0.12 + (i % 2) * 0.06;
-      drum.box(M.steel, 0.026, 0.03, 0.04, Math.cos(a) * 0.066, Math.sin(a) * 0.066, z, { r: [0, 0, a], b: 0.004 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    for (let k = 0; k < 2; k++) {
+      const z = -0.12 + k * 0.24 + (i % 2) * 0.06;
+      drum.box(M.steel, 0.026, 0.03, 0.08, Math.cos(a) * 0.066, Math.sin(a) * 0.066, z, { r: [0, 0, a], b: 0 });
     }
   }
   drum.cyl(M.dark, 0.03, 0.03, 0.48, 0, 0, 0, { r: [Math.PI / 2, 0, 0], seg: 8 });
@@ -888,9 +865,9 @@ function harvester(): ModelTemplate {
   r.box(M.team, 0.03, bh, bd, bx - bw / 2 + 0.015, by + bh / 2, 0, { b: 0.01 });
   r.box(M.team, 0.03, bh * 0.8, bd, bx + bw / 2 - 0.015, by + bh * 0.4, 0, { b: 0.01 });
   // ribs
-  for (let i = 0; i < 4; i++) {
-    const x = bx - bw / 2 + 0.07 + i * 0.14;
-    for (const s of [-1, 1]) r.box(M.teamDark, 0.025, bh + 0.01, 0.012, x, by + bh / 2, (bd / 2 + 0.002) * s, { b: 0.003 });
+  for (let i = 0; i < 3; i++) {
+    const x = bx - bw / 2 + 0.1 + i * 0.18;
+    for (const s of [-1, 1]) r.box(M.teamDark, 0.025, bh + 0.01, 0.012, x, by + bh / 2, (bd / 2 + 0.002) * s, { b: 0 });
   }
   hazard(r, bd - 0.04, 0.03, [bx - bw / 2 - 0.003, by + bh - 0.03, 0], [0, -Math.PI / 2, 0]);
   // ore pile (scaled with load)
@@ -924,7 +901,7 @@ function harvester(): ModelTemplate {
 
 function mcv(): ModelTemplate {
   const r = root();
-  tracks(r, { L: 1.02, H: 0.15, W: 0.13, Z: 0.235, wheels: 7 });
+  tracks(r, { L: 1.02, H: 0.15, W: 0.13, Z: 0.235, wheels: 5 });
   r.box(M.gun, 0.98, 0.08, 0.4, 0, 0.15, 0, { b: 0.012 });
   // cab
   r.add(
@@ -966,13 +943,12 @@ function mcv(): ModelTemplate {
   r.box(M.team, 0.8, 0.03, 0.46, -0.115, 0.415, 0, { b: 0.008 });
   for (const s of [-1, 1]) {
     r.box(M.team, 0.84, 0.05, 0.012, -0.115, 0.36, 0.252 * s, { b: 0.004 });
-    for (let i = 0; i < 4; i++) r.box(M.gun, 0.016, 0.14, 0.012, -0.44 + i * 0.22, 0.27, 0.252 * s, { b: 0.003 });
+    for (let i = 0; i < 3; i++) r.box(M.gun, 0.016, 0.14, 0.012, -0.4 + i * 0.28, 0.27, 0.252 * s, { b: 0 });
     hazard(r, 0.8, 0.03, [-0.115, 0.2, 0.257 * s], [0, s > 0 ? 0 : Math.PI, 0]);
-    grille(r, 0.14, 0.08, [-0.33, 0.28, 0.254 * s], 5, [Math.PI / 2 * s, 0, 0]);
   }
   // folded crane boom on the roof
   r.box(M.yellow, 0.66, 0.045, 0.06, -0.12, 0.455, -0.13, { b: 0.01 });
-  for (let i = 0; i < 6; i++) r.box(M.dark, 0.012, 0.047, 0.062, -0.42 + i * 0.12, 0.455, -0.13, { b: 0 });
+  for (let i = 0; i < 3; i++) r.box(M.dark, 0.012, 0.047, 0.062, -0.36 + i * 0.2, 0.455, -0.13, { b: 0 });
   r.box(M.yellow, 0.09, 0.09, 0.11, 0.21, 0.47, -0.13, { b: 0.014 });
   r.cyl(M.dark, 0.032, 0.032, 0.13, 0.21, 0.47, -0.13, { r: [Math.PI / 2, 0, 0], seg: 10 });
   r.box(M.steel, 0.025, 0.035, 0.025, -0.46, 0.425, -0.13, { b: 0.004 });

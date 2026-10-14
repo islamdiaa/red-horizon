@@ -87,6 +87,10 @@ export class World {
   units: Unit[] = [];
   buildings: Building[] = [];
   projectiles: Projectile[] = [];
+  /** Bonus crates lying on the map. */
+  crates: { id: number; x: number; y: number }[] = [];
+  cratesEnabled = true;
+  private crateTimer = 60;
   events: GameEvent[] = [];
   grid: UnitGrid;
   ais: AIController[] = [];
@@ -840,6 +844,59 @@ export class World {
       if ((this.tick + k * 3) % 10 === 0) this.ais[k].think();
     }
     if (this.tick % TICK_HZ === 0) this.checkVictory();
+    if (this.cratesEnabled) this.updateCrates();
+  }
+
+  private updateCrates() {
+    this.crateTimer -= DT;
+    if (this.crateTimer <= 0 && this.crates.length < 3) {
+      this.crateTimer = this.rng.range(45, 80);
+      const m = this.map;
+      for (let tries = 0; tries < 40; tries++) {
+        const x = this.rng.int(2, m.w - 3), y = this.rng.int(2, m.h - 3);
+        if (!m.passable(x, y) || m.ore[m.idx(x, y)]) continue;
+        if (m.startPositions.some((s) => Math.hypot(s.x - x, s.y - y) < 12)) continue;
+        this.crates.push({ id: this.nextId++, x: x + 0.5, y: y + 0.5 });
+        break;
+      }
+    }
+    if (!this.crates.length || this.tick % 4 !== 0) return;
+    for (let k = this.crates.length - 1; k >= 0; k--) {
+      const c = this.crates[k];
+      let taker: Unit | null = null;
+      this.grid.query(c.x, c.y, 0.8, (u) => { if (!taker && u.alive && !u.isAir && Math.hypot(u.x - c.x, u.y - c.y) < 0.5) taker = u; });
+      if (!taker) continue;
+      this.crates.splice(k, 1);
+      this.collectCrate(taker, c.x, c.y);
+    }
+  }
+
+  private collectCrate(u: Unit, x: number, y: number) {
+    const p = u.owner;
+    const r = this.rng.next();
+    if (r < 0.4) {
+      const amount = this.rng.int(4, 10) * 250;
+      p.cash += amount;
+      this.events.push({ e: 'crate', x, y, player: p.id, reward: 'money', amount });
+    } else if (r < 0.6) {
+      const pool = p.faction === 'allies' ? ['1tnk', '2tnk', 'jeep', 'arty'] : ['3tnk', '3tnk', 'v2rl', '4tnk'];
+      const [sx, sy] = this.findFreeSpot(x, y, 3);
+      const nu = this.addUnit(this.rng.pick(pool), p, sx, sy);
+      nu.heading = nu.prevHeading = u.heading;
+      this.events.push({ e: 'crate', x, y, player: p.id, reward: 'unit', amount: 0 });
+      this.announce(p, 'reinforcements', 0);
+    } else if (r < 0.8) {
+      for (const o of this.units) if (o.alive && o.owner === p && Math.hypot(o.x - x, o.y - y) < 5) o.hp = o.maxHp;
+      this.events.push({ e: 'crate', x, y, player: p.id, reward: 'heal', amount: 0 });
+    } else {
+      const R = 14;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        const cx = Math.floor(x) + dx, cy = Math.floor(y) + dy;
+        if (this.map.inBounds(cx, cy) && dx * dx + dy * dy <= R * R) p.explored[this.map.idx(cx, cy)] = 1;
+      }
+      this.events.push({ e: 'crate', x, y, player: p.id, reward: 'reveal', amount: 0 });
+    }
+    this.sfx('crate', x, y);
   }
 
   private updateBuilding(b: Building) {

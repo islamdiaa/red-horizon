@@ -143,7 +143,7 @@ function aaGun(): ModelTemplate {
   r.add(ringGeo(0.415, 0.435, 0.03, 24), M.team, { p: [0, y0 + 0.125, 0] });
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
-    r.box(M.sand, 0.09, 0.035, 0.05, Math.cos(a) * 0.375, y0 + 0.158, Math.sin(a) * 0.375, { b: 0.014, r: [0, -a + Math.PI / 2, 0] });
+    r.box(M.sand, 0.09, 0.035, 0.05, Math.cos(a) * 0.375, y0 + 0.158, Math.sin(a) * 0.375, { b: 0, r: [0, -a + Math.PI / 2, 0] });
   }
   r.cyl(M.dark, 0.3, 0.3, 0.02, 0, y0 + 0.01, 0, { seg: 24 });
   for (let i = 0; i < 4; i++) {
@@ -260,7 +260,7 @@ function teslaCoil(): ModelTemplate {
   const tz = -0.28;
   // concrete plinth
   r.add(prismXZ(polygon(8, 0.42, Math.PI / 8), 0.12, 0.03), M.concrete, { p: [0, y0, tz] });
-  r.add(ringGeo(0.35, 0.4, 0.02, 8), M.team, { p: [0, y0 + 0.12, tz] });
+  r.add(ringGeo(0.33, 0.4, 0.002, 8), M.team, { p: [0, y0 + 0.121, tz] });
   // lattice legs (pyramid frame)
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
@@ -275,18 +275,17 @@ function teslaCoil(): ModelTemplate {
   }
   // stacked coil rings (decreasing radius)
   const rings: [number, number][] = [
-    [0.8, 0.3],
-    [1.06, 0.26],
-    [1.3, 0.22],
-    [1.52, 0.185],
-    [1.72, 0.15],
+    [0.82, 0.3],
+    [1.12, 0.25],
+    [1.4, 0.205],
+    [1.66, 0.165],
   ];
   for (const [h, rad] of rings) {
-    r.add(new THREE.TorusGeometry(rad, 0.03, 4, 12), M.gun, { p: [0, y0 + h, tz], r: [Math.PI / 2, 0, Math.PI / 12] });
-    r.add(new THREE.RingGeometry(rad - 0.012, rad + 0.012, 12), M.team, { p: [0, y0 + h + 0.031, tz], r: [-Math.PI / 2, 0, 0] });
+    r.add(new THREE.TorusGeometry(rad, 0.032, 3, 10), M.gun, { p: [0, y0 + h, tz], r: [Math.PI / 2, 0, Math.PI / 10] });
+    r.add(new THREE.RingGeometry(rad - 0.014, rad + 0.014, 10), M.team, { p: [0, y0 + h + 0.025, tz], r: [-Math.PI / 2, 0, Math.PI / 10] });
     r.box(M.dark, rad * 2 - 0.05, 0.012, 0.012, 0, y0 + h, tz, { b: 0, r: [0, Math.PI / 4, 0] });
     r.box(M.dark, rad * 2 - 0.05, 0.012, 0.012, 0, y0 + h, tz, { b: 0, r: [0, -Math.PI / 4, 0] });
-    r.add(new THREE.TorusGeometry(rad - 0.004, 0.009, 3, 12), G.tesla, { p: [0, y0 + h - 0.028, tz], r: [Math.PI / 2, 0, Math.PI / 12], slot: 'glow:coil' });
+    r.add(new THREE.RingGeometry(rad - 0.03, rad + 0.012, 10), G.tesla, { p: [0, y0 + h - 0.03, tz], r: [Math.PI / 2, 0, Math.PI / 10], slot: 'glow:coil' });
   }
   // top cap + orb
   r.add(lathe([[0.1, 0], [0.13, 0.04], [0.09, 0.09], [0.0, 0.1]], 16), M.gun, { p: [0, y0 + 1.78, tz] });
@@ -306,8 +305,6 @@ function teslaCoil(): ModelTemplate {
     r.box(M.dark, 0.12, 0.08, 0.008, x, y0 + 0.14, gz + 0.279, { b: 0 });
   }
   pipe(r, [0, y0 + 0.27, gz - 0.25], [0, y0 + 0.5, tz + 0.1], 0.02, M.dark, 6);
-  pipe(r, [-0.18, y0 + 0.4, gz - 0.1], [-0.05, y0 + 0.85, tz + 0.05], 0.006, M.copper, 4);
-  pipe(r, [0.18, y0 + 0.4, gz - 0.1], [0.05, y0 + 0.85, tz + 0.05], 0.006, M.copper, 4);
   hazard(r, 0.5, 0.04, [0, y0 + 0.04, gz + 0.283]);
   sovietStar(r, 0.07, [0.0, y0 + 0.271, gz + 0.12]);
 

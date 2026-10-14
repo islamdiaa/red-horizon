@@ -12,6 +12,7 @@ import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { LightPools } from './render/lightpools';
+import { CrateRenderer } from './render/crates';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
 import { Hints } from './ui/hints';
@@ -61,6 +62,7 @@ export class Game {
   overlay: Overlay | null = null;
   placement: PlacementGhost;
   lightPools: LightPools | null = null;
+  crates: CrateRenderer;
   hud: Hud | null = null;
   input: InputController | null = null;
   hints: Hints | null = null;
@@ -114,6 +116,8 @@ export class Game {
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
     this.placement = new PlacementGhost(map);
     this.gfx.scene.add(this.placement.group);
+    this.crates = new CrateRenderer(this.world, this.gfx.fog);
+    this.gfx.scene.add(this.crates.group);
     if (setup.timeOfDay === 'night') {
       this.lightPools = new LightPools(this.world, this.ents);
       this.gfx.scene.add(this.lightPools.mesh);
@@ -279,6 +283,7 @@ export class Game {
     this.gfx.fog.update(this.local, dt);
     this.ents.update(this.alpha, fdt, this.time, this.selection, this.input?.hovered ?? 0);
     this.lightPools?.update(this.alpha, this.time);
+    this.crates.update(this.time);
     for (const p of this.gfx.vegetation.syncTrees()) {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
     }
@@ -382,6 +387,19 @@ export class Game {
         case 'nuke':
           this.audio.play('nuke_launch');
           break;
+        case 'crate': {
+          const p3 = new THREE.Vector3(ev.x, world.map.surfaceAt(ev.x, ev.y) + 0.3, ev.y);
+          if (fog.visibilityAt(ev.x, ev.y) > 0.2) {
+            if (ev.reward === 'unit') this.effects.chronoFlash(p3);
+            else this.effects.oreSparkle(p3, ev.reward !== 'money');
+            this.effects.healPulse(p3);
+          }
+          if (!demo && ev.player === this.local.id && this.overlay) {
+            const label = ev.reward === 'money' ? `+$${ev.amount}` : ev.reward === 'unit' ? 'Reinforcements!' : ev.reward === 'heal' ? 'Field repair' : 'Area revealed';
+            this.overlay.addFloat(ev.x, p3.y + 0.8, ev.y, label, ev.reward === 'money' ? '#ffd34d' : '#8dffb0');
+          }
+          break;
+        }
         case 'eliminated':
           if (!demo) {
             const p = world.players[ev.player];

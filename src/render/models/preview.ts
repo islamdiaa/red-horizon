@@ -35,8 +35,8 @@ const params = new URLSearchParams(location.search);
 const num = (k: string, d: number) => (params.has(k) ? parseFloat(params.get(k)!) : d);
 const flag = (k: string, d: boolean) => (params.has(k) ? params.get(k) !== '0' : d);
 
-const ALLIED = new THREE.Color(0x2f6bd8);
-const SOVIET = new THREE.Color(0xc42a1e);
+const ALLIED = new THREE.Color(0x3d7be0);
+const SOVIET = new THREE.Color(0xd23a2c);
 const NEUTRAL = new THREE.Color(0xb8a878);
 
 // ---------------------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 0.92;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
@@ -67,7 +67,7 @@ scene.environmentIntensity = 0.4;
 
 const hemi = new THREE.HemisphereLight(0xc4dcff, 0x56683a, 0.75);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffdcb0, 2.8);
+const sun = new THREE.DirectionalLight(0xffdcb0, 2.5);
 sun.castShadow = true;
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
@@ -266,7 +266,7 @@ const rt = new THREE.WebGLRenderTarget(innerWidth * renderer.getPixelRatio(), in
 });
 const composer = new EffectComposer(renderer, rt);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.4, 0.9);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.4, 1.15);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
