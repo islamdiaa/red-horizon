@@ -84,21 +84,22 @@ void main() {
     // splash ring + bright impact point
     float r = length(vUv);
     float e = 1.0 - (1.0 - L) * (1.0 - L);
-    float R = mix(0.12, 0.88, e);
-    float w = mix(0.2, 0.07, L);
+    float R = mix(0.1, 0.85, e);
+    float w = mix(0.22, 0.08, L);
     float x = (r - R) / w;
-    a = exp(-x * x) * (1.0 - L) * 0.85;
-    a += exp(-r * r * 40.0) * (1.0 - smoothstep(0.0, 0.35, L)) * 1.2;
+    a = exp(-x * x) * (1.0 - L) * 0.55;
+    a += exp(-r * r * 60.0) * (1.0 - smoothstep(0.0, 0.3, L)) * 0.7;
   } else if (vType < 1.5) {
     // water: expanding double ripple
     float r = length(vUv);
-    float w = 0.05 + 0.05 * L;
-    float x1 = (r - L) / w;
-    float R2 = L - 0.3;
+    float e = sqrt(L);
+    float w = 0.06 + 0.06 * L;
+    float x1 = (r - e) / w;
+    float R2 = e - 0.35;
     float x2 = (r - R2) / w;
-    a = exp(-x1 * x1) + 0.6 * step(0.0, R2) * exp(-x2 * x2);
-    a *= pow(1.0 - L, 1.5) * (1.0 - smoothstep(0.85, 1.0, r));
-    a += exp(-r * r * 60.0) * (1.0 - smoothstep(0.0, 0.2, L)) * 1.5;
+    a = exp(-x1 * x1) + 0.45 * step(0.0, R2) * exp(-x2 * x2);
+    a *= pow(1.0 - L, 2.0) * (1.0 - smoothstep(0.85, 1.0, r)) * 0.5;
+    a += exp(-r * r * 90.0) * (1.0 - smoothstep(0.0, 0.15, L)) * 0.8;
   } else {
     // droplet crown: a few drops thrown up and out on parabolas
     for (int i = 0; i < 4; i++) {
@@ -165,7 +166,7 @@ export class SplashLayer {
       uTime: { value: 0 },
       uDensity: { value: 0 },
       uWater: { value: waterLevel },
-      uSize: { value: new THREE.Vector3(0.2, 0.42, 0.14) },
+      uSize: { value: new THREE.Vector3(0.17, 0.3, 0.13) },
       uColor: { value: new THREE.Color(1, 1, 1) },
       uOpacity: { value: 0.5 },
     };

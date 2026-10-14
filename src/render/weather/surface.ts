@@ -31,11 +31,11 @@ export const WEATHER_SURFACE_APPLY = /* glsl */ `
   float wxUp = clamp(wxNrm.y, 0.0, 1.0);
   float wxN = wx_vnoise(wxPos.xz * 1.3) * 0.6 + wx_vnoise(wxPos.xz * 4.1) * 0.4;
   // snow settles on upward-facing surfaces first, patchy while it builds up
-  float wxCover = smoothstep(0.45, 0.8, wxUp) * smoothstep(0.0, 0.18, uWxSnow * 1.35 - wxN * 0.75 - (1.0 - wxUp) * 0.5);
+  float wxCover = smoothstep(0.45, 0.8, wxUp) * smoothstep(0.0, 0.12, uWxSnow * 1.25 - wxN * 0.9 - 0.15 - (1.0 - wxUp) * 0.5);
   // wet: darker and glossier; flat spots collect puddles
   float wxWet = uWxWet * (1.0 - wxCover);
   float wxPud = wxWet * smoothstep(0.6, 0.66, wx_vnoise(wxPos.xz * 0.45) * 0.72 + wxN * 0.28 + uWxWet * 0.1) * smoothstep(0.93, 0.99, wxUp);
-  diffuseColor.rgb *= 1.0 - 0.45 * wxWet - 0.35 * wxPud;
+  diffuseColor.rgb *= 1.0 - 0.4 * wxWet - 0.25 * wxPud;
   roughnessFactor = mix(roughnessFactor, min(roughnessFactor, 0.38), wxWet);
   roughnessFactor = mix(roughnessFactor, 0.05, wxPud);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.84, 0.9), wxCover);

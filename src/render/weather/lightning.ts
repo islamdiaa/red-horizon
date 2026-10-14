@@ -210,7 +210,7 @@ export class Lightning {
         let rx = rng.spread(1), ry = rng.spread(1), rz = rng.spread(1);
         const dot = rx * dx + ry * dy + rz * dz;
         rx -= dot * dx; ry -= dot * dy; rz -= dot * dz;
-        const s = len * rough;
+        const s = len * (l < 2 ? rough * 0.35 : rough);
         dst[m * 3] = (ax + bx) * 0.5 + rx * s;
         dst[m * 3 + 1] = (ay + by) * 0.5 + ry * s;
         dst[m * 3 + 2] = (az + bz) * 0.5 + rz * s;

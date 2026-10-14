@@ -15,6 +15,9 @@ import { prewarmModels } from './render/models';
 import { LightPools } from './render/lightpools';
 import { CrateRenderer } from './render/crates';
 import { TrackMarks } from './render/tracks';
+import { Rubble } from './render/rubble';
+import { AmbientLife } from './render/ambientlife';
+import type { EmitterHandle } from './render/effects/types';
 import { Hud } from './ui/hud';
 import { InputController } from './ui/input';
 import { Hints } from './ui/hints';
@@ -75,6 +78,9 @@ export class Game {
   lightPools: LightPools | null = null;
   crates: CrateRenderer;
   tracks: TrackMarks;
+  rubble: Rubble;
+  life: AmbientLife;
+  private timedEmitters: { h: EmitterHandle; until: number }[] = [];
   hud: Hud | null = null;
   input: InputController | null = null;
   hints: Hints | null = null;
@@ -136,6 +142,10 @@ export class Game {
     this.crates = new CrateRenderer(this.world, this.gfx.fog);
     this.tracks = new TrackMarks(this.world, this.gfx.fog);
     this.gfx.scene.add(this.tracks.mesh);
+    this.rubble = new Rubble(map);
+    this.gfx.scene.add(this.rubble.mesh);
+    this.life = new AmbientLife(map, (x, y) => this.gfx.terrain.renderHeight(x, y));
+    this.gfx.scene.add(this.life.group);
     this.gfx.scene.add(this.crates.group);
     this.lightPools = new LightPools(this.world, this.ents);
     this.gfx.scene.add(this.lightPools.mesh);
@@ -318,6 +328,11 @@ export class Game {
     }
     this.crates.update(this.time);
     if (!this.paused) this.tracks.update(this.alpha, this.time);
+    this.life.update(fdt, this.time, this.gfx.night, this.gfx.cam.x, this.gfx.cam.y);
+    if (this.timedEmitters.length) {
+      for (const t of this.timedEmitters) if (this.time > t.until) t.h.dispose();
+      this.timedEmitters = this.timedEmitters.filter((t) => this.time <= t.until);
+    }
     for (const p of this.gfx.vegetation.syncTrees()) {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
     }
@@ -363,6 +378,8 @@ export class Game {
     const fog = this.gfx.fog;
     const demo = !!this.setup.demo;
     for (const ev of world.events) {
+      // dead entities are already removed from the world; their view still knows them
+      const deadEnt = ev.e === 'death' ? this.ents.views.get(ev.id)?.ent : undefined;
       this.ents.handleEvent(ev);
       switch (ev.e) {
         case 'fire': {
@@ -374,6 +391,7 @@ export class Game {
           break;
         }
         case 'impact':
+          if (ev.kind === 'medium' || ev.kind === 'large' || ev.kind === 'huge' || ev.kind === 'nuke') this.life.startle(ev.x, ev.y, ev.kind === 'nuke' ? 4 : 1);
           if (fog.visibilityAt(ev.x, ev.y) > 0.2 || ev.kind === 'nuke') {
             this.audio.play(('expl_' + ev.kind) as SfxKey, { x: ev.x, y: ev.y });
             if (ev.kind === 'nuke') {
@@ -384,7 +402,14 @@ export class Game {
           }
           break;
         case 'death': {
-          const e = world.getEntity(ev.id);
+          const e = deadEnt ?? world.getEntity(ev.id);
+          if (e instanceof Building && ev.how !== 'sold') {
+            this.rubble.add(e.cx, e.cy, e.w, e.h, e.id);
+            const h = this.effects.createEmitter('smoke', new THREE.Vector3(e.x, world.map.heightAt(e.x, e.y) + 0.3, e.y));
+            h.setIntensity(0.6 + Math.max(e.w, e.h) * 0.2);
+            this.timedEmitters.push({ h, until: this.time + 25 });
+            this.life.startle(e.x, e.y, 1.5);
+          }
           if (ev.how === 'sold' || fog.visibilityAt(ev.x, ev.y) < 0.2) break;
           if (e instanceof Building) { this.audio.play('expl_building', { x: ev.x, y: ev.y }); this.lastDeath = [ev.x, ev.y]; }
           else if (e instanceof Unit && e.kind === 'infantry') {
@@ -415,6 +440,7 @@ export class Game {
             const cells: number[] = [];
             for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) cells.push(world.map.idx(b.cx + dx, b.cy + dy));
             this.gfx.vegetation.hideCells(cells);
+            this.rubble.clear(b.cx, b.cy, b.w, b.h);
             if (fog.visibilityAt(b.x, b.y) > 0.2) this.audio.play('build_rise', { x: b.x, y: b.y });
           }
           break;

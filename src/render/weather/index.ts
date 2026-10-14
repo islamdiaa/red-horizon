@@ -75,9 +75,9 @@ interface PuffLook {
   color: Rgb; shadow: Rgb; opacity: number; size: number; lo: number; hi: number;
   aniso: number; valley: number; shapeLo: number; shapeHi: number; noise: number; stretch: number; tilt: number;
 }
-const LOOK_FOG: PuffLook = { color: [0.72, 0.76, 0.82], shadow: [0.5, 0.55, 0.62], opacity: 0.6, size: 7.5, lo: 0.25, hi: 1.9, aniso: 0.3, valley: 1, shapeLo: 0.3, shapeHi: 0.85, noise: 0.045, stretch: 0.15, tilt: 0.12 };
-const LOOK_MIST: PuffLook = { color: [0.6, 0.65, 0.72], shadow: [0.42, 0.47, 0.55], opacity: 0.32, size: 8.5, lo: 0.4, hi: 2.8, aniso: 0.8, valley: 0.4, shapeLo: 0.36, shapeHi: 0.9, noise: 0.05, stretch: 0.4, tilt: 0.2 };
-const LOOK_DUST: PuffLook = { color: [0.86, 0.64, 0.38], shadow: [0.58, 0.4, 0.23], opacity: 0.55, size: 8.5, lo: 0.2, hi: 3.2, aniso: 1.9, valley: 0, shapeLo: 0.28, shapeHi: 0.85, noise: 0.035, stretch: 2.6, tilt: 0.25 };
+const LOOK_FOG: PuffLook = { color: [0.72, 0.76, 0.82], shadow: [0.5, 0.55, 0.62], opacity: 0.4, size: 7.5, lo: 0.2, hi: 2.2, aniso: 0.3, valley: 1, shapeLo: 0.3, shapeHi: 0.85, noise: 0.045, stretch: 0.15, tilt: 0.12 };
+const LOOK_MIST: PuffLook = { color: [0.52, 0.57, 0.64], shadow: [0.36, 0.4, 0.47], opacity: 0.16, size: 9, lo: 0.3, hi: 2.4, aniso: 0.8, valley: 0.5, shapeLo: 0.44, shapeHi: 0.95, noise: 0.05, stretch: 0.4, tilt: 0.2 };
+const LOOK_DUST: PuffLook = { color: [0.86, 0.64, 0.38], shadow: [0.58, 0.4, 0.23], opacity: 0.3, size: 8.5, lo: 0.15, hi: 1.9, aniso: 1.9, valley: 0, shapeLo: 0.36, shapeHi: 0.9, noise: 0.035, stretch: 2.6, tilt: 0.25 };
 const LOOK_SNOW: PuffLook = { color: [0.86, 0.89, 0.94], shadow: [0.66, 0.7, 0.78], opacity: 0.25, size: 8, lo: 0.3, hi: 2.2, aniso: 0.3, valley: 0.6, shapeLo: 0.4, shapeHi: 0.9, noise: 0.045, stretch: 0.2, tilt: 0.15 };
 
 const srgb = (c: number) => Math.pow(c, 2.2);
@@ -178,7 +178,7 @@ export class Weather {
     this.snowFx = new PrecipLayer('snow', Math.round(11000 * q), seed + 2, this.res);
     this.grit = new PrecipLayer('grit', Math.round(7000 * q), seed + 3, this.res);
     this.splash = new SplashLayer(Math.round(3200 * q), seed + 4, this.hf, this.water);
-    this.puffs = new HazeLayer(Math.round(120 * Math.max(0.5, q)), seed + 5, this.hf, this.water);
+    this.puffs = new HazeLayer(Math.round(180 * Math.max(0.5, q)), seed + 5, this.hf, this.water);
     this.bolt = new Lightning(this.res);
 
     // fixed per-layer looks
@@ -511,8 +511,14 @@ export class Weather {
     const gx = Math.min(this.mapW - 0.5, Math.max(0.5, x ?? this.focus.x + rng.spread(R * 0.9)));
     const gz = Math.min(this.mapH - 0.5, Math.max(0.5, z ?? this.focus.z - R * 0.8 + rng.next() * R * 1.1));
     const gy = Math.max(this.getHeight(gx, gz), this.water);
-    const top = gy + rng.range(40, 54);
-    this.bolt.strike(gx + rng.spread(10), top, gz - rng.range(8, 22), gx, gy, gz, intensity, rng);
+    // channel axis: mostly along the camera's up vector so the bolt reads as vertical on screen and
+    // stays at a safe depth, tilted towards world-up so it still comes down out of the sky
+    const e = this.camera.matrixWorld.elements;
+    const ax = this.vA.set(e[4], e[5], e[6]).normalize().multiplyScalar(1.0);
+    ax.y += 0.55;
+    ax.addScaledVector(this.right, rng.spread(0.18)).normalize();
+    const len = Math.max(30, this.lastD * 1.7);
+    this.bolt.strike(gx + ax.x * len, gy + ax.y * len, gz + ax.z * len, gx, gy, gz, intensity, rng);
     this.onLightning?.(intensity, new THREE.Vector3(gx, gy, gz), false);
   }
 
