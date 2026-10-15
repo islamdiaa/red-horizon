@@ -1,0 +1,8 @@
+services:
+  red-horizon:
+    build: .
+    image: red-horizon:latest
+    container_name: red-horizon
+    ports:
+      - "8091:80"
+    restart: unless-stopped

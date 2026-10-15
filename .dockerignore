@@ -1,0 +1,8 @@
+node_modules
+dist
+reference
+screenshots
+docs/*.jpg
+tools/nsslibs
+.git
+*.log

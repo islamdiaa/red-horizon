@@ -543,7 +543,7 @@ export class Hud {
     // cheapest first, decoy structures last (they would otherwise top the list at $50)
     const decoy = (id: string) => (BUILDINGS[id]?.fakeOf ? 1 : 0);
     const list = (avail.get(this.activeTab) ?? []).sort((a, b) => decoy(a) - decoy(b) || getType(a).cost - getType(b).cost);
-    const locked = factionTypes(p.faction, this.activeTab).filter((id) => !list.includes(id));
+    const locked = factionTypes(p.faction, this.activeTab).filter((id) => !list.includes(id)).sort((a, b) => decoy(a) - decoy(b));
     const key = this.activeTab + ':' + list.join(',') + '|' + locked.join(',');
     if (key !== this.gridKey) { this.rebuildGrid(list, locked, key); this.updateScrollFade(); }
     for (const c of this.cards.values()) c.el.classList.toggle('is-new', (this.newUntil.get(c.id) ?? 0) > now);
