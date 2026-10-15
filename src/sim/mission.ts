@@ -31,6 +31,8 @@ export type MissionEvent =
   | { e: 'objective'; objective: Objective; change: 'added' | 'done' | 'failed' | 'progress' }
   | { e: 'timer'; label: string; seconds: number | null }
   | { e: 'camera'; x: number; y: number }
+  /** A flashing waypoint for the player (tutorials, rendezvous points). */
+  | { e: 'beacon'; x: number; y: number }
   | { e: 'score'; label: string; value: number }
   | { e: 'end'; won: boolean; reason?: string };
 
@@ -622,6 +624,10 @@ export class MissionRuntime {
   }
   camera(x: number, y: number) {
     this.events.push({ e: 'camera', x, y });
+  }
+  /** Flash a waypoint marker (on the ground and the radar). Re-send it periodically while it matters. */
+  beacon(x: number, y: number) {
+    this.events.push({ e: 'beacon', x, y });
   }
   addScore(label: string, value: number) {
     this.score += value;

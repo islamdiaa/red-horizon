@@ -12,6 +12,9 @@ export type SfxKey =
   // base & economy
   | 'build_place' | 'build_rise' | 'sell' | 'repair' | 'cash_tick' | 'harvest' | 'ore_dump' | 'door'
   | 'deploy' | 'power_down' | 'radar_on' | 'chrono' | 'iron_curtain' | 'crate'
+  // naval, air support, espionage
+  | 'torpedo' | 'depth_charge' | 'naval_gun' | 'water_splash' | 'sonar_ping' | 'ship_horn' | 'plane_flyby'
+  | 'bomb_whistle' | 'satellite_launch' | 'bridge_collapse' | 'infiltrate' | 'jammer'
   // ui
   | 'click' | 'hover' | 'error' | 'tab' | 'ready_ping' | 'promote';
 
@@ -22,9 +25,12 @@ export type AnnouncerKey =
   | 'repairing' | 'silos_needed' | 'select_target' | 'radar_online' | 'radar_offline'
   | 'mission_accomplished' | 'mission_failed' | 'nuke_ready' | 'nuke_launched' | 'nuke_warning'
   | 'iron_curtain_ready' | 'chrono_ready' | 'building_captured' | 'reinforcements' | 'primary_selected'
-  | 'enemy_destroyed' | 'unit_promoted';
+  | 'enemy_destroyed' | 'unit_promoted'
+  | 'gps_ready' | 'gps_launched' | 'sonar_ready' | 'spyplane_ready' | 'paratroopers_ready' | 'parabombs_ready'
+  | 'building_infiltrated' | 'credits_stolen' | 'sub_detected' | 'bridge_destroyed' | 'bridge_repaired'
+  | 'enemy_aircraft' | 'naval_unit_lost';
 
-export type VoiceKind = 'infantry' | 'vehicle' | 'dog' | 'tanya' | 'engineer' | 'medic' | 'harvester' | 'aircraft';
+export type VoiceKind = 'infantry' | 'vehicle' | 'dog' | 'tanya' | 'engineer' | 'medic' | 'harvester' | 'aircraft' | 'naval' | 'spy';
 export type ResponseKind = 'select' | 'move' | 'attack';
 
 export interface AudioVolumes {

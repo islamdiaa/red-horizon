@@ -175,6 +175,178 @@ const pick = <T>(s: Synth, arr: T[]): T => arr[Math.floor(s.rng() * arr.length)]
 // ---------------------------------------------------------------------------
 
 export const RECIPES: Record<AnyKey, Recipe> = {
+  // ------------------------------------------------- naval, air support, espionage
+  torpedo: {
+    dur: 1.8, peak: -8, vars: 2, range: 1.1,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.2);
+      s.thump(dry, t, 140, 60, 0.08, 0.08, 0.8, 1.5);
+      // compressed-air launch hiss, then the bubbling run
+      s.noiseHit(dry, t, { type: 'bandpass', f0: 2500, f1: 800, sweep: 0.3, q: 1, attack: 0.005, tau: 0.12, level: 0.5 });
+      s.grains(dry, t + 0.05, 1.3, 45, { fMin: 300, fMax: 1300, q: 6, dMin: 0.01, dMax: 0.04, level: 0.35, decay: 1 });
+      const motor = s.osc('sawtooth', 70, t + 0.05, 1.4);
+      const lp = s.filter('lowpass', 320);
+      const env = s.gain(0);
+      s.lin(env.gain, [[t + 0.05, 0], [t + 0.25, 0.25], [t + 1.45, 0]]);
+      s.chain(motor, lp, env, dry);
+    },
+  },
+  depth_charge: {
+    dur: 2.8, peak: -4, vars: 2, range: 1.3,
+    build(s, t) {
+      const dry = bus(s, 'huge', 0.25);
+      s.noiseHit(dry, t, { type: 'lowpass', f0: 1800, f1: 400, sweep: 0.15, attack: 0.002, tau: 0.06, level: 0.4 });
+      // the muffled underwater detonation
+      const tb = t + 0.45;
+      s.thump(dry, tb, 70, 30, 0.4, 0.35, 1, 2.5);
+      s.noiseHit(dry, tb, { color: 'pink', type: 'lowpass', f0: 400, f1: 120, sweep: 0.5, attack: 0.01, tau: 0.4, level: 0.8, drive: 2 });
+      // the water column falling back
+      s.noiseHit(dry, tb + 0.1, { type: 'highpass', f0: 3000, attack: 0.05, tau: 0.5, level: 0.35 });
+      s.grains(dry, tb + 0.25, 1.3, 50, { fMin: 2000, fMax: 7000, q: 3, level: 0.2 });
+    },
+  },
+  naval_gun: {
+    dur: 3.8, peak: -3, vars: 2, range: 1.7,
+    build(s, t) {
+      const dry = bus(s, 'huge', 0.45);
+      s.crack(dry, t, 1, 0.012, 600, 4);
+      s.thump(dry, t, 90, 35, 0.15, 0.25, 1, 3);
+      s.noiseHit(dry, t, { color: 'pink', type: 'lowpass', f0: 900, f1: 200, sweep: 0.6, attack: 0.003, tau: 0.5, level: 0.8, drive: 2 });
+    },
+  },
+  water_splash: {
+    dur: 1.6, peak: -8, vars: 3,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.2);
+      s.noiseHit(dry, t, { type: 'lowpass', f0: 2500, attack: 0.002, tau: 0.04, level: 0.5 });
+      s.noiseHit(dry, t, { color: 'pink', type: 'bandpass', f0: 600, f1: 1500, sweep: 0.2, q: 0.8, attack: 0.01, tau: 0.25, level: 0.6 });
+      s.grains(dry, t + 0.15, 1.0, 35, { fMin: 2500, fMax: 8000, q: 4, level: 0.25 });
+    },
+  },
+  sonar_ping: {
+    dur: 3.2, peak: -10, vars: 1, range: 3,
+    build(s, t) {
+      const dry = bus(s, 'hall', 0.6);
+      for (const f of [1480, 1484.5]) {
+        const o = s.osc('sine', f, t, 3);
+        s.sweep(o.frequency, t, f, t + 2.6, f * 0.975);
+        const env = s.gain(0);
+        s.perc(env.gain, t, 0.5, 0.005, 0.65);
+        s.chain(o, env, dry);
+      }
+    },
+  },
+  ship_horn: {
+    dur: 3.2, peak: -6, vars: 1, range: 1.6,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.4);
+      const mix = s.gain(0.5);
+      for (const f of [110, 138.6]) {
+        const o = s.osc('sawtooth', f, t, 2.6);
+        const vib = s.osc('sine', 5.2, t, 2.6);
+        const vg = s.gain(f * 0.004);
+        vib.connect(vg).connect(o.frequency);
+        o.connect(mix);
+      }
+      const lp = s.filter('lowpass', 900, 1.2);
+      const env = s.gain(0);
+      s.lin(env.gain, [[t, 0], [t + 0.15, 1], [t + 1.8, 0.9], [t + 2.5, 0]]);
+      s.chain(mix, lp, env, s.shaper(1.5), dry);
+    },
+  },
+  plane_flyby: {
+    dur: 6.2, peak: -7, vars: 1, range: 2.2,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.35);
+      const mix = s.gain(0.5);
+      for (const f of [85, 88.5, 171]) {
+        const o = s.osc('sawtooth', f * 1.1, t, 6);
+        // doppler: pitch drops as the bomber passes overhead
+        s.lin(o.frequency, [[t, f * 1.1], [t + 2.6, f * 1.08], [t + 3.4, f * 0.86], [t + 6, f * 0.84]]);
+        o.connect(mix);
+      }
+      const lp = s.filter('lowpass', 700, 0.9);
+      const env = s.gain(0);
+      s.lin(env.gain, [[t, 0], [t + 2.6, 1], [t + 3.3, 1], [t + 6, 0]]);
+      s.chain(mix, lp, env, dry);
+      const wind = s.noise(t, 6, 'pink');
+      const bp = s.filter('bandpass', 500, 0.6);
+      const we = s.gain(0);
+      s.lin(we.gain, [[t, 0], [t + 2.8, 0.5], [t + 3.4, 0.5], [t + 6, 0]]);
+      s.chain(wind, bp, we, dry);
+    },
+  },
+  bomb_whistle: {
+    dur: 2.2, peak: -9, vars: 2, range: 1.4,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.2);
+      const o = s.osc('sine', s.vary(2200, 0.05), t, 2);
+      s.sweep(o.frequency, t, 2200, t + 1.85, 480);
+      const env = s.gain(0);
+      s.lin(env.gain, [[t, 0], [t + 0.25, 0.45], [t + 1.8, 0.9], [t + 1.95, 0]]);
+      s.chain(o, env, dry);
+      s.noiseHit(dry, t + 0.2, { type: 'bandpass', f0: 3000, f1: 1200, sweep: 1.6, q: 3, attack: 1.2, tau: 0.2, level: 0.15 });
+    },
+  },
+  satellite_launch: {
+    dur: 6.5, peak: -4, vars: 1, range: 2.5,
+    build(s, t) {
+      const dry = bus(s, 'huge', 0.35);
+      s.thump(dry, t, 80, 30, 0.3, 0.3, 1, 2.5);
+      const roar = s.noise(t, 6.2, 'pink');
+      const lp = s.filter('lowpass', 600, 0.6);
+      s.sweep(lp.frequency, t, 600, t + 5.5, 1500);
+      const turb = s.gain(1);
+      s.jitter(turb.gain, t, 6, 0.65, 1, 0.04);
+      const env = s.gain(0);
+      s.lin(env.gain, [[t, 0], [t + 0.3, 1], [t + 3.5, 0.8], [t + 6.2, 0]]);
+      s.chain(roar, lp, turb, env, s.shaper(2.5), s.gain(0.9), dry);
+      s.crackle(dry, t + 0.2, 4.5, 0.2, { hp: 2500, density: 0.5 });
+    },
+  },
+  bridge_collapse: {
+    dur: 5.5, peak: -4, vars: 1, range: 1.8,
+    build(s, t) {
+      const dry = bus(s, 'huge', 0.3);
+      // girders groaning, then the span gives way and hits the water
+      s.metal(dry, t, 170, [1, 1.47, 2.13, 2.9, 3.7], 0.9, 0.35, 'sawtooth');
+      s.noiseHit(dry, t + 0.1, { color: 'pink', type: 'lowpass', f0: 220, attack: 0.4, tau: 0.6, level: 0.6, drive: 2 });
+      s.noiseHit(dry, t + 1.0, { color: 'pink', type: 'lowpass', f0: 1400, f1: 300, sweep: 0.8, attack: 0.005, tau: 0.6, level: 0.9, drive: 2 });
+      s.grains(dry, t + 1.0, 1.4, 60, { fMin: 400, fMax: 3000, q: 2, level: 0.35 });
+      s.noiseHit(dry, t + 1.7, { color: 'pink', type: 'bandpass', f0: 700, f1: 1600, sweep: 0.3, q: 0.7, attack: 0.02, tau: 0.8, level: 0.8 });
+      s.grains(dry, t + 2.0, 2.2, 70, { fMin: 2500, fMax: 8000, q: 4, level: 0.25 });
+    },
+  },
+  infiltrate: {
+    dur: 1.2, peak: -10, vars: 1,
+    build(s, t) {
+      const dry = bus(s, 'room', 0.2);
+      for (const [dt, f] of [[0, 1200], [0.13, 1600], [0.26, 2000]] as [number, number][]) {
+        const o = s.osc('square', f, t + dt, 0.07);
+        const env = s.gain(0);
+        s.perc(env.gain, t + dt, 0.3, 0.003, 0.03);
+        s.chain(o, s.filter('bandpass', f, 2), env, dry);
+      }
+      s.noiseHit(dry, t, { type: 'bandpass', f0: 1800, q: 1.5, attack: 0.01, tau: 0.08, level: 0.15 });
+    },
+  },
+  jammer: {
+    dur: 1.6, peak: -12, vars: 2,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.15);
+      const n = s.noise(t, 1.5, 'white');
+      const bp = s.filter('bandpass', 2200, 0.5);
+      const chop = s.gain(0.5);
+      s.jitter(chop.gain, t, 1.4, 0, 1, 0.02, 0.1);
+      const env = s.gain(0);
+      s.lin(env.gain, [[t, 0], [t + 0.1, 0.6], [t + 1.2, 0.5], [t + 1.5, 0]]);
+      s.chain(n, bp, chop, env, dry);
+      const hum = s.osc('square', 50, t, 1.5);
+      const he = s.gain(0);
+      s.lin(he.gain, [[t, 0], [t + 0.1, 0.15], [t + 1.5, 0]]);
+      s.chain(hum, s.filter('lowpass', 400), he, dry);
+    },
+  },
   // ----------------------------------------------------------------- weapons
   pistol: {
     dur: 0.7, peak: -9, vars: 3,

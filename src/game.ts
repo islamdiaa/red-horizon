@@ -549,6 +549,10 @@ export class Game {
       for (const ev of rt.events) {
         this.missionHud?.handle(ev);
         if (ev.e === 'camera') this.gfx.cam.flyToPoint(ev.x, ev.y, 1.2);
+        else if (ev.e === 'beacon') {
+          this.effects.orderMarker(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y), ev.y), 'rally');
+          this.hud?.minimap.ping(ev.x, ev.y, '#ffd34d');
+        }
       }
       rt.events.length = 0;
     }

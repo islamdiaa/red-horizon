@@ -39,6 +39,19 @@ export const ANNOUNCER_TEXT: Record<AnnouncerKey, string> = {
   primary_selected: 'Primary building selected.',
   enemy_destroyed: 'Enemy destroyed.',
   unit_promoted: 'Unit promoted.',
+  gps_ready: 'GPS satellite ready.',
+  gps_launched: 'Satellite launched.',
+  sonar_ready: 'Sonar pulse ready.',
+  spyplane_ready: 'Spy plane ready.',
+  paratroopers_ready: 'Paratroopers ready.',
+  parabombs_ready: 'Parabombs ready.',
+  building_infiltrated: 'Building infiltrated.',
+  credits_stolen: 'Credits stolen.',
+  sub_detected: 'Submarine detected.',
+  bridge_destroyed: 'Bridge destroyed.',
+  bridge_repaired: 'Bridge repaired.',
+  enemy_aircraft: 'Enemy aircraft approaching.',
+  naval_unit_lost: 'Naval unit lost.',
 };
 
 /** Minimum ms between two announcements of the same key. */
@@ -51,6 +64,9 @@ export const ANNOUNCER_THROTTLE: Partial<Record<AnnouncerKey, number>> = {
   silos_needed: 10000,
   // promotions come in bursts during big fights: one call-out is enough
   unit_promoted: 6000,
+  naval_unit_lost: 6000,
+  enemy_aircraft: 15000,
+  sub_detected: 12000,
 };
 export const DEFAULT_THROTTLE = 4000;
 
@@ -99,6 +115,16 @@ export const RESPONSE_LINES: Record<Exclude<VoiceKind, 'dog'>, Lines> = {
     move: ['Inbound.', 'Changing course.', 'Roger.'],
     attack: ['Attack run.', 'Weapons hot.', 'Target in sight.'],
   },
+  naval: {
+    select: ['Bridge here.', 'Captain on deck.', 'Ship ready.'],
+    move: ['Setting course.', 'Full ahead.', 'Aye, Commander.', 'Helm answering.'],
+    attack: ['All guns, fire!', 'Target bearing locked.', 'Engaging.'],
+  },
+  spy: {
+    select: ['Yes?', 'Discreetly.', 'At your service.'],
+    move: ['Quietly now.', 'Of course.', 'Leave it with me.'],
+    attack: ['Consider it done.', 'Nobody will notice.', 'With pleasure.'],
+  },
 };
 
 export interface VoiceParams { pitch: number; rate: number; gender: 'male' | 'female'; radio: boolean }
@@ -110,6 +136,8 @@ export const VOICE_PARAMS: Record<Exclude<VoiceKind, 'dog'>, VoiceParams> = {
   medic: { pitch: 1.0, rate: 1.0, gender: 'male', radio: false },
   harvester: { pitch: 0.6, rate: 0.95, gender: 'male', radio: true },
   aircraft: { pitch: 0.8, rate: 1.15, gender: 'male', radio: true },
+  naval: { pitch: 0.7, rate: 1.0, gender: 'male', radio: true },
+  spy: { pitch: 1.0, rate: 0.95, gender: 'male', radio: false },
 };
 
 const FEMALE = /\b(zira|aria|jenny|michelle|emma|sonia|libby|hazel|susan|samantha|karen|moira|tessa|fiona|serena|victoria|allison|ava|kate|female|woman|joanna|salli|kendra|kimberly|ivy|amy|natasha|clara|catherine|heather|linda|nicky|sara|ana|eva|emily|olivia|ashley|jane|elizabeth|nancy|libby|maisie|mia|isla)\b/i;

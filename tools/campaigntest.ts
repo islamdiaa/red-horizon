@@ -11,6 +11,7 @@ import { TICK_HZ } from '../src/sim/types';
 import { PILOTS, genericPilot, type Pilot } from './campaign-pilots';
 import './campaign-pilots-allied';
 import './campaign-pilots-soviet';
+import './campaign-pilots-special';
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d];
 
