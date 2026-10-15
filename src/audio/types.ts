@@ -15,6 +15,8 @@ export type SfxKey =
   // naval, air support, espionage
   | 'torpedo' | 'depth_charge' | 'naval_gun' | 'water_splash' | 'sonar_ping' | 'ship_horn' | 'plane_flyby'
   | 'bomb_whistle' | 'satellite_launch' | 'bridge_collapse' | 'infiltrate' | 'jammer'
+  // Aftermath units
+  | 'mad_pulse' | 'phase_shift' | 'demo_arm'
   // ui
   | 'click' | 'hover' | 'error' | 'tab' | 'ready_ping' | 'promote';
 

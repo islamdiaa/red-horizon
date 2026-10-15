@@ -175,6 +175,47 @@ const pick = <T>(s: Synth, arr: T[]): T => arr[Math.floor(s.rng() * arr.length)]
 // ---------------------------------------------------------------------------
 
 export const RECIPES: Record<AnyKey, Recipe> = {
+  // ------------------------------------------------- Aftermath units
+  mad_pulse: {
+    dur: 3.2, peak: -3, vars: 2, range: 1.8,
+    build(s, t) {
+      // the M.A.D. tank's seismic hammer: a sub-bass punch, a ground-borne rumble and rattling debris
+      const dry = bus(s, 'huge', 0.3);
+      s.thump(dry, t, 55, 24, 0.5, 0.45, 1, 3);
+      s.noiseHit(dry, t + 0.02, { color: 'pink', type: 'lowpass', f0: 260, f1: 70, sweep: 0.8, attack: 0.02, tau: 0.6, level: 0.9, drive: 2.5 });
+      s.grains(dry, t + 0.15, 1.6, 55, { fMin: 300, fMax: 2200, q: 3, level: 0.25 });
+      s.metal(dry, t + 0.05, 95, [1, 1.41, 2.2, 3.1], 0.35, 0.2, 'triangle');
+    },
+  },
+  phase_shift: {
+    dur: 1.4, peak: -11, vars: 2,
+    build(s, t) {
+      // phase transport cloaking: a shimmering, detuned sweep that fades into nothing
+      const dry = bus(s, 'hall', 0.4);
+      for (const [f0, f1] of [[320, 1400], [323, 1395], [640, 2600]] as [number, number][]) {
+        const o = s.osc('sine', f0, t, 1.2);
+        s.sweep(o.frequency, t, f0, t + 1.1, f1);
+        const env = s.gain(0);
+        s.lin(env.gain, [[t, 0], [t + 0.15, 0.3], [t + 1.15, 0]]);
+        s.chain(o, env, dry);
+      }
+      s.noiseHit(dry, t, { type: 'bandpass', f0: 3000, f1: 8000, sweep: 1, q: 2, attack: 0.3, tau: 0.25, level: 0.12 });
+    },
+  },
+  demo_arm: {
+    dur: 1.0, peak: -10, vars: 1,
+    build(s, t) {
+      // demolition truck arming: three rising warning beeps
+      const dry = bus(s, 'outdoor', 0.15);
+      for (let i = 0; i < 3; i++) {
+        const tt = t + i * 0.22;
+        const o = s.osc('square', 880 + i * 220, tt, 0.12);
+        const env = s.gain(0);
+        s.perc(env.gain, tt, 0.35, 0.004, 0.05);
+        s.chain(o, s.filter('bandpass', 1200 + i * 300, 1.5), env, dry);
+      }
+    },
+  },
   // ------------------------------------------------- naval, air support, espionage
   torpedo: {
     dur: 1.8, peak: -8, vars: 2, range: 1.1,
