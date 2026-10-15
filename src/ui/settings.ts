@@ -9,6 +9,8 @@ export interface Settings {
   showFps?: boolean;
   /** Reduce UI motion (also honoured automatically via prefers-reduced-motion). */
   reduceMotion?: boolean;
+  /** Skip the cinematic fly-in at the start of each battle. */
+  skipIntro?: boolean;
 }
 
 const SETTINGS_KEY = 'rh.settings';

@@ -2,16 +2,36 @@ import { BUILDINGS, REFUND_PERCENT, UNITS, getType, isBuildingType, type Buildin
 import type { AnnouncerKey, SfxKey } from '../audio/types';
 import { Rng } from '../core/rng';
 import { Building, Entity, Unit } from './entities';
-import { GameMap, ORE_MAX } from './map';
+import { GameMap, ORE_MAX, T } from './map';
 import { PathFinder } from './pathfinding';
 import { Player, queueKindOf } from './player';
 import { DT, TICK_HZ, type Command, type GameEvent, type Order } from './types';
-import { updateBuildingWeapons, updateProjectiles, updateUnitWeapons, type Projectile } from './combat';
-import { resolveCollisions, unitSpeed, updateUnit } from './unitlogic';
+import { pickWeapon, updateBuildingWeapons, updateProjectiles, updateUnitWeapons, type Projectile } from './combat';
+import { engineerCanEnter, pathRemaining, resolveCollisions, unitSpeed, updateUnit } from './unitlogic';
 import { updateProduction, recalcPlayerEconomy } from './production';
 import { AIController, type AIDifficulty } from './ai';
 import { updateSuperweapons, fireSuperweapon } from './superweapons';
 import type { MissionRuntime } from './mission';
+
+export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
+
+/**
+ * Why a structure can't be placed: terrain = off-map / water / rock / trees / ore under the footprint;
+ * occupied = structures or enemy units in the way; exit = a dock or factory exit (ours or another
+ * structure's) would be blocked; distance = too far from the base; no-yard = no Construction Yard.
+ */
+export type PlacementIssue = 'terrain' | 'occupied' | 'exit' | 'distance' | 'no-yard';
+
+const NEIGHBOURS4: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+/** Walls must stay within this many cells of a non-wall own structure. */
+export const WALL_REACH = 10;
+
+/**
+ * Cost of fully repairing a structure, as a fraction of its price (RA RepairPercent). Selling refunds a
+ * flat REFUND_PERCENT whatever the damage (as in RA), so repairing and then selling never makes money.
+ */
+export const STRUCTURE_REPAIR_PERCENT = 0.2;
 
 export interface PlayerSetup {
   name: string;
@@ -105,9 +125,18 @@ export class World {
   /** Scripted mission driving this world (campaign / survival / challenges). */
   mission: MissionRuntime | null = null;
   private nextId = 1;
+  /** Projectile ids (their own namespace; renderers key effects by them). */
+  nextProjectileId = 1;
   private commands: Command[] = [];
   private pathQueue: Unit[] = [];
   private dirtyLists = false;
+  /**
+   * During the combat phase of a tick lethal damage only marks the victim; it is removed at the end of
+   * the phase so everybody fires "simultaneously" (no advantage for entities that happen to update first).
+   * Always empty between ticks.
+   */
+  deferDeaths = false;
+  private pendingDeaths: { e: Entity; how: DeathHow; killer?: Entity }[] = [];
 
   constructor(opts: WorldOptions) {
     this.map = opts.map;
@@ -190,9 +219,17 @@ export class World {
     if (bt.factory && bt.factory !== 'building') {
       b.primary = !this.buildings.some((o) => o !== b && o.alive && o.owner === owner && o.bt.factory === bt.factory && o.primary);
     }
-    owner.owned.set(typeId, (owner.owned.get(typeId) ?? 0) + 1);
+    // tech / factory availability is granted when construction completes (instant: right away)
+    if (instant) this.countBuilding(b);
     recalcPlayerEconomy(this, owner);
     return b;
+  }
+
+  /** Count a completed structure in its owner's tech (prerequisites, factories). */
+  private countBuilding(b: Building) {
+    if (b.counted) return;
+    b.counted = true;
+    b.owner.owned.set(b.bt.id, (b.owner.owned.get(b.bt.id) ?? 0) + 1);
   }
 
   private stampBuilding(b: Building, on: boolean) {
@@ -217,12 +254,27 @@ export class World {
   /** Remove a building's footprint (death / sale / capture handled elsewhere). */
   private unstamp(b: Building) {
     this.stampBuilding(b, false);
+    if (!b.counted) return;
+    b.counted = false;
     const n = (b.owner.owned.get(b.bt.id) ?? 1) - 1;
     b.owner.owned.set(b.bt.id, Math.max(0, n));
   }
 
+  /** Lethal damage: kill now, or at the end of the combat phase while deaths are deferred. */
+  lethal(e: Entity, how: DeathHow, killer?: Entity) {
+    if (this.deferDeaths) this.pendingDeaths.push({ e, how, killer });
+    else this.kill(e, how, killer);
+  }
+
+  private flushDeaths() {
+    if (!this.pendingDeaths.length) return;
+    const list = this.pendingDeaths;
+    this.pendingDeaths = [];
+    for (const d of list) this.kill(d.e, d.how, d.killer);
+  }
+
   /** Kill an entity. `how` drives death visuals. */
-  kill(e: Entity, how: 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold' = 'normal', killer?: Entity) {
+  kill(e: Entity, how: DeathHow = 'normal', killer?: Entity) {
     if (!e.alive) return;
     e.alive = false;
     e.hp = 0;
@@ -364,9 +416,13 @@ export class World {
         const target = this.entities.get(cmd.target);
         if (!target || !target.alive) return;
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
-          if (u.ut.engineer && target.kind === 'building') { this.giveOrder(u, { type: 'enter', target: target.id }); continue; }
+          if (u.ut.engineer && target instanceof Building) {
+            if (engineerCanEnter(u, target)) this.giveOrder(u, { type: 'enter', target: target.id });
+            continue;
+          }
           if (u.ut.c4 && target.kind === 'building' && p.isEnemy(target.owner)) { this.giveOrder(u, { type: 'enter', target: target.id }); continue; }
-          if (!u.weapons.length) continue;
+          // refuse targets none of the unit's weapons can hurt (rifles vs walls, dogs vs tanks)
+          if (!u.weapons.length || !pickWeapon(u, target)) continue;
           this.giveOrder(u, { type: 'attack', target: target.id, forced: !!cmd.forced });
         }
         break;
@@ -413,11 +469,13 @@ export class World {
         if (!target || !target.alive) return;
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
           if (u.ut.harvester && target instanceof Building && target.bt.dock && target.owner === p) {
+            if (u.dockAt && u.dockAt !== target.id) { u.hstate = 'idle'; this.releaseDock(u); }
             u.hstate = 'toRefinery';
             u.dockAt = target.id;
             this.setOrder(u, { type: 'harvest' });
             continue;
           }
+          if (u.ut.engineer && target instanceof Building && !engineerCanEnter(u, target)) continue;
           this.giveOrder(u, { type: 'enter', target: target.id });
         }
         break;
@@ -487,17 +545,23 @@ export class World {
         const b = this.addBuilding(cmd.type, p, cmd.cx, cmd.cy);
         p.stats.buildingsBuilt++;
         this.events.push({ e: 'placed', id: b.id });
-        this.clearFootprintUnits(b);
+        const placed = [b];
         // walls: extra segments along a dragged line, each paid on placement
         if (b.bt.wall && cmd.cx2 !== undefined && cmd.cy2 !== undefined) {
           for (const [x, y] of wallLine(cmd.cx, cmd.cy, cmd.cx2, cmd.cy2).slice(1, 24)) {
             if (!this.canPlace(p, cmd.type, x, y)) continue;
+            // a friendly unit standing here must be able to step out, or the segment is skipped
+            if (!this.canClearCell(x, y)) continue;
             if (!p.spend(b.bt.cost)) { this.announce(p, 'insufficient_funds', 3); break; }
             const w = this.addBuilding(cmd.type, p, x, y);
             p.stats.buildingsBuilt++;
             this.events.push({ e: 'placed', id: w.id });
+            placed.push(w);
           }
         }
+        // nudge own units out of every new footprint (after the whole line exists, so nobody is
+        // pushed into a later segment)
+        for (const w of placed) this.clearFootprintUnits(w);
         break;
       }
       case 'sell': {
@@ -634,38 +698,98 @@ export class World {
   // Placement
   // ---------------------------------------------------------------------------
   canPlace(p: Player, typeId: string, cx: number, cy: number): boolean {
+    return this.placementIssue(p, typeId, cx, cy) === null;
+  }
+
+  /** Why a structure can't be placed at (cx, cy) (top-left footprint cell), or null if it can. */
+  placementIssue(p: Player, typeId: string, cx: number, cy: number): PlacementIssue | null {
     const bt = BUILDINGS[typeId];
-    if (!bt) return false;
+    if (!bt) return 'terrain';
+    // the Construction Yard builds everything: none (alive and finished) = nothing can be placed
+    if (!p.hasFactoryFor(typeId)) return 'no-yard';
     const m = this.map;
+    let occupied = false, reserved = false;
     for (let dy = 0; dy < bt.size[1]; dy++) for (let dx = 0; dx < bt.size[0]; dx++) {
-      if (!m.buildable(cx + dx, cy + dy)) return false;
+      const x = cx + dx, y = cy + dy;
+      if (!m.inBounds(x, y)) return 'terrain';
+      const i = m.idx(x, y);
+      const t = m.terrain[i];
+      if ((t !== T.Clear && t !== T.Sand && t !== T.Dirt) || m.tree[i] || m.ore[i]) return 'terrain';
+      if (m.occupant[i]) occupied = true;
+      else if (m.reserved[i]) reserved = true;
     }
-    // enemy units block placement
+    if (occupied) return 'occupied';
+    // enemy units block placement (own units are moved out of the way)
     let blocked = false;
     this.grid.query(cx + bt.size[0] / 2, cy + bt.size[1] / 2, Math.max(bt.size[0], bt.size[1]), (u) => {
       if (!u.alive || u.owner === p || u.isAir) return;
       if (u.x >= cx && u.x < cx + bt.size[0] && u.y >= cy && u.y < cy + bt.size[1]) blocked = true;
     });
-    if (blocked) return false;
-    // dock / exit must be usable
+    if (blocked) return 'occupied';
+    // another structure's dock / exit is kept clear, and our own must be usable
+    if (reserved) return 'exit';
     const need: [number, number][] = [];
     if (bt.dock) need.push([cx + bt.dock[0], cy + bt.dock[1]]);
     if (bt.factory && bt.factory !== 'building') {
       const e = bt.exit ?? [Math.floor(bt.size[0] / 2), bt.size[1]];
       need.push([cx + e[0], cy + e[1]]);
     }
-    for (const [x, y] of need) if (!m.inBounds(x, y) || !m.passable(x, y)) return false;
-    return this.isAdjacentToBase(p, bt, cx, cy, bt.wall ? 6 : 2);
+    for (const [x, y] of need) if (!m.inBounds(x, y) || !m.passable(x, y) || !this.hasOpenSide(bt, cx, cy, x, y)) return 'exit';
+    if (this.sealsDockOrExit(bt, cx, cy)) return 'exit';
+    // base adjacency: structures need a (non-wall) structure within 2 cells. Walls may be placed
+    // up to 6 cells from any own structure, wall chains included, but never more than 10 cells
+    // from a real (non-wall) structure, so sandbag lines can't creep a base across the map.
+    if (bt.wall) {
+      if (!this.isAdjacentToBase(p, bt, cx, cy, 6) || !this.isAdjacentToBase(p, bt, cx, cy, WALL_REACH, true)) return 'distance';
+    } else if (!this.isAdjacentToBase(p, bt, cx, cy, 2, true)) return 'distance';
+    return null;
   }
 
-  isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2): boolean {
+  /** Whether an own structure lies within `gap` cells of the footprint (optionally ignoring walls). */
+  isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2, ignoreWalls = false): boolean {
     for (const b of this.buildings) {
-      if (!b.alive || b.owner !== p) continue;
+      if (!b.alive || b.owner !== p || (ignoreWalls && b.bt.wall)) continue;
       const gx = Math.max(b.cx - (cx + bt.size[0]), cx - (b.cx + b.w), 0);
       const gy = Math.max(b.cy - (cy + bt.size[1]), cy - (b.cy + b.h), 0);
       if (Math.max(gx, gy) <= gap) return true;
     }
     return false;
+  }
+
+  /**
+   * Whether a footprint at (cx, cy) would wall in an existing dock / factory exit cell, i.e. leave it
+   * with no open side (harvesters could never reach the refinery pad, vehicles never leave the factory).
+   */
+  private sealsDockOrExit(bt: BuildingTypeDef, cx: number, cy: number): boolean {
+    const m = this.map;
+    const inside = (x: number, y: number) => x >= cx && x < cx + bt.size[0] && y >= cy && y < cy + bt.size[1];
+    for (let y = cy - 1; y <= cy + bt.size[1]; y++) for (let x = cx - 1; x <= cx + bt.size[0]; x++) {
+      if (inside(x, y) || !m.inBounds(x, y) || !m.reserved[m.idx(x, y)]) continue;
+      // a reserved cell bordering the footprint: it must keep at least one open neighbour
+      if (!this.hasOpenSide(bt, cx, cy, x, y)) return true;
+    }
+    return false;
+  }
+
+  /** Cell (x, y) keeps a passable orthogonal neighbour outside a footprint at (cx, cy). */
+  private hasOpenSide(bt: BuildingTypeDef, cx: number, cy: number, x: number, y: number): boolean {
+    for (const [dx, dy] of NEIGHBOURS4) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= cx && nx < cx + bt.size[0] && ny >= cy && ny < cy + bt.size[1]) continue;
+      if (this.map.passable(nx, ny)) return true;
+    }
+    return false;
+  }
+
+  /** A friendly ground unit standing in cell (x, y) could be moved out (wall segments). */
+  private canClearCell(x: number, y: number): boolean {
+    for (const u of this.units) {
+      if (!u.alive || u.isAir || Math.floor(u.x) !== x || Math.floor(u.y) !== y) continue;
+      const [fx, fy] = this.findFreeSpot(x + 0.5, y + 1.5, 6, u.kind !== 'infantry');
+      const ix = Math.floor(fx), iy = Math.floor(fy);
+      if ((ix === x && iy === y) || !this.map.passable(ix, iy)) return false;
+    }
+    return true;
   }
 
   /** Push own units off a freshly placed footprint. */
@@ -760,25 +884,39 @@ export class World {
   }
 
   private processPaths() {
+    // per-tick node budget: one big search may overrun it, later requests then wait for the next tick
     let budget = 40000;
+    // per-search budget: enough to explore the whole map, so long detours (around a big lake on a
+    // 128x128 map) are found instead of returning a partial path into a dead end
+    const maxNodes = Math.max(9000, this.map.w * this.map.h);
     let n = 0;
     while (this.pathQueue.length && budget > 0 && n < 24) {
       const u = this.pathQueue.shift()!;
       if (!u.alive || !u.pathPending) continue;
       u.pathPending = false;
+      const sx = Math.floor(u.x), sy = Math.floor(u.y), gx = Math.floor(u.goalX), gy = Math.floor(u.goalY);
+      // the same unreachable request again within 2s (e.g. an order re-pathing every tick): don't search again
+      const key = ((sy * this.map.w + sx) * this.map.h + gy) * this.map.w + gx;
+      if (key === u.pathFailKey && this.tick - u.pathFailTick < TICK_HZ * 2) {
+        u.path = null;
+        u.hasGoal = false;
+        continue;
+      }
       n++;
-      const path = this.pathfinder.find(Math.floor(u.x), Math.floor(u.y), Math.floor(u.goalX), Math.floor(u.goalY), 9000, u.exitBuilding);
+      const path = this.pathfinder.find(sx, sy, gx, gy, maxNodes, u.exitBuilding);
       budget -= this.pathfinder.expandedLastSearch + 50;
+      const last = path && path.length ? path[path.length - 1] : null;
+      const reached = !!last && Math.floor(last.x) === gx && Math.floor(last.y) === gy;
+      if (!reached && !(sx === gx && sy === gy)) { u.pathFailKey = key; u.pathFailTick = this.tick; }
       if (path && path.length) {
-        const last = path[path.length - 1];
-        if (Math.floor(last.x) === Math.floor(u.goalX) && Math.floor(last.y) === Math.floor(u.goalY)) {
-          last.x = u.goalX;
-          last.y = u.goalY;
+        if (reached) {
+          last!.x = u.goalX;
+          last!.y = u.goalY;
         }
         u.path = path;
         u.pathIdx = 0;
         u.progressTimer = 0;
-        u.progressDist = Math.hypot(u.goalX - u.x, u.goalY - u.y);
+        u.progressDist = pathRemaining(u);
       } else {
         u.path = null;
         u.hasGoal = false;
@@ -862,15 +1000,22 @@ export class World {
       updateProduction(this, p);
       updateSuperweapons(this, p);
     }
+    this.deferDeaths = true;
     for (const b of this.buildings) if (b.alive) this.updateBuilding(b);
     this.processPaths();
-    for (const u of this.units) {
-      if (!u.alive) continue;
-      updateUnit(this, u);
-      if (u.alive) updateUnitWeapons(this, u);
+    // update units starting at a random index (alternating direction) so no side systematically
+    // moves / aims first because its entities happen to be older
+    const units = this.units, n = units.length;
+    const start = n > 1 ? this.rng.int(0, n - 1) : 0;
+    if (this.tick & 1) {
+      for (let k = 0; k < n; k++) this.stepUnit(units[(start + n - k) % n]);
+    } else {
+      for (let k = 0; k < n; k++) this.stepUnit(units[(start + k) % n]);
     }
     resolveCollisions(this);
     updateProjectiles(this);
+    this.deferDeaths = false;
+    this.flushDeaths();
     this.cleanupDead();
 
     if (this.tick % 4 === 0) for (const p of this.players) this.updateVisibility(p);
@@ -882,6 +1027,12 @@ export class World {
     if (this.tick % TICK_HZ === 0) this.checkVictory();
     if (this.cratesEnabled) this.updateCrates();
     this.mission?.tick();
+  }
+
+  private stepUnit(u: Unit) {
+    if (!u.alive) return;
+    updateUnit(this, u);
+    if (u.alive) updateUnitWeapons(this, u);
   }
 
   private updateCrates() {
@@ -937,6 +1088,13 @@ export class World {
   }
 
   private updateBuilding(b: Building) {
+    if (b.c4Timer > 0) {
+      b.c4Timer -= DT;
+      if (b.c4Timer <= 0) {
+        this.detonateC4(b);
+        if (!b.alive) return;
+      }
+    }
     if (b.buildAnim < 1) {
       b.buildAnim = Math.min(1, b.buildAnim + DT / (b.bt.wall ? 0.35 : 1.1));
       if (b.buildAnim >= 1) this.onBuildingComplete(b);
@@ -946,7 +1104,7 @@ export class World {
     if (b.selling >= 0) {
       b.selling -= DT;
       if (b.selling < 0) {
-        const refund = Math.floor(b.bt.cost * REFUND_PERCENT * b.healthFrac);
+        const refund = Math.floor(b.bt.cost * REFUND_PERCENT);
         b.owner.refund(refund);
         b.owner.stats.spent += refund; // refund is not "negative spending" for stats
         this.spawnSurvivors(b, 1);
@@ -960,7 +1118,7 @@ export class World {
       if (b.repairTimer <= 0) {
         b.repairTimer = 0.3;
         const step = Math.max(1, Math.round(b.maxHp * 0.025));
-        const cost = (b.bt.cost * 0.2 * step) / b.maxHp;
+        const cost = (b.bt.cost * STRUCTURE_REPAIR_PERCENT * step) / b.maxHp;
         if (b.hp >= b.maxHp) b.repairing = false;
         else if (b.owner.spend(cost)) {
           b.hp = Math.min(b.maxHp, b.hp + step);
@@ -992,8 +1150,23 @@ export class World {
     updateBuildingWeapons(this, b);
   }
 
+  /** A planted C4 charge goes off: the structure is destroyed whoever planted it and wherever they are now. */
+  private detonateC4(b: Building) {
+    b.c4Timer = 0;
+    const by = this.entities.get(b.c4By);
+    const owner = this.players[b.c4Owner];
+    b.c4By = 0;
+    b.c4Owner = -1;
+    if (b.invulnerable > 0) return; // the Iron Curtain shrugs it off
+    const killer = by && by.alive ? by : undefined;
+    // the demolition counts for the planting side even if the commando is gone
+    if (!killer && owner && owner !== b.owner) owner.stats.buildingsKilled++;
+    this.kill(b, 'blown', killer);
+  }
+
   private onBuildingComplete(b: Building) {
     const p = b.owner;
+    this.countBuilding(b);
     this.events.push({ e: 'sfx', key: 'build_place', x: b.x, y: b.y });
     if (b.bt.freeUnit) {
       const fu = UNITS[b.bt.freeUnit];
@@ -1079,12 +1252,12 @@ export class World {
 /** Cells of a straight wall line (horizontal, vertical or diagonal, whichever is dominant). */
 export function wallLine(x0: number, y0: number, x1: number, y1: number): [number, number][] {
   const dx = x1 - x0, dy = y1 - y0;
-  const n = Math.max(Math.abs(dx), Math.abs(dy));
   const out: [number, number][] = [];
-  // snap to the dominant axis or a clean diagonal
+  // snap to the dominant axis or a clean diagonal (a diagonal never runs past the cursor)
   let sx = Math.sign(dx), sy = Math.sign(dy);
   if (Math.abs(dx) > Math.abs(dy) * 2) sy = 0;
   else if (Math.abs(dy) > Math.abs(dx) * 2) sx = 0;
+  const n = sx && sy ? Math.min(Math.abs(dx), Math.abs(dy)) : Math.max(Math.abs(dx), Math.abs(dy));
   for (let k = 0; k <= n; k++) out.push([x0 + sx * k, y0 + sy * k]);
   return out;
 }

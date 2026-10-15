@@ -35,9 +35,10 @@ export function generateMap(opts: MapGenOptions): GameMap {
     if (four) return [Math.min(x, N - 1 - x), Math.min(y, N - 1 - y)];
     if (flipDiag) {
       // players top-left vs bottom-right: split on anti-diagonal
-      return x + y > N - 1 ? [N - 1 - x, N - 1 - y] : [x, y];
+      // cells on the split line pair up with each other: tie-break so exactly one of a pair is canonical
+      return x + y > N - 1 || (x + y === N - 1 && x > y) ? [N - 1 - x, N - 1 - y] : [x, y];
     }
-    return x > y ? [N - 1 - x, N - 1 - y] : [x, y];
+    return x > y || (x === y && x > N - 1 - x) ? [N - 1 - x, N - 1 - y] : [x, y];
   };
   const canonV = (x: number, y: number): [number, number] => {
     if (four) return [Math.min(x, N - x), Math.min(y, N - y)];
@@ -50,6 +51,12 @@ export function generateMap(opts: MapGenOptions): GameMap {
       return [[x, y], [N - x, y], [x, N - y], [N - x, N - y]];
     }
     return [[x, y], [N - x, N - y]];
+  };
+  /** All symmetric images of the cell containing a point (integer cells: mirror is N-1-x, not N-x). */
+  const cellImages = (x: number, y: number): [number, number][] => {
+    const fx = Math.floor(x), fy = Math.floor(y);
+    if (four) return [[fx, fy], [N - 1 - fx, fy], [fx, N - 1 - fy], [N - 1 - fx, N - 1 - fy]];
+    return [[fx, fy], [N - 1 - fx, N - 1 - fy]];
   };
 
   // ---- start positions ------------------------------------------------------
@@ -127,8 +134,7 @@ export function generateMap(opts: MapGenOptions): GameMap {
       const py = ay + (by - ay) * t + (ny / nl) * wig;
       for (let dy = -width; dy <= width; dy++) for (let dx = -width; dx <= width; dx++) {
         if (dx * dx + dy * dy > width * width + 1) continue;
-        for (const [ix, iy] of images(px + dx, py + dy)) {
-          const cx = Math.floor(ix), cy = Math.floor(iy);
+        for (const [cx, cy] of cellImages(px + dx, py + dy)) {
           if (!map.inBounds(cx, cy)) continue;
           const i = map.idx(cx, cy);
           if (map.terrain[i] === T.Water || map.terrain[i] === T.Rock) map.terrain[i] = T.Sand;
@@ -175,6 +181,15 @@ export function generateMap(opts: MapGenOptions): GameMap {
 
   const fields: Field[] = [];
   for (const f of canonFields) for (const [x, y] of images(f.x, f.y)) fields.push({ ...f, x, y });
+  if (four && opts.players === 3) {
+    // nobody starts in the fourth corner: its ore would be a free bonus for the two neighbouring players
+    const nearest = (x: number, y: number) => {
+      let bi = 0, bd = Infinity;
+      allCorners.forEach((c, i) => { const d = Math.hypot(x - c.x, y - c.y); if (d < bd) { bd = d; bi = i; } });
+      return bi;
+    };
+    for (let i = fields.length - 1; i >= 0; i--) if (!fields[i].gems && nearest(fields[i].x, fields[i].y) === 3) fields.splice(i, 1);
+  }
 
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -239,8 +254,7 @@ export function generateMap(opts: MapGenOptions): GameMap {
         const nx = -(B.y - A.y), ny = B.x - A.x, nl = Math.hypot(nx, ny) || 1;
         const px = A.x + (B.x - A.x) * t + (nx / nl) * wig, py = A.y + (B.y - A.y) * t + (ny / nl) * wig;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-          for (const [ix, iy] of images(px + dx, py + dy)) {
-            const cx = Math.floor(ix), cy = Math.floor(iy);
+          for (const [cx, cy] of cellImages(px + dx, py + dy)) {
             if (map.inBounds(cx, cy)) map.tree[map.idx(cx, cy)] = 0;
           }
         }

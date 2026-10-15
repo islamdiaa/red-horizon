@@ -1,11 +1,71 @@
 import { BAIL_COUNT, GEM_VALUE, GOLD_VALUE } from '../data/rules';
 import { angleDiff, turnTowards } from '../core/util';
 import { Building, Unit } from './entities';
-import { DT } from './types';
+import { DT, TICK_HZ } from './types';
 import type { World } from './world';
 
 const HARVEST_TIME = 0.34;  // seconds per bail
 const UNLOAD_TIME = 0.08;   // seconds per bail
+/** A truck this close to a free dock reserves it; others then keep clear until it has unloaded. */
+const RESERVE_DIST = 2.5;
+/** Trucks closer than this to a dock reserved by someone else stop and wait. */
+const WAIT_DIST = 3.2;
+/** Waiting trucks closer than this back off so the approach stays clear. */
+const CLEAR_DIST = 2.6;
+/** Seconds of waiting before trying another refinery. */
+const WAIT_SWITCH = 10;
+
+/**
+ * The truck holding a refinery's dock (approaching it after reserving, or unloading), or null.
+ * Clears stale reservations (holder gone, re-tasked or pushed far away).
+ */
+export function dockHolder(world: World, r: Building): Unit | null {
+  if (!r.dockOccupant) return null;
+  const h = world.entities.get(r.dockOccupant);
+  if (h instanceof Unit && h.alive && h.ut.harvester && h.order.type === 'harvest' && h.dockAt === r.id) {
+    if (h.hstate === 'unloading') return h;
+    if (h.hstate === 'toRefinery') {
+      const [dx, dy] = r.dockCell()!;
+      if (Math.hypot(dx + 0.5 - h.x, dy + 0.5 - h.y) < WAIT_DIST + 1) return h;
+    }
+  }
+  r.dockOccupant = 0;
+  return null;
+}
+
+/**
+ * Unloading, or pulling onto the dock it has reserved: collisions must not push it off the pad or back
+ * out of the approach (other units, e.g. idle infantry loitering at the refinery, make way instead).
+ */
+export function isDocking(world: World, u: Unit): boolean {
+  if (u.order.type !== 'harvest' || !u.dockAt) return false;
+  if (u.hstate === 'unloading') return true;
+  if (u.hstate !== 'toRefinery') return false;
+  const r = world.entities.get(u.dockAt);
+  if (!(r instanceof Building) || r.dockOccupant !== u.id) return false;
+  const [dx, dy] = r.dockCell()!;
+  return Math.hypot(dx + 0.5 - u.x, dy + 0.5 - u.y) < RESERVE_DIST + 0.5;
+}
+
+/** The last path search (within 2 s) towards dock cell (dx, dy) could not reach it. */
+function dockUnreachable(world: World, u: Unit, dx: number, dy: number): boolean {
+  if (u.pathFailKey < 0 || world.tick - u.pathFailTick >= TICK_HZ * 2) return false;
+  const W = world.map.w, H = world.map.h;
+  return u.pathFailKey % W === dx && Math.floor(u.pathFailKey / W) % H === dy;
+}
+
+/** A spot near (but clear of) a refinery dock where a truck can wait its turn. */
+function waitSpot(world: World, u: Unit, r: Building): [number, number] {
+  const [dx, dy] = r.dockCell()!;
+  const px = dx + 0.5, py = dy + 0.5;
+  let a = Math.atan2(u.y - py, u.x - px);
+  if (Math.hypot(u.x - px, u.y - py) < 0.3) a = Math.PI / 2 + (u.id % 2 ? 1 : -1);
+  // keep out of the lane straight below the dock (the way in) and out of the refinery above it
+  const side = Math.cos(a) !== 0 ? Math.sign(Math.cos(a)) : (u.id % 2 ? 1 : -1);
+  if (Math.abs(angleDiff(a, Math.PI / 2)) < 0.7) a = Math.PI / 2 - side * 1.0;
+  else if (Math.sin(a) < 0.2) a = Math.PI / 2 - side * 1.6;
+  return world.findFreeSpot(px + Math.cos(a) * 3.4, py + Math.sin(a) * 3.4, 3);
+}
 
 /** Count harvesters already heading for / working a cell, to spread them out. */
 function claimCount(world: World, cx: number, cy: number, self: Unit): number {
@@ -48,10 +108,10 @@ function findOre(world: World, u: Unit, fromX: number, fromY: number, maxR = 200
   return fallback;
 }
 
-function nearestRefinery(world: World, u: Unit): Building | null {
+function nearestRefinery(world: World, u: Unit, except?: Building): Building | null {
   let best: Building | null = null, bestD = Infinity;
   for (const b of world.buildings) {
-    if (!b.alive || b.owner !== u.owner || !b.bt.dock || !b.active) continue;
+    if (!b.alive || b.owner !== u.owner || !b.bt.dock || !b.active || b === except) continue;
     const d = Math.hypot(b.x - u.x, b.y - u.y) + (b.dockOccupant && b.dockOccupant !== u.id ? 6 : 0);
     if (d < bestD) { bestD = d; best = b; }
   }
@@ -135,37 +195,58 @@ export function updateHarvester(world: World, u: Unit) {
       const [dx, dy] = r.dockCell()!;
       const px = dx + 0.5, py = dy + 0.5;
       const d = Math.hypot(px - u.x, py - u.y);
-      if (d < 0.2) {
-        if (!r.dockOccupant || r.dockOccupant === u.id) {
-          r.dockOccupant = u.id;
-          u.hstate = 'unloading';
-          u.harvestTimer = 0.5;
-        } else {
-          u.hstate = 'waitDock';
-        }
+      // one truck at a time: the first to get close reserves the dock, the others wait clear of it
+      const holder = dockHolder(world, r);
+      if (holder && holder !== u) {
+        if (d < WAIT_DIST) { u.hstate = 'waitDock'; u.waitTimer = 0; u.path = null; u.hasGoal = false; break; }
+      } else if (!holder && d < RESERVE_DIST) {
+        r.dockOccupant = u.id;
+      }
+      if (d < 0.2 && r.dockOccupant === u.id) {
+        u.hstate = 'unloading';
+        u.harvestTimer = 0.5;
+        u.unloadCredit = 0;
         break;
       }
-      // wait nearby if the dock is busy
-      if (r.dockOccupant && r.dockOccupant !== u.id && d < 2.5) {
-        const occ = world.entities.get(r.dockOccupant);
-        if (occ && occ.alive) { u.hstate = 'waitDock'; u.path = null; u.hasGoal = false; break; }
-        r.dockOccupant = 0;
+      if (!u.hasGoal && !u.pathPending) {
+        if (dockUnreachable(world, u, dx, dy)) {
+          // walled in (structures around the pad): give the dock up and use another refinery if any
+          if (r.dockOccupant === u.id) r.dockOccupant = 0;
+          const alt = nearestRefinery(world, u, r);
+          if (alt) { u.dockAt = alt.id; break; }
+        }
+        world.requestPath(u, px, py);
       }
-      if (!u.hasGoal && !u.pathPending) world.requestPath(u, px, py);
       break;
     }
 
     case 'waitDock': {
       const r = world.entities.get(u.dockAt) as Building | undefined;
-      if (!r || !r.alive) { u.hstate = 'toRefinery'; u.dockAt = 0; break; }
-      const occ = r.dockOccupant ? world.entities.get(r.dockOccupant) : undefined;
-      if (!occ || !occ.alive) { r.dockOccupant = 0; u.hstate = 'toRefinery'; break; }
-      u.waitTimer += DT;
-      if (u.waitTimer > 12) {
-        // try another refinery
+      if (!r || !r.alive || r.owner !== u.owner) { u.hstate = 'toRefinery'; u.dockAt = 0; u.waitTimer = 0; break; }
+      const holder = dockHolder(world, r);
+      if (!holder || holder === u) {
+        // our turn (whoever gets close first reserves it)
+        u.hstate = 'toRefinery';
         u.waitTimer = 0;
-        const alt = nearestRefinery(world, u);
-        if (alt && alt !== r && !alt.dockOccupant) { u.dockAt = alt.id; u.hstate = 'toRefinery'; }
+        u.path = null; u.hasGoal = false;
+        break;
+      }
+      u.waitTimer += DT;
+      // don't block the way in: back off to a waiting spot
+      const [dx, dy] = r.dockCell()!;
+      if (Math.hypot(dx + 0.5 - u.x, dy + 0.5 - u.y) < CLEAR_DIST && !u.path && !u.pathPending && (u.waitTimer < DT * 1.5 || world.tick % 10 === 0)) {
+        const [wx, wy] = waitSpot(world, u, r);
+        world.requestPath(u, wx, wy);
+      }
+      if (u.waitTimer > WAIT_SWITCH) {
+        // a long queue here: use another refinery with a free dock if there is one
+        u.waitTimer = 0;
+        const alt = nearestRefinery(world, u, r);
+        if (alt && !dockHolder(world, alt)) {
+          u.dockAt = alt.id;
+          u.hstate = 'toRefinery';
+          u.path = null; u.hasGoal = false;
+        }
       }
       break;
     }
@@ -186,8 +267,16 @@ export function updateHarvester(world: World, u: Unit) {
           u.cargoValue -= u.cargoValue / u.cargo;
           u.cargo--;
           const took = u.owner.depositOre(value);
-          if (took < value - 0.01) world.announce(u.owner, 'silos_needed', 12);
-          if (u.cargo % 7 === 0) world.events.push({ e: 'credits', player: u.owner.id, amount: Math.round(value * 7), x: r.x, y: r.y });
+          const discarded = took < value - 0.01;
+          if (discarded) world.announce(u.owner, 'silos_needed', 12);
+          // "+$" pop-up every 7 bails, showing only what was actually credited (full silos discard ore;
+          // whatever still fitted is shown the moment storage fills up)
+          u.unloadCredit += took;
+          if (u.cargo % 7 === 0 || discarded || u.owner.ore >= u.owner.storage - 1) {
+            const amount = Math.round(u.unloadCredit);
+            u.unloadCredit = 0;
+            if (amount > 0) world.events.push({ e: 'credits', player: u.owner.id, amount, x: r.x, y: r.y });
+          }
         }
         if (u.cargo <= 0) {
           u.cargo = 0;

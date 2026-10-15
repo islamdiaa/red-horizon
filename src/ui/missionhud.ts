@@ -1,5 +1,6 @@
 import type { MissionEvent, MissionRuntime, Objective, Portrait } from '../sim/mission';
 import { formatTime } from '../core/util';
+import { castPortrait } from './campaign';
 
 const CSS = `
 .mh-obj { position: absolute; top: calc(var(--rem, 1px) * 0 + 58px); left: 12px; width: 330px; z-index: 6; pointer-events: none;
@@ -29,7 +30,10 @@ const CSS = `
 @keyframes mhPulse { to { opacity: 0.55; } }
 .mh-tx { position: absolute; left: 12px; bottom: 14px; width: 440px; z-index: 7; pointer-events: none; display: flex; gap: 12px;
   background: linear-gradient(180deg, rgba(14,20,28,0.92), rgba(8,11,16,0.9)); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.55); transform: translateY(20px); opacity: 0; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.35s; }
+  box-shadow: 0 10px 40px rgba(0,0,0,0.55); transform: translateY(20px); opacity: 0; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.35s, bottom 0.3s ease; }
+/* lift the radio above the unit panel / group bar when they are on screen (they share the bottom-left) */
+body:has(#selpanel.on) .mh-tx { bottom: 128px; }
+body:has(#selpanel.on):has(#groups.on) .mh-tx { bottom: 182px; }
 .mh-tx.on { transform: none; opacity: 1; }
 .mh-tx .pt { width: 74px; height: 86px; flex-shrink: 0; border-radius: 8px; overflow: hidden; position: relative;
   background: radial-gradient(ellipse at 50% 30%, rgba(var(--accent-rgb, 90,180,255),0.35), #05080c 75%); border: 1px solid rgba(var(--accent-rgb, 90,180,255),0.4); }
@@ -47,28 +51,6 @@ const CSS = `
 .mh-score small { display: block; font-family: var(--font, sans-serif); font-size: 10px; letter-spacing: 0.3em; color: #c8b070; }
 body.cine-active .mh-obj, body.cine-active .mh-tx, body.cine-active .mh-timer, body.cine-active .mh-score { opacity: 0 !important; }
 `;
-
-/** Simple silhouette portraits (SVG) per speaker type. */
-function portraitSvg(p: Portrait): string {
-  const head = '<circle cx="37" cy="34" r="15" fill="#9fb6cc"/>';
-  const body = '<path d="M8 90 C10 64 22 54 37 54 C52 54 64 64 66 90 Z" fill="#6f8aa3"/>';
-  switch (p) {
-    case 'commando':
-      return `<svg viewBox="0 0 74 86">${body}${head}<path d="M22 30 C24 14 50 12 52 30 C54 22 50 44 58 50 C48 48 52 30 37 24 C26 26 26 40 22 30Z" fill="#3a2a22"/></svg>`;
-    case 'enemy':
-      return `<svg viewBox="0 0 74 86"><path d="M8 90 C10 64 22 54 37 54 C52 54 64 64 66 90 Z" fill="#7a3a34"/><circle cx="37" cy="34" r="15" fill="#c8a09a"/><path d="M19 28 L55 28 L52 18 C46 12 28 12 22 18 Z" fill="#4a2420"/><circle cx="37" cy="21" r="3" fill="#ff4a3a"/></svg>`;
-    case 'eva':
-      return `<svg viewBox="0 0 74 86"><circle cx="37" cy="43" r="24" fill="none" stroke="#5ab4ff" stroke-width="2"/><circle cx="37" cy="43" r="14" fill="none" stroke="#5ab4ff" stroke-width="1.5" opacity="0.6"/><circle cx="37" cy="43" r="5" fill="#9fdcff"/></svg>`;
-    case 'scientist':
-      return `<svg viewBox="0 0 74 86"><path d="M8 90 C10 64 22 54 37 54 C52 54 64 64 66 90 Z" fill="#d8dde2"/>${head}<path d="M22 26 C24 12 50 12 52 26 C46 20 28 20 22 26Z" fill="#dcdcdc"/><rect x="27" y="31" width="20" height="5" rx="2" fill="none" stroke="#333" stroke-width="1.5"/></svg>`;
-    case 'pilot':
-      return `<svg viewBox="0 0 74 86">${body}${head}<path d="M20 34 C20 14 54 14 54 34 L50 34 C50 22 24 22 24 34 Z" fill="#556070"/><rect x="25" y="30" width="24" height="7" rx="3" fill="#ffc060" opacity="0.8"/></svg>`;
-    case 'intel':
-      return `<svg viewBox="0 0 74 86">${body}${head}<path d="M20 26 L54 26 L50 16 L24 16Z" fill="#2c3440"/><rect x="18" y="25" width="38" height="3" fill="#2c3440"/></svg>`;
-    default:
-      return `<svg viewBox="0 0 74 86">${body}${head}<path d="M21 28 C21 15 53 15 53 28 L53 24 C50 14 24 14 21 24Z" fill="#3c4a3a"/><rect x="20" y="24" width="34" height="5" rx="2" fill="#3c4a3a"/><circle cx="37" cy="24" r="2.5" fill="#ffd34d"/></svg>`;
-  }
-}
 
 /** On-screen mission UI: objectives, radio transmissions, countdown and score. */
 export class MissionHud {
@@ -141,7 +123,7 @@ export class MissionHud {
       this.full = m.text;
       this.typing = 0;
       this.hideT = 2.8 + m.text.length * 0.045;
-      this.tx.innerHTML = `<div class="pt">${portraitSvg(m.portrait)}</div><div style="flex:1"><div class="sp">${m.speaker.toUpperCase()}</div><div class="tt"></div><div class="wave">${'<i></i>'.repeat(12)}</div></div>`;
+      this.tx.innerHTML = `<div class="pt">${castPortrait(m.speaker, m.portrait)}</div><div style="flex:1"><div class="sp">${m.speaker.toUpperCase()}</div><div class="tt"></div><div class="wave">${'<i></i>'.repeat(12)}</div></div>`;
       this.tx.querySelectorAll<HTMLElement>('.wave i').forEach((i, k) => { i.style.animationDelay = `${(k * 0.07) % 0.5}s`; });
       this.textEl = this.tx.querySelector('.tt');
       this.tx.classList.add('on');

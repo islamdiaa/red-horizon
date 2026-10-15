@@ -2,7 +2,11 @@ import './ui/styles.css';
 import { AudioSystem } from './audio';
 import { Game, type GameSetup } from './game';
 import { Menus, type Settings } from './ui/menu';
-import { showCampaign } from './ui/campaign';
+import { showCampaign, showDebrief } from './ui/campaign';
+import { campaignMissions } from './missions';
+import { showProfile } from './ui/profile';
+import { showChallenges } from './ui/challenges';
+import { setToastSound } from './meta';
 import { readSave, type SaveData } from './sim/save';
 import { GAME_TITLE } from './config';
 import type { Faction } from './data/rules';
@@ -10,8 +14,23 @@ import type { AIDifficulty } from './sim/ai';
 import type { TimeOfDay } from './render/renderer';
 import { chargeArmies, debugConstruct } from './debug';
 import { AIController } from './sim/ai';
+import { installErrorBoundary, reportError } from './platform/errors';
+import { checkSupport, renderUnsupported } from './platform/webgl';
+import { detectQuality } from './platform/gpu';
+import { registerServiceWorker } from './platform/pwa';
+import { loadSettings, saveSettings } from './ui/settings';
 
 document.title = GAME_TITLE;
+const support = checkSupport(); // before anything creates a WebGLRenderer
+if (!support.ok) {
+  document.getElementById('loading')?.remove();
+  renderUnsupported(support);
+  throw new Error(`WebGL 2 unavailable: ${support.reason}`);
+}
+// first launch: pick a quality preset that suits this GPU (must run before the menus read settings)
+try {
+  if (!new URLSearchParams(location.search).get('autostart') && !JSON.parse(localStorage.getItem('rh.settings') ?? '{}').quality) saveSettings({ ...loadSettings(), quality: await detectQuality() });
+} catch { /* keep defaults */ }
 const params = new URLSearchParams(location.search);
 const audio = new AudioSystem();
 let game: Game | null = null;
@@ -19,6 +38,14 @@ let lastSetup: GameSetup | null = null;
 const loading = document.getElementById('loading')!;
 const loadingBar = loading.querySelector('.bar div') as HTMLElement;
 const loadingLabel = loading.querySelector('.label') as HTMLElement;
+
+installErrorBoundary({
+  onReturnToMenu: () => { audio.stopMusic(); startDemo(); },
+  getContext: () => game
+    ? { tick: game.world.tick, seed: game.setup.seed, units: game.world.units.length, quality: game.setup.quality, demo: !!game.setup.demo, mission: game.setup.mission ?? null }
+    : { screen: 'menu' },
+  getGl: () => game?.gfx.renderer.getContext(),
+});
 
 // Web Audio needs a user gesture.
 const unlock = () => {
@@ -33,10 +60,13 @@ window.addEventListener('keydown', unlock, { once: true });
 const menus = new Menus(audio, {
   start: (setup) => void startGame(setup),
   resume: () => game?.resume(),
-  restart: () => { if (lastSetup) void startGame({ ...lastSetup, seed: (Math.random() * 1e9) | 0 }); },
-  quit: () => { audio.stopMusic(); startDemo(); },
+  // same map, same opponents, from the beginning (a loaded game restarts its map from scratch)
+  restart: (newMap) => { if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap ? { seed: (Math.random() * 1e9) | 0 } : {}) }); },
+  quit: () => { if (applyUpdate) return applyUpdate(); audio.stopMusic(); startDemo(); },
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
+  openChallenges: () => openChallenges(),
+  openProfile: () => openProfile(),
   continueInfo: () => {
     const s = latestSave();
     return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
@@ -58,16 +88,27 @@ function latestSave(): SaveData | null {
 // keep progress when the tab is closed mid-game
 window.addEventListener('beforeunload', () => { if (game && !game.setup.demo) game.save('auto'); });
 
+setToastSound((k) => (k === 'rank' ? audio.stinger('promotion') : audio.play(k === 'xp' ? 'ready_ping' : 'promote')));
+
+/** Start a scripted mission (campaign, special operation or daily challenge); the mission defines the rest. */
+function deployMission(id: string) {
+  void startGame({
+    faction: 'allies', color: 0x3d7be0, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
+    startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: id, intro: true,
+  });
+}
+
 /** Campaign / special operations screen. */
 function openCampaign() {
-  showCampaign({
-    play: (k) => audio.play(k),
-    onBack: () => menus.showMain(),
-    onDeploy: (id) => void startGame({
-      faction: 'allies', color: 0x3d7be0, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
-      startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: id, intro: true,
-    }),
-  });
+  showCampaign({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onDeploy: (id) => deployMission(id) });
+}
+
+function openChallenges() {
+  showChallenges({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onProfile: () => openProfile(), onDeploy: (id) => deployMission(id) });
+}
+
+function openProfile() {
+  showProfile({ play: (k) => audio.play(k), onBack: () => menus.showMain() });
 }
 
 function applySettings(g: Game, s: Settings) {
@@ -88,6 +129,7 @@ function hideLoading() {
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 async function startGame(setup: GameSetup) {
+  if (menus.settings.skipIntro && !params.get('autostart')) setup = { ...setup, intro: false };
   menus.hide();
   setLoading(0, 'Initialising');
   await nextFrame();
@@ -97,17 +139,27 @@ async function startGame(setup: GameSetup) {
   try {
     game = new Game(setup, audio, {
       onPause: () => menus.showPause(game!),
-      onEnd: (g, won) => { g.paused = true; menus.showEnd(g, won); },
+      onEnd: (g, won) => {
+        g.paused = true;
+        const def = g.missionDef, res = g.missionResult;
+        if (!def || !res) { menus.showEnd(g, won); return; }
+        // campaign / special operation: debrief with objectives, stars and the next mission
+        const next = won && def.campaign !== 'special' ? campaignMissions(def.campaign).find((m) => m.index === def.index + 1) : undefined;
+        showDebrief(res, def, {
+          onNext: next ? () => deployMission(next.id) : undefined,
+          onRetry: () => deployMission(def.id),
+          onMenu: () => { audio.stopMusic(); startDemo(); menus.hide(); openCampaign(); },
+        });
+      },
       onProgress: (f, l) => setLoading(f, l),
     });
     applySettings(game, menus.settings);
-    (window as any).__game = game;
+    exposeDebug(game);
     (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
     game.start();
   } catch (e) {
-    console.error(e);
-    alert('Failed to start the game: ' + (e as Error).message);
+    reportError(e, true);
   }
   hideLoading();
 }
@@ -138,8 +190,14 @@ function applyTestParams(g: Game) {
   }
 }
 
+/** Test / dev hook. Only exposed in dev builds or test runs, so a quit game isn't kept alive. */
+function exposeDebug(g: Game | null) {
+  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) (window as any).__game = g;
+}
+
 function startDemo() {
   game?.dispose();
+  exposeDebug(null);
   game = null;
   if (params.get('demo') !== '0') {
     try {
@@ -151,7 +209,7 @@ function startDemo() {
       }, audio, { onPause: () => {}, onEnd: () => {} });
       // fast-forward so the menu opens on an established battlefield
       for (let i = 0; i < 20 * 150; i++) { game.world.step(); game.world.events.length = 0; }
-      (window as any).__game = game;
+      exposeDebug(game);
       game.start();
     } catch (e) {
       console.warn('demo failed', e);
@@ -176,3 +234,7 @@ if (params.get('autostart')) {
   setLoading(0.5, 'Loading');
   setTimeout(startDemo, 30);
 }
+
+// Offline support. A downloaded update is applied only between matches (never mid-game).
+let applyUpdate: (() => void) | null = null;
+void registerServiceWorker({ onUpdateReady: (apply) => { applyUpdate = apply; if (!game || game.setup.demo) apply(); } });

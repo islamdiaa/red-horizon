@@ -4,6 +4,7 @@ import { hash2 } from '../core/rng';
 import type { World } from '../sim/world';
 import type { FogOfWar } from './fog';
 import type { Player } from '../sim/player';
+import { flat } from './geomutil';
 
 type WallKind = 'sbag' | 'barb' | 'brik';
 const KINDS: WallKind[] = ['sbag', 'barb', 'brik'];
@@ -19,7 +20,7 @@ function bag(seed: number, sx: number, sy: number, sz: number): THREE.BufferGeom
     p.setXYZ(i, p.getX(i) * sx * k, Math.max(p.getY(i), -0.3) * sy * k, p.getZ(i) * sz * k);
   }
   m.computeVertexNormals();
-  return m.toNonIndexed();
+  return flat(m);
 }
 
 /** Geometry pieces per wall kind: a post at the cell centre and an arm pointing along +X (length 0.5). */
@@ -43,7 +44,7 @@ function pieces(kind: WallKind): { post: THREE.BufferGeometry; arm: THREE.Buffer
     const arm = new THREE.BoxGeometry(0.5, 0.56, 0.34).translate(0.25, 0.28, 0);
     const lip = new THREE.BoxGeometry(0.5, 0.05, 0.38).translate(0.25, 0.585, 0);
     const mat = new THREE.MeshStandardMaterial({ color: 0x9a978f, roughness: 0.85 });
-    return { post: mergeGeometries([post.toNonIndexed(), cap.toNonIndexed()])!, arm: mergeGeometries([arm.toNonIndexed(), lip.toNonIndexed()])!, mat };
+    return { post: mergeGeometries([flat(post), flat(cap)])!, arm: mergeGeometries([flat(arm), flat(lip)])!, mat };
   }
   // barbed wire: wooden posts with coils
   const pole = new THREE.CylinderGeometry(0.025, 0.03, 0.5, 5).translate(0, 0.25, 0);
@@ -52,7 +53,7 @@ function pieces(kind: WallKind): { post: THREE.BufferGeometry; arm: THREE.Buffer
   for (let k = 0; k < 4; k++) {
     coils.push(new THREE.TorusGeometry(0.13, 0.008, 3, 14).rotateY(Math.PI / 2).translate(0.07 + k * 0.12, 0.15, 0));
   }
-  const strip = (g: THREE.BufferGeometry) => { g.deleteAttribute('uv'); return g.toNonIndexed(); };
+  const strip = (g: THREE.BufferGeometry) => { g.deleteAttribute('uv'); return flat(g); };
   const mat = new THREE.MeshStandardMaterial({ color: 0x5a5048, roughness: 0.6, metalness: 0.5 });
   return { post: mergeGeometries([strip(pole), strip(cross)])!, arm: mergeGeometries(coils.map(strip))!, mat };
 }

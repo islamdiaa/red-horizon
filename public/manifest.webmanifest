@@ -1,0 +1,28 @@
+{
+  "id": "./",
+  "name": "Red Horizon",
+  "short_name": "Red Horizon",
+  "description": "A Cold War real-time strategy game: build a base, harvest ore and command Allied or Soviet armies, right in your browser. Works offline.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#05070b",
+  "theme_color": "#05070b",
+  "categories": ["games", "entertainment"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "screenshots": [
+    { "src": "screenshots/menu.jpg", "sizes": "1280x720", "type": "image/jpeg", "form_factor": "wide", "label": "Main menu over a live battlefield" },
+    { "src": "screenshots/battle.jpg", "sizes": "1280x720", "type": "image/jpeg", "form_factor": "wide", "label": "Thunderstorm battle at dusk" }
+  ]
+}

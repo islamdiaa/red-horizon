@@ -29,7 +29,6 @@ export interface Projectile {
   special?: 'nuke';
 }
 
-let nextProjectileId = 1;
 
 /** Height (world Y offset above ground) shots are aimed at. */
 export function aimHeight(e: Entity): number {
@@ -64,15 +63,21 @@ export function weaponCanHit(w: WeaponDef, attacker: Entity, t: Entity): boolean
   return true;
 }
 
-/** Choose the most effective weapon against a target, or null. */
+/**
+ * Choose the most effective weapon against a target, or null if none of the attacker's weapons can
+ * hurt it at all (armour verses 0, or a wall and no wall-breaching warhead).
+ */
 export function pickWeapon(attacker: Entity, t: Entity): WeaponSlot | null {
   let best: WeaponSlot | null = null;
   let bestScore = -1;
   const armor = ARMOR_INDEX[t.type.armor];
+  const wall = t instanceof Building && t.bt.wall;
   for (const s of attacker.weapons) {
     if (!weaponCanHit(s.def, attacker, t)) continue;
     const wh = WARHEADS[s.def.warhead];
-    const score = (Math.abs(s.def.damage) * (s.def.damage < 0 ? 1 : wh.verses[armor]) * s.def.burst) / Math.max(1, s.def.rof);
+    const mult = s.def.damage < 0 ? 1 : wall && !wh.wall ? 0 : wh.verses[armor];
+    if (mult <= 0) continue;
+    const score = (Math.abs(s.def.damage) * mult * s.def.burst) / Math.max(1, s.def.rof);
     if (score > bestScore) { bestScore = score; best = s; }
   }
   return best;
@@ -90,7 +95,8 @@ export function modifyDamage(damage: number, wh: WarheadDef, armor: number, dist
   let dmg = damage * wh.verses[armor];
   if (dmg > 0) {
     const leptons = distCells * 256;
-    let div = wh.spread ? leptons / (wh.spread * 5) : leptons / 2.5;
+    // RA integer maths: PIXEL_LEPTON_W (10) / 4 = 2 for spread 0, SpreadFactor * (10 / 2) otherwise
+    let div = wh.spread ? leptons / (wh.spread * 5) : leptons / 2;
     div = Math.min(16, Math.max(0, Math.floor(div)));
     if (div) dmg /= div;
     if (div < 4) dmg = Math.max(dmg, 1);
@@ -108,7 +114,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
   let bestScore = Infinity;
   const owner = e.owner;
   world.grid.query(e.x, e.y, range + 1, (u) => {
-    if (!u.alive || !owner.isEnemy(u.owner)) return;
+    if (!u.alive || u.hp <= 0 || !owner.isEnemy(u.owner)) return;
     const d = Math.hypot(u.x - e.x, u.y - e.y);
     if (d > range) return;
     if (!world.canSee(owner, u)) return;
@@ -218,7 +224,7 @@ function doShot(world: World, shooter: Entity, slot: WeaponSlot, target: Entity 
     ay += Math.sin(a) * scatter;
   }
   const p: Projectile = {
-    id: nextProjectileId++, weapon: w, owner: shooter.owner, shooter: shooter.id, kind: w.projectile,
+    id: world.nextProjectileId++, weapon: w, owner: shooter.owner, shooter: shooter.id, kind: w.projectile,
     x: shooter.x, y: shooter.y, z: fz, prevX: shooter.x, prevY: shooter.y, prevZ: fz,
     sx: shooter.x, sy: shooter.y, sz: fz, tx: ax, ty: ay, tz,
     target: w.projectile === 'cannon' || w.projectile === 'missile' || w.projectile === 'fireball' ? target : null,
@@ -297,7 +303,8 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
 }
 
 export function damageEntity(world: World, e: Entity, dmg: number, attacker: Entity | null, how: 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' = 'normal') {
-  if (!e.alive || e.invulnerable > 0) return;
+  // hp <= 0 while alive: already lethally hit this tick, removed at the end of the combat phase
+  if (!e.alive || e.invulnerable > 0 || e.hp <= 0) return;
   e.hp -= dmg;
   e.lastDamagedTick = world.tick;
   if (attacker) e.lastAttacker = attacker.id;
@@ -309,7 +316,7 @@ export function damageEntity(world: World, e: Entity, dmg: number, attacker: Ent
     else if (e instanceof Unit && e.ut.harvester) world.announce(owner, 'harvester_under_attack', 20);
   }
   if (e.hp <= 0) {
-    world.kill(e, e instanceof Unit && e.kind === 'infantry' ? how : 'normal', attacker ?? undefined);
+    world.lethal(e, e instanceof Unit && e.kind === 'infantry' ? how : 'normal', attacker ?? undefined);
   } else if (e instanceof Building && e.repairing === false && !owner.isHuman && e.healthFrac < 0.6) {
     // AI auto-repair handled in AI
   }

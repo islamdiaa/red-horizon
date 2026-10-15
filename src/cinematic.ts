@@ -204,6 +204,15 @@ export function nukeCinematic(game: Game, silo: { x: number; y: number }, target
   cam.targetDist = 18;
   const timers: number[] = [];
   let done = false;
+  // satellite uplink: the strike is watched through a partly lifted fog of war (shroud would show only black)
+  const fogU = game.gfx.fogPass.material.uniforms.uEnabled;
+  let fogTarget = 0.3;
+  const fogTween = () => {
+    fogU.value += (fogTarget - fogU.value) * 0.08;
+    if (Math.abs(fogTarget - fogU.value) < 0.005) { fogU.value = fogTarget; if (fogTarget === 1) return; }
+    requestAnimationFrame(fogTween);
+  };
+  requestAnimationFrame(fogTween);
   const finish = () => {
     if (done) return;
     done = true;
@@ -213,6 +222,7 @@ export function nukeCinematic(game: Game, silo: { x: number; y: number }, target
     timers.push(window.setTimeout(() => bars.forEach((b) => b.remove()), 1000));
     game.speed = saved.speed;
     cam.zoomDamp = 0.0001;
+    fogTarget = 1;
   };
   const skip = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); cam.flyToPoint(target.x, target.y, 0.4); finish(); };
   window.addEventListener('keydown', skip, true);

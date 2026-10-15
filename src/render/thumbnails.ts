@@ -4,30 +4,42 @@ import { BUILDINGS, UNITS } from '../data/rules';
 import { createModel } from './models';
 import { WallRenderer } from './walls';
 
+interface ThumbStage { renderer: THREE.WebGLRenderer; scene: THREE.Scene; canvas: HTMLCanvasElement }
+let stage: ThumbStage | null = null;
+
+/** One long-lived offscreen renderer for portraits (a fresh one per game would leak its GL context). */
+function getStage(w: number, h: number): ThumbStage {
+  if (!stage || stage.renderer.getContext().isContextLost()) {
+    const canvas = document.createElement('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    scene.environmentIntensity = 0.45;
+    scene.add(new THREE.HemisphereLight(0xc8dcff, 0x40342a, 1.1));
+    const sun = new THREE.DirectionalLight(0xfff0dd, 3.0);
+    sun.position.set(3, 6, 4);
+    scene.add(sun);
+    const rim = new THREE.DirectionalLight(0x88b8ff, 1.4);
+    rim.position.set(-4, 3, -5);
+    scene.add(rim);
+    stage = { renderer, scene, canvas };
+  }
+  if (stage.canvas.width !== w || stage.canvas.height !== h) stage.renderer.setSize(w, h, false);
+  return stage;
+}
+
 /** Renders sidebar portraits of the real 3D models (once per type), returning data URLs. */
 export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 128): Map<string, string> {
   const out = new Map<string, string>();
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(1);
-  renderer.setSize(w, h, false);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setClearColor(0x000000, 0);
-  const scene = new THREE.Scene();
+  const { renderer, scene, canvas } = getStage(w, h);
+  // baked per call: game teardown releases every GPU resource (see gpuregistry), render targets included
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.45;
-  scene.add(new THREE.HemisphereLight(0xc8dcff, 0x40342a, 1.1));
-  const sun = new THREE.DirectionalLight(0xfff0dd, 3.0);
-  sun.position.set(3, 6, 4);
-  scene.add(sun);
-  const rim = new THREE.DirectionalLight(0x88b8ff, 1.4);
-  rim.position.set(-4, 3, -5);
-  scene.add(rim);
+  const env = pmrem.fromScene(new RoomEnvironment(), 0.04);
+  scene.environment = env.texture;
   const cam = new THREE.PerspectiveCamera(30, w / h, 0.05, 100);
   const color = new THREE.Color(teamColor);
   const box = new THREE.Box3();
@@ -37,7 +49,7 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
   for (const id of ids) {
     try {
       const m = BUILDINGS[id]?.wall
-        ? (() => { const root = WallRenderer.preview(id); root.rotation.y = 0.5; return { root, update() {}, dispose() {} } as unknown as ReturnType<typeof createModel>; })()
+        ? (() => { const root = WallRenderer.preview(id); root.rotation.y = 0.5; return { root, update() {}, dispose() { root.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); } } as unknown as ReturnType<typeof createModel>; })()
         : createModel(id, color);
       const isBld = id in BUILDINGS;
       const unit = UNITS[id];
@@ -62,8 +74,8 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
       console.warn('thumbnail failed', id, e);
     }
   }
+  scene.environment = null;
+  env.dispose();
   pmrem.dispose();
-  renderer.dispose();
-  renderer.forceContextLoss();
   return out;
 }

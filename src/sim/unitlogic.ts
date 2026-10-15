@@ -4,7 +4,7 @@ import {
 import { angleDiff, turnTowards } from '../core/util';
 import { Building, Entity, Unit, distToEntity } from './entities';
 import { findHealTarget, findTarget, maxRange, pickWeapon } from './combat';
-import { updateHarvester } from './harvest';
+import { isDocking, updateHarvester } from './harvest';
 import { updateAircraft } from './aircraft';
 import { recalcPlayerEconomy } from './production';
 import { DT, TICK_HZ, type Order } from './types';
@@ -22,13 +22,8 @@ export function updateUnit(world: World, u: Unit) {
   if (u.ut.selfHealing && u.hp < u.maxHp * 0.5 && world.tick % TICK_HZ === 0) u.hp = Math.min(u.maxHp * 0.5, u.hp + u.maxHp * 0.01);
   // elite units field-repair
   if (u.rank >= 2 && u.hp < u.maxHp && world.tick % TICK_HZ === 0 && world.tick - u.lastDamagedTick > TICK_HZ * 3) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.02);
-  if (u.c4Timer > 0) {
-    u.c4Timer -= DT;
-    if (u.c4Timer <= 0) {
-      const b = world.entities.get(u.c4Target);
-      if (b && b.alive) world.kill(b, 'blown', u);
-    }
-  }
+  // fuse indicator of the last planted charge (the charge itself ticks on the building)
+  if (u.c4Timer > 0) u.c4Timer = Math.max(0, u.c4Timer - DT);
 
   if (u.kind === 'aircraft') {
     updateAircraft(world, u);
@@ -272,6 +267,7 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
     return;
   }
   if (!(t instanceof Building)) return finishOrder(world, u);
+  if (u.ut.engineer && !engineerCanEnter(u, t)) return finishOrder(world, u);
   const d = t.distTo(u.x, u.y);
   if (t.bt.repairPad && t.owner === u.owner && u.kind === 'vehicle') {
     // drive onto the depot pad
@@ -282,18 +278,16 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
     return;
   }
   if (d > 0.7) {
-    if (!u.hasGoal && !u.pathPending) {
-      const [px, py] = t.closestPoint(u.x, u.y);
-      world.requestPath(u, px, py);
-    }
+    const [px, py] = t.closestPoint(u.x, u.y);
+    if (u.path || u.pathPending) return;
+    // right next to the structure: its edge is inside a blocked cell, so the path search can't
+    // help (no path / throttled failure) -- walk straight at the wall instead
+    if (d < 1.6 && stepToward(world, u, px, py)) return;
+    if (!u.hasGoal) world.requestPath(u, px, py);
     return;
   }
   stopMoving(u);
   if (u.ut.engineer) {
-    if (u.owner.isEnemy(t.owner) && t.bt.wall) {
-      finishOrder(world, u);
-      return;
-    }
     if (u.owner.isEnemy(t.owner)) {
       if (t.healthFrac <= ENGINEER_CAPTURE_LEVEL) {
         captureBuilding(world, t, u);
@@ -301,7 +295,8 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
         t.hp = Math.max(1, t.hp - t.maxHp * ENGINEER_DAMAGE);
         world.sfx('repair', t.x, t.y);
       }
-    } else if (t.owner === u.owner) {
+    } else {
+      // own or allied structure: a full repair
       t.hp = t.maxHp;
       world.sfx('repair', t.x, t.y);
     }
@@ -310,20 +305,48 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
     return;
   }
   if (u.ut.c4 && u.owner.isEnemy(t.owner)) {
+    // the charge lives on the building: it goes off even if the commando dies or moves on,
+    // and planting again on an armed building doesn't restart its fuse
+    if (t.c4Timer <= 0) {
+      t.c4Timer = C4_FUSE;
+      t.c4Owner = u.owner.id;
+      t.c4By = u.id;
+      world.sfx('door', t.x, t.y);
+    }
     u.c4Target = t.id;
-    u.c4Timer = 1.6;
-    world.sfx('door', t.x, t.y);
+    u.c4Timer = t.c4Timer;
     finishOrder(world, u);
     return;
   }
   finishOrder(world, u);
 }
 
+const C4_FUSE = 1.6;
+
+/** Engineers enter enemy structures (capture / sabotage) and damaged friendly ones (repair); never walls. */
+export function engineerCanEnter(u: Unit, b: Building): boolean {
+  if (b.bt.wall) return false;
+  if (u.owner.isEnemy(b.owner)) return true;
+  return b.hp < b.maxHp;
+}
+
+/** Walk one tick straight towards (x, y) without a path. False if blocked. */
+function stepToward(world: World, u: Unit, x: number, y: number): boolean {
+  const dx = x - u.x, dy = y - u.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 1e-3) return false;
+  const step = Math.min(d, unitSpeed(u) * DT);
+  u.heading = turnTowards(u.heading, Math.atan2(dy, dx), 14 * DT);
+  return tryMove(world, u, (dx / d) * step, (dy / d) * step);
+}
+
 export function captureBuilding(world: World, b: Building, by: Unit) {
   const old = b.owner;
   const now = by.owner;
-  old.owned.set(b.bt.id, Math.max(0, (old.owned.get(b.bt.id) ?? 1) - 1));
-  now.owned.set(b.bt.id, (now.owned.get(b.bt.id) ?? 0) + 1);
+  if (b.counted) {
+    old.owned.set(b.bt.id, Math.max(0, (old.owned.get(b.bt.id) ?? 1) - 1));
+    now.owned.set(b.bt.id, (now.owned.get(b.bt.id) ?? 0) + 1);
+  }
   b.owner = now;
   b.repairing = false;
   b.target = null;
@@ -425,11 +448,12 @@ function followPath(world: World, u: Unit) {
 
   if (u.moving && u.ut.crusher) crush(world, u);
 
-  // progress / stuck detection
+  // progress / stuck detection: measured along the path (remaining path length), so a detour that
+  // leads away from the goal for a while (around a wall, through a forest gap) still counts as progress
   u.progressTimer += DT;
   if (u.progressTimer >= 1) {
     u.progressTimer = 0;
-    const gd = Math.hypot(u.goalX - u.x, u.goalY - u.y);
+    const gd = pathRemaining(u);
     if (gd > u.progressDist - 0.2) {
       u.stuckCount++;
       if (u.stuckCount >= 5 || (u.stuckCount >= 3 && gd < 2.5)) {
@@ -446,6 +470,20 @@ function followPath(world: World, u: Unit) {
   }
 }
 
+/** Length of the rest of the unit's path (to the current waypoint, then waypoint to waypoint). */
+export function pathRemaining(u: Unit): number {
+  const p = u.path;
+  if (!p || u.pathIdx >= p.length) return Math.hypot(u.goalX - u.x, u.goalY - u.y);
+  let wp = p[u.pathIdx];
+  let d = Math.hypot(wp.x - u.x, wp.y - u.y);
+  for (let k = u.pathIdx + 1; k < p.length; k++) {
+    const nx = p[k];
+    d += Math.hypot(nx.x - wp.x, nx.y - wp.y);
+    wp = nx;
+  }
+  return d;
+}
+
 function crush(world: World, u: Unit) {
   world.grid.query(u.x, u.y, 0.6, (o) => {
     if (!o.alive || !o.ut.crushable || !u.owner.isEnemy(o.owner)) return;
@@ -455,6 +493,8 @@ function crush(world: World, u: Unit) {
     }
   });
 }
+
+const runsOver = (a: Unit, b: Unit) => a.moving && a.ut.crusher && b.ut.crushable && a.owner.isEnemy(b.owner);
 
 /** Push overlapping ground units apart. Idle units make way for moving ones. */
 export function resolveCollisions(world: World) {
@@ -467,6 +507,8 @@ export function resolveCollisions(world: World) {
       let dx = o.x - u.x, dy = o.y - u.y;
       let d2 = dx * dx + dy * dy;
       if (d2 >= minD * minD) return;
+      // a moving tank rolls over enemy infantry instead of shoving them aside (crush() does the rest)
+      if (runsOver(u, o) || runsOver(o, u)) return;
       if (d2 < 1e-6) { dx = ((u.id * 7) % 11) / 11 - 0.5; dy = ((o.id * 5) % 13) / 13 - 0.5; d2 = dx * dx + dy * dy; }
       const d = Math.sqrt(d2);
       const overlap = minD - d;
@@ -475,6 +517,9 @@ export function resolveCollisions(world: World) {
       if (u.moving !== o.moving) { wu = u.moving ? 0.2 : 0.8; wo = 1 - wu; }
       if (u.kind === 'infantry' && o.kind !== 'infantry') { wu = 0.85; wo = 0.15; }
       else if (o.kind === 'infantry' && u.kind !== 'infantry') { wu = 0.15; wo = 0.85; }
+      // a harvester on (or pulling onto) a refinery pad holds its ground; the other one makes way
+      const au = !!u.ut.harvester && isDocking(world, u), ao = !!o.ut.harvester && isDocking(world, o);
+      if (au !== ao) { wu = au ? 0 : 1; wo = 1 - wu; }
       const push = Math.min(overlap, 0.08) * 0.6;
       pushUnit(world, u, -nx * push * wu * 2, -ny * push * wu * 2);
       pushUnit(world, o, nx * push * wo * 2, ny * push * wo * 2);
@@ -483,6 +528,7 @@ export function resolveCollisions(world: World) {
 }
 
 function pushUnit(world: World, u: Unit, mx: number, my: number) {
+  if (mx === 0 && my === 0) return;
   if (u.order.type === 'harvest' && u.hstate === 'unloading') return;
   const nx = u.x + mx, ny = u.y + my;
   if (cellOk(world, u, nx, ny) && cornerOk(world, u, nx, ny)) { u.x = nx; u.y = ny; }

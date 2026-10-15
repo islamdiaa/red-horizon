@@ -26,7 +26,14 @@ export class Overlay {
     parent.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d')!;
     this.resize();
-    window.addEventListener('resize', () => this.resize());
+    window.addEventListener('resize', this.onResize);
+  }
+
+  private onResize = () => this.resize();
+
+  dispose() {
+    window.removeEventListener('resize', this.onResize);
+    this.canvas.remove();
   }
 
   resize() {
@@ -56,7 +63,7 @@ export class Overlay {
     const tick = world.tick;
 
     const drawFor = (e: Entity) => {
-      if (!ents.isShown(e.id)) return;
+      if (!ents.isLive(e.id)) return; // no health bars on fogged last-seen structures
       const isSel = selected.has(e.id);
       const recent = tick - e.lastDamagedTick < 60;
       if (!isSel && hovered !== e.id && !this.showAllBars && !(recent && e.hp < e.maxHp)) return;
@@ -89,6 +96,13 @@ export class Overlay {
 
     for (const b of world.buildings) if (b.alive) drawFor(b);
     for (const u of world.units) if (u.alive) drawFor(u);
+
+    // planted demolition charges: a countdown that blinks faster as the fuse burns down
+    for (const b of world.buildings) {
+      if (!b.alive || b.c4Timer <= 0 || !ents.isLive(b.id)) continue;
+      const [sx, sy, ok] = this.project(camera, b.x, map.surfaceAt(b.x, b.y) + ents.topOf(b.id) + 0.55, b.y);
+      if (ok) this.c4Tag(sx, sy, b.c4Timer, world.time);
+    }
 
     // order lines for selected own units (current order + shift-queued waypoints)
     ctx.save();
@@ -242,6 +256,29 @@ export class Overlay {
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color;
     ctx.fillText(ch, x, y);
+    ctx.restore();
+  }
+
+  private c4Tag(x: number, y: number, left: number, time: number) {
+    const blink = Math.sin(time * Math.PI * (left < 2 ? 8 : 3)) > 0;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.font = '700 11px "Share Tech Mono", "Rajdhani", monospace';
+    const text = `C4 ${left.toFixed(1)}`;
+    const tw = ctx.measureText(text).width + 12;
+    ctx.fillStyle = blink ? 'rgba(120, 10, 6, 0.9)' : 'rgba(40, 6, 4, 0.85)';
+    ctx.shadowColor = '#ff3a1a';
+    ctx.shadowBlur = blink ? 12 : 4;
+    this.round(x - tw / 2, y - 8, tw, 16, 4);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ff5a3a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = blink ? '#fff' : '#ffb0a0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y + 0.5);
     ctx.restore();
   }
 

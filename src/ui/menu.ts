@@ -10,6 +10,9 @@ import { UiSound, bindTilt, countUp, el as h, esc, hexColor } from './dom';
 import { Embers } from './embers';
 import { initLoadingScreen } from './loading';
 import { applyUiSettings, loadSettings, saveSettings, type Settings } from './settings';
+import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
+import { showProfile } from './profile';
+import { showChallenges } from './challenges';
 
 export { loadSettings, saveSettings, type Settings };
 
@@ -148,7 +151,8 @@ function keycaps(k: string): string {
 export interface MenuCallbacks {
   start(setup: GameSetup): void;
   resume(): void;
-  restart(): void;
+  /** Restart the match: the same map by default, a fresh one for "Play again". */
+  restart(newMap?: boolean): void;
   quit(): void;
   settingsChanged(s: Settings): void;
   /** Open the campaign / special-ops screen. */
@@ -158,6 +162,10 @@ export interface MenuCallbacks {
   continueGame?(): void;
   /** Save the running game; returns success. */
   saveGame?(): boolean;
+  /** Open the challenges hub (daily challenge, survival). Falls back to a built-in screen that deploys via start(). */
+  openChallenges?(): void;
+  /** Open the commander profile (rank, medals, history). Falls back to a built-in screen. */
+  openProfile?(): void;
 }
 
 export class Menus {
@@ -244,9 +252,17 @@ export class Menus {
     if (cont) navItem('▶', `Continue · ${cont.label}`, ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
     if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
     navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
-    navItem('03', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
-    navItem('04', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
+    navItem('03', `Challenges${dailyPending() ? '<em class="rh-daily-pill">Daily</em>' : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
+    navItem('04', 'Commander', picto('chevrons', 'ic'), () => this.openProfile());
+    navItem('05', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
+    navItem('06', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
+    nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
     left.appendChild(nav);
+    // commander badge (rank insignia + name) next to the title; opens the profile
+    const cmdr = h('div', 'mm-cmdr', commanderBadge());
+    cmdr.style.cssText = 'margin-bottom:1.3rem;animation:fadeUp .8s .05s var(--ease) both';
+    cmdr.onclick = () => { this.sound.play('click'); this.openProfile(); };
+    left.prepend(cmdr);
     left.appendChild(h('div', 'mm-foot', `<span class="live"><i></i>Live battlefield feed</span><span>v${VERSION}</span>`));
 
     // ---- right column: skirmish setup
@@ -372,6 +388,28 @@ export class Menus {
     layout.append(left, panel);
   }
 
+  /** Challenges hub (daily challenge + survival); built-in fallback deploys through cb.start(). */
+  openChallenges() {
+    this.hide();
+    if (this.cb.openChallenges) { this.cb.openChallenges(); return; }
+    showChallenges({
+      play: (k) => this.sound.play(k),
+      onBack: () => this.showMain(),
+      onProfile: () => this.openProfile(),
+      onDeploy: (id) => this.cb.start({
+        faction: 'allies', color: TEAM_COLORS[0], opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
+        startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: this.settings.quality, seed: 0, mission: id, intro: true,
+      }),
+    });
+  }
+
+  /** Commander profile; built-in fallback when main.ts does not provide openProfile. */
+  openProfile() {
+    this.hide();
+    if (this.cb.openProfile) { this.cb.openProfile(); return; }
+    showProfile({ play: (k) => this.sound.play(k), onBack: () => this.showMain() });
+  }
+
   // ---------------------------------------------------------------------------
   showSettings(back: () => void) {
     const s = this.open('sub-screen');
@@ -397,6 +435,7 @@ export class Menus {
     play.appendChild(settingRow(ICONS.mouse, 'Edge scrolling', 'Scroll when the cursor touches the screen edge', toggle(this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; apply(); })));
     play.appendChild(settingRow(ICONS.mic, 'Unit voices', 'Acknowledgements when giving orders', toggle(this.settings.unitVoices, (v) => { this.settings.unitVoices = v; apply(); })));
     play.appendChild(settingRow(ICONS.bulb, 'Field manual hints', 'Contextual tips for new commanders', toggle(this.settings.hints, (v) => { this.settings.hints = v; apply(); })));
+    play.appendChild(settingRow(ICONS.eye, 'Skip intro cinematic', 'Start every battle at your base', toggle(!!this.settings.skipIntro, (v) => { this.settings.skipIntro = v; apply(); })));
     const g = h('div', 'set-grid');
     g.append(gfx, aud, play);
     panel.appendChild(g);
@@ -522,7 +561,7 @@ export class Menus {
     wrap.appendChild(body);
     const btns = h('div', 'btn-row end-btns');
     const again = h('button', 'btn-primary', `${ICONS.restart}<span>Play again</span>`);
-    again.onclick = () => { this.hide(); this.cb.restart(); };
+    again.onclick = () => { this.hide(); this.cb.restart(true); };
     const watch = h('button', 'btn', `${ICONS.eye}<span>Keep watching</span>`);
     watch.onclick = () => { this.hide(); this.cb.resume(); };
     const quit = h('button', 'btn', `${ICONS.exit}<span>Main menu</span>`);

@@ -47,8 +47,9 @@ function margin(world: World, type: string, cx: number, cy: number) {
 }
 
 const BASES: Record<string, string[]> = {
-  allies: ['fact', 'powr', 'powr', 'proc', 'tent', 'weap', 'dome', 'apwr', 'gun', 'pbox', 'gun', 'atek', 'fix', 'silo', 'hpad', 'agun', 'pdox', 'mslo'],
-  soviet: ['fact', 'powr', 'powr', 'proc', 'barr', 'weap', 'dome', 'apwr', 'tsla', 'ftur', 'kenn', 'stek', 'sam', 'tsla', 'afld', 'apwr', 'iron', 'mslo'],
+  // enough power plants for everything to be online (Allies 1000/815, Soviets 1000/900)
+  allies: ['fact', 'powr', 'powr', 'proc', 'tent', 'weap', 'dome', 'apwr', 'apwr', 'apwr', 'apwr', 'gun', 'pbox', 'gun', 'atek', 'fix', 'silo', 'hpad', 'agun', 'pdox', 'mslo'],
+  soviet: ['fact', 'powr', 'powr', 'proc', 'barr', 'weap', 'dome', 'apwr', 'apwr', 'apwr', 'tsla', 'ftur', 'kenn', 'stek', 'sam', 'tsla', 'afld', 'apwr', 'iron', 'mslo'],
 };
 const ARMIES: Record<string, string[]> = {
   allies: ['2tnk', '2tnk', '2tnk', '1tnk', '1tnk', 'jeep', 'arty', 'arty', 'apc', 'e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e3', 'medi', 'e6', 'e7', 'heli', 'heli'],

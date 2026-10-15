@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0" stop-color="#1a2738"/><stop offset="0.55" stop-color="#0b111a"/><stop offset="1" stop-color="#05070b"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0.45" stop-color="#ff5a3a" stop-opacity="0.28"/><stop offset="1" stop-color="#ff5a3a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="star" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9466"/><stop offset="0.55" stop-color="#ff5a3a"/><stop offset="1" stop-color="#c8301f"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff7a52"/><stop offset="1" stop-color="#b8281a"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="108" fill="url(#bg)"/><rect x="8.5" y="8.5" width="495" height="495" rx="108" fill="none" stroke="rgba(90,180,255,0.18)" stroke-width="3"/>
+  <circle cx="256" cy="256" r="210.04" fill="url(#halo)"/>
+  <circle cx="256" cy="256" r="178" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="44"/>
+  <circle cx="256" cy="256" r="178" fill="none" stroke="url(#ring)" stroke-width="20"/>
+  <circle cx="256" cy="256" r="146" fill="none" stroke="rgba(255,176,138,0.35)" stroke-width="5" stroke-dasharray="89 56.96"/>
+  <path d="M256.00 138.00L285.39 221.55L373.93 223.68L303.55 277.45L328.89 362.32L256.00 312.00L183.11 362.32L208.45 277.45L138.07 223.68L226.61 221.55Z" fill="url(#star)" stroke="#ffb08a" stroke-opacity="0.55" stroke-width="3" stroke-linejoin="round"/>
+</svg>

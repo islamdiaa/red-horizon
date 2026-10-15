@@ -61,17 +61,33 @@ export function buildSeconds(world: World, p: Player, typeId: string): number {
 export function updateProduction(world: World, p: Player) {
   for (const kind of KINDS) {
     const q = p.queues[kind];
-    if (!q.items.length) { q.stalled = false; continue; }
-    if (kind === 'structure' && q.ready) continue;
-    const it = q.items[0];
-    const t = getType(it.type);
-    if (!p.hasFactoryFor(it.type) || !p.prereqsMet(t)) {
-      // lost the factory or tech: cancel everything in this queue
-      for (const x of q.items) p.refund(x.paid);
-      q.items.length = 0;
-      world.announce(p, 'cancelled', 2);
+    if (kind === 'structure' && q.ready) {
+      // a finished structure is lost with the last Construction Yard (refunded, as RA abandons production)
+      if (!p.hasFactoryFor(q.ready)) {
+        p.refund(getType(q.ready).cost);
+        q.ready = null;
+        world.announce(p, 'cancelled', 2);
+      }
       continue;
     }
+    if (!q.items.length) { q.stalled = false; continue; }
+    // lost a factory or a tech building: drop (and refund) only the items that can't be built any more
+    let dropped = false, lastType = '', lastOk = true;
+    for (let k = q.items.length - 1; k >= 0; k--) {
+      const x = q.items[k];
+      if (x.type !== lastType) {
+        lastType = x.type;
+        lastOk = p.hasFactoryFor(x.type) && p.prereqsMet(getType(x.type));
+      }
+      if (lastOk) continue;
+      p.refund(x.paid);
+      q.items.splice(k, 1);
+      dropped = true;
+    }
+    if (dropped) world.announce(p, 'cancelled', 2);
+    if (!q.items.length) { q.stalled = false; continue; }
+    const it = q.items[0];
+    const t = getType(it.type);
     if (it.paused) continue;
     const inc = DT / buildSeconds(world, p, it.type);
     const step = Math.min(inc, 1 - it.progress);

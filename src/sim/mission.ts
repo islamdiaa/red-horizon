@@ -3,11 +3,14 @@
  * with a setup() and an update() callback that drive the world through this API.
  * Everything here runs inside the deterministic simulation tick (use world.rng, never Math.random).
  */
-import { BUILDINGS, UNITS, type Faction } from '../data/rules';
+import { BUILDINGS, UNITS, WEAPONS, type Faction } from '../data/rules';
 import type { AnnouncerKey } from '../audio/types';
 import { Building, Entity, Unit } from './entities';
 import type { Player } from './player';
 import type { AIDifficulty } from './ai';
+import type { Projectile } from './combat';
+import { recalcPlayerEconomy } from './production';
+import { superBuilding, superChargeTime, type SuperKind } from './superweapons';
 import { DT, TICK_HZ } from './types';
 import type { World } from './world';
 
@@ -85,13 +88,32 @@ export interface MissionDef {
   winOnElimination?: boolean;
   /** Survival-style missions report a score instead of win/lose stars. */
   scored?: boolean;
+  /** Closing radio lines for the debrief screen (optional). */
+  debrief?: MissionDebrief;
   setup(m: MissionRuntime): void;
   update?(m: MissionRuntime): void;
 }
 
+/** Debrief radio lines: shown on the mission-complete / mission-failed screen. */
+export interface MissionDebrief {
+  speaker: string;
+  portrait: Portrait;
+  win: string;
+  lose: string;
+}
+
+/** A map point (cells). */
+export type Pt = { x: number; y: number } | [number, number];
+const px = (p: Pt) => (Array.isArray(p) ? p[0] : p.x);
+const py = (p: Pt) => (Array.isArray(p) ? p[1] : p.y);
+
 const EDGE_OFFSET = 1.5;
 
 export class MissionRuntime {
+  /** The most recently created runtime (read by the debrief screen for objectives / end reason). */
+  static current: MissionRuntime | null = null;
+  /** Reason passed to lose(), if any. */
+  endReason: string | null = null;
   readonly objectives: Objective[] = [];
   events: MissionEvent[] = [];
   /** Free-form script state. */
@@ -105,7 +127,9 @@ export class MissionRuntime {
   private everyT = new Map<string, number>();
   private timers = new Map<string, number>();
 
-  constructor(readonly world: World, readonly def: MissionDef) {}
+  constructor(readonly world: World, readonly def: MissionDef) {
+    MissionRuntime.current = this;
+  }
 
   // ---------------------------------------------------------------------------
   // Basics
@@ -231,6 +255,8 @@ export class MissionRuntime {
     const isInf = UNITS[type].kind === 'infantry';
     const [sx, sy] = this.world.findFreeSpot(x, y, 6, !isInf);
     const u = this.world.addUnit(type, pl, sx, sy);
+    // a player that receives fresh forces is back in the fight (wave-only enemies start empty)
+    pl.defeated = false;
     if (heading !== undefined) u.heading = u.prevHeading = u.turret = u.prevTurret = heading;
     if (u.kind === 'aircraft') u.altitude = u.ut.vtol ? 1.55 : 2.3;
     return u;
@@ -259,6 +285,7 @@ export class MissionRuntime {
       if (m.ore[i]) m.setOre(i, 0);
     }
     const b = this.world.addBuilding(type, pl, cx, cy, built);
+    pl.defeated = false;
     this.world.events.push({ e: 'placed', id: b.id });
     return b;
   }
@@ -337,6 +364,213 @@ export class MissionRuntime {
   }
 
   // ---------------------------------------------------------------------------
+  // Campaign helpers (geometry, entity control, set pieces)
+  // ---------------------------------------------------------------------------
+  /** Point `dist` cells from a towards b, shifted `side` cells perpendicular to the a→b line. */
+  toward(a: Pt, b: Pt, dist: number, side = 0): [number, number] {
+    const ax = px(a), ay = py(a);
+    const dx = px(b) - ax, dy = py(b) - ay;
+    const l = Math.hypot(dx, dy) || 1;
+    return this.clampPt(ax + (dx / l) * dist - (dy / l) * side, ay + (dy / l) * dist + (dx / l) * side);
+  }
+  /** Point at fraction t of the way from a to b, shifted `side` cells perpendicular. */
+  between(a: Pt, b: Pt, t: number, side = 0): [number, number] {
+    const d = Math.hypot(px(b) - px(a), py(b) - py(a));
+    return this.toward(a, b, d * t, side);
+  }
+  /** Keep a point inside the map, `margin` cells from the edge. */
+  clampPt(x: number, y: number, margin = 1.5): [number, number] {
+    return [Math.min(this.mapW - margin, Math.max(margin, x)), Math.min(this.mapH - margin, Math.max(margin, y))];
+  }
+  dist(a: Pt, b: Pt): number {
+    return Math.hypot(px(a) - px(b), py(a) - py(b));
+  }
+  /** Nearest passable, uncrowded spot around a point. */
+  freeSpot(x: number, y: number, r = 6, forVehicle = true): [number, number] {
+    return this.world.findFreeSpot(x, y, r, forVehicle);
+  }
+  /** Closest entity of a list to a point. */
+  nearest<T extends Entity>(list: T[], x: number, y: number): T | null {
+    let best: T | null = null, bd = Infinity;
+    for (const e of list) {
+      const d = Math.hypot(e.x - x, e.y - y);
+      if (e.alive && d < bd) { bd = d; best = e; }
+    }
+    return best;
+  }
+  /** Living entities from stored ids (scripts keep ids in `flags`). */
+  living(ids: number[] | undefined): Entity[] {
+    const out: Entity[] = [];
+    for (const id of ids ?? []) {
+      const e = this.world.getEntity(id);
+      if (e && e.alive) out.push(e);
+    }
+    return out;
+  }
+  livingUnits(ids: number[] | undefined): Unit[] {
+    return this.living(ids).filter((e): e is Unit => e instanceof Unit);
+  }
+  /** Armed combat units of a player (no harvesters, MCVs or medics). */
+  army(p: number | Player, includeAir = true): Unit[] {
+    return this.units(p).filter((u) => u.weapons.length && !u.ut.harvester && !u.ut.deploysInto && !u.ut.medic && (includeAir || u.kind !== 'aircraft'));
+  }
+  /** Units with no current order and no target. */
+  idleUnits(p: number | Player): Unit[] {
+    return this.units(p).filter((u) => u.order.type === 'idle' && !u.target && !u.ut.harvester);
+  }
+  eliminated(p: number | Player): boolean {
+    return this.P(p).defeated;
+  }
+  /** Change the remaining seconds of a running countdown without re-announcing it. */
+  setTimeLeft(key: string, seconds: number) {
+    if (this.timers.has(key)) this.timers.set(key, seconds);
+  }
+  /** Set an entity's health as a fraction of its maximum (pre-damaged structures, wounded survivors). */
+  setHealth(e: Entity | null | undefined, frac: number) {
+    if (!e || !e.alive) return;
+    e.hp = Math.max(1, Math.min(e.maxHp, Math.round(e.maxHp * frac)));
+  }
+  /** Remove an entity without an explosion or a recorded loss (e.g. a unit leaving the map). */
+  remove(e: Entity | null | undefined) {
+    if (!e || !e.alive) return;
+    const isUnit = e instanceof Unit;
+    this.world.kill(e, 'sold');
+    if (isUnit) e.owner.stats.unitsLost = Math.max(0, e.owner.stats.unitsLost - 1);
+  }
+  /** Hand units or structures to another player (defections, freed prisoners, captured gear). */
+  transfer(list: Entity[], to: number | Player) {
+    const now = this.P(to);
+    const touched = new Set<Player>([now]);
+    for (const e of list) {
+      if (!e.alive || e.owner === now) continue;
+      const old = e.owner;
+      touched.add(old);
+      e.target = null;
+      if (e instanceof Unit) {
+        e.owner = now;
+        e.orderQueue.length = 0;
+        this.world.setOrder(e, { type: 'idle' });
+        e.guardX = e.x;
+        e.guardY = e.y;
+        e.homePad = 0;
+        for (const ps of e.passengers) ps.owner = now;
+      } else if (e instanceof Building) {
+        if (e.counted) {
+          // only finished structures count towards tech (a half-built one is counted when it completes)
+          old.owned.set(e.bt.id, Math.max(0, (old.owned.get(e.bt.id) ?? 1) - 1));
+          now.owned.set(e.bt.id, (now.owned.get(e.bt.id) ?? 0) + 1);
+        }
+        e.owner = now;
+        e.repairing = false;
+        e.primary = false;
+        this.world.events.push({ e: 'captured', id: e.id, from: old.id, to: now.id });
+      }
+    }
+    for (const p of touched) recalcPlayerEconomy(this.world, p);
+    this.world.checkNewOptions(now);
+  }
+  /** Switch a player's team mid-mission (betrayals, defections). Drops targets that became friendly. */
+  setTeam(p: number | Player, team: number) {
+    const pl = this.P(p);
+    pl.team = team;
+    for (const e of [...this.world.units, ...this.world.buildings] as Entity[]) {
+      if (e.target && !e.owner.isEnemy(e.target.owner)) e.target = null;
+    }
+    for (const o of this.world.players) this.world.updateVisibility(o);
+  }
+  /** Idle units of the list walk a looping route (call every tick or every few seconds). */
+  patrol(units: Unit[], route: [number, number][], key = 'patrol') {
+    if (!route.length) return;
+    const idx: Record<number, number> = (this.flags['__' + key] ??= {});
+    for (const u of units) {
+      if (!u.alive || u.order.type !== 'idle' || u.target || u.chasing) continue;
+      const k = ((idx[u.id] ?? -1) + 1) % route.length;
+      idx[u.id] = k;
+      this.world.issue({ c: 'move', player: u.owner.id, units: [u.id], x: route[k][0], y: route[k][1], attackMove: true });
+    }
+  }
+  /** Place a straight line of wall segments (sandbags, barbed wire, concrete). */
+  wall(p: number | Player, type: string, x0: number, y0: number, x1: number, y1: number): Building[] {
+    const out: Building[] = [];
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    for (let k = 0; k <= n; k++) {
+      const t = n ? k / n : 0;
+      const x = Math.round(x0 + (x1 - x0) * t), y = Math.round(y0 + (y1 - y0) * t);
+      const m = this.world.map;
+      if (!m.inBounds(x, y) || m.occupant[m.idx(x, y)]) continue;
+      const b = this.placeBuilding(p, type, x, y);
+      if (b) out.push(b);
+    }
+    return out;
+  }
+  /** Mark the whole map as explored for a player. */
+  revealAll(p: number | Player = 0) {
+    this.P(p).explored.fill(1);
+  }
+  /** Off-map artillery: a shell from `from` (default: nearest map edge) lands near (x, y). */
+  shell(p: number | Player, x: number, y: number, opts: { from?: [number, number]; weapon?: string; scatter?: number } = {}) {
+    const pl = this.P(p);
+    const w = WEAPONS[opts.weapon ?? '155mm'];
+    const rng = this.world.rng;
+    const sc = opts.scatter ?? 1.2;
+    const a = rng.range(0, Math.PI * 2), r = Math.sqrt(rng.next()) * sc;
+    const [tx, ty] = this.clampPt(x + Math.cos(a) * r, y + Math.sin(a) * r, 0.5);
+    const from = opts.from ?? this.nearestEdge(x, y);
+    const m = this.world.map;
+    const sz = 1.5, tz = m.heightAt(tx, ty);
+    const d = Math.hypot(tx - from[0], ty - from[1]);
+    const proj: Projectile = {
+      id: 700000 + ((this.world.tick * 7 + (this.flags.__shells = (this.flags.__shells ?? 0) + 1)) % 99999), weapon: w, owner: pl, shooter: 0, kind: 'ballistic',
+      x: from[0], y: from[1], z: sz, prevX: from[0], prevY: from[1], prevZ: sz, sx: from[0], sy: from[1], sz, tx, ty, tz,
+      target: null, t: 0, dur: Math.min(4, 0.7 + d * 0.06), arc: Math.min(9, 0.6 + d * 0.2), speed: 0, vx: 0, vy: 0, alive: true,
+    };
+    this.world.projectiles.push(proj);
+  }
+  /** Atomic strike on (x, y), launched from the player's Missile Silo if it has one, otherwise from off-map. */
+  nuke(p: number | Player, x: number, y: number, from?: [number, number]) {
+    const pl = this.P(p);
+    const silo = superBuilding(this.world, pl, 'nuke');
+    const src: [number, number] = silo ? [silo.x, silo.y] : from ?? this.nearestEdge(x, y);
+    if (silo) { pl.superCharge.nuke = 0; pl.superAnnounced.nuke = false; silo.doorHold = 4; }
+    const m = this.world.map;
+    const sz = m.heightAt(src[0], src[1]) + 0.5;
+    const dist = Math.hypot(x - src[0], y - src[1]);
+    const proj: Projectile = {
+      id: this.world.nextProjectileId++, weapon: WEAPONS.Nuke, owner: pl, shooter: silo?.id ?? 0, kind: 'scud',
+      x: src[0], y: src[1], z: sz, prevX: src[0], prevY: src[1], prevZ: sz, sx: src[0], sy: src[1], sz,
+      tx: x, ty: y, tz: m.heightAt(x, y), target: null,
+      t: 0, dur: 4.5 + dist * 0.04, arc: 14 + dist * 0.25, speed: 0, vx: 0, vy: 0, alive: true, special: 'nuke',
+    };
+    this.world.projectiles.push(proj);
+    this.world.events.push({ e: 'nuke', x: src[0], y: src[1], stage: 'launch' });
+    this.world.events.push({ e: 'sfx', key: 'nuke_launch', x: src[0], y: src[1] });
+    this.world.announce(pl, 'nuke_launched', 0);
+    for (const o of this.world.players) if (o !== pl) this.world.announce(o, 'nuke_warning', 0);
+  }
+  /** Superweapon charge state for a player (null when it has no such structure). */
+  superState(p: number | Player, kind: SuperKind): { charge: number; full: number; left: number; ready: boolean } | null {
+    const pl = this.P(p);
+    const b = superBuilding(this.world, pl, kind);
+    if (!b) return null;
+    const full = b.bt.superCharge ?? superChargeTime(kind);
+    const charge = pl.superCharge[kind];
+    return { charge, full, left: Math.max(0, full - charge), ready: charge >= full };
+  }
+  /** Set a superweapon's charge (seconds; may be negative to delay it). */
+  setSuperCharge(p: number | Player, kind: SuperKind, seconds: number) {
+    const pl = this.P(p);
+    pl.superCharge[kind] = seconds;
+    pl.superAnnounced[kind] = false;
+  }
+  /** The map-edge point closest to (x, y). */
+  nearestEdge(x: number, y: number): [number, number] {
+    const w = this.mapW, h = this.mapH;
+    const opts: [number, number, number][] = [[x, EDGE_OFFSET, y], [x, h - EDGE_OFFSET, h - y], [EDGE_OFFSET, y, x], [w - EDGE_OFFSET, y, w - x]];
+    opts.sort((a, b) => a[2] - b[2]);
+    return [opts[0][0], opts[0][1]];
+  }
+
+  // ---------------------------------------------------------------------------
   // Objectives & storytelling
   // ---------------------------------------------------------------------------
   objective(id: string, text: string, primary = true): Objective {
@@ -364,6 +598,17 @@ export class MissionRuntime {
     if (!o || o.state !== 'active') return;
     o.state = 'failed';
     this.events.push({ e: 'objective', objective: o, change: 'failed' });
+  }
+  /** Rewrite an objective's text (e.g. the extraction point moved). */
+  retext(id: string, text: string) {
+    const o = this.objectives.find((x) => x.id === id);
+    if (!o || o.text === text) return;
+    o.text = text;
+    this.events.push({ e: 'objective', objective: o, change: 'progress' });
+  }
+  /** State of an objective (undefined if it was never added). */
+  state(id: string): ObjectiveState | undefined {
+    return this.objectives.find((x) => x.id === id)?.state;
   }
   isDone(id: string): boolean {
     return this.objectives.find((x) => x.id === id)?.state === 'done';
@@ -395,6 +640,7 @@ export class MissionRuntime {
     if (this.ended) return;
     this.ended = true;
     this.won = false;
+    this.endReason = reason ?? null;
     this.events.push({ e: 'end', won: false, reason });
     const other = this.world.players.find((p) => p.team !== this.human.team);
     this.world.endGame(other ? other.team : -1);

@@ -35,6 +35,13 @@ interface View {
   /** Hologram shell shown while a structure is being built. */
   holo: ModelInstance | null;
   holoRing: THREE.Mesh | null;
+  /** Enemy structures under fog are drawn as last seen ("ghosts"): has the player seen this one yet? */
+  seen: boolean;
+  /** Seen before but currently outside vision: frozen in its last-seen state. */
+  fogged: boolean;
+  /** Destroyed while fogged: the ghost stays until the player looks again. */
+  ghostDead: boolean;
+  wasExplored: boolean;
 }
 
 interface ProjView {
@@ -77,6 +84,8 @@ export class EntityRenderer {
   });
   private ringGeo2 = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private time = 0;
+  /** Set after the first update: views created later are 'new' (built in the fog, unseen). */
+  private primed = false;
   /** When set, model materials get rain gloss / snow cover from the weather system. */
   weatherUniforms: WeatherSurfaceUniforms | null = null;
   /** Vehicles whose wrecks linger. */
@@ -145,6 +154,9 @@ export class EntityRenderer {
     const v: View = {
       ent: e, model, anim, dead: false, deathT: 0, deathHow: 'normal', smoke: null, fire: null, chimneys: [],
       dustT: 0, fade: 0, lastBuildAnim: 0, baseScale: 1, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), holo: null, holoRing: null,
+      // structures present when the battle (or a save) starts count as known wherever the map is already explored;
+      // anything built later inside the fog stays hidden until scouted
+      seen: false, fogged: false, ghostDead: false, wasExplored: this.primed && e instanceof Building && this.buildingExplored(e),
     };
     if (e instanceof Building) {
       model.root.position.set(e.x, this.world.map.heightAt(e.x, e.y), e.y);
@@ -189,11 +201,31 @@ export class EntityRenderer {
     return !!v && v.model.root.visible;
   }
 
+  /** Shown with its live state (not a fogged last-seen ghost). */
+  isLive(id: number): boolean {
+    const v = this.views.get(id);
+    return !!v && v.model.root.visible && !v.fogged;
+  }
+
+  /** Structures as the local player knows them (ghosts included), for the radar. */
+  *structureMarkers(): Generator<{ cx: number; cy: number; w: number; h: number; color: number }> {
+    for (const v of this.views.values()) {
+      const b = v.ent;
+      if (!(b instanceof Building) || b.bt.wall || !v.model.root.visible || (v.dead && !v.ghostDead)) continue;
+      yield { cx: b.cx, cy: b.cy, w: b.w, h: b.h, color: b.owner.color };
+    }
+  }
+
   handleEvent(ev: GameEvent) {
     switch (ev.e) {
       case 'death': {
         const v = this.views.get(ev.id);
         if (!v) return;
+        if (v.fogged && v.ent instanceof Building) {
+          // destroyed out of sight: the player keeps seeing the ruin-to-be until they look again
+          v.ghostDead = true;
+          return;
+        }
         v.dead = true;
         v.deathT = 0;
         v.deathHow = ev.how;
@@ -352,6 +384,10 @@ export class EntityRenderer {
       anim.dt = dt;
       anim.firing = Math.max(0, anim.firing - dt * 4);
 
+      if (v.ghostDead) {
+        if (this.buildingVisible(e as Building)) this.removeView(id);
+        continue;
+      }
       if (v.dead) {
         if (!this.updateDeath(v, dt)) this.removeView(id);
         continue;
@@ -364,10 +400,20 @@ export class EntityRenderer {
 
       // ----- visibility
       let show: boolean;
-      if (e.owner.team === this.local.team) show = true;
-      else if (e instanceof Building) show = this.buildingExplored(e);
-      else show = this.fog.visibilityAt(e.x, e.y) > 0.5;
+      if (e.owner.team === this.local.team) { show = true; v.fogged = false; }
+      else if (e instanceof Building) {
+        const explored = this.buildingExplored(e);
+        if (this.buildingVisible(e) || (explored && !v.wasExplored)) v.seen = true; // in sight, or shroud just lifted
+        v.wasExplored = explored;
+        v.fogged = v.seen && !this.buildingVisible(e);
+        show = v.seen;
+      } else show = this.fog.visibilityAt(e.x, e.y) > 0.5;
       v.model.root.visible = show;
+      if (v.fogged) {
+        // a ghost keeps its last-seen health, smoke and pose
+        this.updateRing(v, selected.has(id) || hovered === id, selected.has(id));
+        continue;
+      }
       anim.health = e.healthFrac;
 
       if (e instanceof Building) this.updateBuilding(v, e, dt);
@@ -379,6 +425,11 @@ export class EntityRenderer {
 
     this.updateProjectiles(alpha);
     this.bracketMat.uniforms.uTime.value = time;
+    this.primed = true;
+  }
+
+  private buildingVisible(b: Building): boolean {
+    return this.fog.visibilityAt(b.x, b.y) > 0.5 || this.fog.visibilityAt(b.cx + 0.5, b.cy + 0.5) > 0.5;
   }
 
   private buildingExplored(b: Building): boolean {

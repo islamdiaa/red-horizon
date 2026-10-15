@@ -8,7 +8,12 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "simtest": "node --import tsx tools/simtest.ts"
+    "simtest": "node --import tsx tools/simtest.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "icons": "node tests/tools/make-icons.mjs",
+    "verify:pwa": "node tests/tools/verify-pwa.mjs",
+    "audit:leaks": "node tests/perf/leaks.mjs",
+    "audit:profile": "node tests/perf/profile.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

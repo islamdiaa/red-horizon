@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { hash2, Noise2D } from '../core/rng';
 import { GameMap, ORE_MAX } from '../sim/map';
+import { flat } from './geomutil';
 
 function lumpy(g: THREE.BufferGeometry, amount: number, seed: number): THREE.BufferGeometry {
   g.deleteAttribute('normal');
@@ -15,7 +16,7 @@ function lumpy(g: THREE.BufferGeometry, amount: number, seed: number): THREE.Buf
     p.setXYZ(i, x * k, y * k, z * k);
   }
   m.computeVertexNormals();
-  return m.toNonIndexed();
+  return flat(m);
 }
 
 function goldCluster(): THREE.BufferGeometry {
@@ -42,7 +43,7 @@ function gemCluster(): THREE.BufferGeometry {
     g.rotateX(Math.sin(a) * tilt);
     const r = k === 0 ? 0 : 0.08;
     g.translate(Math.cos(a) * r, 0.1, Math.sin(a) * r);
-    parts.push(g.toNonIndexed());
+    parts.push(flat(g));
   }
   const m = mergeGeometries(parts)!;
   m.computeVertexNormals();

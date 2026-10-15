@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { hash2, Noise2D } from '../core/rng';
 import { GameMap, T } from '../sim/map';
+import { flat } from './geomutil';
 
 type HeightFn = (x: number, y: number) => number;
 
@@ -111,7 +112,7 @@ function pineGeometry(seed: number, tall: number): THREE.BufferGeometry {
     const shade = 0.8 + k * 0.09;
     parts.push(colorize(g, new THREE.Color(0.05 * shade, 0.14 * shade, 0.065 * shade), 0.25, seed + k));
   }
-  return mergeGeometries(parts.map((p) => p.toNonIndexed()))!;
+  return mergeGeometries(parts.map((p) => flat(p)))!;
 }
 
 function broadleafGeometry(seed: number): THREE.BufferGeometry {
@@ -127,7 +128,7 @@ function broadleafGeometry(seed: number): THREE.BufferGeometry {
     const g = 0.36 + hash2(k, seed, 3) * 0.08;
     parts.push(colorize(ico, new THREE.Color(0.08, g * 0.55, 0.045), 0.3, seed + k * 3));
   }
-  return mergeGeometries(parts.map((p) => p.toNonIndexed()))!;
+  return mergeGeometries(parts.map((p) => flat(p)))!;
 }
 
 function boulderGeometry(seed: number, tint: [number, number, number] = [0.2, 0.19, 0.17]): THREE.BufferGeometry {
@@ -141,7 +142,7 @@ function bushGeometry(seed: number): THREE.BufferGeometry {
   for (let k = 0; k < 3; k++) {
     const g = lumpy(new THREE.IcosahedronGeometry(0.13 + k * 0.02, 0), 0.35, seed + k);
     g.translate((k - 1) * 0.11, 0.1, (hash2(k, seed) - 0.5) * 0.12);
-    parts.push(colorize(g, new THREE.Color(0.08, 0.17 + k * 0.02, 0.05), 0.3, seed + k).toNonIndexed());
+    parts.push(flat(colorize(g, new THREE.Color(0.08, 0.17 + k * 0.02, 0.05), 0.3, seed + k)));
   }
   return mergeGeometries(parts)!;
 }

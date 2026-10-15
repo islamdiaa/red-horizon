@@ -7,7 +7,7 @@ from scratch for the web with real-time 3D graphics, post-processing, a GPU part
 procedural audio and an adaptive soundtrack.
 
 Everything (models, textures, sound effects, music) is generated procedurally at runtime, so the
-game ships **zero copyrighted assets** — the whole thing is ~340 KB gzipped.
+game ships **zero copyrighted assets** — the whole thing (14 scripted missions included) is ~550 KB gzipped.
 
 | | |
 |---|---|
@@ -92,6 +92,71 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
 - **UI overhaul**: animated build cards with tilt and progress rings, toast notifications with an
   event log, control-group bar, rich selection panel, redesigned menus, loading tips and end screen.
 
+### Campaigns, progression & production polish (round 3)
+
+- **Two campaigns, 14 scripted missions.** The Allied campaign: *Grey Dawn*, *Last Train from Kassel*,
+  *Kestrel's Nest*, *Through the Looking Glass*, *Dry Season*, *Midnight Launch*, *Dawnbreak*.
+  The Soviet campaign: *First Snow*, *Bridgehead*, *Thunderhead*, *Iron Road*, *Stolen Fire*,
+  *The Iron Curtain*, *Red Horizon*. Missions have briefings, primary and optional objectives,
+  radio transmissions with character portraits, countdowns, reinforcements, scripted set pieces and
+  tech restrictions. Each earns up to three stars: one for winning, one for beating par time, one for
+  completing every optional objective. A debrief screen follows each mission.
+- **Special operations.** Survival in three climates (*Last Stand*, *Frozen Front*, *Burning Sands*):
+  escalating waves, armour columns, air raids, boss waves, supply drops and a score multiplier.
+- **Daily Challenge.** One seeded battle per UTC day with 2–3 of 16 modifiers (Night Ops, Mother Lode,
+  Glass Cannons, Tesla Doctrine, Radar Blackout…), a daily score, personal bests and a streak counter.
+- **Commander profile.** XP for everything you do, 15 ranks per faction with insignia (Private to
+  Field Marshal / Marshal of the Soviet Union), 40 medals including hidden ones, and lifetime stats.
+- **Save & load.** The whole simulation is serialised and restores deterministically. Autosave runs
+  every 2 minutes and when the tab closes, manual save is in the pause menu, and *Continue* is on the
+  main menu.
+- **Superweapon drama.** Your nuke launch is a cinematic that follows the missile. An incoming
+  enemy nuke triggers a red alert with an impact countdown and a marked blast zone you can evacuate.
+  Matches end on a slow-motion, letterboxed finale.
+- **Production hardening.**
+  - Installable PWA that plays offline (service worker, manifest, icons).
+  - Updates are applied only between matches.
+  - Crash boundary with an error report and a "return to menu" recovery.
+  - WebGL 2 support check and recovery from a lost GPU context.
+  - Graphics quality is picked automatically from the GPU on first launch.
+  - Shaders compile on the loading screen instead of stalling the first battle.
+  - Memory-leak fixes, so playing many matches in a row stays flat.
+- **Fog of war "ghosts".** Enemy structures under fog show as you last saw them: new ones stay hidden and
+  destroyed ones linger until you scout again. The radar works the same way.
+- **Clearer feedback.**
+  - "Cannot build here" now says why (terrain, blocked, too far from base, blocked exit, no yard).
+  - The top bar shows the current mission objective.
+  - Planted C4 shows a countdown.
+  - New field-report hints for full ore storage and missing base defences.
+  - A *Skip intro* setting.
+- **Gameplay fixes from the test suite and a QA pass:**
+  - **AI:** every AI opponent runs its periodic tasks (before, only the first one did), and AIs launch helicopter strikes.
+  - **Units and pathing:**
+    - Service depots actually repair.
+    - Tanks crush infantry.
+    - Helicopters fully rearm before taking off, and stay home on *Return to base*.
+    - Units no longer give up on valid detours, and long detours work on 128×128 maps.
+    - Harvesters queue at a busy refinery instead of jamming it.
+  - **Tanya and engineers:**
+    - Tanya's C4 detonates even if she dies.
+    - Engineers repair damaged friendly buildings instead of being wasted.
+  - **Superweapons:** no charge is wasted on empty or off-map targets.
+  - **Building and economy:**
+    - Walls can't creep a base across the map.
+    - Dragging a wall line moves your units out of the way.
+    - The "+$" income pop-up shows only what was really credited.
+    - Losing a tech building only cancels what depended on it.
+    - Prerequisites unlock when construction finishes.
+    - Selling refunds a flat 50%, as in RA, so repairing first never pays.
+  - **Combat:** the first-created side no longer wins exact ties.
+  - **Maps:** 3-player maps are fair and 2-player maps exactly symmetric.
+  - **Pacing:** AI attacks start later on every difficulty, and the first skirmish wave is capped, so new commanders get time to build.
+- **Balance touches** for the worst outliers in cost-equal tests:
+  - Flame Tower range 4 → 5.
+  - Field Medic $800 → $500.
+  - Attack Dog health 12 → 25, and faster.
+  - Turret health 400 → 500.
+
 ## Controls
 
 | Input | Action |
@@ -130,21 +195,37 @@ src/
     models/            procedural unit & structure models
     effects/           GPU particle & effects system
   audio/               procedural SFX, adaptive music, announcer
-  ui/                  HUD, minimap, input, menus
+  ui/                  HUD, minimap, input, menus, campaign, profile, challenges
+  missions/            campaign missions, special operations, daily challenge, progress
+  meta/                XP, ranks, medals, daily challenge records, toasts
+  platform/            error boundary, WebGL checks, GPU quality detection, PWA
   game.ts main.ts      game loop and bootstrap
-tools/                 headless simulation tests & screenshot tooling
+public/                web app manifest, service worker, icons
+tests/                 node:test suite, PWA verification, leak & profile audits
+tools/                 headless simulation / mission tests & screenshot tooling
 ```
 
 ## Development tools
 
 ```bash
+npm test                 # 210 unit / integration / soak / regression tests (node:test, ~15 s)
+npm run typecheck
+npm run verify:pwa       # production build + manifest, service worker and offline checks
+npm run audit:leaks      # play 5 matches in a browser and compare heap / GPU resources
+npm run audit:profile    # CPU profile of a 30 s battle, resolved to source lines
 node --import tsx tools/simtest.ts <seed> <minutes> <mapSize> <players>   # headless AI-vs-AI
-DIFF=brutal,easy node --import tsx tools/simtest.ts 777 30 96 2
+node --import tsx tools/missiontest.ts <mission-id> <minutes>              # headless mission run with an autopilot
+node --import tsx tools/savetest.ts                                          # save/load determinism
+node --import tsx tools/metatest.ts                                          # progression & medals
 ```
+
+The test suite covers the RA damage formula, pathfinding, map generation fairness, economy,
+production, placement, power, combat, special abilities, the AI, save determinism, platform
+helpers, and six 15-minute AI-vs-AI soak games with invariant checks.
 
 Testing URL parameters: `?autostart=1&scenario=battle&charge=1&fog=0&tod=night&size=64`
 (`scenario=base|battle`, `ff=<seconds>` fast-forward, `cam=x,y,dist`, `units=mcv|light|heavy`,
 `hour=0..24`, `cycle=1`, `wx=rain|storm|snow|fog|dust`, `climate=winter|desert`, `intro=1`,
-`selfplay=hard` lets an AI play your side).
+`selfplay=hard` lets an AI play your side, `mission=<id>` starts a mission, e.g. `allied-01`, `survival`, `daily`).
 Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
 `/preview-weather.html`.

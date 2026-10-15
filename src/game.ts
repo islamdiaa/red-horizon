@@ -11,7 +11,8 @@ import { EntityRenderer } from './render/entities';
 import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
-import { prewarmModels } from './render/models';
+import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
+import { releaseGpuResources } from './render/gpuregistry';
 import { LightPools } from './render/lightpools';
 import { CrateRenderer } from './render/crates';
 import { TrackMarks } from './render/tracks';
@@ -35,6 +36,13 @@ import { recordResult } from './missions/progress';
 import { MissionHud } from './ui/missionhud';
 import { SAVE_VERSION, deserializeWorld, serializeWorld, writeSave, type SaveData } from './sim/save';
 import { recalcPlayerEconomy } from './sim/production';
+import { guardFrame } from './platform/errors';
+import { watchContextLoss, type ContextWatch } from './platform/webgl';
+import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
+
+/** Progression tracker shared by every match (XP, ranks, medals, records). Unlocks pop as toasts. */
+export const meta = new MetaTracker();
+meta.onUnlock = (a) => showAchievementToast(a);
 
 export interface OpponentSetup {
   faction: Faction | 'random';
@@ -99,6 +107,7 @@ export class Game {
   private nukeWarn: { update(s: number): void; remove(): void } | null = null;
   private nukeWatched = new Set<number>();
   private endCine: (() => void) | null = null;
+  private nukeCine: (() => void) | null = null;
   private ambT = 0;
   private envT = 0;
   private offHeat = 0;
@@ -129,6 +138,8 @@ export class Game {
   private last = 0;
   private raf = 0;
   private running = false;
+  private contextWatch: ContextWatch | null = null;
+  private pausedBeforeLoss = false;
   private heat = 0;
   private minimapT = 0;
   private harvestSfxT = 0;
@@ -204,6 +215,11 @@ export class Game {
     this.canvas.id = 'game-canvas';
     document.body.prepend(this.canvas);
     this.gfx = new GameRenderer(this.canvas, map, { quality: setup.quality, timeOfDay: setup.timeOfDay, climate });
+    this.contextWatch = watchContextLoss(this.canvas, {
+      onLost: () => { this.pausedBeforeLoss = this.paused; this.paused = true; },
+      onRestored: () => { this.gfx.restoreAfterContextLoss(); this.paused = this.pausedBeforeLoss; this.last = performance.now(); },
+      onTimeout: () => { if (!this.setup.demo) this.save('auto'); }, // the overlay then offers a reload
+    });
     this.gfx.fog.enabled = this.world.fog;
     this.effects = new Effects({ scene: this.gfx.scene, camera: this.gfx.cam.camera, renderer: this.gfx.renderer, getHeight: (x, z) => map.surfaceAt(x, z) });
     this.effects.setSunDirection?.(this.gfx.sunDir);
@@ -290,6 +306,7 @@ export class Game {
         },
         stats: () => `${this.gfx.stats.calls} calls · ${(this.gfx.stats.tris / 1000).toFixed(0)}k tris`,
       });
+      this.hud.minimap.structures = () => this.ents.structureMarkers();
       const game = this;
       this.input = new InputController({
         world: this.world, local: this.local, gfx: this.gfx, ents: this.ents, overlay: this.overlay, placement: this.placement,
@@ -308,12 +325,30 @@ export class Game {
       // select the MCV at start
       const mcv = this.world.units.find((u) => u.owner === this.local && u.ut.deploysInto);
       if (mcv) this.selection.add(mcv.id);
+      else if (!setup.load) {
+        // commando / strike-force openings: hand the player their squad (they glow even on dark storm nights)
+        const squad = this.world.units.filter((u) => u.owner === this.local && u.alive && u.kind !== 'aircraft' && !u.transport);
+        if (squad.length && squad.length <= 24) for (const u of squad) this.selection.add(u.id);
+      }
     } else {
       this.gfx.cam.dist = this.gfx.cam.targetDist = 30;
       this.demoCam.tx = map.w / 2;
       this.demoCam.ty = map.h / 2;
     }
     if (setup.load) this.restoreView(setup.load);
+    if (!setup.demo) {
+      meta.onGameStart({
+        mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
+        difficulties: this.missionDef ? undefined : setup.opponents.map((o) => o.difficulty),
+        faction: this.local.faction, opponents: this.world.players.filter((p) => this.local.isEnemy(p)).length, seed: setup.seed,
+        climate: map.climate, weather: this.wxSeq ? this.wxSeq[this.wxIdx]?.kind : setup.weather,
+      });
+    }
+    if (!setup.demo) {
+      // (the menu backdrop doesn't need it, and skipping it keeps "return to menu" quick)
+      cb.onProgress?.(0.95, 'Compiling shaders');
+      this.precompileShaders();
+    }
     cb.onProgress?.(1, 'Ready');
   }
 
@@ -346,6 +381,30 @@ export class Game {
     this.gfx.fog.snap(this.local);
   }
 
+  /**
+   * Compile every model / effect shader during loading (in parallel where the driver supports it) so the
+   * first tank, explosion or missile of a battle doesn't stall a frame. compile() traverses synchronously,
+   * so the stand-in models can leave the scene straight away.
+   */
+  private precompileShaders() {
+    const group = new THREE.Group();
+    group.position.y = -60;
+    const color = new THREE.Color(this.local.color);
+    const models = listModelIds().flatMap((id) => { try { return [createModel(id, color)]; } catch { return []; } });
+    for (const m of models) group.add(m.root);
+    for (const k of ['shell', 'missile', 'scud', 'grenade', 'nuke', 'fireball'] as const) group.add(createProjectileModel(k));
+    this.gfx.scene.add(group);
+    try {
+      const r = this.gfx.renderer;
+      if (r.extensions.has('KHR_parallel_shader_compile')) void r.compileAsync(this.gfx.scene, this.gfx.cam.camera).catch(() => {});
+      else r.compile(this.gfx.scene, this.gfx.cam.camera); // blocking, but on the loading screen rather than mid-battle
+    } catch (e) {
+      console.warn('shader precompile failed', e);
+    }
+    this.gfx.scene.remove(group);
+    for (const m of models) m.dispose();
+  }
+
   start() {
     this.running = true;
     this.last = performance.now();
@@ -359,10 +418,14 @@ export class Game {
       if (this.setup.intro !== false) playIntro(this, begin);
       else begin();
     }
+    // a throwing frame is reported and skipped; repeated failures stop the loop and show the crash screen
+    const frame = guardFrame((now: number) => this.frame(now), {
+      onFatal: () => { this.running = false; cancelAnimationFrame(this.raf); this.audio.stopAmbience(); this.audio.stopMusic(); },
+    });
     const loop = (now: number) => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(loop);
-      this.frame(now);
+      frame(now);
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -396,7 +459,8 @@ export class Game {
   }
 
   private frame(now: number) {
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    // rAF timestamps can be older than a performance.now() taken just before (start, resume): never go negative
+    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     const world = this.world;
     if (!this.paused) {
@@ -437,6 +501,7 @@ export class Game {
         this.wxTimer = 0;
         const next = this.wxSeq[++this.wxIdx];
         this.gfx.weather.set(next.kind, next.fade);
+        meta.noteWeather(next.kind);
       }
     }
     this.effects.setWind?.(this.gfx.weather.wind.x, this.gfx.weather.wind.y);
@@ -532,6 +597,7 @@ export class Game {
     for (const ev of world.events) {
       // dead entities are already removed from the world; their view still knows them
       const deadEnt = ev.e === 'death' ? this.ents.views.get(ev.id)?.ent : undefined;
+      if (!demo) meta.onEvent(ev, { localPlayerId: this.local.id, world, dead: deadEnt });
       this.ents.handleEvent(ev);
       switch (ev.e) {
         case 'fire': {
@@ -568,7 +634,7 @@ export class Game {
           if (ev.how === 'sold' || fog.visibilityAt(ev.x, ev.y) < 0.2) break;
           if (e instanceof Building) { this.audio.play('expl_building', { x: ev.x, y: ev.y }); this.lastDeath = [ev.x, ev.y]; }
           else if (e instanceof Unit && e.kind === 'infantry') {
-            const key: SfxKey = ev.how === 'burn' ? 'inf_burn' : ev.how === 'electro' ? 'inf_electro' : ev.how === 'crushed' ? 'crush' : world.rng.chance(0.4) ? 'inf_scream' : 'inf_die';
+            const key: SfxKey = ev.how === 'burn' ? 'inf_burn' : ev.how === 'electro' ? 'inf_electro' : ev.how === 'crushed' ? 'crush' : Math.random() < 0.4 ? 'inf_scream' : 'inf_die';
             this.audio.play(key, { x: ev.x, y: ev.y });
           } else this.audio.play('vehicle_die', { x: ev.x, y: ev.y });
           break;
@@ -608,7 +674,7 @@ export class Game {
           if (proj && !demo) {
             this.nukeWatched.add(proj.id);
             if (proj.owner === this.local) {
-              nukeCinematic(this, { x: proj.sx, y: proj.sy }, { x: proj.tx, y: proj.ty }, proj.dur, () => proj.alive);
+              this.nukeCine = nukeCinematic(this, { x: proj.sx, y: proj.sy }, { x: proj.tx, y: proj.ty }, proj.dur, () => proj.alive);
             }
           }
           break;
@@ -659,6 +725,11 @@ export class Game {
           if (!demo) {
             const won = world.winnerTeam === this.local.team;
             if (world.mission) this.recordMission(world.mission);
+            const summary = meta.onGameEnd({
+              won, time: world.time, mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
+              stars: this.missionResult?.stars, score: world.mission?.score, stats: this.local.stats, weather: this.gfx.weather.kind, world,
+            });
+            if (summary) window.setTimeout(() => showXpSummary(summary), 5200);
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
             this.audio.stinger(won ? 'victory' : 'defeat');
             this.endTimer = 4.5;
@@ -800,6 +871,9 @@ export class Game {
   }
 
   dispose() {
+    if (!this.setup.demo && meta.active) meta.abandon(); // quit / restart mid-battle
+    this.contextWatch?.dispose(); // first: forceContextLoss below must not trigger the lost-context overlay
+    this.contextWatch = null;
     this.running = false;
     this.audio.stopAmbience();
     cancelAnimationFrame(this.raf);
@@ -807,11 +881,14 @@ export class Game {
     this.missionHud?.dispose();
     this.nukeWarn?.remove();
     this.endCine?.();
+    this.nukeCine?.();
     this.ents.dispose();
     this.effects.dispose?.();
+    // shared/cached resources hold dispose listeners that would pin this renderer in memory forever
+    releaseGpuResources();
     this.gfx.dispose();
     this.gfx.renderer.forceContextLoss();
-    this.overlay?.canvas.remove();
+    this.overlay?.dispose();
     document.getElementById('tooltip')?.remove();
     const ui = document.getElementById('ui');
     if (ui) ui.innerHTML = '';

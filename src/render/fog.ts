@@ -31,8 +31,8 @@ export class FogOfWar {
   }
 
   update(p: Player, dt: number) {
-    const k = Math.min(1, dt * 5);
-    const ke = Math.min(1, dt * 3);
+    const k = Math.min(1, Math.max(0, dt) * 5);
+    const ke = Math.min(1, Math.max(0, dt) * 3);
     const n = this.w * this.h;
     for (let i = 0; i < n; i++) {
       const tv = this.enabled ? (p.visible[i] ? 1 : 0) : 1;

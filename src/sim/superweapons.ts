@@ -46,6 +46,11 @@ export function updateSuperweapons(world: World, p: Player) {
 
 export function fireSuperweapon(world: World, p: Player, kind: SuperKind, x: number, y: number, unitId?: number) {
   if (!superReady(world, p, kind)) return;
+  // a target off the map (e.g. clicking the horizon) is refused; the charge is kept
+  if (!(x >= 0 && y >= 0 && x < world.map.w && y < world.map.h)) {
+    world.announce(p, 'select_target', 0);
+    return;
+  }
   const b = superBuilding(world, p, kind)!;
   switch (kind) {
     case 'nuke': {
@@ -54,7 +59,7 @@ export function fireSuperweapon(world: World, p: Player, kind: SuperKind, x: num
       const sz = world.map.heightAt(b.x, b.y) + 0.5;
       const dist = Math.hypot(x - b.x, y - b.y);
       const proj: Projectile = {
-        id: 900000 + world.tick, weapon: WEAPONS.Nuke, owner: p, shooter: b.id, kind: 'scud',
+        id: world.nextProjectileId++, weapon: WEAPONS.Nuke, owner: p, shooter: b.id, kind: 'scud',
         x: b.x, y: b.y, z: sz, prevX: b.x, prevY: b.y, prevZ: sz, sx: b.x, sy: b.y, sz,
         tx: x, ty: y, tz: world.map.heightAt(x, y), target: null,
         t: 0, dur: 4.5 + dist * 0.04, arc: 14 + dist * 0.25, speed: 0, vx: 0, vy: 0, alive: true, special: 'nuke',
@@ -68,18 +73,19 @@ export function fireSuperweapon(world: World, p: Player, kind: SuperKind, x: num
       break;
     }
     case 'ironcurtain': {
+      const units = world.units.filter((u) => u.alive && u.owner === p && Math.hypot(u.x - x, u.y - y) < 1.8);
+      const blds = world.buildings.filter((o) => o.alive && o.owner === p && o.distTo(x, y) < 0.8);
+      if (!units.length && !blds.length) {
+        // nothing of ours there: refuse instead of wasting the charge
+        world.announce(p, 'select_target', 0);
+        return;
+      }
       p.superCharge.ironcurtain = 0;
       p.superAnnounced.ironcurtain = false;
-      let any = false;
-      for (const u of world.units) {
-        if (u.alive && u.owner === p && Math.hypot(u.x - x, u.y - y) < 1.8) { u.invulnerable = 25; any = true; }
-      }
-      for (const o of world.buildings) {
-        if (o.alive && o.owner === p && o.distTo(x, y) < 0.8) { o.invulnerable = 25; any = true; }
-      }
+      for (const u of units) u.invulnerable = 25;
+      for (const o of blds) o.invulnerable = 25;
       world.events.push({ e: 'ironcurtain', x, y });
       world.events.push({ e: 'sfx', key: 'iron_curtain', x, y });
-      if (!any) world.announce(p, 'select_target', 0);
       break;
     }
     case 'chrono': {

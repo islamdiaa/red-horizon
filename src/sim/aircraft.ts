@@ -88,12 +88,18 @@ export function updateAircraft(world: World, u: Unit) {
       }
       break;
     }
-    case 'deploy':
+    case 'deploy': {
+      // Return to base: home becomes the post, so the aircraft stays there once rearmed
       goHome = true;
+      const pad = homePad(world, u);
+      if (pad) { u.guardX = pad.x; u.guardY = pad.y; }
       break;
+    }
     default: {
       // idle: helicopters hold position and engage nearby enemies; planes go home
       if (!vtol || u.ammo <= 0) { goHome = true; break; }
+      // a helicopter that has landed to rearm stays on the pad until fully loaded
+      if (isLanded(u) && u.ammo < maxAmmo) { goHome = true; break; }
       if (u.ammo > 0 && !isLanded(u)) {
         if (--u.scanTimer <= 0) {
           u.scanTimer = 10;

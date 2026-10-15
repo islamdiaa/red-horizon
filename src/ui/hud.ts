@@ -206,7 +206,9 @@ export class Hud {
     this.catStatus = ch.querySelector('.cat-status')!;
     sb.appendChild(ch);
     this.grid = el('div', 'build-grid');
+    // reading scroll metrics forces a layout, so only on scroll / resize / grid rebuild (not every frame)
     this.grid.addEventListener('scroll', () => this.updateScrollFade(), { passive: true });
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.updateScrollFade()).observe(this.grid);
     sb.appendChild(this.grid);
     this.supers = el('div', 'supers');
     sb.appendChild(this.supers);
@@ -451,10 +453,9 @@ export class Hud {
     const list = (avail.get(this.activeTab) ?? []).sort((a, b) => getType(a).cost - getType(b).cost);
     const locked = factionTypes(p.faction, this.activeTab).filter((id) => !list.includes(id));
     const key = this.activeTab + ':' + list.join(',') + '|' + locked.join(',');
-    if (key !== this.gridKey) this.rebuildGrid(list, locked, key);
+    if (key !== this.gridKey) { this.rebuildGrid(list, locked, key); this.updateScrollFade(); }
     for (const c of this.cards.values()) c.el.classList.toggle('is-new', (this.newUntil.get(c.id) ?? 0) > now);
     this.updateCatHeader(p, list, locked);
-    this.updateScrollFade();
     if (this.hoverCard) this.tip.refresh(this.hoverCard.el, this.cardTip(this.hoverCard));
   }
 
@@ -646,9 +647,15 @@ export class Hud {
     this.sound.play('click');
     if (q.ready === id) { this.host.issue({ c: 'cancel', player: p.id, type: id }); return; }
     const head = q.items[0];
-    if (head && head.type === id && !head.paused) this.host.issue({ c: 'pause', player: p.id, type: id });
-    else if (q.count(id) > 0) this.host.issue({ c: 'cancel', player: p.id, type: id });
+    // commands apply on the next sim tick: a second click before then must cancel, not un-pause
+    const tick = this.host.world.tick;
+    const pausing = this.pendingPause?.id === id && this.pendingPause.tick === tick;
+    if (head && head.type === id && !head.paused && !pausing) {
+      this.host.issue({ c: 'pause', player: p.id, type: id });
+      this.pendingPause = { id, tick };
+    } else if (q.count(id) > 0) this.host.issue({ c: 'cancel', player: p.id, type: id });
   }
+  private pendingPause: { id: string; tick: number } | null = null;
 
   // ---------------------------------------------------------------------------
   private updateSupers() {
@@ -1002,6 +1009,7 @@ export class Hud {
 
   private updateObjective() {
     const w = this.host.world, me = this.host.local;
+    if (w.mission) { this.updateMissionObjective(); return; }
     const foes = w.players.filter((o) => me.isEnemy(o));
     const key = foes.map((o) => `${o.id}:${o.defeated ? 1 : 0}`).join(',');
     if (key === this.objKey) return;
@@ -1011,6 +1019,26 @@ export class Hud {
     const pips = this.objEl.querySelector('.obj-pips') as HTMLElement;
     pips.innerHTML = foes.map((o) => `<i class="${o.defeated ? 'dead' : ''}" style="--c:${hexColor(o.color)}"></i>`).join('') + `<span><b>${alive}</b>/${foes.length}</span>`;
     this.objEl.dataset.tip = tipHtml('Objective', 'Destroy every enemy structure and unit.<br>' + foes.map((o) => `<span class="tt-foe${o.defeated ? ' dead' : ''}" style="--c:${hexColor(o.color)}"><i></i>${esc(o.name)} <small>${o.faction === 'soviet' ? 'Soviet' : 'Allied'}${o.defeated ? ' · eliminated' : ''}</small></span>`).join(''));
+    this.tip.refresh(this.objEl, this.objEl.dataset.tip);
+    if (!first) replay(this.objEl, 'flash', 1600);
+  }
+
+  /** Scripted missions: the chip shows the current primary objective and primary progress. */
+  private updateMissionObjective() {
+    const objs = this.host.world.mission!.objectives;
+    const primary = objs.filter((o) => o.primary);
+    const current = primary.find((o) => o.state === 'active') ?? primary[primary.length - 1];
+    const key = 'm|' + objs.map((o) => `${o.id}:${o.state}:${o.text}`).join('|');
+    if (key === this.objKey) return;
+    const first = !this.objKey;
+    this.objKey = key;
+    this.objEl.style.display = current ? '' : 'none';
+    if (!current) return;
+    (this.objEl.querySelector('.obj-txt b') as HTMLElement).textContent = current.text;
+    const done = primary.filter((o) => o.state === 'done').length;
+    const pips = this.objEl.querySelector('.obj-pips') as HTMLElement;
+    pips.innerHTML = primary.map((o) => `<i class="${o.state === 'done' ? 'dead' : ''}" style="--c:${o.state === 'failed' ? '#ff4a3a' : '#5ab4ff'}"></i>`).join('') + `<span><b>${done}</b>/${primary.length}</span>`;
+    this.objEl.dataset.tip = tipHtml('Objectives', objs.map((o) => `<span class="tt-foe${o.state !== 'active' ? ' dead' : ''}"><i></i>${esc(o.text)} <small>${o.primary ? 'primary' : 'optional'}${o.state === 'done' ? ' · complete' : o.state === 'failed' ? ' · failed' : ''}</small></span>`).join(''));
     this.tip.refresh(this.objEl, this.objEl.dataset.tip);
     if (!first) replay(this.objEl, 'flash', 1600);
   }

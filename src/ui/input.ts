@@ -6,7 +6,7 @@ import { Building, Entity, Unit } from '../sim/entities';
 import type { Player } from '../sim/player';
 import type { SuperKind } from '../sim/superweapons';
 import type { Command } from '../sim/types';
-import type { World } from '../sim/world';
+import type { PlacementIssue, World } from '../sim/world';
 import type { GameRenderer } from '../render/renderer';
 import type { EntityRenderer } from '../render/entities';
 import type { Overlay } from '../render/overlay';
@@ -161,9 +161,14 @@ export class InputController {
     return null;
   }
 
+  /** Width of the right-hand sidebar (it scales with the viewport), so "on screen" means the map area. */
+  private sidebarW(): number {
+    return document.getElementById('sidebar')?.offsetWidth ?? 312;
+  }
+
   /** Ground polygon visible on screen (for the minimap). */
   viewPolygon(): [number, number][] {
-    const w = window.innerWidth - 312, hh = window.innerHeight;
+    const w = window.innerWidth - this.sidebarW(), hh = window.innerHeight;
     return [this.screenToGround(0, 0), this.screenToGround(w, 0), this.screenToGround(w, hh), this.screenToGround(0, hh)];
   }
 
@@ -217,7 +222,7 @@ export class InputController {
 
   private selectSameTypeOnScreen(typeId: string) {
     const ids: number[] = [];
-    const W = window.innerWidth - 312, H = window.innerHeight;
+    const W = window.innerWidth - this.sidebarW(), H = window.innerHeight;
     const map = this.h.world.map;
     for (const u of this.h.world.units) {
       if (!u.alive || u.owner !== this.h.local || u.ut.id !== typeId) continue;
@@ -286,19 +291,17 @@ export class InputController {
     switch (this.mode) {
       case 'place': {
         const [cx, cy] = this.placementCell();
-        if (BUILDINGS[this.placeType!].wall) {
-          if (world.canPlace(local, this.placeType!, cx, cy)) this.wallStart = [cx, cy];
-          else { this.h.audio.play('error'); this.h.audio.announce('cannot_build_here'); }
-          return;
-        }
-        if (world.canPlace(local, this.placeType!, cx, cy)) {
-          this.h.issue({ c: 'place', player: local.id, type: this.placeType!, cx, cy });
-          this.h.audio.play('build_place');
-          this.setMode('normal');
-        } else {
+        const issue = world.placementIssue(local, this.placeType!, cx, cy);
+        if (issue) {
           this.h.audio.play('error');
           this.h.audio.announce('cannot_build_here');
+          this.h.message(placementText(issue, !!BUILDINGS[this.placeType!].wall), true);
+          return;
         }
+        if (BUILDINGS[this.placeType!].wall) { this.wallStart = [cx, cy]; return; }
+        this.h.issue({ c: 'place', player: local.id, type: this.placeType!, cx, cy });
+        this.h.audio.play('build_place');
+        this.setMode('normal');
         return;
       }
       case 'sell': {
@@ -521,6 +524,9 @@ export class InputController {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         const ids = this.ownSelectedUnits().map((u) => u.id);
+        // a unit belongs to one group: drop the old members' badges and take these units out of other groups
+        for (const [id, gg] of this.h.overlay.groups) if (gg === g) this.h.overlay.groups.delete(id);
+        for (const [k2, list] of this.groups) if (k2 !== g) this.groups.set(k2, list.filter((id) => !ids.includes(id)));
         this.groups.set(g, ids);
         for (const id of ids) this.h.overlay.groups.set(id, g);
         this.h.message(`Group ${g} assigned`);
@@ -709,5 +715,16 @@ export class InputController {
     if (this.curCursor) b.classList.remove('cur-' + this.curCursor);
     if (c) b.classList.add('cur-' + c);
     this.curCursor = c;
+  }
+}
+
+/** Why a structure can't go where the player clicked. */
+function placementText(issue: PlacementIssue, wall: boolean): string {
+  switch (issue) {
+    case 'no-yard': return 'You need a Construction Yard to build structures';
+    case 'terrain': return 'Cannot build here: needs clear, dry ground';
+    case 'occupied': return 'Cannot build here: something is in the way';
+    case 'exit': return 'Cannot build here: it would block a factory exit or refinery dock';
+    case 'distance': return wall ? 'Too far from your base: walls must stay close to your structures' : 'Too far from your base: build next to your other structures';
   }
 }

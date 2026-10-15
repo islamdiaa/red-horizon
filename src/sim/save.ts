@@ -75,7 +75,7 @@ export function serializeWorld(w: World): Json {
     return {
       player: ai.player.id, difficulty: ai.difficulty, state: a.state, stage: a.stage, stageX: a.stageX, stageY: a.stageY,
       stageTarget: a.stageTarget, stageStart: a.stageStart, wave: [...a.wave], waveStart: a.waveStart, nextWaveValue: a.nextWaveValue,
-      lastDefend: a.lastDefend, deployTries: a.deployTries, behaviour: a.behaviour,
+      lastDefend: a.lastDefend, deployTries: a.deployTries, behaviour: a.behaviour, thinks: a.thinks,
     };
   });
   let mission: Json = null;
@@ -87,7 +87,7 @@ export function serializeWorld(w: World): Json {
     };
   }
   return {
-    tick: w.tick, rng: (w.rng as any).s, nextId: W.nextId, fog: w.fog, gameOver: w.gameOver, winnerTeam: w.winnerTeam,
+    tick: w.tick, rng: (w.rng as any).s, nextId: W.nextId, nextProjectileId: w.nextProjectileId, fog: w.fog, gameOver: w.gameOver, winnerTeam: w.winnerTeam,
     crateTimer: W.crateTimer, crates: w.crates, cratesEnabled: w.cratesEnabled,
     pathQueue: W.pathQueue.map((u: Unit) => u.id),
     units: w.units.map((u) => u.id), buildings: w.buildings.map((b) => b.id),
@@ -145,6 +145,8 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
       if (k === 'cls' || k === 'type' || k === 'owner' || k === 'weapons' || k === 'target' || k === 'passengers') continue;
       (e as any)[k] = v;
     }
+    // older saves counted every placed structure in its owner's tech straight away
+    if (e instanceof Building && es.counted === undefined) e.counted = true;
     e.weapons = (es.weapons as Json[]).map((ws) => {
       const slot = new WeaponSlot(WEAPONS[ws.def]);
       slot.cooldown = ws.cooldown; slot.burstLeft = ws.burstLeft; slot.burstTimer = ws.burstTimer;
@@ -168,6 +170,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   w.tick = s.tick;
   (w.rng as any).s = s.rng;
   W.nextId = s.nextId;
+  w.nextProjectileId = s.nextProjectileId ?? 1;
   w.fog = s.fog;
   w.gameOver = s.gameOver;
   w.winnerTeam = s.winnerTeam;
@@ -185,7 +188,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     const ai = w.ais.find((a) => a.player.id === as.player) as any;
     if (!ai) continue;
     if (as.behaviour === 'full') ai.setMode(as.difficulty); else ai.setMode(as.behaviour);
-    Object.assign(ai, { state: as.state, stage: as.stage, stageX: as.stageX, stageY: as.stageY, stageTarget: as.stageTarget, stageStart: as.stageStart, wave: new Set(as.wave), waveStart: as.waveStart, nextWaveValue: as.nextWaveValue, lastDefend: as.lastDefend, deployTries: as.deployTries });
+    Object.assign(ai, { state: as.state, stage: as.stage, stageX: as.stageX, stageY: as.stageY, stageTarget: as.stageTarget, stageStart: as.stageStart, wave: new Set(as.wave), waveStart: as.waveStart, nextWaveValue: as.nextWaveValue, lastDefend: as.lastDefend, deployTries: as.deployTries, thinks: as.thinks ?? 0 });
   }
   // --- mission
   if (mission && s.mission) {

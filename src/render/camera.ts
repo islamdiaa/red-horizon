@@ -68,7 +68,9 @@ export class RTSCamera {
     const mx = dx * c - dy * s, my = dx * s + dy * c;
     this.vx = lerp(this.vx, mx * speed, Math.min(1, dt * 12));
     this.vy = lerp(this.vy, my * speed, Math.min(1, dt * 12));
-    this.flyTo = null;
+    // InputController calls pan(0, 0) every frame: only real scroll input may cancel a fly-to
+    // (otherwise the intro sweep, H, Space and group double-tap never move the camera)
+    if (dx || dy) this.flyTo = null;
   }
 
   /** Drag the map by a world-space delta. */
@@ -86,6 +88,7 @@ export class RTSCamera {
   }
 
   update(dt: number) {
+    dt = Math.max(0, dt);
     if (this.flyTo && this.flyFrom) {
       this.flyT = Math.min(1, this.flyT + dt * this.flyRate);
       const e = this.flyT < 0.5 ? 4 * this.flyT ** 3 : 1 - Math.pow(-2 * this.flyT + 2, 3) / 2;

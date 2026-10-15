@@ -30,6 +30,9 @@ export class Minimap {
   private vignette: CanvasGradient | null = null;
   pings: { x: number; y: number; t: number; color: string }[] = [];
 
+  /** Structures as the player knows them (fog ghosts included); defaults to live world state. */
+  structures: (() => Iterable<{ cx: number; cy: number; w: number; h: number; color: number }>) | null = null;
+
   constructor(
     container: HTMLElement,
     private world: World,
@@ -56,7 +59,8 @@ export class Minimap {
     };
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('pointerdown', (ev) => {
-      if (!this.local.radar && this.world.fog) return;
+      // without radar the scope shows static, but it still works as a camera jump pad (no orders)
+      if (!this.local.radar && this.world.fog && ev.button !== 0) return;
       const [x, y] = toMap(ev);
       if (ev.button === 0) {
         this.dragging = true;
@@ -154,13 +158,12 @@ export class Minimap {
     ctx.fillStyle = this.vignette;
     ctx.fillRect(0, 0, W, H);
 
-    for (const b of world.buildings) {
-      if (!b.alive) continue;
-      if (b.owner.team !== p.team && fogOn && !p.explored[map.idx(b.cx, b.cy)]) continue;
+    const structures = this.structures?.() ?? world.buildings.filter((b) => b.alive && (b.owner.team === p.team || !fogOn || p.explored[map.idx(b.cx, b.cy)]));
+    for (const b of structures) {
       const x = b.cx * sx, y = b.cy * sy, w = b.w * sx, h = b.h * sy;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
-      ctx.fillStyle = hex(b.owner.color);
+      ctx.fillStyle = hex('color' in b ? b.color : b.owner.color);
       ctx.fillRect(x, y, w, h);
       ctx.strokeStyle = 'rgba(255,255,255,0.45)';
       ctx.lineWidth = 1.2;

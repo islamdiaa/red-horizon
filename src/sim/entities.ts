@@ -82,6 +82,9 @@ export class Unit extends Entity {
   goalY = 0;
   hasGoal = false;
   pathPending = false;
+  /** Last search that could not reach its goal (start/goal cells packed) and when — repeats are throttled. */
+  pathFailKey = -1;
+  pathFailTick = -1e9;
   moving = false;
   speedFrac = 0;
   progressTimer = 0;
@@ -106,6 +109,8 @@ export class Unit extends Entity {
   dockAt = 0;
   harvesting = false;
   waitTimer = 0;
+  /** Credits deposited since the last "+$" pop-up while unloading. */
+  unloadCredit = 0;
 
   // --- aircraft
   altitude = 0;
@@ -116,7 +121,8 @@ export class Unit extends Entity {
   passengers: Unit[] = [];
   /** Id of the transport this unit is riding in (0 = on foot). */
   transport = 0;
-  /** Building being demolished by C4 (Tanya), seconds until detonation. */
+  /** Last C4 charge planted (Tanya): fuse seconds left and the building it is on (indicator only;
+   * the charge itself lives on the building and goes off even if this unit dies or moves on). */
   c4Timer = 0;
   c4Target = 0;
 
@@ -165,6 +171,12 @@ export class Building extends Entity {
   /** Selling animation seconds remaining (-1 = not selling). */
   selling = -1;
   powered = true;
+  /** Planted C4: seconds until detonation (0 = none), planting player id and unit id (kill credit). */
+  c4Timer = 0;
+  c4Owner = -1;
+  c4By = 0;
+  /** Counted in owner.owned (tech / factory availability): set when construction completes. */
+  counted = false;
 
   constructor(id: number, type: BuildingTypeDef, owner: Player, cx: number, cy: number) {
     super(id, owner, cx + type.size[0] / 2, cy + type.size[1] / 2, type.strength);

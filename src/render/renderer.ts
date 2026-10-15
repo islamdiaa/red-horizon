@@ -227,6 +227,8 @@ export class GameRenderer {
   constructor(readonly canvas: HTMLCanvasElement, readonly map: GameMap, readonly settings: GraphicsSettings) {
     const q = settings.quality;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+    // synchronous shader-error checks stall the main thread on every first-use compile
+    this.renderer.debug.checkShaderErrors = !!import.meta.env.DEV;
     this.basePixelRatio = Math.min(window.devicePixelRatio, q === 'high' ? 2 : q === 'medium' ? 1.5 : 1);
     this.renderer.setPixelRatio(this.basePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -481,6 +483,16 @@ export class GameRenderer {
     this.composer.render(dt);
     this.stats.calls = this.renderer.info.render.calls;
     this.stats.tris = this.renderer.info.render.triangles;
+  }
+
+  /** After a lost WebGL context comes back: three re-uploads buffers itself, but the baked environment map is gone. */
+  restoreAfterContextLoss() {
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment?.dispose();
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    this.renderer.shadowMap.needsUpdate = true;
+    this.onResize();
   }
 
   dispose() {

@@ -18,22 +18,62 @@ const HINTS: Hint[] = [
   { text: 'Tip: <kbd>Ctrl</kbd>+<kbd>1-9</kbd> assigns control groups, <kbd>A</kbd> attack-moves, <kbd>Space</kbd> jumps to the last attack.', done: (w) => w.time > 900 },
 ];
 
+/** Situational warnings: shown (above the tutorial steps) while `when` holds, at most once per match. */
+interface Alert {
+  text: string;
+  when(w: World, p: Player): boolean;
+}
+
+const hasDefences = (w: World, p: Player) => w.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !!b.bt.primary);
+
+const ALERTS: Alert[] = [
+  {
+    text: '<b>Ore storage is full.</b> Refined ore beyond your capacity is lost — build an <b>Ore Silo</b> or spend your credits.',
+    when: (_w, p) => p.storage > 0 && p.ore >= p.storage - 1,
+  },
+  {
+    text: 'Enemy attack waves usually arrive within a few minutes. Cover your refinery with a <b>Pillbox</b>, <b>Turret</b> or <b>Flame Tower</b>.',
+    when: (w, p) => w.time > 210 && w.time < 600 && !hasDefences(w, p) && w.buildings.some((b) => b.alive && b.owner === p && b.bt.id === 'proc'),
+  },
+];
+
 /** Small contextual tips for new players. */
 export class Hints {
   private el: HTMLElement;
   private idx = -1;
   private dismissed = new Set<number>();
+  /** Alerts already shown (index -> still showing). */
+  private alertShown = new Map<number, boolean>();
+  private alertIdx = -1;
   enabled = true;
 
   constructor(parent: HTMLElement, private world: World, private local: Player) {
     this.el = document.createElement('div');
     this.el.className = 'hint panel';
-    this.el.addEventListener('click', () => { if (this.idx >= 0) this.dismissed.add(this.idx); this.show(-1); });
+    this.el.addEventListener('click', () => {
+      if (this.alertIdx >= 0) { this.alertShown.set(this.alertIdx, false); this.alertIdx = -1; this.idx = -2; this.update(); return; }
+      if (this.idx >= 0) this.dismissed.add(this.idx);
+      this.show(-1);
+    });
     parent.appendChild(this.el);
   }
 
   update() {
     if (!this.enabled) { this.show(-1); return; }
+    // a live situational alert takes priority over the tutorial
+    if (this.alertIdx >= 0) {
+      if (this.alertShown.get(this.alertIdx) && ALERTS[this.alertIdx].when(this.world, this.local)) return;
+      this.alertShown.set(this.alertIdx, false);
+      this.alertIdx = -1;
+      this.idx = -2; // force the tutorial step to redraw
+    }
+    for (let i = 0; i < ALERTS.length; i++) {
+      if (this.alertShown.has(i) || !ALERTS[i].when(this.world, this.local)) continue;
+      this.alertShown.set(i, true);
+      this.alertIdx = i;
+      this.render(`<span class="hint-k">Field report</span><span class="hint-t">${ALERTS[i].text}</span>`);
+      return;
+    }
     let next = -1;
     for (let i = 0; i < HINTS.length; i++) {
       if (this.dismissed.has(i)) continue;
@@ -49,7 +89,11 @@ export class Hints {
     this.idx = i;
     if (i < 0) { this.el.classList.remove('on'); return; }
     const step = `${i + 1}/${HINTS.length}`;
-    this.el.innerHTML = `<span class="hint-ic">${ICONS.bulb}</span><span class="hint-body"><span class="hint-k">Field manual <i>${step}</i></span><span class="hint-t">${HINTS[i].text}</span></span><span class="hint-x" title="Dismiss">${ICONS.close}</span>`;
+    this.render(`<span class="hint-k">Field manual <i>${step}</i></span><span class="hint-t">${HINTS[i].text}</span>`);
+  }
+
+  private render(body: string) {
+    this.el.innerHTML = `<span class="hint-ic">${ICONS.bulb}</span><span class="hint-body">${body}</span><span class="hint-x" title="Dismiss">${ICONS.close}</span>`;
     this.el.classList.remove('on');
     void this.el.offsetWidth;
     this.el.classList.add('on');

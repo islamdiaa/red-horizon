@@ -172,7 +172,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
   RedEye:           W({ id: 'RedEye', damage: 50, rof: 50, range: 7.5, projectile: 'missile', speed: 50, warhead: 'AP', report: 'rocket', antiAir: true, antiGround: false }),
   Grenade:          W({ id: 'Grenade', damage: 50, rof: 60, range: 4, projectile: 'lobbed', speed: 12, warhead: 'HE', report: 'grenade', inaccuracy: 0.6 }),
   Flamer:           W({ id: 'Flamer', damage: 70, rof: 50, range: 3.5, projectile: 'flame', speed: 12, warhead: 'Fire', report: 'flame' }),
-  FireballLauncher: W({ id: 'FireballLauncher', damage: 125, rof: 50, range: 4, projectile: 'fireball', speed: 12, warhead: 'Fire', report: 'flame' }),
+  FireballLauncher: W({ id: 'FireballLauncher', damage: 125, rof: 50, range: 5, projectile: 'fireball', speed: 12, warhead: 'Fire', report: 'flame' }),
   '75mm':           W({ id: '75mm', damage: 25, rof: 40, range: 4, projectile: 'cannon', speed: 40, warhead: 'AP', report: 'cannon_small' }),
   '90mm':           W({ id: '90mm', damage: 30, rof: 50, range: 4.75, projectile: 'cannon', speed: 40, warhead: 'AP', report: 'cannon_med' }),
   '105mm':          W({ id: '105mm', damage: 30, rof: 70, range: 4.75, projectile: 'cannon', speed: 40, warhead: 'AP', report: 'cannon_heavy' }),
@@ -222,9 +222,9 @@ export const UNITS: Record<string, UnitTypeDef> = {
   e3:   INF({ id: 'e3', name: 'Rocket Soldier', cost: 300, strength: 45, speed: 3, primary: 'Dragon', secondary: 'RedEye', description: 'Anti-armour and anti-air rocket infantry.' }),
   e4:   INF({ id: 'e4', name: 'Flamethrower', cost: 300, strength: 40, speed: 3, primary: 'Flamer', owner: ['soviet'], prereq: ['barr', 'ftur'], description: 'Incinerates infantry and wooden structures at close range.' }),
   e6:   INF({ id: 'e6', name: 'Engineer', cost: 500, strength: 25, speed: 4, engineer: true, description: 'Captures heavily damaged enemy structures, repairs friendly ones.' }),
-  medi: INF({ id: 'medi', name: 'Field Medic', cost: 800, strength: 80, speed: 4, primary: 'Heal', medic: true, owner: ['allies'], prereq: ['tent'], description: 'Heals nearby wounded infantry.' }),
+  medi: INF({ id: 'medi', name: 'Field Medic', cost: 500, strength: 80, speed: 4, primary: 'Heal', medic: true, owner: ['allies'], prereq: ['tent'], description: 'Heals nearby wounded infantry.' }),
   e7:   INF({ id: 'e7', name: 'Tanya', cost: 1200, strength: 100, speed: 5, sight: 6, primary: 'Colt45', c4: true, hero: true, owner: ['allies'], prereq: ['tent', 'atek'], description: 'Commando. Deadly against infantry; demolishes structures with C4.' }),
-  dog:  INF({ id: 'dog', name: 'Attack Dog', cost: 200, strength: 12, speed: 7, sight: 5, primary: 'DogJaw', dog: true, owner: ['soviet'], prereq: ['kenn'], radius: 0.18, description: 'Fast scout that lunges at enemy infantry.' }),
+  dog:  INF({ id: 'dog', name: 'Attack Dog', cost: 200, strength: 25, speed: 9, sight: 5, primary: 'DogJaw', dog: true, owner: ['soviet'], prereq: ['kenn'], radius: 0.18, description: 'Fast scout that lunges at enemy infantry.' }),
 
   // ---- Vehicles
   jeep: VEH({ id: 'jeep', name: 'Ranger', cost: 600, strength: 150, armor: 'light', speed: 10, rot: 10, sight: 6, primary: 'M60mg', turret: true, tracked: false, crusher: false, owner: ['allies'], radius: 0.32, description: 'Fast scout car with a machine gun turret.' }),
@@ -267,7 +267,7 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   kenn: BLD({ id: 'kenn', name: 'Kennel', cost: 200, strength: 400, size: [1, 1], power: -10, prereq: ['barr'], owner: ['soviet'], factory: 'infantry', factoryOnly: ['dog'], exit: [0, 1], description: 'Trains attack dogs.' }),
   weap: BLD({ id: 'weap', name: 'War Factory', cost: 2000, strength: 1000, armor: 'light', size: [3, 3], power: -30, prereq: ['proc'], factory: 'vehicle', exit: [1, 3], description: 'Produces vehicles.' }),
   dome: BLD({ id: 'dome', name: 'Radar Dome', cost: 1000, strength: 1000, size: [2, 2], power: -40, prereq: ['proc'], radar: true, requiresPower: true, sight: 10, description: 'Provides the radar minimap.' }),
-  fix:  BLD({ id: 'fix', name: 'Service Depot', cost: 1200, strength: 800, armor: 'heavy', size: [3, 3], power: -30, prereq: ['weap'], repairPad: true, passable: [[1, 1]], description: 'Repairs vehicles parked on its pad.' }),
+  fix:  BLD({ id: 'fix', name: 'Service Depot', cost: 1200, strength: 800, armor: 'heavy', size: [3, 3], power: -30, prereq: ['weap'], repairPad: true, passable: [[1, 1], [0, 2], [1, 2], [2, 2]], description: 'Repairs vehicles parked on its pad.' }),
   atek: BLD({ id: 'atek', name: 'Allied Tech Center', cost: 1500, strength: 400, size: [2, 2], power: -200, prereq: ['weap', 'dome'], owner: ['allies'], description: 'Unlocks advanced Allied technology.' }),
   stek: BLD({ id: 'stek', name: 'Soviet Tech Center', cost: 1500, strength: 600, size: [3, 3], power: -100, prereq: ['weap', 'dome'], owner: ['soviet'], description: 'Unlocks advanced Soviet technology.' }),
   hpad: BLD({ id: 'hpad', name: 'Helipad', cost: 1500, strength: 800, size: [2, 2], power: -10, prereq: ['dome'], factory: 'aircraft', factoryOnly: ['heli', 'hind'], description: 'Builds and rearms helicopters.' }),
@@ -278,7 +278,7 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
 
   // ---- Defenses
   pbox: DEF({ id: 'pbox', name: 'Pillbox', cost: 400, strength: 400, armor: 'wood', size: [1, 1], power: -15, prereq: ['tent'], owner: ['allies'], primary: 'Vulcan', description: 'Machine-gun bunker. Shreds infantry.' }),
-  gun:  DEF({ id: 'gun', name: 'Turret', cost: 600, strength: 400, size: [1, 1], power: -40, prereq: ['tent'], owner: ['allies'], primary: 'TurretGun', turret: true, sight: 7, description: 'Anti-armour cannon turret.' }),
+  gun:  DEF({ id: 'gun', name: 'Turret', cost: 600, strength: 500, size: [1, 1], power: -40, prereq: ['tent'], owner: ['allies'], primary: 'TurretGun', turret: true, sight: 7, description: 'Anti-armour cannon turret.' }),
   agun: DEF({ id: 'agun', name: 'AA Gun', cost: 600, strength: 400, size: [1, 1], power: -50, prereq: ['dome'], owner: ['allies'], primary: 'ZSU-23', turret: true, description: 'Anti-aircraft flak cannon.' }),
   ftur: DEF({ id: 'ftur', name: 'Flame Tower', cost: 600, strength: 400, size: [1, 1], power: -20, prereq: ['barr'], owner: ['soviet'], primary: 'FireballLauncher', description: 'Hurls fireballs at nearby enemies.' }),
   tsla: DEF({ id: 'tsla', name: 'Tesla Coil', cost: 1500, strength: 400, size: [1, 2], power: -150, prereq: ['weap'], owner: ['soviet'], primary: 'TeslaZap', requiresPower: true, sight: 8, description: 'Fires devastating bolts of lightning. Requires power.' }),

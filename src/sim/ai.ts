@@ -2,6 +2,7 @@ import { BUILDINGS, UNITS, type BuildingTypeDef, type Faction } from '../data/ru
 import { Building, Entity, Unit } from './entities';
 import type { Player } from './player';
 import { buildSeconds } from './production';
+import { pickWeapon } from './combat';
 import { superReady } from './superweapons';
 import { TICK_HZ } from './types';
 import type { World } from './world';
@@ -22,10 +23,10 @@ interface DiffParams {
 }
 
 const DIFF: Record<AIDifficulty, DiffParams> = {
-  easy:   { buildSpeed: 0.65, income: 0.9, firstAttack: 420, waveValue: 3200, waveGrowth: 1200, defenses: 2, reaction: 0.4, superweapons: false },
-  normal: { buildSpeed: 0.95, income: 1.0, firstAttack: 270, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true },
-  hard:   { buildSpeed: 1.15, income: 1.15, firstAttack: 210, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true },
-  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 170, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true },
+  easy:   { buildSpeed: 0.65, income: 0.9, firstAttack: 600, waveValue: 3200, waveGrowth: 1200, defenses: 2, reaction: 0.4, superweapons: false },
+  normal: { buildSpeed: 0.95, income: 1.0, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true },
+  hard:   { buildSpeed: 1.15, income: 1.15, firstAttack: 300, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true },
+  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true },
 };
 
 /** [type, how many] goals in priority order. Power is handled separately. */
@@ -39,6 +40,9 @@ const GOALS: Record<Faction, [string, number][]> = {
     ['stek', 1], ['sam', 1], ['afld', 1], ['ftur', 2], ['tsla', 2], ['proc', 3], ['hpad', 1], ['weap', 2], ['sam', 2], ['tsla', 3], ['iron', 1], ['mslo', 1], ['tsla', 4], ['ftur', 4],
   ],
 };
+
+/** The first attack wave commits at most this multiple of the difficulty's wave value. */
+const FIRST_WAVE_CAP = 1.3;
 
 const DEFENSES = new Set(['gun', 'pbox', 'ftur', 'tsla']);
 const AIR_DEFENSE = new Set(['agun', 'sam']);
@@ -92,7 +96,15 @@ export class AIController {
     this.nextWaveValue = this.d.waveValue;
   }
 
+  /** Think calls so far. Periodic tasks gate on this rather than world.tick: AIs think on staggered ticks. */
+  thinks = 0;
+  /** True once every `ticks` sim ticks of thinking (think() runs every 10 ticks). */
+  private due(ticks: number) {
+    return this.thinks % Math.max(1, Math.round(ticks / 10)) === 0;
+  }
+
   think() {
+    this.thinks++;
     const p = this.p;
     if (p.defeated) return;
     if (this.behaviour === 'passive') { this.defendOnly(); return; }
@@ -347,7 +359,7 @@ export class AIController {
   }
 
   private repairBase() {
-    if (this.world.tick % (TICK_HZ * 2) !== 0) return;
+    if (!this.due(TICK_HZ * 2)) return;
     if (this.p.credits < 500) return;
     for (const b of this.myBuildings()) {
       if (b.active && !b.repairing && b.healthFrac < 0.7) {
@@ -360,7 +372,7 @@ export class AIController {
   /** Hold ground: idle units engage intruders near the base, nothing else. */
   private defendOnly() {
     const w = this.world;
-    if (w.tick % (TICK_HZ * 2) !== 0) return;
+    if (!this.due(TICK_HZ * 2)) return;
     const [bx, by] = this.baseCenter();
     let threat: Unit | null = null;
     for (const u of w.units) {
@@ -380,13 +392,15 @@ export class AIController {
   /** Aircraft strike harvesters, defences and soft targets when fully armed. */
   private airStrikes() {
     const w = this.world;
-    if (w.tick % (TICK_HZ * 4) !== 0) return;
-    const ready = this.myUnits().filter((u) => u.kind === 'aircraft' && u.order.type === 'idle' && u.ammo >= (u.ut.ammo ?? 1) && u.altitude < 0.05);
+    if (!this.due(TICK_HZ * 4)) return;
+    // idle and fully armed: landed on the pad or hovering at its post
+    const ready = this.myUnits().filter((u) => u.kind === 'aircraft' && u.order.type === 'idle' && u.ammo >= (u.ut.ammo ?? 1));
     if (ready.length < 2) return;
     let best: Entity | null = null, bestScore = Infinity;
     const [bx, by] = this.baseCenter();
     for (const e of [...w.units, ...w.buildings] as Entity[]) {
       if (!e.alive || !this.p.isEnemy(e.owner)) continue;
+      if (!pickWeapon(ready[0], e)) continue; // walls, aircraft in flight...
       // avoid heavily defended spots
       let aa = 0;
       for (const b of w.buildings) if (b.alive && b.owner === e.owner && (b.bt.id === 'sam' || b.bt.id === 'agun') && Math.hypot(b.x - e.x, b.y - e.y) < 8) aa++;
@@ -407,8 +421,13 @@ export class AIController {
     const gx = bx + ex * 5, gy = by + ey * 5;
 
     // set rally points for factories
-    if (w.tick % (TICK_HZ * 5) === 0) {
+    if (this.due(TICK_HZ * 5)) {
       for (const b of this.myBuildings()) {
+        if (b.bt.factory === 'aircraft') {
+          // aircraft wait on their pads (a ground rally point would leave them hovering there forever)
+          if (b.rallyX >= 0) w.issue({ c: 'rally', player: p.id, building: b.id, x: -1, y: -1 });
+          continue;
+        }
         if (b.bt.factory && b.bt.factory !== 'building' && Math.hypot(b.rallyX - gx, b.rallyY - gy) > 2) {
           const spot = w.findFreeSpot(gx, gy, 5);
           w.issue({ c: 'rally', player: p.id, building: b.id, x: spot[0], y: spot[1] });
@@ -439,7 +458,23 @@ export class AIController {
         const target = this.pickAttackTarget();
         if (target) {
           this.state = 'attack';
-          this.wave = new Set(idle.map((u) => u.id));
+          // the first wave commits only about 1.3x the wave value (closest to the target first);
+          // the rest stays home as defence. Later waves take every idle unit.
+          let wave = idle;
+          // (skirmish only: campaign missions are balanced around their scripted openings)
+          if (this.nextWaveValue <= this.d.waveValue && !w.mission) {
+            const cap = this.d.waveValue * FIRST_WAVE_CAP;
+            const byDist = idle.slice().sort((a, b) => Math.hypot(a.x - target[0], a.y - target[1]) - Math.hypot(b.x - target[0], b.y - target[1]) || a.id - b.id);
+            wave = [];
+            let sum = 0;
+            for (const u of byDist) {
+              if (sum >= cap) break;
+              if (sum + u.ut.cost > cap && sum >= this.d.waveValue) continue;
+              wave.push(u);
+              sum += u.ut.cost;
+            }
+          }
+          this.wave = new Set(wave.map((u) => u.id));
           this.waveStart = this.wave.size;
           // gather at a staging point outside the enemy base first
           const k = 0.55;
@@ -452,7 +487,7 @@ export class AIController {
           w.issue({ c: 'move', player: p.id, units: [...this.wave], x: spot[0], y: spot[1], attackMove: true });
           this.nextWaveValue += this.d.waveGrowth;
         }
-      } else if (w.tick % (TICK_HZ * 6) === 0) {
+      } else if (this.due(TICK_HZ * 6)) {
         // gather idle units at the rally point
         const stray = idle.filter((u) => Math.hypot(u.x - gx, u.y - gy) > 6).map((u) => u.id);
         if (stray.length) w.issue({ c: 'move', player: p.id, units: stray, x: gx, y: gy });
@@ -478,15 +513,17 @@ export class AIController {
       }
       // keep pushing: idle wave units pick the next target
       const idle = alive.filter((u) => u.order.type === 'idle' && !u.target);
-      if (idle.length && w.tick % (TICK_HZ * 3) === 0) {
+      if (idle.length && this.due(TICK_HZ * 3)) {
         const near = this.nearestEnemyBuilding(idle[0].x, idle[0].y);
         // walls in the way: blast through the nearest segment
         let wall: Building | null = null;
         for (const b of w.buildings) {
           if (b.alive && b.bt.wall && this.p.isEnemy(b.owner) && Math.hypot(b.x - idle[0].x, b.y - idle[0].y) < 3.5) { wall = b; break; }
         }
-        if (wall && (!near || Math.hypot(near.x - idle[0].x, near.y - idle[0].y) > 5)) {
-          w.issue({ c: 'attack', player: p.id, units: idle.map((u) => u.id), target: wall.id, forced: true });
+        // (only units that can breach it: small arms can't, and such orders are refused)
+        const breakers = wall ? idle.filter((u) => pickWeapon(u, wall!)) : [];
+        if (wall && breakers.length && (!near || Math.hypot(near.x - idle[0].x, near.y - idle[0].y) > 5)) {
+          w.issue({ c: 'attack', player: p.id, units: breakers.map((u) => u.id), target: wall.id, forced: true });
         } else if (near && Math.hypot(near.x - idle[0].x, near.y - idle[0].y) < 12) {
           w.issue({ c: 'attack', player: p.id, units: idle.map((u) => u.id), target: near.id });
         } else {
@@ -533,7 +570,7 @@ export class AIController {
   private superweapons() {
     const w = this.world;
     const p = this.p;
-    if (!this.d.superweapons || w.tick % TICK_HZ !== 0) return;
+    if (!this.d.superweapons || !this.due(TICK_HZ)) return;
     if (superReady(w, p, 'nuke')) {
       // aim at the densest cluster of enemy structures
       let best: Building | null = null, bestScore = -1;
