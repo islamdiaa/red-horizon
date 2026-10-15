@@ -39,7 +39,7 @@ export abstract class Entity {
   xp = 0;
   rank = 0;
   scanTimer = 0;
-  abstract readonly kind: 'infantry' | 'vehicle' | 'aircraft' | 'building';
+  abstract readonly kind: 'infantry' | 'vehicle' | 'aircraft' | 'naval' | 'building';
   abstract readonly type: TypeDef;
 
   constructor(id: number, owner: Player, x: number, y: number, hp: number) {
@@ -65,7 +65,7 @@ export abstract class Entity {
 }
 
 export class Unit extends Entity {
-  readonly kind: 'infantry' | 'vehicle' | 'aircraft';
+  readonly kind: 'infantry' | 'vehicle' | 'aircraft' | 'naval';
   readonly ut: UnitTypeDef;
   heading = 0;
   prevHeading = 0;

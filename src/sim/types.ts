@@ -1,11 +1,12 @@
 import type { ExplosionKind, WeaponDef } from '../data/rules';
 import type { AnnouncerKey, SfxKey } from '../audio/types';
+import type { SuperKind } from './superweapons';
 
 /** Simulation rate. Rendering interpolates between ticks. */
 export const TICK_HZ = 20;
 export const DT = 1 / TICK_HZ;
 
-export type QueueKind = 'structure' | 'infantry' | 'vehicle' | 'aircraft';
+export type QueueKind = 'structure' | 'infantry' | 'vehicle' | 'aircraft' | 'naval';
 
 export type Order =
   | { type: 'idle' }
@@ -35,7 +36,7 @@ export type Command =
   | { c: 'repair'; player: number; building: number }
   | { c: 'rally'; player: number; building: number; x: number; y: number }
   | { c: 'primary'; player: number; building: number }
-  | { c: 'superweapon'; player: number; kind: 'nuke' | 'ironcurtain' | 'chrono'; x: number; y: number; unit?: number };
+  | { c: 'superweapon'; player: number; kind: SuperKind; x: number; y: number; unit?: number };
 
 /** Events emitted by the simulation for renderer / audio / UI. Drained every frame. */
 export type GameEvent =

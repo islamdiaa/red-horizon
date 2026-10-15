@@ -6,6 +6,7 @@
 import { BUILDINGS, UNITS, WEAPONS } from '../data/rules';
 import { Building, Entity, Unit, WeaponSlot } from './entities';
 import { ProductionQueue, type Player } from './player';
+import { SUPER_KINDS } from './superweapons';
 import type { Projectile } from './combat';
 import type { World } from './world';
 import type { MissionRuntime } from './mission';
@@ -124,6 +125,8 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
       pq.items = q.items; pq.ready = q.ready; pq.stalled = q.stalled;
       (p.queues as any)[k] = pq;
     }
+    // older saves predate some support powers
+    for (const k of SUPER_KINDS) { p.superCharge[k] ??= 0; p.superAnnounced[k] ??= false; }
     p.owned = new Map(ps.owned);
     unb64(ps.explored, p.explored);
     p.lastAnnounce = new Map(ps.lastAnnounce);

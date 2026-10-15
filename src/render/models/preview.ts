@@ -90,7 +90,7 @@ interface Item {
   x: number;
   z: number;
   phase: number;
-  kind: 'infantry' | 'vehicle' | 'aircraft' | 'building' | 'other';
+  kind: 'infantry' | 'vehicle' | 'aircraft' | 'naval' | 'building' | 'other';
   proj?: THREE.Object3D;
 }
 

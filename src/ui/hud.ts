@@ -58,6 +58,11 @@ const SUPER_INFO: Record<SuperKind, { icon: string; name: string; desc: string }
   nuke: { icon: ICONS.nuke, name: 'A-Bomb', desc: 'Launch a nuclear missile at any target on the map.' },
   ironcurtain: { icon: ICONS.ironCurtain, name: 'Iron Curtain', desc: 'Make a group of your units invulnerable for a short time.' },
   chrono: { icon: ICONS.chrono, name: 'Chronoshift', desc: 'Teleport one of your vehicles anywhere on the battlefield.' },
+  gps: { icon: ICONS.radar ?? ICONS.target, name: 'GPS Satellite', desc: 'Launch a satellite that reveals the entire map.' },
+  sonar: { icon: ICONS.radar ?? ICONS.target, name: 'Sonar Pulse', desc: 'Reveal every enemy submarine for a short time.' },
+  spyplane: { icon: ICONS.aircraft, name: 'Spy Plane', desc: 'Fly a reconnaissance plane over any part of the map.' },
+  paratroopers: { icon: ICONS.infantry, name: 'Paratroopers', desc: 'Drop a squad of infantry anywhere you can see.' },
+  parabombs: { icon: ICONS.nuke, name: 'Parabombs', desc: 'A bomber carpet-bombs the target area.' },
 };
 
 const SHORT_NAMES: Record<string, string> = {

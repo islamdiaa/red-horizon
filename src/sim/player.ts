@@ -1,6 +1,7 @@
 import { BUILDINGS, UNITS, getType, isBuildingType, type Faction, type TypeDef } from '../data/rules';
 import type { AnnouncerKey } from '../audio/types';
 import type { QueueKind } from './types';
+import type { SuperKind } from './superweapons';
 
 export interface QueueItem {
   type: string;
@@ -63,6 +64,7 @@ export class Player {
     infantry: new ProductionQueue('infantry'),
     vehicle: new ProductionQueue('vehicle'),
     aircraft: new ProductionQueue('aircraft'),
+    naval: new ProductionQueue('naval'),
   };
   /** Count of completed buildings by type id. */
   owned = new Map<string, number>();
@@ -72,8 +74,8 @@ export class Player {
   radar = false;
   stats: PlayerStats = { unitsBuilt: 0, unitsLost: 0, unitsKilled: 0, buildingsBuilt: 0, buildingsLost: 0, buildingsKilled: 0, harvested: 0, spent: 0 };
   /** Superweapon charge in seconds; ready when >= the building's superCharge. */
-  superCharge: Record<'nuke' | 'ironcurtain' | 'chrono', number> = { nuke: 0, ironcurtain: 0, chrono: 0 };
-  superAnnounced: Record<'nuke' | 'ironcurtain' | 'chrono', boolean> = { nuke: false, ironcurtain: false, chrono: false };
+  superCharge: Record<SuperKind, number> = { nuke: 0, ironcurtain: 0, chrono: 0, gps: 0, sonar: 0, spyplane: 0, paratroopers: 0, parabombs: 0 };
+  superAnnounced: Record<SuperKind, boolean> = { nuke: false, ironcurtain: false, chrono: false, gps: false, sonar: false, spyplane: false, paratroopers: false, parabombs: false };
   /** Announcement throttle (tick of last per key). */
   lastAnnounce = new Map<AnnouncerKey, number>();
   /** Production speed multiplier (AI difficulty). */

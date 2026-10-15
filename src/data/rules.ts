@@ -14,7 +14,9 @@ export type Armor = 'none' | 'wood' | 'light' | 'heavy' | 'concrete';
 export const ARMOR_INDEX: Record<Armor, number> = { none: 0, wood: 1, light: 2, heavy: 3, concrete: 4 };
 
 export type Faction = 'allies' | 'soviet';
-export type Category = 'building' | 'defense' | 'infantry' | 'vehicle' | 'aircraft';
+export type Category = 'building' | 'defense' | 'infantry' | 'vehicle' | 'aircraft' | 'naval';
+/** Every production category, in sidebar order. */
+export const CATEGORIES: Category[] = ['building', 'defense', 'infantry', 'vehicle', 'aircraft', 'naval'];
 
 /** Visual explosion family used by the renderer. */
 export type ExplosionKind =
@@ -80,7 +82,7 @@ export interface BaseTypeDef {
 }
 
 export interface UnitTypeDef extends BaseTypeDef {
-  kind: 'vehicle' | 'infantry' | 'aircraft';
+  kind: 'vehicle' | 'infantry' | 'aircraft' | 'naval';
   speed: number;        // MPH 0..100
   rot: number;          // RA rotation rate (facing units per tick, 256 per revolution)
   primary?: string;

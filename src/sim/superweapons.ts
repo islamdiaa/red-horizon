@@ -5,9 +5,17 @@ import type { Player } from './player';
 import { DT } from './types';
 import type { World } from './world';
 
-export type SuperKind = 'nuke' | 'ironcurtain' | 'chrono';
-const KINDS: SuperKind[] = ['nuke', 'ironcurtain', 'chrono'];
-const READY_KEY = { nuke: 'nuke_ready', ironcurtain: 'iron_curtain_ready', chrono: 'chrono_ready' } as const;
+/** Superweapons and support powers (RA "special weapons"). */
+export type SuperKind = 'nuke' | 'ironcurtain' | 'chrono' | 'gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs';
+/** Every kind, in the order the HUD lists them. */
+export const SUPER_KINDS: SuperKind[] = ['nuke', 'ironcurtain', 'chrono', 'gps', 'sonar', 'spyplane', 'paratroopers', 'parabombs'];
+/** How a power is aimed: a map point, a point plus one of your units (chronoshift), or no target at all. */
+export const SUPER_TARGET: Record<SuperKind, 'point' | 'unit-point' | 'none'> = {
+  nuke: 'point', ironcurtain: 'point', chrono: 'unit-point', gps: 'none', sonar: 'none', spyplane: 'point', paratroopers: 'point', parabombs: 'point',
+};
+const KINDS: SuperKind[] = SUPER_KINDS;
+/** Announcer line when a power becomes ready (support powers without their own line stay quiet). */
+const READY_KEY: Partial<Record<SuperKind, 'nuke_ready' | 'iron_curtain_ready' | 'chrono_ready'>> = { nuke: 'nuke_ready', ironcurtain: 'iron_curtain_ready', chrono: 'chrono_ready' };
 
 export function superBuilding(world: World, p: Player, kind: SuperKind): Building | null {
   for (const b of world.buildings) {
@@ -39,7 +47,8 @@ export function updateSuperweapons(world: World, p: Player) {
       p.superCharge[kind] = Math.min(full, p.superCharge[kind] + DT);
     } else if (!p.superAnnounced[kind]) {
       p.superAnnounced[kind] = true;
-      world.announce(p, READY_KEY[kind], 0);
+      const key = READY_KEY[kind];
+      if (key) world.announce(p, key, 0);
     }
   }
 }
