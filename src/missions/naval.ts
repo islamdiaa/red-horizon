@@ -69,7 +69,7 @@ export const WOLFPACK: MissionDef = {
   title: 'Wolfpack',
   codename: 'WOLFPACK',
   location: 'Barents Sea',
-  date: 'December 1953 · 22:00',
+  date: 'December 1953 · 18:40',
   briefing: [
     'An Allied convoy is running the Arctic route to the fortified port across the bay: eighteen transports loaded with tanks for the northern front, in six groups.',
     'You command the Northern Fleet\'s submarine flotilla. Submerged, your boats are invisible; they surface for a moment to fire torpedoes. Destroyers and gunboats carry sonar and depth charges: keep your distance from them.',
@@ -81,7 +81,7 @@ export const WOLFPACK: MissionDef = {
     'Ships detect submarines within about two and a half cells. Attack from range.',
   ],
   // four bays: yours, the Allied port, and two empty ones the convoy groups come in from
-  map: { size: 96, seed: 8081, players: 4, water: 0.95, trees: 0.5, ore: 0.6, climate: 'winter', hour: 22, dayCycle: false, weather: 'snow' },
+  map: { size: 96, seed: 8081, players: 4, water: 0.95, trees: 0.5, ore: 0.6, climate: 'winter', hour: 18.6, dayCycle: false, weather: 'snow' },
   players: [
     { name: 'Northern Fleet', faction: 'soviet', color: SOVIET_RED },
     { name: 'Allied Convoy Command', faction: 'allies', color: ALLIED_BLUE, ai: 'defensive', credits: 3000 },
@@ -258,7 +258,7 @@ export const IRON_COAST: MissionDef = {
   title: 'Iron Coast',
   codename: 'TRIDENT',
   location: 'Gulf of Finland',
-  date: 'August 1953 · 05:30',
+  date: 'August 1953 · 07:00',
   briefing: [
     'The Soviet fortress across the gulf shelters a submarine pen and an airfield that have closed the sea lanes for a month. Command has given you a task force to open them again.',
     'Your cruiser out-ranges every gun they have: its 8-inch shells reach more than twenty cells. It is also slow, blind to submarines and helpless against aircraft. Keep destroyers close: their sonar finds submarines and their missiles hit planes.',
@@ -269,7 +269,7 @@ export const IRON_COAST: MissionDef = {
     'Gunboats are fast and cheap: good pickets and sub hunters.',
     'Damaged ships repair when moored alongside your Shipyard.',
   ],
-  map: { size: 88, seed: 5309, players: 2, water: 0.95, trees: 0.55, ore: 0.7, climate: 'temperate', hour: 5.5, dayCycle: true, weather: 'fog' },
+  map: { size: 88, seed: 5309, players: 2, water: 0.95, trees: 0.55, ore: 0.7, climate: 'temperate', hour: 7.5, dayCycle: true, weather: 'clear' },
   players: [
     { name: 'Allied Task Force', faction: 'allies', color: ALLIED_BLUE },
     { name: 'Baltic Fortress', faction: 'soviet', color: SOVIET_RED, ai: 'defensive', credits: 4000 },
@@ -284,7 +284,7 @@ export const IRON_COAST: MissionDef = {
   },
   setup(m) {
     const s = m.start(0), e = m.start(1);
-    layout(m, 0, s, e, [['fact', -3, 0], ['powr', -2, 4], ['powr', -2, -4], ['proc', -6, 3], ['atek', -6, -3], ['dome', -1, 7]]);
+    layout(m, 0, s, e, [['fact', -3, 0], ['powr', -2, 4], ['powr', -2, -4], ['apwr', -6, -7], ['proc', -6, 3], ['atek', -6, -3], ['dome', -1, 7]]);
     const yard = waterSpot(m, 'syrd', s.x + (e.x - s.x) * 0.15, s.y + (e.y - s.y) * 0.15);
     if (yard) {
       m.placeBuilding(0, 'syrd', yard[0], yard[1]);

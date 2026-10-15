@@ -14,6 +14,8 @@ import type { EmitterHandle, ProjectileHandle } from './effects/types';
 import type { FogOfWar } from './fog';
 import { createHoloMaterial } from './holo';
 import { Water } from './water';
+import { cloakHidden, contentAnim, perceived } from './contentview';
+import { PARACHUTE_SECONDS } from '../sim/powers';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
@@ -48,7 +50,15 @@ interface View {
   inView: boolean;
   /** model.update was skipped this frame because the view was culled. */
   animSkipped: boolean;
+  /** Type and owner the local player perceives (a disguised spy looks like an enemy rifleman). */
+  ptype: string;
+  powner: number;
+  /** Contrails behind support planes (Badger, U2), one per exhaust point. */
+  trails: ProjectileHandle[] | null;
 }
+
+/** Paratroopers jump from this height above the ground (world units). */
+const DROP_HEIGHT = 3.2;
 
 interface ProjView {
   handle: ProjectileHandle;
@@ -108,6 +118,8 @@ export class EntityRenderer {
   });
   private ringGeo2 = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private time = 0;
+  /** Bridge deck height at a map position, if a deck is there (set by the game from the bridge renderer). */
+  deckHeight: ((x: number, y: number) => number | null) | null = null;
   /** Set after the first update: views created later are 'new' (built in the fog, unseen). */
   private primed = false;
   private wxSource: WeatherSurfaceUniforms | null = null;
@@ -180,9 +192,10 @@ export class EntityRenderer {
   }
 
   private createView(e: Entity): View {
+    const seenAs = e instanceof Unit ? perceived(this.world, this.local, e) : { type: e.type.id, owner: e.owner };
     const model: ModelInstance = e instanceof Building && e.bt.wall
       ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
-      : createModel(e.type.id, this.teamColor(e.owner));
+      : createModel(seenAs.type, this.teamColor(seenAs.owner));
     this.scene.add(model.root);
     const wx = !!this.wxSource;
     model.root.traverse((o) => {
@@ -210,7 +223,7 @@ export class EntityRenderer {
       // structures present when the battle (or a save) starts count as known wherever the map is already explored;
       // anything built later inside the fog stays hidden until scouted
       seen: false, fogged: false, ghostDead: false, wasExplored: this.primed && e instanceof Building && this.buildingExplored(e),
-      inView: true, animSkipped: false,
+      inView: true, animSkipped: false, ptype: seenAs.type, powner: seenAs.owner.id, trails: null,
     };
     if (e instanceof Building) {
       // surfaceAt: structures built on water (shipyard, sub pen) stand on the surface, not the lake bed
@@ -221,11 +234,13 @@ export class EntityRenderer {
     return v;
   }
 
-  /** Change an entity's team colour (capture) by recreating its model. */
-  private recolor(v: View) {
+  /** Change an entity's team colour (capture) or apparent type (spy disguise) by recreating its model. */
+  private recolor(v: View, type = v.ent.type.id, owner = v.ent.owner) {
+    v.ptype = type;
+    v.powner = owner.id;
     const pos = v.model.root.position.clone();
     v.model.dispose();
-    v.model = createModel(v.ent.type.id, this.teamColor(v.ent.owner));
+    v.model = createModel(type, this.teamColor(owner));
     v.model.root.position.copy(pos);
     this.scene.add(v.model.root);
     for (const c of v.chimneys) c.dispose();
@@ -445,6 +460,7 @@ export class EntityRenderer {
     v.smoke?.dispose();
     v.fire?.dispose();
     for (const c of v.chimneys) c.dispose();
+    for (const t of v.trails ?? []) t.end();
     const r = this.rings.get(id);
     if (r) { this.scene.remove(r); this.rings.delete(id); }
     this.views.delete(id);
@@ -489,16 +505,22 @@ export class EntityRenderer {
         continue;
       }
 
-      // ----- visibility
+      // ----- visibility (fog, plus cloaking: submerged subs, mines and camo pillboxes stay hidden unless detected)
       let show: boolean;
+      const hidden = cloakHidden(world, this.local, e);
       if (e.owner.team === this.local.team) { show = true; v.fogged = false; }
       else if (e instanceof Building) {
         const explored = this.buildingExplored(e);
-        if (this.buildingVisible(e) || (explored && !v.wasExplored)) v.seen = true; // in sight, or shroud just lifted
+        if (!hidden && (this.buildingVisible(e) || (explored && !v.wasExplored))) v.seen = true; // in sight, or shroud just lifted
         v.wasExplored = explored;
-        v.fogged = v.seen && !this.buildingVisible(e);
-        show = v.seen;
-      } else show = this.fog.visibilityAt(e.x, e.y) > 0.5;
+        v.fogged = v.seen && !hidden && !this.buildingVisible(e);
+        show = v.seen && !hidden;
+      } else show = !hidden && this.fog.visibilityAt(e.x, e.y) > 0.5;
+      // a spy's disguise changes what enemies see: swap the model when it does
+      if (e instanceof Unit && e.ut.spy) {
+        const as = perceived(world, this.local, e);
+        if (as.type !== v.ptype || as.owner.id !== v.powner) this.recolor(v, as.type, as.owner);
+      }
       v.model.root.visible = show;
       if (v.fogged) {
         // a ghost keeps its last-seen health, smoke and pose
@@ -510,6 +532,7 @@ export class EntityRenderer {
       if (e instanceof Building) this.updateBuilding(v, e, dt);
       else this.updateUnit(v, e as Unit, alpha, dt);
 
+      contentAnim(e, this.local, anim);
       // off-screen models skip their animation (caught up in preRender if they come into view)
       v.animSkipped = false;
       if (show) {
@@ -668,7 +691,10 @@ export class EntityRenderer {
     const x = lerp(u.prevX, u.x, alpha), y = lerp(u.prevY, u.y, alpha);
     const heading = lerpAngle(u.prevHeading, u.heading, alpha);
     const turret = lerpAngle(u.prevTurret, u.turret, alpha);
-    const g = map.surfaceAt(x, y);
+    // ground units crossing a bridge ride on its deck, not on the water below
+    const onDeck = u.kind !== 'naval' && u.kind !== 'aircraft' && this.deckHeight && map.bridgeAt[map.idx(Math.floor(x), Math.floor(y))]
+      ? this.deckHeight(x, y) : null;
+    const g = onDeck ?? map.surfaceAt(x, y);
     _qy.setFromAxisAngle(UP, -heading);
     if (u.kind === 'vehicle') {
       // tilt to terrain slope
@@ -682,8 +708,9 @@ export class EntityRenderer {
     } else {
       root.quaternion.copy(_qy);
     }
-    const alt = u.kind === 'aircraft' ? u.altitude : 0;
+    const alt = u.kind === 'aircraft' ? u.altitude : u.parachute > 0 ? (u.parachute / PARACHUTE_SECONDS) * DROP_HEIGHT : 0;
     root.position.set(x, g + alt, y);
+    if (u.ut.supportPlane && root.visible) this.updateTrails(v);
     if (v.model.turret) v.model.turret.rotation.y = -(turret - heading);
     anim.moving = u.moving;
     anim.speed = u.speedFrac;
@@ -800,6 +827,19 @@ export class EntityRenderer {
     }
   }
 
+  /** Contrails from each exhaust of a support plane. */
+  private updateTrails(v: View) {
+    const pts = v.model.smokePoints ?? [];
+    if (!pts.length) return;
+    v.trails ??= pts.map(() => this.effects.spawnTrail('contrail', 0.8));
+    const u = v.ent as Unit;
+    _v2.set(Math.cos(u.heading), 0, Math.sin(u.heading));
+    for (let i = 0; i < pts.length; i++) {
+      pts[i].getWorldPosition(_v);
+      v.trails[i]?.update(_v, _v2);
+    }
+  }
+
   private updateProjectiles(alpha: number) {
     const seen = this.seenProj;
     seen.clear();
@@ -811,7 +851,8 @@ export class EntityRenderer {
       if (!pv) {
         const visible = this.fog.visibilityAt(p.sx, p.sy) > 0.25 || this.fog.visibilityAt(p.tx, p.ty) > 0.25 || p.special === 'nuke';
         if (!visible) continue;
-        const handle = this.effects.spawnProjectile(p.special === 'nuke' ? 'scud' : p.kind);
+        // heavy guns (cruiser 8-inch, Mammoth) throw visibly bigger shells
+        const handle = this.effects.spawnProjectile(p.special === 'nuke' ? 'scud' : p.kind, p.weapon.damage >= 150 ? 1.8 : 1);
         const muzzle = new THREE.Vector3(p.sx, p.sz, p.sy);
         const shooter = this.world.getEntity(p.shooter);
         const ok = this.muzzleWorld(p.shooter, this.muzzleIndex(p.shooter, p.weapon.id, shooter ? shooter.lastFireMuzzle : 0), muzzle);

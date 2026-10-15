@@ -2,12 +2,13 @@
 
 A modern, browser-based real-time strategy game that faithfully recreates the gameplay of
 the 1996 classic *Command & Conquer: Red Alert* — Allies vs. Soviets, base building, ore
-harvesting, power, tech trees, Tesla Coils, Mammoth Tanks, Chronospheres and nukes — rebuilt
+harvesting, power, tech trees, Tesla Coils, Mammoth Tanks, naval warfare, spies, Chronospheres and nukes — rebuilt
 from scratch for the web with real-time 3D graphics, post-processing, a GPU particle system,
 procedural audio and an adaptive soundtrack.
 
 Everything (models, textures, sound effects, music) is generated procedurally at runtime, so the
-game ships **zero copyrighted assets** — the whole thing (14 scripted missions included) is ~550 KB gzipped.
+game ships **zero copyrighted assets**. The whole game, 17 scripted missions included, is about 650 KB gzipped: the game
+itself is about 425 KB, and three.js about 200 KB in a separately cached chunk.
 
 | | |
 |---|---|
@@ -157,6 +158,48 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
   - Attack Dog health 12 → 25, and faster.
   - Turret health 400 → 500.
 
+### Red Alert complete: navy, espionage, support powers, maps and replays (round 4)
+
+- **Naval warfare.**
+  - Shipyard and Sub Pen (built on water).
+  - Gunboat, Destroyer (missiles that also hit aircraft, depth charges, sonar) and Cruiser (8-inch guns that out-range everything on shore).
+  - Transport (LST): carries five tanks or infantry and lands them on a beach.
+  - Submarine: invisible while submerged, surfaces to fire torpedoes, and is found by sonar or a spy's sonar pulse.
+  - Ships have their own water pathfinding and fight under RA's targeting rules: torpedoes only hit ships, depth charges hunt submarines.
+  - The *Sea* terrain option generates a central sea with a bay at every base. The AI builds and fights a fleet when the map calls for one.
+- **The rest of the RA roster.**
+  - Spy: disguised as an enemy rifleman. Infiltrating structures gives intel (credits, power, radar picture, production) or a sonar pulse; only dogs see through the disguise.
+  - Thief: steals half of the enemy's credits.
+  - Minelayer with anti-tank and anti-personnel mines.
+  - Gap Generator (tower and mobile) that re-shrouds your base.
+  - Mobile Radar Jammer, Chinook transport helicopter, camouflaged pillbox and decoy structures.
+- **Support powers.** GPS satellite, sonar pulse, spy plane, paratroopers and parabombs. The planes fly in from the map edge, so anti-aircraft defences can shoot them down.
+- **Bridges.** Destructible and repairable bridges over rivers: explosives drop them, engineers rebuild them.
+- **Unit stances.** Aggressive, guard, hold position and hold fire (F1–F4).
+- **Curated maps and map codes.**
+  - Nine hand-designed, symmetric maps: river crossings, archipelagos, an inland sea for four players, a canyon and frozen lakes.
+  - A map picker with previews.
+  - Shareable map codes that reproduce any generated map.
+- **Replays.**
+  - Every skirmish is recorded as its command stream plus periodic state hashes.
+  - Watch it back with pause, 1–8× speed, seeking, any player's view or an observer view, and live sync checking. Export and import replay files.
+- **Boot Camp.** An interactive tutorial in nine drills, from moving a squad to leading an assault, with beacons on the ground and the radar.
+- **Naval special operations.**
+  - *Wolfpack*: Soviet submarines against an Arctic convoy.
+  - *Iron Coast*: escort an Allied cruiser to shell a coastal fortress through submarine packs and MiG raids.
+- **New medals and sound.**
+  - Medals: Admiral of the Fleet, Silent Service, Spymaster, Grand Larceny, Airborne, Minefield and a hidden one.
+  - Sound: 12 new synthesised effects (torpedoes, sonar, bomber flybys, bridge collapses and more), 18 new announcer lines, and naval and spy voices.
+- **Faster engine.**
+  - A battle at High quality needs 128 draw calls instead of 293, and 367k triangles instead of 826k.
+  - Shaders all compile during loading, so nothing stutters mid-battle.
+  - In the CPU profile, main-thread time per frame drops from about 49 ms to about 11 ms.
+  - Forests are instanced and culled, with simpler versions at a distance.
+  - The shadow camera is fitted to the view, and the post-processing chain is merged into fewer passes.
+- **New graphics.**
+  - Water with refraction, screen-space reflections, caustics, sun and moon glitter, shore foam, waves on the beach and ripples.
+  - Terrain relief detail, light shafts at dawn and dusk, low mist in valleys, and colour grading per climate.
+
 ## Controls
 
 | Input | Action |
@@ -194,6 +237,7 @@ src/
     unitlogic.ts       orders, movement, collisions, crushing, engineers…
     combat.ts          weapons, projectiles, RA damage model
     harvest.ts production.ts aircraft.ts superweapons.ts ai.ts
+    naval.ts ai-naval.ts infiltration.ts mines.ts stealth.ts powers.ts bridges.ts stance.ts   (round-4 content)
   render/              three.js renderer (interpolates between sim ticks)
     renderer.ts        scene, lights, post-processing chain
     terrain.ts water.ts vegetation.ts ore.ts fog.ts lightpools.ts
@@ -202,7 +246,9 @@ src/
     effects/           GPU particle & effects system
   audio/               procedural SFX, adaptive music, announcer
   ui/                  HUD, minimap, input, menus, campaign, profile, challenges
-  missions/            campaign missions, special operations, daily challenge, progress
+  missions/            campaign missions, Boot Camp, naval & special operations, daily challenge, progress
+  maps/                curated skirmish maps (symmetric feature format), previews, map codes
+  replay/              match recording, storage (IndexedDB) and playback
   meta/                XP, ranks, medals, daily challenge records, toasts
   platform/            error boundary, WebGL checks, GPU quality detection, PWA
   game.ts main.ts      game loop and bootstrap
@@ -214,13 +260,14 @@ tools/                 headless simulation / mission tests & screenshot tooling
 ## Development tools
 
 ```bash
-npm test                 # 210 unit / integration / soak / regression tests (node:test, ~15 s)
+npm test                 # 356 unit / integration / soak / regression tests (node:test)
 npm run typecheck
 npm run verify:pwa       # production build + manifest, service worker and offline checks
 npm run audit:leaks      # play 5 matches in a browser and compare heap / GPU resources
 npm run audit:profile    # CPU profile of a 30 s battle, resolved to source lines
 node --import tsx tools/simtest.ts <seed> <minutes> <mapSize> <players>   # headless AI-vs-AI
-node --import tsx tools/missiontest.ts <mission-id> <minutes>              # headless mission run with an autopilot
+node --import tsx tools/campaigntest.ts <mission-id|allies|soviet|all> [minutes]   # headless mission runs with autopilots
+node tools/focus-shot.mjs <url> <out.png> "<js returning [x, y, dist]>"           # browser screenshot aimed at something in the game
 node --import tsx tools/savetest.ts                                          # save/load determinism
 node --import tsx tools/metatest.ts                                          # progression & medals
 ```

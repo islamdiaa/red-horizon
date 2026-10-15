@@ -1,5 +1,6 @@
 import { GameMap, T } from '../sim/map';
 import type { Player } from '../sim/player';
+import type { Unit } from '../sim/entities';
 import type { World } from '../sim/world';
 import { disguisedAs, sharedRadar } from '../sim/infiltration';
 
@@ -176,9 +177,8 @@ export class Minimap {
       ctx.lineWidth = 1.2;
       ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
     }
-    // units (cloaked submarines / disguises: world.canSee is the single visibility rule once it exists)
-    const canSee = (world as unknown as { canSee?: (v: Player, e: unknown) => boolean }).canSee;
-    const sees = (v: Player, u: { x: number; y: number }) => (canSee ? canSee.call(world, v, u) : world.isVisible(v, u.x, u.y));
+    // units: world.canSee is the single visibility rule (fog, cloaked submarines, detection)
+    const sees = (v: Player, u: Unit) => world.canSee(v, u);
     // a spy in an enemy radar dome shares that player's radar picture (player.intel.radar)
     const shared = sharedRadar(world, p);
     for (const u of world.units) {

@@ -466,7 +466,11 @@ export class GameRenderer {
     this.skirt = new TerrainSkirt(map, this.terrain.mesh.material as THREE.Material);
     this.scene.add(this.skirt.mesh);
     const hFn = (x: number, y: number) => this.terrain.renderHeight(x, y);
-    this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir, climate === 'winter', q);
+    // winter freezes lakes, but a sea (naval maps: more than ~7% of the map is water) stays open, icy-cold water
+    let wet = 0;
+    for (let i = 0; i < map.terrain.length; i++) if (map.terrain[i] === 1) wet++;
+    const frozen = climate === 'winter' && wet < map.w * map.h * 0.07;
+    this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir, frozen, q);
     if (q !== 'low') this.water.sun = this.sun;
     this.scene.add(this.water.mesh);
     this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high', climate, this.skirt.treeSpots);

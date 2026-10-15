@@ -1,6 +1,7 @@
 // Shared helpers for the browser audits in tests/perf (not part of `npm test`).
 // Starts a private Vite dev server (no HMR / watching, own dep cache) and headless Chromium.
 import { createServer } from 'vite';
+import baseConfig from '../../vite.config.ts';
 import { chromium } from 'playwright';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +12,8 @@ export async function startServer(port = 5190) {
   const server = await createServer({
     root, configFile: false, logLevel: 'warn', cacheDir: `/tmp/rh-vite-cache-${port}`,
     server: { port, strictPort: true, hmr: false, watch: null, host: '127.0.0.1' },
-    optimizeDeps: { include: ['three', 'three/examples/jsm/postprocessing/GTAOPass.js', 'three/examples/jsm/postprocessing/EffectComposer.js'] },
+    // same pre-bundled three.js add-ons as the app (otherwise the dev server can load two copies of three)
+    optimizeDeps: baseConfig.optimizeDeps,
   });
   await server.listen();
   return { server, url: `http://127.0.0.1:${port}/` };

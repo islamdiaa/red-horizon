@@ -196,9 +196,21 @@ export class InputController {
   }
 
   /** Width of the right-hand sidebar (it scales with the viewport), so "on screen" means the map area. */
+  /** Width of the sidebar; measured on resize only (reading offsetWidth every frame forces a layout). */
   private sidebarW(): number {
-    return document.getElementById('sidebar')?.offsetWidth ?? 312;
+    if (this.sidebarWidth < 0) {
+      const el = document.getElementById('sidebar');
+      if (!el) return 312;
+      this.sidebarWidth = el.offsetWidth;
+      if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => { this.sidebarWidth = el.offsetWidth; });
+        ro.observe(el);
+        this.disposers.push(() => ro.disconnect());
+      }
+    }
+    return this.sidebarWidth;
   }
+  private sidebarWidth = -1;
 
   /** Ground polygon visible on screen (for the minimap). */
   viewPolygon(): [number, number][] {
