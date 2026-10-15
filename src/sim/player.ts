@@ -83,6 +83,8 @@ export class Player {
   /** Last known location of an attack on this player (for camera jump). */
   lastAttackX = -1;
   lastAttackY = -1;
+  /** Mission tech restriction: only these types may be built (null = unrestricted). */
+  allowedTypes: Set<string> | null = null;
   /** Snapshot of buildable ids to detect "new construction options". */
   knownOptions = new Set<string>();
 
@@ -158,6 +160,7 @@ export class Player {
   canBuild(typeId: string): boolean {
     const t = getType(typeId);
     if (!t.buildable || DISABLED_TYPES.has(typeId)) return false;
+    if (this.allowedTypes && !this.allowedTypes.has(typeId)) return false;
     if (!t.owner.includes(this.faction)) return false;
     if (!this.prereqsMet(t)) return false;
     return this.hasFactoryFor(typeId);

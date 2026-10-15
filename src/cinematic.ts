@@ -60,8 +60,9 @@ export function playIntro(game: Game, onDone: () => void) {
   mk('cine-bar top');
   mk('cine-bar bottom');
   const seed = game.setup.seed >>> 0;
-  const op = OPERATIONS[seed % OPERATIONS.length];
-  const sector = SECTORS[(seed >> 4) % SECTORS.length];
+  const md = game.missionDef;
+  const op = md ? md.codename : OPERATIONS[seed % OPERATIONS.length];
+  const sector = md ? md.location : SECTORS[(seed >> 4) % SECTORS.length];
   const faction = game.local.faction === 'allies' ? 'Allied Expeditionary Force' : 'Red Army Group "Vostok"';
   const h = Math.floor(game.hours), m = Math.floor((game.hours % 1) * 60);
   const clock = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;

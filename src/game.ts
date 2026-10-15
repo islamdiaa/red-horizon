@@ -29,6 +29,10 @@ import type { SfxKey } from './audio/types';
 import type { SuperKind } from './sim/superweapons';
 import { setupScenario } from './debug';
 import { playIntro } from './cinematic';
+import { getMission } from './missions';
+import { MissionRuntime, type MissionDef } from './sim/mission';
+import { recordResult } from './missions/progress';
+import { MissionHud } from './ui/missionhud';
 import { recalcPlayerEconomy } from './sim/production';
 
 export interface OpponentSetup {
@@ -59,6 +63,8 @@ export interface GameSetup {
   climate?: string;
   /** Play the opening cinematic (default true). */
   intro?: boolean;
+  /** Mission id (campaign / survival / challenge); overrides map and players. */
+  mission?: string;
 }
 
 export interface GameCallbacks {
@@ -99,6 +105,10 @@ export class Game {
   hud: Hud | null = null;
   input: InputController | null = null;
   hints: Hints | null = null;
+  missionDef: MissionDef | null = null;
+  missionHud: MissionHud | null = null;
+  /** Result of a finished mission (stars, time, score). */
+  missionResult: { won: boolean; stars: number; time: number; score: number } | null = null;
   local;
   selection = new Set<number>();
   paused = false;
@@ -122,7 +132,17 @@ export class Game {
 
   constructor(readonly setup: GameSetup, readonly audio: AudioSystem, private cb: GameCallbacks) {
     cb.onProgress?.(0.05, 'Generating battlefield');
-    const nPlayers = 1 + setup.opponents.length;
+    const def = setup.mission ? getMission(setup.mission) ?? null : null;
+    this.missionDef = def;
+    if (def) {
+      // missions define the battlefield themselves
+      const mp = def.map;
+      setup = { ...setup, mapSize: mp.size, seed: mp.seed, water: mp.water ?? 0.5, trees: mp.trees ?? 0.5, ore: mp.ore ?? 0.6,
+        climate: mp.climate ?? 'temperate', weather: mp.weather ?? 'clear', dayCycle: mp.dayCycle ?? true, timeOfDay: mp.timeOfDay ?? 'day',
+        fog: def.fog ?? true, faction: def.players[0].faction, color: def.players[0].color ?? setup.color };
+      (this as { setup: GameSetup }).setup = setup;
+    }
+    const nPlayers = def ? def.map.players : 1 + setup.opponents.length;
     const climate = (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
     const map = generateMap({
       size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
@@ -139,10 +159,30 @@ export class Game {
       const faction = o.faction === 'random' ? rngFaction(i + 1) : o.faction;
       players.push({ name: AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: i + 1, isHuman: false, ai: o.difficulty });
     });
+    if (def) {
+      players.length = 0;
+      def.players.forEach((ps, i) => players.push({
+        name: ps.name, faction: ps.faction, color: ps.color ?? TEAM_COLORS[i], team: ps.team ?? i, isHuman: i === 0,
+        ai: i === 0 ? undefined : ps.ai === 'passive' || ps.ai === 'defensive' || !ps.ai ? 'normal' : ps.ai,
+      }));
+    }
     // shuffle start positions so the player isn't always bottom-left
-    if (!setup.demo && (setup.seed & 2)) map.startPositions.reverse();
-    this.world = new World({ map, players, credits: setup.credits, startUnits: setup.startUnits, fog: setup.fog && !setup.demo, seed: setup.seed });
+    if (!setup.demo && !def && (setup.seed & 2)) map.startPositions.reverse();
+    this.world = new World({
+      map, players, credits: def ? (def.credits ?? 5000) : setup.credits, startUnits: def ? 'none' : setup.startUnits,
+      startUnitsPer: def ? def.players.map((_, i) => (i === 0 ? def.startUnits ?? 'none' : 'none')) : undefined,
+      creditsPer: def ? def.players.map((ps, i) => (i === 0 ? def.credits : ps.credits ?? 5000)) : undefined,
+      fog: setup.fog && !setup.demo, seed: setup.seed,
+    });
     this.local = this.world.players[0];
+    if (def) {
+      const rt = new MissionRuntime(this.world, def);
+      this.world.mission = rt;
+      def.players.forEach((ps, i) => { if (i > 0 && ps.ai) rt.setAI(i, ps.ai); });
+      if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
+      def.setup(rt);
+      for (const p of this.world.players) { this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
+    }
 
     cb.onProgress?.(0.2, 'Assembling armies');
     prewarmModels();
@@ -188,7 +228,7 @@ export class Game {
     this.gfx.scene.add(this.crates.group);
     this.lightPools = new LightPools(this.world, this.ents);
     this.gfx.scene.add(this.lightPools.mesh);
-    this.hours = setup.timeOfDay === 'night' ? 22.5 : setup.timeOfDay === 'dusk' ? 17.9 : 10.5;
+    this.hours = def?.map.hour ?? (setup.timeOfDay === 'night' ? 22.5 : setup.timeOfDay === 'dusk' ? 17.9 : 10.5);
     this.gfx.setTimeOfDay(this.hours);
 
     const start = map.startPositions[0];
@@ -247,7 +287,10 @@ export class Game {
         openPauseMenu: () => this.pause(),
       });
       this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost');
-      this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
+      if (!this.world.mission) this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
+      if (this.world.mission) {
+        this.missionHud = new MissionHud(this.world.mission, (k) => this.audio.play(k));
+      }
       // select the MCV at start
       const mcv = this.world.units.find((u) => u.owner === this.local && u.ut.deploysInto);
       if (mcv) this.selection.add(mcv.id);
@@ -408,6 +451,15 @@ export class Game {
     this.gfx.render(dt, this.time);
     if (!this.setup.demo && !this.paused) this.gfx.adaptResolution(dt * 1000);
     if (this.overlay) this.overlay.draw(this.gfx.cam.camera, world, this.ents, this.local, this.selection, this.input?.hovered ?? 0, this.alpha, fdt);
+    const rt = this.world.mission;
+    if (rt && rt.events.length) {
+      for (const ev of rt.events) {
+        this.missionHud?.handle(ev);
+        if (ev.e === 'camera') this.gfx.cam.flyToPoint(ev.x, ev.y, 1.2);
+      }
+      rt.events.length = 0;
+    }
+    this.missionHud?.update(dt);
     if (this.hud) {
       this.hud.update(dt);
       if (this.world.tick % 10 === 0) this.hints?.update();
@@ -561,6 +613,7 @@ export class Game {
         case 'gameover':
           if (!demo) {
             const won = world.winnerTeam === this.local.team;
+            if (world.mission) this.recordMission(world.mission);
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
             this.audio.stinger(won ? 'victory' : 'defeat');
             this.endTimer = 4;
@@ -576,6 +629,18 @@ export class Game {
       }
     }
     world.events.length = 0;
+  }
+
+  /** Stars: 1 for winning, +1 under par time, +1 for all optional objectives (or none existed). */
+  private recordMission(rt: MissionRuntime) {
+    const def = rt.def;
+    const won = rt.won;
+    const optional = rt.objectives.filter((o) => !o.primary);
+    const optionalOk = optional.every((o) => o.state === 'done');
+    const fast = !def.parTime || this.world.time <= def.parTime;
+    const stars = won ? 1 + (fast ? 1 : 0) + (optionalOk ? 1 : 0) : 0;
+    this.missionResult = { won, stars, time: this.world.time, score: rt.score };
+    recordResult(def.id, { won, stars, time: this.world.time, score: def.scored ? rt.score : undefined });
   }
 
   /** Feed the soundscape: time of day, weather, nearby water/forest, combat on and off screen, zoom. */
@@ -655,6 +720,7 @@ export class Game {
     this.audio.stopAmbience();
     cancelAnimationFrame(this.raf);
     this.input?.dispose();
+    this.missionHud?.dispose();
     this.ents.dispose();
     this.effects.dispose?.();
     this.gfx.dispose();

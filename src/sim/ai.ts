@@ -7,6 +7,8 @@ import { TICK_HZ } from './types';
 import type { World } from './world';
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
+/** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
+export type AIBehaviour = AIDifficulty | 'passive' | 'defensive';
 
 interface DiffParams {
   buildSpeed: number;
@@ -67,6 +69,21 @@ export class AIController {
   private nextWaveValue: number;
   private lastDefend = -9999;
   private deployTries = 0;
+  private behaviour: 'full' | 'passive' | 'defensive' = 'full';
+
+  get player(): Player {
+    return this.p;
+  }
+
+  /** Switch behaviour mid-game (missions). */
+  setMode(mode: AIBehaviour) {
+    if (mode === 'passive' || mode === 'defensive') { this.behaviour = mode; return; }
+    this.behaviour = 'full';
+    this.difficulty = mode;
+    this.d = DIFF[mode];
+    this.p.buildSpeed = this.d.buildSpeed;
+    this.p.incomeBias = this.d.income;
+  }
 
   constructor(private world: World, private p: Player, public difficulty: AIDifficulty) {
     this.d = DIFF[difficulty];
@@ -78,11 +95,13 @@ export class AIController {
   think() {
     const p = this.p;
     if (p.defeated) return;
+    if (this.behaviour === 'passive') { this.defendOnly(); return; }
     this.handleMcv();
     this.placeReadyStructure();
     this.planStructures();
     this.planUnits();
     this.repairBase();
+    if (this.behaviour === 'defensive') { this.defendOnly(); return; }
     this.military();
     this.airStrikes();
     this.superweapons();
@@ -336,6 +355,21 @@ export class AIController {
         break;
       }
     }
+  }
+
+  /** Hold ground: idle units engage intruders near the base, nothing else. */
+  private defendOnly() {
+    const w = this.world;
+    if (w.tick % (TICK_HZ * 2) !== 0) return;
+    const [bx, by] = this.baseCenter();
+    let threat: Unit | null = null;
+    for (const u of w.units) {
+      if (!u.alive || !this.p.isEnemy(u.owner)) continue;
+      if (Math.hypot(u.x - bx, u.y - by) < 14) { threat = u; break; }
+    }
+    if (!threat) return;
+    const ids = this.army().filter((u) => u.order.type === 'idle' && Math.hypot(u.x - threat!.x, u.y - threat!.y) < 16).map((u) => u.id);
+    if (ids.length) w.issue({ c: 'move', player: this.p.id, units: ids, x: threat.x, y: threat.y, attackMove: true });
   }
 
   // ---------------------------------------------------------------------------

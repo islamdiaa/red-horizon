@@ -2,6 +2,7 @@ import './ui/styles.css';
 import { AudioSystem } from './audio';
 import { Game, type GameSetup } from './game';
 import { Menus, type Settings } from './ui/menu';
+import { showCampaign } from './ui/campaign';
 import { GAME_TITLE } from './config';
 import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
@@ -34,7 +35,20 @@ const menus = new Menus(audio, {
   restart: () => { if (lastSetup) void startGame({ ...lastSetup, seed: (Math.random() * 1e9) | 0 }); },
   quit: () => { audio.stopMusic(); startDemo(); },
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
+  openCampaign: () => openCampaign(),
 });
+
+/** Campaign / special operations screen. */
+function openCampaign() {
+  showCampaign({
+    play: (k) => audio.play(k),
+    onBack: () => menus.showMain(),
+    onDeploy: (id) => void startGame({
+      faction: 'allies', color: 0x3d7be0, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
+      startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: id, intro: true,
+    }),
+  });
+}
 
 function applySettings(g: Game, s: Settings) {
   if (g.input) { g.input.edgeScroll = s.edgeScroll; g.input.unitVoices = s.unitVoices; }
@@ -136,7 +150,7 @@ if (params.get('autostart')) {
     mapSize: +(params.get('size') ?? 96), water: 0.5, trees: 0.5, ore: 0.6, credits: +(params.get('credits') ?? 10000),
     startUnits: (params.get('units') as any) ?? 'light', fog: params.get('fog') !== '0', timeOfDay: (params.get('tod') as TimeOfDay) ?? 'day',
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: +(params.get('seed') ?? 1234),
-    dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate',
+    dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate', mission: params.get('mission') ?? undefined,
   });
 } else {
   setLoading(0.5, 'Loading');

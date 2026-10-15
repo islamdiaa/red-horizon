@@ -151,6 +151,8 @@ export interface MenuCallbacks {
   restart(): void;
   quit(): void;
   settingsChanged(s: Settings): void;
+  /** Open the campaign / special-ops screen. */
+  openCampaign?(): void;
 }
 
 export class Menus {
@@ -233,9 +235,10 @@ export class Menus {
       b.onclick = fn;
       nav.appendChild(b);
     };
-    navItem('01', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
-    navItem('02', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
-    navItem('03', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
+    if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
+    navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
+    navItem('03', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
+    navItem('04', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
     left.appendChild(nav);
     left.appendChild(h('div', 'mm-foot', `<span class="live"><i></i>Live battlefield feed</span><span>v${VERSION}</span>`));
 

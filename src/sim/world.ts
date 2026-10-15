@@ -11,6 +11,7 @@ import { resolveCollisions, unitSpeed, updateUnit } from './unitlogic';
 import { updateProduction, recalcPlayerEconomy } from './production';
 import { AIController, type AIDifficulty } from './ai';
 import { updateSuperweapons, fireSuperweapon } from './superweapons';
+import type { MissionRuntime } from './mission';
 
 export interface PlayerSetup {
   name: string;
@@ -25,7 +26,11 @@ export interface WorldOptions {
   map: GameMap;
   players: PlayerSetup[];
   credits: number;
-  startUnits: 'mcv' | 'light' | 'heavy';
+  startUnits: 'mcv' | 'light' | 'heavy' | 'none';
+  /** Per-player override of the starting kit (missions). */
+  startUnitsPer?: ('mcv' | 'light' | 'heavy' | 'none')[];
+  /** Per-player starting credits (missions). */
+  creditsPer?: (number | undefined)[];
   fog: boolean;
   seed: number;
 }
@@ -97,6 +102,8 @@ export class World {
   fog: boolean;
   gameOver = false;
   winnerTeam = -1;
+  /** Scripted mission driving this world (campaign / survival / challenges). */
+  mission: MissionRuntime | null = null;
   private nextId = 1;
   private commands: Command[] = [];
   private pathQueue: Unit[] = [];
@@ -110,11 +117,11 @@ export class World {
     this.fog = opts.fog;
     const cells = this.map.w * this.map.h;
     opts.players.forEach((ps, i) => {
-      const p = new Player({ id: i, name: ps.name, faction: ps.faction, color: ps.color, team: ps.team, isHuman: ps.isHuman, cash: opts.credits, mapCells: cells });
+      const p = new Player({ id: i, name: ps.name, faction: ps.faction, color: ps.color, team: ps.team, isHuman: ps.isHuman, cash: opts.creditsPer?.[i] ?? opts.credits, mapCells: cells });
       this.players.push(p);
       if (ps.ai) this.ais.push(new AIController(this, p, ps.ai));
     });
-    this.setupStart(opts.startUnits);
+    this.setupStart(opts.startUnits, opts.startUnitsPer);
     for (const p of this.players) {
       recalcPlayerEconomy(this, p);
       this.updateVisibility(p);
@@ -129,9 +136,11 @@ export class World {
   // ---------------------------------------------------------------------------
   // Setup
   // ---------------------------------------------------------------------------
-  private setupStart(kind: WorldOptions['startUnits']) {
+  private setupStart(defKind: WorldOptions['startUnits'], per?: WorldOptions['startUnitsPer']) {
     const starts = this.map.startPositions;
     this.players.forEach((p, i) => {
+      const kind = per?.[i] ?? defKind;
+      if (kind === 'none') return;
       const s = starts[i % starts.length];
       const toward = Math.atan2(this.map.h / 2 - s.y, this.map.w / 2 - s.x);
       const mcv = this.addUnit('mcv', p, s.x, s.y);
@@ -872,6 +881,7 @@ export class World {
     }
     if (this.tick % TICK_HZ === 0) this.checkVictory();
     if (this.cratesEnabled) this.updateCrates();
+    this.mission?.tick();
   }
 
   private updateCrates() {
@@ -1034,6 +1044,14 @@ export class World {
     }
   }
 
+  /** End the game in favour of a team (-1 = nobody). */
+  endGame(winnerTeam: number) {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    this.winnerTeam = winnerTeam;
+    this.events.push({ e: 'gameover', winnerTeam });
+  }
+
   private checkVictory() {
     if (this.gameOver) return;
     for (const p of this.players) {
@@ -1045,6 +1063,11 @@ export class World {
       }
     }
     const teams = new Set(this.players.filter((p) => !p.defeated).map((p) => p.team));
+    if (this.mission) {
+      // scripted missions decide victory themselves (the runtime handles the human being wiped out)
+      if (this.mission.def.winOnElimination && teams.size <= 1 && !this.players[0].defeated) this.mission.win();
+      return;
+    }
     if (teams.size <= 1) {
       this.gameOver = true;
       this.winnerTeam = teams.size ? [...teams][0] : -1;
