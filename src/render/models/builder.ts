@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ModelAnimState, ModelInstance } from './types';
-import { bodyMaterial, fxMaterial, glowMaterial, trackMaterial } from './materials';
+import { bodyMaterial, fxMaterial, glowMaterial, shadowDepthMaterial, trackMaterial } from './materials';
 
 export type V3 = [number, number, number];
 
@@ -540,8 +540,7 @@ export class Ctx {
   ) {}
 
   private applyBody() {
-    const m = bodyMaterial(this.team, this.variant, this.powered);
-    for (const b of this.bodies) b.material = m;
+    for (const b of this.bodies) b.material = bodyMaterial(this.team, this.variant, this.powered, (b as THREE.SkinnedMesh).isSkinnedMesh === true);
   }
 
   setVariant(v: number) {
@@ -610,8 +609,10 @@ function buildNode(t: NodeT, ctx: Ctx, bones: THREE.Bone[]): THREE.Object3D {
       shadow = false;
     } else mat = bodyMaterial(ctx.team, 0, true);
     const mesh = new THREE.Mesh(m.geo, mat);
-    mesh.castShadow = shadow;
+    // treads sit inside the hull's shadow silhouette: casting them only costs a shadow-pass draw call
+    mesh.castShadow = shadow && m.slot !== 'track';
     mesh.receiveShadow = shadow;
+    if (mesh.castShadow) mesh.customDepthMaterial = shadowDepthMaterial(mesh);
     if (m.slot === 'track') ctx.tracks.push(mesh);
     else if (m.slot.startsWith('glow')) {
       let l = ctx.glows.get(m.slot);
@@ -636,7 +637,7 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
   const top = buildNode(tpl.root, ctx, bones);
   root.add(top);
   if (tpl.skin) {
-    const mat = bodyMaterial(ctx.team, 0, true);
+    const mat = bodyMaterial(ctx.team, 0, true, !tpl.skin.rigid);
     let mesh: THREE.Mesh;
     if (tpl.skin.rigid) {
       mesh = new THREE.Mesh(tpl.skin.geo, mat);
@@ -649,6 +650,7 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
     mesh.name = 'body';
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.customDepthMaterial = shadowDepthMaterial(mesh);
     root.add(mesh);
     ctx.bodies.push(mesh);
   }

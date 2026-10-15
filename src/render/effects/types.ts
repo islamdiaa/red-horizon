@@ -23,8 +23,12 @@ export interface EffectsOptions {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
-  /** Terrain height at world (x, z). */
+  /** Terrain height at world (x, z) — over water this should be the water surface (map.surfaceAt). */
   getHeight(x: number, z: number): number;
+  /** Water surface height (default: WATER_LEVEL from sim/map). */
+  waterLevel?: number;
+  /** Open water test (default: getHeight(x, z) <= waterLevel). */
+  isWater?(x: number, z: number): boolean;
 }
 
 /**
@@ -43,7 +47,7 @@ export interface EffectsApi {
   teslaBolt(from: THREE.Vector3, to: THREE.Vector3): void;
   flameStream(from: THREE.Vector3, to: THREE.Vector3): void;
   healPulse(pos: THREE.Vector3): void;
-  spawnProjectile(kind: ProjectileKind): ProjectileHandle;
+  spawnProjectile(kind: ProjectileKind, size?: number): ProjectileHandle;
   createEmitter(kind: EmitterKind, pos: THREE.Vector3): EmitterHandle;
   /** Short burst of dust behind a moving vehicle. */
   dust(pos: THREE.Vector3, amount?: number): void;
@@ -61,4 +65,16 @@ export interface EffectsApi {
   oreSparkle(pos: THREE.Vector3, gems: boolean): void;
   /** Ground ripple ring for move/attack orders. */
   orderMarker(pos: THREE.Vector3, kind: 'move' | 'attack' | 'rally'): void;
+  /** Shell / debris landing in open water (pos.y ignored; size 1 = tank shell). */
+  waterSplash(pos: THREE.Vector3, size?: number): void;
+  /** Depth charge / torpedo detonation under the surface. */
+  underwaterBlast(pos: THREE.Vector3, size?: number): void;
+  /** Sonar rings over the water. */
+  sonarPing(pos: THREE.Vector3, radius?: number): void;
+  /** Radar jammer burst. */
+  radarJamPulse(pos: THREE.Vector3, radius?: number): void;
+  /** Land mine detonation (explosion + dirt fountain + crater). */
+  mineBlast(pos: THREE.Vector3, kind: 'ap' | 'at', withExplosion?: boolean): void;
+  /** GPS satellite rocket launch from pos. */
+  gpsLaunch(pos: THREE.Vector3): void;
 }

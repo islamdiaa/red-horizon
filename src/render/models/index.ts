@@ -17,6 +17,8 @@ import { INFANTRY_BUILDERS } from './infantry';
 import { AIRCRAFT_BUILDERS } from './aircraft';
 import { STRUCTURE_BUILDERS } from './structures';
 import { DEFENSE_BUILDERS } from './defenses';
+import { NAVAL_BUILDERS } from './naval';
+import { SUPPORT_BUILDERS } from './support';
 import { createProjectile } from './projectiles';
 
 export type { ModelInstance, ModelAnimState, ProjectileModelKind } from './types';
@@ -27,6 +29,20 @@ const BUILDERS: Record<string, () => ModelTemplate> = {
   ...AIRCRAFT_BUILDERS,
   ...STRUCTURE_BUILDERS,
   ...DEFENSE_BUILDERS,
+  ...NAVAL_BUILDERS,
+  ...SUPPORT_BUILDERS,
+};
+
+/**
+ * Ids that share another id's template (fake structures must look exactly like the real thing).
+ * They are listed by listModelIds() but never build a second copy of the geometry.
+ */
+const ALIASES: Record<string, string> = {
+  facf: 'fact',
+  weaf: 'weap',
+  syrf: 'syrd',
+  spef: 'spen',
+  domf: 'dome',
 };
 
 const templates = new Map<string, ModelTemplate>();
@@ -52,6 +68,7 @@ function fallbackTemplate(): ModelTemplate {
 }
 
 function getTemplate(typeId: string): ModelTemplate {
+  typeId = ALIASES[typeId] ?? typeId;
   let t = templates.get(typeId);
   if (t) return t;
   const b = BUILDERS[typeId];
@@ -79,7 +96,12 @@ export function createProjectileModel(kind: ProjectileModelKind): THREE.Object3D
 
 /** All type ids that have a dedicated model. */
 export function listModelIds(): string[] {
-  return Object.keys(BUILDERS);
+  return [...Object.keys(BUILDERS), ...Object.keys(ALIASES)];
+}
+
+/** The id whose template `typeId` renders with (fake structures map to the real building). */
+export function modelAliasOf(typeId: string): string {
+  return ALIASES[typeId] ?? typeId;
 }
 
 /** Optional: build all templates up-front (e.g. during a loading screen). */

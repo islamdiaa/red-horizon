@@ -28,6 +28,8 @@ export class LightPools {
     this.mesh = new THREE.InstancedMesh(geo, mat, capacity);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
+    this.mesh.matrixAutoUpdate = false; // static, identity transform (instances carry the placement)
+    this.mesh.matrixWorldAutoUpdate = false;
     this.mesh.renderOrder = 1;
   }
 

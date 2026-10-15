@@ -239,6 +239,29 @@ const VARIANT_SCORCH = [0, 0.38, 0.62, 1.0, 0.0];
 
 const bodyCache = new Map<number, THREE.MeshStandardMaterial>();
 
+/**
+ * Optional shader patch applied to every lit model material (body variants and tracks), both the ones
+ * already created and future ones. The engine installs the weather surface patch here so all damage
+ * variants share ONE program (a variant created mid-battle must not compile a new shader).
+ */
+let litPatch: ((m: THREE.MeshStandardMaterial) => void) | null = null;
+
+export function setLitMaterialPatch(fn: ((m: THREE.MeshStandardMaterial) => void) | null): void {
+  if (fn === litPatch) return;
+  litPatch = fn;
+  if (!fn) return;
+  for (const m of bodyCache.values()) applyLitPatch(m);
+  for (const m of trackMats ?? []) applyLitPatch(m);
+}
+
+function applyLitPatch(m: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  if (litPatch && !m.userData.wx) {
+    m.userData.wx = true;
+    litPatch(m);
+  }
+  return m;
+}
+
 /** HDR multiplier of steady emissive parts baked into the body (windows, lamps) when powered / unpowered. */
 export const BODY_EMISSIVE_ON = 2.6;
 export const BODY_EMISSIVE_OFF = 0.12;
@@ -309,13 +332,38 @@ diffuseColor.rgb *= 1.0 - 0.86 * scorch;`,
   return mat;
 }
 
-/** Shared body material per team colour, damage/death variant and powered state. */
-export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Normal, powered = true): THREE.MeshStandardMaterial {
-  const key = teamHex * 16 + variant * 2 + (powered ? 0 : 1);
+/**
+ * Shared body material per team colour, damage/death variant and powered state. Skinned and rigid bodies
+ * get separate (identical) material objects: one material alternating between skinned and plain meshes
+ * makes three re-resolve its program on every switch.
+ */
+export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Normal, powered = true, skinned = false): THREE.MeshStandardMaterial {
+  const key = teamHex * 32 + variant * 4 + (powered ? 0 : 2) + (skinned ? 1 : 0);
   let m = bodyCache.get(key);
   if (!m) {
-    m = makeBodyMaterial(teamHex, variant, powered);
+    m = applyLitPatch(makeBodyMaterial(teamHex, variant, powered));
+    if (skinned) m.name += '-sk';
     bodyCache.set(key, m);
+  }
+  return m;
+}
+
+const depthMats: Record<string, THREE.MeshDepthMaterial> = {};
+
+/**
+ * Shared shadow-depth material for one kind of object (plain, skinned, instanced, instanced with colour),
+ * for `mesh.customDepthMaterial`. three's single built-in depth material re-resolves its program (and
+ * allocates a parameter object and cache key) whenever consecutive shadow casters differ in kind; a
+ * material per kind never has to.
+ */
+export function shadowDepthMaterial(o: THREE.Object3D): THREE.MeshDepthMaterial {
+  const im = o as THREE.InstancedMesh;
+  const kind = (o as THREE.SkinnedMesh).isSkinnedMesh ? 'skinned' : im.isInstancedMesh ? (im.instanceColor ? 'instc' : 'inst') : 'plain';
+  let m = depthMats[kind];
+  if (!m) {
+    m = new THREE.MeshDepthMaterial();
+    m.name = `shadow-depth-${kind}`;
+    depthMats[kind] = m;
   }
   return m;
 }
@@ -356,7 +404,7 @@ export function trackMaterial(phase: number): THREE.MeshStandardMaterial {
       t.offset.set(-k / TRACK_PHASES, 0);
       const m = new THREE.MeshStandardMaterial({ map: t, metalness: 0.55, roughness: 0.6, color: 0xffffff });
       m.name = `track-${k}`;
-      trackMats.push(m);
+      trackMats.push(applyLitPatch(m));
     }
   }
   const i = ((Math.floor(phase * TRACK_PHASES) % TRACK_PHASES) + TRACK_PHASES) % TRACK_PHASES;
@@ -452,6 +500,9 @@ export function fxMaterial(key: string): THREE.Material {
   } else {
     m = new THREE.MeshBasicMaterial({ color: 0xff00ff });
   }
+  // Flat discs / additive halos look identical in one pass. Without this three draws transparent
+  // double-sided meshes twice and flags the material for a program re-check (string building) each time.
+  m.forceSinglePass = true;
   m.name = `fx-${key}`;
   fxCache.set(key, m);
   return m;

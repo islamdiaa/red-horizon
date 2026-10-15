@@ -5,7 +5,8 @@ import type { FogOfWar } from './fog';
 /** Bobbing, glowing bonus crates. */
 export class CrateRenderer {
   readonly group = new THREE.Group();
-  private meshes = new Map<number, THREE.Group>();
+  private meshes = new Map<number, { g: THREE.Group; inner: THREE.Object3D; halo: THREE.Object3D; seen: number }>();
+  private frame = 0;
   private boxGeo = new THREE.BoxGeometry(0.34, 0.34, 0.34);
   private strapGeo = new THREE.BoxGeometry(0.36, 0.06, 0.36);
   private wood = new THREE.MeshStandardMaterial({ color: 0x8a6236, roughness: 0.8 });
@@ -16,12 +17,11 @@ export class CrateRenderer {
   constructor(private world: World, private fog: FogOfWar) {}
 
   update(time: number) {
-    const seen = new Set<number>();
+    const frame = ++this.frame;
     for (const c of this.world.crates) {
-      seen.add(c.id);
-      let g = this.meshes.get(c.id);
-      if (!g) {
-        g = new THREE.Group();
+      let e = this.meshes.get(c.id);
+      if (!e) {
+        const g = new THREE.Group();
         const box = new THREE.Mesh(this.boxGeo, this.wood);
         box.castShadow = true;
         const s1 = new THREE.Mesh(this.strapGeo, this.strap);
@@ -34,20 +34,21 @@ export class CrateRenderer {
         halo.name = 'halo';
         g.add(inner, halo);
         this.group.add(g);
-        this.meshes.set(c.id, g);
+        e = { g, inner, halo, seen: frame };
+        this.meshes.set(c.id, e);
       }
+      e.seen = frame;
+      const g = e.g;
       const h = this.world.map.surfaceAt(c.x, c.y);
       g.position.set(c.x, h, c.y);
-      const inner = g.getObjectByName('inner')!;
-      inner.position.y = 0.32 + Math.sin(time * 2 + c.id) * 0.06;
-      inner.rotation.y = time * 0.8 + c.id;
-      const halo = g.getObjectByName('halo')!;
-      halo.position.y = 0.03;
-      halo.scale.setScalar(1 + Math.sin(time * 3 + c.id) * 0.15);
+      e.inner.position.y = 0.32 + Math.sin(time * 2 + c.id) * 0.06;
+      e.inner.rotation.y = time * 0.8 + c.id;
+      e.halo.position.y = 0.03;
+      e.halo.scale.setScalar(1 + Math.sin(time * 3 + c.id) * 0.15);
       g.visible = this.fog.exploredAt(c.x, c.y) > 0.5;
     }
-    for (const [id, g] of this.meshes) {
-      if (!seen.has(id)) { this.group.remove(g); this.meshes.delete(id); }
+    for (const [id, e] of this.meshes) {
+      if (e.seen !== frame) { this.group.remove(e.g); this.meshes.delete(id); }
     }
   }
 }

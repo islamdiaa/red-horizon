@@ -56,8 +56,22 @@ export const R = {
   SMOKE_FIRE: 13,
   TRAIL: 14,
   FLAME_JET: 15,
+  /** Lit white water spray (columns, splashes, mist). */
+  SPRAY: 16,
+  /** Flat white foam on the water surface. */
+  FOAM: 17,
+  /** Rising bubbles (semi-additive pale cyan). */
+  BUBBLE: 18,
+  /** Sonar ping (additive cyan). */
+  SONAR: 19,
+  /** Radar jamming static (additive violet -> green). */
+  JAM: 20,
+  /** White condensation / rocket exhaust trail (beams). */
+  CONTRAIL: 21,
+  /** Muddy brown-green water thrown up by underwater blasts near the shore. */
+  MUDDY: 22,
 } as const;
-export const RAMP_ROWS = 16;
+export const RAMP_ROWS = 23;
 
 const FRAME = 256;
 const ATLAS_COLS = 4;
@@ -585,6 +599,40 @@ const RAMPS: Record<number, Key[]> = {
     [0.04, 0.38, 0.36, 0.34, 0.85],
     [0.4, 0.3, 0.3, 0.3, 1.0],
     [1.0, 0.27, 0.27, 0.28, 1.0],
+  ],
+  [R.SPRAY]: [
+    [0.0, 1.0, 1.02, 1.04, 1],
+    [0.4, 0.86, 0.9, 0.93, 1],
+    [1.0, 0.72, 0.76, 0.8, 1],
+  ],
+  [R.FOAM]: [
+    [0.0, 0.95, 0.98, 1.0, 1],
+    [1.0, 0.78, 0.84, 0.86, 1],
+  ],
+  [R.BUBBLE]: [
+    [0.0, 1.1, 1.3, 1.35, 0.3],
+    [1.0, 0.7, 0.85, 0.9, 0.35],
+  ],
+  [R.SONAR]: [
+    [0.0, 0.9, 3.4, 3.8, 0],
+    [0.35, 0.25, 1.6, 2.2, 0],
+    [1.0, 0.04, 0.35, 0.55, 0],
+  ],
+  [R.JAM]: [
+    [0.0, 2.2, 0.6, 2.9, 0],
+    [0.35, 0.45, 1.7, 0.75, 0],
+    [1.0, 0.1, 0.35, 0.18, 0],
+  ],
+  [R.CONTRAIL]: [
+    [0.0, 1.6, 1.3, 1.0, 0.3],
+    [0.05, 0.9, 0.9, 0.92, 0.8],
+    [0.4, 0.82, 0.84, 0.88, 1.0],
+    [1.0, 0.75, 0.78, 0.82, 1.0],
+  ],
+  [R.MUDDY]: [
+    [0.0, 0.55, 0.56, 0.5, 1],
+    [0.5, 0.36, 0.36, 0.3, 1],
+    [1.0, 0.3, 0.31, 0.27, 1],
   ],
   [R.FLAME_JET]: [
     [0.0, 2.4, 1.5, 0.55, 0],

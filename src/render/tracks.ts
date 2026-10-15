@@ -18,6 +18,9 @@ export class TrackMarks {
   private uTime = { value: 0 };
   private dirtyFrom = Infinity;
   private dirtyTo = -1;
+  /** Slots ever written: only these are drawn. */
+  private used = 0;
+  private alive = new Set<number>();
 
   constructor(private world: World, private fog: FogOfWar) {
     const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -58,7 +61,11 @@ export class TrackMarks {
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, CAPACITY);
     this.mesh.frustumCulled = false;
+    this.mesh.matrixAutoUpdate = false; // static, identity transform (instances carry the placement)
+    this.mesh.matrixWorldAutoUpdate = false;
     this.mesh.renderOrder = 1;
+    this.mesh.count = 0;
+    this.mesh.visible = false;
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < CAPACITY; i++) this.mesh.setMatrixAt(i, zero);
   }
@@ -78,6 +85,11 @@ export class TrackMarks {
     (this.strength.array as Float32Array)[i] = strength;
     this.dirtyFrom = Math.min(this.dirtyFrom, i);
     this.dirtyTo = Math.max(this.dirtyTo, i);
+    if (i + 1 > this.used) {
+      this.used = i + 1;
+      this.mesh.count = this.used;
+      this.mesh.visible = true;
+    }
     this.next = (this.next + 1) % CAPACITY;
     if (this.next === 0) { this.dirtyFrom = 0; this.dirtyTo = CAPACITY - 1; }
   }
@@ -93,7 +105,9 @@ export class TrackMarks {
       const dx = x - prev[0], dy = y - prev[1];
       const dist = Math.hypot(dx, dy);
       if (dist < 0.2) continue;
-      this.last.set(u.id, [x, y]);
+      const px = prev[0], py = prev[1];
+      prev[0] = x;
+      prev[1] = y;
       if (dist > 1.5) continue; // teleported / spawned
       if (this.fog.exploredAt(x, y) < 0.5) continue;
       const cx = Math.floor(x), cy = Math.floor(y);
@@ -102,7 +116,7 @@ export class TrackMarks {
       if (t === T.Rock || t === T.Water) continue;
       const soft = t === T.Sand || t === T.Dirt || map.ore[map.idx(cx, cy)] > 0 ? 1 : 0.6;
       const yaw = Math.atan2(dy, dx);
-      const mx = (x + prev[0]) / 2, my = (y + prev[1]) / 2;
+      const mx = (x + px) / 2, my = (y + py) / 2;
       const nx = -Math.sin(yaw), ny = Math.cos(yaw);
       const tracked = u.ut.tracked;
       const half = u.ut.radius * (tracked ? 0.62 : 0.55);
@@ -113,7 +127,9 @@ export class TrackMarks {
     }
     // forget dead vehicles occasionally
     if (this.last.size > this.world.units.length + 64) {
-      const alive = new Set(this.world.units.map((u) => u.id));
+      const alive = this.alive;
+      alive.clear();
+      for (const u of this.world.units) alive.add(u.id);
       for (const id of this.last.keys()) if (!alive.has(id)) this.last.delete(id);
     }
     if (this.dirtyTo >= 0) {

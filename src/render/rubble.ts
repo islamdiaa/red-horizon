@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { hash2 } from '../core/rng';
 import type { GameMap } from '../sim/map';
+import { shadowDepthMaterial } from './models/materials';
 
 const CAPACITY = 1200;
 
@@ -31,10 +32,14 @@ export class Rubble {
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     this.mesh.frustumCulled = false;
+    this.mesh.matrixAutoUpdate = false; // static, identity transform (instances carry the placement)
+    this.mesh.matrixWorldAutoUpdate = false;
     this.mesh.count = 0;
+    this.mesh.visible = false; // until the first pile (no empty draw calls)
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < CAPACITY; i++) this.mesh.setMatrixAt(i, zero);
     this.mesh.setColorAt(0, this.color.set(0x555555));
+    this.mesh.customDepthMaterial = shadowDepthMaterial(this.mesh);
   }
 
   /** Scatter debris over a destroyed footprint (cx, cy = top-left cell). */
@@ -63,6 +68,7 @@ export class Rubble {
     this.mesh.count = Math.max(this.mesh.count, Math.min(CAPACITY, start + n));
     if (this.next < start) this.mesh.count = CAPACITY;
     this.piles.push({ cx, cy, w, h, start, count: n });
+    this.mesh.visible = true;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }

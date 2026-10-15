@@ -12,6 +12,7 @@ import { M } from './particles';
 import { BM, BS } from './beams';
 import { rnd, range, spread } from './rand';
 import { smokeFrame } from './blocks';
+import { BombVisual, DepthChargeVisual, TorpedoVisual } from './specialproj';
 
 const TAU = Math.PI * 2;
 
@@ -92,7 +93,7 @@ class ProjectileVisual implements ProjectileHandle {
   private s0 = -1; private s1 = -1; private s2 = -1;
   private seed = rnd() * 100;
 
-  constructor(private ctx: FxContext, private kind: ProjectileKind, private cfg: KindCfg) {
+  constructor(private ctx: FxContext, private kind: ProjectileKind, private cfg: KindCfg, private k = 1) {
     const sp = ctx.sprites;
     this.s0 = sp.alloc();
     if (cfg.sprites > 1) this.s1 = sp.alloc();
@@ -138,7 +139,7 @@ class ProjectileVisual implements ProjectileHandle {
         p.at(this.lx + (x - this.lx) * f, this.ly + (y - this.ly) * f, this.lz + (z - this.lz) * f)
           .vel(spread(0.08), range(0.05, 0.2), spread(0.08))
           .motion(cfg.puffLife * range(0.7, 1.2), 0.05, 0.6)
-          .size(cfg.puffSize0, cfg.puffSize1 * range(0.8, 1.2), 1.6)
+          .size(cfg.puffSize0 * this.k, cfg.puffSize1 * this.k * range(0.8, 1.2), 1.6)
           .spin(rnd() * TAU, spread(0.4))
           .color(1, 1, 1, cfg.puffAlpha)
           .look(smokeFrame(), cfg.puffRamp, M.LIT)
@@ -161,8 +162,8 @@ class ProjectileVisual implements ProjectileHandle {
     b.tB = 0;
     b.life = c.life;
     b.mode = BM.RIBBON;
-    b.w0 = c.w0;
-    b.w1 = c.w1;
+    b.w0 = c.w0 * this.k;
+    b.w1 = c.w1 * this.k;
     b.rise = c.rise;
     b.wind = c.wind;
     b.color(c.r, c.g, c.b, c.a);
@@ -217,16 +218,18 @@ class ProjectileVisual implements ProjectileHandle {
 
   private updateSprites(x: number, y: number, z: number, dx: number, dy: number, dz: number): void {
     const sp = this.ctx.sprites;
+    // scaled shells (heavy naval guns) also stretch their streak along the travel direction
+    const k = this.k;
     const t = this.ctx.now;
     const fl = 0.8 + 0.4 * rnd();
     switch (this.kind) {
       case 'cannon':
-        sp.set(this.s0, x, y, z, dx * 0.1, dy * 0.1, dz * 0.1, 0.075, F.GLOW, 0, 0, 7, 3.6, 1.3, 1);
-        sp.set(this.s1, x, y, z, 0, 0, 0, 0.32, F.GLOW, 0, 0, 1.6, 0.75, 0.25, 0.55);
+        sp.set(this.s0, x, y, z, dx * 0.1 * k, dy * 0.1 * k, dz * 0.1 * k, 0.075 * k, F.GLOW, 0, 0, 7, 3.6, 1.3, 1);
+        sp.set(this.s1, x, y, z, 0, 0, 0, 0.32 * k, F.GLOW, 0, 0, 1.6, 0.75, 0.25, 0.55);
         break;
       case 'ballistic':
-        sp.set(this.s0, x, y, z, dx * 0.04, dy * 0.04, dz * 0.04, 0.1, F.GLOW, 1, 0, 0.05, 0.05, 0.045, 1);
-        sp.set(this.s1, x, y, z, 0, 0, 0, 0.17, F.GLOW, 0, 0, 2.6, 1.3, 0.45, 0.8);
+        sp.set(this.s0, x, y, z, dx * 0.04 * k, dy * 0.04 * k, dz * 0.04 * k, 0.1 * k, F.GLOW, 1, 0, 0.05, 0.05, 0.045, 1);
+        sp.set(this.s1, x, y, z, 0, 0, 0, 0.17 * k, F.GLOW, 0, 0, 2.6, 1.3, 0.45, 0.8);
         break;
       case 'lobbed':
         sp.set(this.s0, x, y, z, 0, 0, 0, 0.085, F.GLOW, 1, 0, 0.05, 0.06, 0.04, 1);
@@ -272,8 +275,16 @@ class ProjectileVisual implements ProjectileHandle {
   }
 }
 
-export function spawnProjectile(ctx: FxContext, kind: ProjectileKind): ProjectileHandle {
+export function spawnProjectile(ctx: FxContext, kind: ProjectileKind, size = 1): ProjectileHandle {
+  switch (kind) {
+    case 'torpedo':
+      return new TorpedoVisual(ctx);
+    case 'depthcharge':
+      return new DepthChargeVisual(ctx);
+    case 'bomb':
+      return new BombVisual(ctx, size);
+  }
   const cfg = CFG[kind];
   if (!cfg) return NOOP;
-  return new ProjectileVisual(ctx, kind, cfg);
+  return new ProjectileVisual(ctx, kind, cfg, size > 0 ? size : 1);
 }

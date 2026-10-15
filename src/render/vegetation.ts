@@ -3,44 +3,223 @@ import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferG
 import { hash2, Noise2D } from '../core/rng';
 import { GameMap, T } from '../sim/map';
 import { flat } from './geomutil';
+import { shadowDepthMaterial } from './models/materials';
 
 type HeightFn = (x: number, y: number) => number;
 
-const CHUNK = 24;
+/** Culling block size in cells. */
+const BLOCK = 8;
+/** Blocks further than this from the camera use the low-detail geometry (and thinned grass). */
+const LOD_DIST = 46;
+
+const _frustum = new THREE.Frustum();
+const _pm = new THREE.Matrix4();
+const _box = new THREE.Box3();
 
 /**
- * Splits instances into spatial chunks (one InstancedMesh per chunk) so the camera
- * frustum and shadow camera can cull most of a large map.
+ * World split into square blocks (map plus the scenery margin). Each frame the camera frustum decides which
+ * blocks are needed; a block also counts when only the shadow it casts reaches the view. Blocks far from
+ * the camera are flagged for the low-detail geometry.
  */
-class ChunkedInstances {
-  meshes: THREE.InstancedMesh[] = [];
-  /** global index -> [mesh, local index] */
-  private refs: [THREE.InstancedMesh, number][] = [];
-  constructor(group: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, items: { m: THREE.Matrix4; c?: THREE.Color; x: number; y: number }[], cast: boolean) {
-    const buckets = new Map<number, number[]>();
-    items.forEach((it, k) => {
-      const key = Math.floor(it.x / CHUNK) * 1000 + Math.floor(it.y / CHUNK);
-      let b = buckets.get(key);
-      if (!b) buckets.set(key, (b = []));
-      b.push(k);
-    });
-    this.refs = new Array(items.length);
-    for (const list of buckets.values()) {
-      const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-      mesh.castShadow = cast;
-      mesh.receiveShadow = true;
-      list.forEach((k, j) => {
-        mesh.setMatrixAt(j, items[k].m);
-        if (items[k].c) mesh.setColorAt(j, items[k].c!);
-        this.refs[k] = [mesh, j];
-      });
-      mesh.computeBoundingSphere();
-      group.add(mesh);
-      this.meshes.push(mesh);
+class BlockGrid {
+  readonly nx: number;
+  readonly ny: number;
+  readonly lo: Float32Array;
+  readonly hi: Float32Array;
+  /** 0 = culled, 1 = near, 2 = far (LOD) */
+  readonly state: Uint8Array;
+  private prev: Uint8Array;
+  /** Bumped whenever the needed set or its LOD split changes. */
+  version = 0;
+
+  constructor(readonly x0: number, readonly y0: number, x1: number, y1: number) {
+    this.nx = Math.ceil((x1 - x0) / BLOCK);
+    this.ny = Math.ceil((y1 - y0) / BLOCK);
+    const n = this.nx * this.ny;
+    this.lo = new Float32Array(n).fill(Infinity);
+    this.hi = new Float32Array(n).fill(-Infinity);
+    this.state = new Uint8Array(n).fill(1); // everything until the first cull (shader precompile sees it all)
+    this.prev = new Uint8Array(n).fill(1);
+  }
+
+  index(x: number, y: number): number {
+    const bx = Math.max(0, Math.min(this.nx - 1, Math.floor((x - this.x0) / BLOCK)));
+    const by = Math.max(0, Math.min(this.ny - 1, Math.floor((y - this.y0) / BLOCK)));
+    return by * this.nx + bx;
+  }
+
+  include(b: number, bottom: number, top: number) {
+    if (bottom < this.lo[b]) this.lo[b] = bottom;
+    if (top > this.hi[b]) this.hi[b] = top;
+  }
+
+  cull(camera: THREE.Camera, sunDir: THREE.Vector3) {
+    _frustum.setFromProjectionMatrix(_pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    // shadows fall away from the sun: a caster of height h darkens ground up to h * len cells downwind
+    const horiz = Math.hypot(sunDir.x, sunDir.z) || 1;
+    const len = Math.min(6, horiz / Math.max(0.15, sunDir.y));
+    const dx = (-sunDir.x / horiz) * len, dz = (-sunDir.z / horiz) * len;
+    const cp = camera.position;
+    const st = this.state;
+    for (let by = 0, b = 0; by < this.ny; by++) {
+      for (let bx = 0; bx < this.nx; bx++, b++) {
+        if (this.hi[b] < this.lo[b]) { st[b] = 0; continue; }
+        const x0 = this.x0 + bx * BLOCK, z0 = this.y0 + by * BLOCK;
+        const h = this.hi[b] - this.lo[b];
+        _box.min.set(x0 + Math.min(0, dx * h), this.lo[b], z0 + Math.min(0, dz * h));
+        _box.max.set(x0 + BLOCK + Math.max(0, dx * h), this.hi[b], z0 + BLOCK + Math.max(0, dz * h));
+        if (!_frustum.intersectsBox(_box)) { st[b] = 0; continue; }
+        const cx = x0 + BLOCK / 2 - cp.x, cz = z0 + BLOCK / 2 - cp.z, cy = (this.lo[b] + this.hi[b]) / 2 - cp.y;
+        st[b] = cx * cx + cy * cy + cz * cz > LOD_DIST * LOD_DIST ? 2 : 1;
+      }
+    }
+    let changed = false;
+    for (let i = 0; i < st.length; i++) if (st[i] !== this.prev[i]) { changed = true; break; }
+    if (changed) {
+      this.prev.set(st);
+      this.version++;
     }
   }
-  ref(k: number): [THREE.InstancedMesh, number] {
-    return this.refs[k];
+}
+
+interface Item { m: THREE.Matrix4; c?: THREE.Color; x: number; y: number }
+
+/**
+ * All instances of one geometry in ONE InstancedMesh (two with a low-detail variant). Instead of letting
+ * three cull per chunk mesh (one draw call each, main pass and shadow pass), the instances of the blocks
+ * in view are compacted into the front of the instance buffer whenever the visible block set changes.
+ * Draw calls per geometry: 1 (near) + 1 (far, only when zoomed out), whatever the map size.
+ */
+class CulledInstances {
+  readonly near: THREE.InstancedMesh;
+  readonly far: THREE.InstancedMesh | null;
+  private src: Float32Array;
+  private col: Float32Array | null;
+  private alive: Uint8Array;
+  /** instance indices sorted by block, with per-block start offsets */
+  private order: Int32Array;
+  private start: Int32Array;
+  private seen = -1;
+  private dirty = true;
+  private on = true;
+
+  constructor(private grid: BlockGrid, group: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, items: Item[], cast: boolean,
+    lodGeo: THREE.BufferGeometry | null = null, private thinFar = false) {
+    const n = items.length;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const geoTop = geo.boundingBox!.max.y;
+    this.src = new Float32Array(n * 16);
+    const colored = items.some((it) => it.c);
+    this.col = colored ? new Float32Array(n * 3) : null;
+    this.alive = new Uint8Array(n).fill(1);
+    const blockOf = new Int32Array(n);
+    const nb = grid.nx * grid.ny;
+    const counts = new Int32Array(nb + 1);
+    items.forEach((it, k) => {
+      it.m.toArray(this.src, k * 16);
+      if (this.col) {
+        const c = it.c ?? _white;
+        this.col[k * 3] = c.r; this.col[k * 3 + 1] = c.g; this.col[k * 3 + 2] = c.b;
+      }
+      const b = grid.index(it.x, it.y);
+      blockOf[k] = b;
+      counts[b + 1]++;
+      const e = it.m.elements;
+      const base = e[13];
+      grid.include(b, base - 0.1, base + geoTop * Math.hypot(e[4], e[5], e[6]));
+    });
+    for (let b = 0; b < nb; b++) counts[b + 1] += counts[b];
+    this.start = counts;
+    this.order = new Int32Array(n);
+    const fill = counts.slice(0, nb);
+    for (let k = 0; k < n; k++) this.order[fill[blockOf[k]]++] = k;
+
+    const mk = (g: THREE.BufferGeometry) => {
+      const mesh = new THREE.InstancedMesh(g, mat, n);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      if (this.col) {
+        mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+        mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      }
+      mesh.castShadow = cast;
+      mesh.receiveShadow = true;
+      if (cast) mesh.customDepthMaterial = shadowDepthMaterial(mesh);
+      mesh.frustumCulled = false; // culled per block here
+      mesh.matrixAutoUpdate = false;
+      mesh.matrixWorldAutoUpdate = false;
+      mesh.count = 0;
+      group.add(mesh);
+      return mesh;
+    };
+    this.near = mk(geo);
+    this.far = lodGeo ? mk(lodGeo) : null;
+    this.sync();
+  }
+
+  /** Show / hide every instance (grass toggle). */
+  set enabled(v: boolean) {
+    this.on = v;
+    this.near.visible = v && this.near.count > 0;
+    if (this.far) this.far.visible = v && this.far.count > 0;
+  }
+
+  hide(k: number) {
+    if (this.alive[k]) {
+      this.alive[k] = 0;
+      this.dirty = true;
+    }
+  }
+
+  /** Rebuild the instance buffers if the visible blocks (or the instances) changed. */
+  sync() {
+    if (!this.dirty && this.seen === this.grid.version) return;
+    this.dirty = false;
+    this.seen = this.grid.version;
+    const st = this.grid.state;
+    const near = this.near, far = this.far;
+    const nm = near.instanceMatrix.array as Float32Array, nc = near.instanceColor?.array as Float32Array | undefined;
+    const fm = far?.instanceMatrix.array as Float32Array | undefined, fc = far?.instanceColor?.array as Float32Array | undefined;
+    const src = this.src, col = this.col, alive = this.alive, order = this.order, start = this.start;
+    let nn = 0, nf = 0;
+    for (let b = 0; b < st.length; b++) {
+      const s = st[b];
+      if (!s) continue;
+      const toFar = s === 2 && !!far;
+      for (let i = start[b]; i < start[b + 1]; i++) {
+        const k = order[i];
+        if (!alive[k]) continue;
+        if (s === 2 && this.thinFar && k & 1) continue;
+        if (toFar) {
+          fm!.set(src.subarray(k * 16, k * 16 + 16), nf * 16);
+          if (fc && col) { fc[nf * 3] = col[k * 3]; fc[nf * 3 + 1] = col[k * 3 + 1]; fc[nf * 3 + 2] = col[k * 3 + 2]; }
+          nf++;
+        } else {
+          nm.set(src.subarray(k * 16, k * 16 + 16), nn * 16);
+          if (nc && col) { nc[nn * 3] = col[k * 3]; nc[nn * 3 + 1] = col[k * 3 + 1]; nc[nn * 3 + 2] = col[k * 3 + 2]; }
+          nn++;
+        }
+      }
+    }
+    publish(near, nn, this.on);
+    if (far) publish(far, nf, this.on);
+  }
+}
+
+const _white = new THREE.Color(1, 1, 1);
+
+function publish(mesh: THREE.InstancedMesh, n: number, on: boolean) {
+  mesh.count = n;
+  mesh.visible = on && n > 0;
+  if (!n) return;
+  const im = mesh.instanceMatrix;
+  im.clearUpdateRanges();
+  im.addUpdateRange(0, n * 16);
+  im.needsUpdate = true;
+  const ic = mesh.instanceColor;
+  if (ic) {
+    ic.clearUpdateRanges();
+    ic.addUpdateRange(0, n * 3);
+    ic.needsUpdate = true;
   }
 }
 
@@ -99,14 +278,15 @@ function tintFoliage(g: THREE.BufferGeometry, r: number, gg: number, b: number, 
   return g;
 }
 
-function pineGeometry(seed: number, tall: number): THREE.BufferGeometry {
-  const trunk = colorize(new THREE.CylinderGeometry(0.045, 0.075, 0.5, 6).translate(0, 0.25, 0), new THREE.Color(0.12, 0.07, 0.04), 0.2, seed);
+/** `lod`: low-detail version for distant blocks (same silhouette and colours, about a third of the triangles). */
+function pineGeometry(seed: number, tall: number, lod = false): THREE.BufferGeometry {
+  const trunk = colorize(new THREE.CylinderGeometry(0.045, 0.075, 0.5, lod ? 4 : 6, 1, lod).translate(0, 0.25, 0), new THREE.Color(0.12, 0.07, 0.04), 0.2, seed);
   const parts = [trunk];
   const tiers = 3 + (seed % 2);
   for (let k = 0; k < tiers; k++) {
     const r = 0.42 - k * 0.09;
     const h = 0.62 - k * 0.07;
-    const cone = new THREE.ConeGeometry(r, h * tall, 9, 2);
+    const cone = new THREE.ConeGeometry(r, h * tall, lod ? 6 : 9, lod ? 1 : 2, lod);
     const g = lumpy(cone, 0.18, seed * 7 + k);
     g.translate(0, 0.45 + k * 0.3 * tall + (h * tall) / 2 - 0.1, 0);
     const shade = 0.8 + k * 0.09;
@@ -115,15 +295,15 @@ function pineGeometry(seed: number, tall: number): THREE.BufferGeometry {
   return mergeGeometries(parts.map((p) => flat(p)))!;
 }
 
-function broadleafGeometry(seed: number): THREE.BufferGeometry {
-  const trunk = colorize(new THREE.CylinderGeometry(0.05, 0.09, 0.62, 6).translate(0, 0.31, 0), new THREE.Color(0.14, 0.09, 0.05), 0.2, seed);
+function broadleafGeometry(seed: number, lod = false): THREE.BufferGeometry {
+  const trunk = colorize(new THREE.CylinderGeometry(0.05, 0.09, 0.62, lod ? 4 : 6, 1, lod).translate(0, 0.31, 0), new THREE.Color(0.14, 0.09, 0.05), 0.2, seed);
   const parts = [trunk];
   const blobs = 4;
   for (let k = 0; k < blobs; k++) {
     const a = (k / blobs) * Math.PI * 2 + seed;
     const r = k === 0 ? 0 : 0.2;
     const s = k === 0 ? 0.42 : 0.3;
-    const ico = lumpy(new THREE.IcosahedronGeometry(s, 1), 0.35, seed * 13 + k);
+    const ico = lumpy(new THREE.IcosahedronGeometry(s, lod ? 0 : 1), 0.35, seed * 13 + k);
     ico.translate(Math.cos(a) * r, 0.85 + (k === 0 ? 0.18 : 0) + hash2(k, seed) * 0.12, Math.sin(a) * r);
     const g = 0.36 + hash2(k, seed, 3) * 0.08;
     parts.push(colorize(ico, new THREE.Color(0.08, g * 0.55, 0.045), 0.3, seed + k * 3));
@@ -131,8 +311,8 @@ function broadleafGeometry(seed: number): THREE.BufferGeometry {
   return mergeGeometries(parts.map((p) => flat(p)))!;
 }
 
-function boulderGeometry(seed: number, tint: [number, number, number] = [0.2, 0.19, 0.17]): THREE.BufferGeometry {
-  const g = lumpy(new THREE.IcosahedronGeometry(0.5, 1), 0.55, seed, true);
+function boulderGeometry(seed: number, tint: [number, number, number] = [0.2, 0.19, 0.17], lod = false): THREE.BufferGeometry {
+  const g = lumpy(new THREE.IcosahedronGeometry(0.5, lod ? 0 : 1), 0.55, seed, true);
   g.scale(1, 0.75, 1);
   return colorize(g, new THREE.Color(...tint), 0.3, seed);
 }
@@ -194,65 +374,90 @@ function windMaterial(base: THREE.MeshStandardMaterialParameters, uTime: { value
   return mat;
 }
 
-interface TreeRef { mesh: THREE.InstancedMesh; index: number; x: number; y: number; z: number }
-type Item = { m: THREE.Matrix4; c?: THREE.Color; x: number; y: number };
+interface TreeRef { inst: CulledInstances; index: number; x: number; y: number; z: number }
+
+/** Margin of the culling grid around the map (covers the scenery forest on the skirt). */
+const MARGIN = 48;
 
 export class Vegetation {
   readonly group = new THREE.Group();
   readonly uTime = { value: 0 };
+  private grid: BlockGrid;
+  private all: CulledInstances[] = [];
   private treeRefs = new Map<number, TreeRef>();
-  private grassByCell = new Map<number, [THREE.InstancedMesh, number][]>();
-  private grassMeshes: THREE.InstancedMesh[] = [];
+  private clutterByCell = new Map<number, [CulledInstances, number][]>();
+  private grass: CulledInstances | null = null;
   private lastTreeVersion: number;
   private treeState: Uint8Array;
-  private treeGeos: THREE.BufferGeometry[] = [];
-  private treeMat!: THREE.Material;
 
-  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'high', readonly climate: 'temperate' | 'winter' | 'desert' = 'temperate') {
+  /**
+   * @param scenery tree spots on the landscape outside the playable area ([x, height, y]); they share the
+   *   map trees' instanced meshes, so they cost no extra draw calls.
+   */
+  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'high', readonly climate: 'temperate' | 'winter' | 'desert' = 'temperate', scenery: [number, number, number][] = []) {
     this.lastTreeVersion = map.treeVersion;
     this.treeState = map.tree.slice();
+    this.group.name = 'vegetation';
+    this.group.matrixAutoUpdate = false;
     const m = map;
+    this.grid = new BlockGrid(-MARGIN, -MARGIN, m.w + MARGIN, m.h + MARGIN);
+    const grid = this.grid;
     const dummy = new THREE.Object3D();
     const mat4 = () => { dummy.updateMatrix(); return dummy.matrix.clone(); };
+    const lodOn = quality !== 'low';
 
     // ---- trees -------------------------------------------------------------
-    let treeGeos = [pineGeometry(1, 1.0), pineGeometry(2, 1.25), broadleafGeometry(3), broadleafGeometry(4)];
-    if (climate === 'winter') treeGeos = [snowCover(pineGeometry(1, 1.0), 0.85), snowCover(pineGeometry(2, 1.25), 0.8), snowCover(pineGeometry(5, 1.1), 0.9), snowCover(pineGeometry(6, 0.9), 0.75)];
-    else if (climate === 'desert') treeGeos = [tintFoliage(broadleafGeometry(3), 0.17, 0.17, 0.08), tintFoliage(broadleafGeometry(4), 0.2, 0.18, 0.09), tintFoliage(pineGeometry(7, 0.8), 0.12, 0.14, 0.07, 0.4), tintFoliage(broadleafGeometry(8), 0.23, 0.2, 0.1)];
+    const treeSet = (lod: boolean): THREE.BufferGeometry[] => {
+      if (climate === 'winter') return [snowCover(pineGeometry(1, 1.0, lod), 0.85), snowCover(pineGeometry(2, 1.25, lod), 0.8), snowCover(pineGeometry(5, 1.1, lod), 0.9), snowCover(pineGeometry(6, 0.9, lod), 0.75)];
+      if (climate === 'desert') return [tintFoliage(broadleafGeometry(3, lod), 0.17, 0.17, 0.08), tintFoliage(broadleafGeometry(4, lod), 0.2, 0.18, 0.09), tintFoliage(pineGeometry(7, 0.8, lod), 0.12, 0.14, 0.07, 0.4), tintFoliage(broadleafGeometry(8, lod), 0.23, 0.2, 0.1)];
+      return [pineGeometry(1, 1.0, lod), pineGeometry(2, 1.25, lod), broadleafGeometry(3, lod), broadleafGeometry(4, lod)];
+    };
+    const treeGeos = treeSet(false);
+    const treeLods = lodOn ? treeSet(true) : null;
     const treeMat = windMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }, this.uTime, 0.04, 0.35, 'tree');
-    this.treeGeos = treeGeos;
-    this.treeMat = treeMat;
+    const treeItems: Item[][] = [[], [], [], []];
     const treeCells: number[][] = [[], [], [], []];
-    for (let i = 0; i < m.w * m.h; i++) if (m.tree[i]) treeCells[(m.tree[i] - 1) % 4].push(i);
+    const treePos: [number, number, number][][] = [[], [], [], []];
+    for (let i = 0; i < m.w * m.h; i++) {
+      if (!m.tree[i]) continue;
+      const v = (m.tree[i] - 1) % 4;
+      const cx = i % m.w, cy = (i / m.w) | 0;
+      const x = cx + 0.5 + (hash2(cx, cy, 1) - 0.5) * 0.4;
+      const y = cy + 0.5 + (hash2(cx, cy, 2) - 0.5) * 0.4;
+      const z = heightAt(x, y) - 0.03;
+      const sc = (0.85 + hash2(cx, cy, 3) * 0.5) * 0.8;
+      dummy.position.set(x, z, y);
+      dummy.rotation.set((hash2(cx, cy, 6) - 0.5) * 0.12, hash2(cx, cy, 4) * Math.PI * 2, (hash2(cx, cy, 7) - 0.5) * 0.12);
+      dummy.scale.set(sc, sc * (0.9 + hash2(cx, cy, 5) * 0.25), sc);
+      const tint = 0.85 + hash2(cx, cy, 8) * 0.3;
+      treeItems[v].push({ m: mat4(), c: new THREE.Color(tint * (0.95 + hash2(cx, cy, 9) * 0.1), tint, tint * 0.95), x, y });
+      treeCells[v].push(i);
+      treePos[v].push([x, z, y]);
+    }
+    // scenery forest beyond the map edge: appended after the map trees (their indices are not tracked)
+    scenery.forEach(([x, h, y], k) => {
+      const v = Math.floor(hash2(Math.floor(x * 3), Math.floor(y * 3), 5) * 4);
+      const sc = (0.8 + hash2(k, 3, 9) * 0.6) * 0.85;
+      dummy.position.set(x, h, y);
+      dummy.rotation.set(0, hash2(k, 4, 9) * 6.28, 0);
+      dummy.scale.set(sc, sc * (0.9 + hash2(k, 5, 9) * 0.3), sc);
+      const tint = 0.8 + hash2(k, 6, 9) * 0.3;
+      treeItems[v].push({ m: mat4(), c: new THREE.Color(tint, tint, tint * 0.95), x, y });
+    });
     treeGeos.forEach((g, v) => {
-      const cells = treeCells[v];
-      if (!cells.length) return;
-      const items: Item[] = [];
-      const pos: [number, number, number][] = [];
-      for (const ci of cells) {
-        const cx = ci % m.w, cy = (ci / m.w) | 0;
-        const x = cx + 0.5 + (hash2(cx, cy, 1) - 0.5) * 0.4;
-        const y = cy + 0.5 + (hash2(cx, cy, 2) - 0.5) * 0.4;
-        const z = heightAt(x, y) - 0.03;
-        const sc = (0.85 + hash2(cx, cy, 3) * 0.5) * 0.8;
-        dummy.position.set(x, z, y);
-        dummy.rotation.set((hash2(cx, cy, 6) - 0.5) * 0.12, hash2(cx, cy, 4) * Math.PI * 2, (hash2(cx, cy, 7) - 0.5) * 0.12);
-        dummy.scale.set(sc, sc * (0.9 + hash2(cx, cy, 5) * 0.25), sc);
-        const tint = 0.85 + hash2(cx, cy, 8) * 0.3;
-        items.push({ m: mat4(), c: new THREE.Color(tint * (0.95 + hash2(cx, cy, 9) * 0.1), tint, tint * 0.95), x, y });
-        pos.push([x, z, y]);
-      }
-      const ch = new ChunkedInstances(this.group, g, treeMat, items, true);
-      cells.forEach((ci, k) => {
-        const [mesh, index] = ch.ref(k);
-        this.treeRefs.set(ci, { mesh, index, x: pos[k][0], y: pos[k][1], z: pos[k][2] });
-      });
+      if (!treeItems[v].length) return;
+      const inst = this.add(new CulledInstances(grid, this.group, g, treeMat, treeItems[v], true, treeLods?.[v] ?? null));
+      treeCells[v].forEach((ci, k) => this.treeRefs.set(ci, { inst, index: k, x: treePos[v][k][0], y: treePos[v][k][1], z: treePos[v][k][2] }));
     });
 
     // ---- boulders on rocky ground ------------------------------------------
     const rockTint: [number, number, number] = climate === 'winter' ? [0.19, 0.2, 0.23] : climate === 'desert' ? [0.3, 0.19, 0.13] : [0.2, 0.19, 0.17];
-    let rockGeos = [boulderGeometry(11, rockTint), boulderGeometry(12, rockTint), boulderGeometry(13, rockTint)];
-    if (climate === 'winter') rockGeos = rockGeos.map((g) => snowCover(g, 0.75));
+    const rockSet = (lod: boolean) => {
+      const geos = [boulderGeometry(11, rockTint, lod), boulderGeometry(12, rockTint, lod), boulderGeometry(13, rockTint, lod)];
+      return climate === 'winter' ? geos.map((g) => snowCover(g, 0.75)) : geos;
+    };
+    const rockGeos = rockSet(false);
+    const rockLods = lodOn ? rockSet(true) : null;
     const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
     const rockItems: Item[][] = [[], [], []];
     const addRock = (v: number, x: number, y: number, sc: number, r: number) => {
@@ -275,7 +480,7 @@ export class Vegetation {
         addRock((cx * 3 + cy) % 3, cx + hash2(cx, cy, 32), cy + hash2(cx, cy, 33), 0.12 + hash2(cx, cy, 34) * 0.12, hash2(cx, cy, 35));
       }
     }
-    rockGeos.forEach((g, v) => { if (rockItems[v].length) new ChunkedInstances(this.group, g, rockMat, rockItems[v], true); });
+    rockGeos.forEach((g, v) => { if (rockItems[v].length) this.add(new CulledInstances(grid, this.group, g, rockMat, rockItems[v], true, rockLods?.[v] ?? null)); });
 
     // ---- bushes near forests ------------------------------------------------
     const bushItems: Item[] = [];
@@ -299,8 +504,8 @@ export class Vegetation {
       let bushGeo = bushGeometry(5);
       if (climate === 'winter') bushGeo = snowCover(bushGeo, 0.7);
       else if (climate === 'desert') bushGeo = tintFoliage(bushGeo, 0.2, 0.18, 0.09, -1);
-      const ch = new ChunkedInstances(this.group, bushGeo, windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true);
-      bushItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), ...ch.ref(k)));
+      const inst = this.add(new CulledInstances(grid, this.group, bushGeo, windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true, null, true));
+      bushItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), inst, k));
     }
 
     // ---- grass tufts ----------------------------------------------------------
@@ -326,61 +531,50 @@ export class Vegetation {
     }
     if (grassItems.length) {
       const mat = windMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }, this.uTime, 1.6, 0.0, 'grass');
-      const ch = new ChunkedInstances(this.group, tuftGeometry(), mat, grassItems, false);
-      grassItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), ...ch.ref(k)));
-      this.grassMeshes = ch.meshes;
+      // distant grass is thinned to every other tuft: at that zoom a tuft is a couple of pixels
+      const inst = this.add(new CulledInstances(grid, this.group, tuftGeometry(), mat, grassItems, false, null, true));
+      grassItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), inst, k));
+      this.grass = inst;
     }
   }
 
-  /** Scenery trees outside the playable area (no gameplay, no shadows cast). */
-  addSceneryTrees(spots: [number, number, number][]) {
-    const lists: Item[][] = [[], [], [], []];
-    const dummy = new THREE.Object3D();
-    spots.forEach(([x, h, y], k) => {
-      const v = Math.floor(hash2(Math.floor(x * 3), Math.floor(y * 3), 5) * 4);
-      const sc = (0.8 + hash2(k, 3, 9) * 0.6) * 0.85;
-      dummy.position.set(x, h, y);
-      dummy.rotation.set(0, hash2(k, 4, 9) * 6.28, 0);
-      dummy.scale.set(sc, sc * (0.9 + hash2(k, 5, 9) * 0.3), sc);
-      dummy.updateMatrix();
-      const tint = 0.8 + hash2(k, 6, 9) * 0.3;
-      lists[v].push({ m: dummy.matrix.clone(), c: new THREE.Color(tint, tint, tint * 0.95), x, y });
-    });
-    lists.forEach((items, v) => { if (items.length) new ChunkedInstances(this.group, this.treeGeos[v], this.treeMat, items, false); });
+  private add(c: CulledInstances): CulledInstances {
+    this.all.push(c);
+    return c;
   }
 
-  private addCellRef(cell: number, mesh: THREE.InstancedMesh, index: number) {
-    let list = this.grassByCell.get(cell);
-    if (!list) this.grassByCell.set(cell, (list = []));
-    list.push([mesh, index]);
+  /** @deprecated scenery trees are passed to the constructor now (shared draw calls); kept for API compatibility. */
+  addSceneryTrees(spots: [number, number, number][]) {
+    void spots;
+  }
+
+  private addCellRef(cell: number, inst: CulledInstances, index: number) {
+    let list = this.clutterByCell.get(cell);
+    if (!list) this.clutterByCell.set(cell, (list = []));
+    list.push([inst, index]);
   }
 
   /** Hide ground clutter on cells (e.g. under a new building). */
   hideCells(cells: number[]) {
-    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    const touched = new Set<THREE.InstancedMesh>();
     for (const c of cells) {
-      const list = this.grassByCell.get(c);
+      const list = this.clutterByCell.get(c);
       if (!list) continue;
-      for (const [mesh, k] of list) { mesh.setMatrixAt(k, zero); touched.add(mesh); }
-      this.grassByCell.delete(c);
+      for (const [inst, k] of list) inst.hide(k);
+      this.clutterByCell.delete(c);
     }
-    for (const m of touched) m.instanceMatrix.needsUpdate = true;
   }
 
   /** Returns positions of trees removed since the last call. */
   syncTrees(): THREE.Vector3[] {
+    if (this.map.treeVersion === this.lastTreeVersion) return NO_TREES;
     const out: THREE.Vector3[] = [];
-    if (this.map.treeVersion === this.lastTreeVersion) return out;
     this.lastTreeVersion = this.map.treeVersion;
-    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < this.treeState.length; i++) {
       if (this.treeState[i] && !this.map.tree[i]) {
         this.treeState[i] = 0;
         const ref = this.treeRefs.get(i);
         if (ref) {
-          ref.mesh.setMatrixAt(ref.index, zero);
-          ref.mesh.instanceMatrix.needsUpdate = true;
+          ref.inst.hide(ref.index);
           out.push(new THREE.Vector3(ref.x, ref.y, ref.z));
         }
       }
@@ -388,11 +582,19 @@ export class Vegetation {
     return out;
   }
 
-  update(time: number) {
+  /**
+   * Per frame: wind time, and (with a camera) block culling + LOD selection. Instance buffers are only
+   * rewritten when the set of visible blocks changes.
+   */
+  update(time: number, camera?: THREE.Camera, sunDir?: THREE.Vector3) {
     this.uTime.value = time;
+    if (camera && sunDir) this.grid.cull(camera, sunDir);
+    for (const c of this.all) c.sync();
   }
 
   setGrassVisible(v: boolean) {
-    for (const g of this.grassMeshes) g.visible = v;
+    if (this.grass) this.grass.enabled = v;
   }
 }
+
+const NO_TREES: THREE.Vector3[] = [];

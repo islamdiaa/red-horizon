@@ -330,6 +330,7 @@ export function lightFlash(ctx: FxContext, x: number, y: number, z: number, colo
 }
 
 export function scorchDecal(ctx: FxContext, x: number, z: number, size: number, delay = 0, frame = -1, intensity = 0.85, life = 50): void {
+  if (ctx.isWater(x, z)) return;
   const f = frame >= 0 ? frame : rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B;
   ctx.decals.add(x, z, size, f, intensity, life * range(0.85, 1.15), rnd() * TAU, delay);
 }

@@ -5,6 +5,7 @@ import type { World } from '../sim/world';
 import type { FogOfWar } from './fog';
 import type { Player } from '../sim/player';
 import { flat } from './geomutil';
+import { shadowDepthMaterial } from './models/materials';
 
 type WallKind = 'sbag' | 'barb' | 'brik';
 const KINDS: WallKind[] = ['sbag', 'barb', 'brik'];
@@ -62,8 +63,9 @@ function pieces(kind: WallKind): { post: THREE.BufferGeometry; arm: THREE.Buffer
 export class WallRenderer {
   readonly group = new THREE.Group();
   private meshes = new Map<WallKind, { post: THREE.InstancedMesh; arm: THREE.InstancedMesh }>();
-  private signature = '';
+  private signature = -1;
   private dummy = new THREE.Object3D();
+  private walls: import('../sim/entities').Building[] = [];
 
   constructor(private world: World, private fog: FogOfWar, private local: Player) {
     for (const k of KINDS) {
@@ -73,7 +75,9 @@ export class WallRenderer {
       for (const m of [post, arm]) {
         m.castShadow = true;
         m.receiveShadow = true;
+        m.customDepthMaterial = shadowDepthMaterial(m);
         m.count = 0;
+        m.visible = false; // no empty instanced draw calls
         m.frustumCulled = false;
         this.group.add(m);
       }
@@ -97,12 +101,20 @@ export class WallRenderer {
 
   update() {
     const w = this.world;
-    const walls = w.buildings.filter((b) => b.alive && b.bt.wall);
-    // visibility of enemy walls depends on exploration, so include a coarse exploration bit
-    let sig = '';
-    for (const b of walls) sig += b.id + (b.owner.team === this.local.team || this.fog.exploredAt(b.x, b.y) > 0.5 ? 'v' : 'h') + ',';
+    // signature of the wall set (allocation-free; runs every frame): ids plus a coarse exploration bit,
+    // since the visibility of enemy walls depends on exploration
+    let sig = 0, n = 0;
+    for (const b of w.buildings) {
+      if (!b.alive || !b.bt.wall) continue;
+      const seen = b.owner.team === this.local.team || this.fog.exploredAt(b.x, b.y) > 0.5 ? 1 : 2;
+      sig = (Math.imul(sig ^ (b.id * 4 + seen), 0x9e3779b1) + n++) | 0;
+    }
+    sig = (sig ^ n) >>> 0;
     if (sig === this.signature) return;
     this.signature = sig;
+    const walls = this.walls;
+    walls.length = 0;
+    for (const b of w.buildings) if (b.alive && b.bt.wall) walls.push(b);
     const m = w.map;
     const at = new Map<number, string>();
     for (const b of walls) at.set(m.idx(b.cx, b.cy), b.bt.id);
@@ -137,6 +149,8 @@ export class WallRenderer {
       const c = counts.get(k)!;
       mm.post.count = c[0];
       mm.arm.count = c[1];
+      mm.post.visible = c[0] > 0;
+      mm.arm.visible = c[1] > 0;
       mm.post.instanceMatrix.needsUpdate = true;
       mm.arm.instanceMatrix.needsUpdate = true;
     }

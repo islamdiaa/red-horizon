@@ -29,8 +29,16 @@ import { muzzleFlash, tracer, teslaBolt, flameStream } from './weapons';
 import { healPulse, dust, constructionBurst, chronoFlash, ironCurtainPulse, oreSparkle, orderMarker, AmbientMotes } from './misc';
 import { Emitter } from './emitters';
 import { rnd, range } from './rand';
+import { BodyPool } from './bodies';
+import { Flights } from './flights';
+import { waterSplash, underwaterBlast, sonarPing, bowSpray, radarJamPulse, mineBlast, bubbles } from './water';
+import { TrailVisual, type TrailKind } from './specialproj';
+import type { FxCue } from './context';
+import { WATER_LEVEL } from '../../sim/map';
 
 export type { EffectsApi, EffectsOptions, EmitterHandle, EmitterKind, ProjectileHandle } from './types';
+export type { FxCue } from './context';
+export type { TrailKind } from './specialproj';
 
 export interface EffectsStats {
   mainAlive: number;
@@ -63,7 +71,20 @@ export class Effects implements EffectsApi {
   private lights: LightPool;
   private shells: ShellPool;
   private ambient = new AmbientMotes();
+  private bodies: BodyPool;
+  private flights = new Flights();
   private emitters: Emitter[] = [];
+  // delayed audio cues (parallel arrays, no allocations)
+  private cueT: number[] = [];
+  private cueK: FxCue[] = [];
+  private cueP: number[] = [];
+  private readonly cuePos = new THREE.Vector3();
+  /**
+   * Audio hook for effect moments: 'splash' (water splash), 'thump' (underwater blast),
+   * 'bomb' (a bomb starts falling — whistle), 'sonar', 'launch' (GPS rocket ignition), 'torpedo'.
+   * The position object is reused: copy it if you keep it.
+   */
+  onCue: ((cue: FxCue, pos: THREE.Vector3) => void) | null = null;
   private ctx: FxContext;
   private now = 0;
   // delayed shake (parallel arrays, no allocations)
@@ -85,9 +106,10 @@ export class Effects implements EffectsApi {
     this.glow = new ParticleBatch(GLOW_CAPACITY, u, 23);
     this.shells = new ShellPool(4, this.tex.noise, 24);
     this.lights = new LightPool(opts.scene, LIGHT_COUNT);
+    this.bodies = new BodyPool(0);
 
     this.root.name = 'effects';
-    this.root.add(this.decals.mesh, this.main.mesh, this.beams.mesh, this.sprites.mesh, this.glow.mesh, this.shells.group);
+    this.root.add(this.decals.mesh, this.main.mesh, this.beams.mesh, this.sprites.mesh, this.glow.mesh, this.shells.group, this.bodies.group);
     opts.scene.add(this.root);
 
     // make sure freshly spawned data is uploaded even if spawns happen after update()
@@ -108,6 +130,17 @@ export class Effects implements EffectsApi {
       getHeight: opts.getHeight,
       now: 0,
       density: 1,
+      waterLevel: opts.waterLevel ?? WATER_LEVEL,
+      isWater:
+        opts.isWater ??
+        ((x: number, z: number) => opts.getHeight(x, z) <= (opts.waterLevel ?? WATER_LEVEL) + 1e-4),
+      bodies: this.bodies,
+      cue(kind: FxCue, x: number, y: number, z: number, delay: number) {
+        if (!self.onCue) return;
+        self.cueT.push(self.now + Math.max(0, delay));
+        self.cueK.push(kind);
+        self.cueP.push(x, y, z);
+      },
       addShake(amount: number, delay = 0) {
         if (delay <= 0) self.shake += amount;
         else {
@@ -152,8 +185,26 @@ export class Effects implements EffectsApi {
       }
     }
 
+    // delayed audio cues
+    for (let i = this.cueT.length - 1; i >= 0; i--) {
+      if (this.cueT[i] > this.now) continue;
+      const cb = this.onCue;
+      if (cb) cb(this.cueK[i], this.cuePos.set(this.cueP[i * 3], this.cueP[i * 3 + 1], this.cueP[i * 3 + 2]));
+      const last = this.cueT.length - 1;
+      this.cueT[i] = this.cueT[last];
+      this.cueK[i] = this.cueK[last];
+      this.cueP[i * 3] = this.cueP[last * 3];
+      this.cueP[i * 3 + 1] = this.cueP[last * 3 + 1];
+      this.cueP[i * 3 + 2] = this.cueP[last * 3 + 2];
+      this.cueT.pop();
+      this.cueK.pop();
+      this.cueP.length -= 3;
+    }
+
+    this.flights.update(dt);
     this.lights.update(this.now);
     this.shells.update(this.now);
+    this.bodies.flush();
 
     this.main.flush();
     this.glow.flush();
@@ -199,8 +250,12 @@ export class Effects implements EffectsApi {
     healPulse(this.ctx, pos.x, pos.y, pos.z);
   }
 
-  spawnProjectile(kind: ProjectileKind): ProjectileHandle {
-    return spawnProjectile(this.ctx, kind);
+  /**
+   * Visual for an in-flight projectile. `size` scales cannon / ballistic shells (1.8 for the cruiser's
+   * 8-inch guns) and bombs. 'torpedo' | 'depthcharge' | 'bomb' get dedicated visuals.
+   */
+  spawnProjectile(kind: ProjectileKind, size = 1): ProjectileHandle {
+    return spawnProjectile(this.ctx, kind, size);
   }
 
   createEmitter(kind: EmitterKind, pos: THREE.Vector3): EmitterHandle {
@@ -214,10 +269,12 @@ export class Effects implements EffectsApi {
   }
 
   scorch(pos: THREE.Vector3, size: number): void {
+    if (this.ctx.isWater(pos.x, pos.z)) return;
     this.decals.add(pos.x, pos.z, size, rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B, 0.85, range(42, 58), rnd() * Math.PI * 2);
   }
 
   bloodSplat(pos: THREE.Vector3): void {
+    if (this.ctx.isWater(pos.x, pos.z)) return;
     this.decals.add(pos.x, pos.z, range(0.3, 0.42), D.SPLAT, 0.62, range(35, 45), rnd() * Math.PI * 2);
   }
 
@@ -239,6 +296,76 @@ export class Effects implements EffectsApi {
 
   orderMarker(pos: THREE.Vector3, kind: 'move' | 'attack' | 'rally'): void {
     orderMarker(this.ctx, pos.x, pos.z, kind);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Round 4: naval, support powers
+
+  /** Something lands in open water. pos.y is ignored (the water surface is used). size 1 = tank shell, 2 = 8-inch shell, 0.3 = bullets. */
+  waterSplash(pos: THREE.Vector3, size = 1): void {
+    waterSplash(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
+  }
+
+  /** Underwater detonation (depth charge, torpedo hit): flash under the surface, bulge, tall water column, foam slick. */
+  underwaterBlast(pos: THREE.Vector3, size = 1): void {
+    underwaterBlast(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
+  }
+
+  /** Sonar pulse rings racing over the water from pos (radius in cells). */
+  sonarPing(pos: THREE.Vector3, radius = 6): void {
+    const y = this.ctx.isWater(pos.x, pos.z) ? this.ctx.waterLevel : this.ctx.getHeight(pos.x, pos.z);
+    sonarPing(this.ctx, pos.x, y, pos.z, Math.max(0.5, radius));
+  }
+
+  /** Radar jammer burst around pos. */
+  radarJamPulse(pos: THREE.Vector3, radius = 4): void {
+    radarJamPulse(this.ctx, pos.x, this.ctx.getHeight(pos.x, pos.z), pos.z, Math.max(0.5, radius));
+  }
+
+  /**
+   * Mine detonation: dirt fountain, debris and crater (AT bigger than AP). With `withExplosion`
+   * (default) it also plays the fireball; pass false when the sim's impact event already does.
+   */
+  mineBlast(pos: THREE.Vector3, kind: 'ap' | 'at', withExplosion = true): void {
+    const gy = this.ctx.getHeight(pos.x, pos.z);
+    if (withExplosion) explode(this.ctx, kind === 'at' ? 'medium' : 'small', pos.x, gy + 0.08, pos.z, kind === 'at' ? 1.2 : 0.9);
+    if (!this.ctx.isWater(pos.x, pos.z)) mineBlast(this.ctx, pos.x, gy, pos.z, kind === 'at');
+  }
+
+  /** Bow spray for a moving ship (Wakes calls this). dir = heading (unit, XZ), amount 0..1 ~ speed. */
+  bowSpray(pos: THREE.Vector3, dirX: number, dirZ: number, amount: number, size = 1): void {
+    bowSpray(this.ctx, pos.x, this.ctx.waterLevel, pos.z, dirX, dirZ, amount, size);
+  }
+
+  /** Bubbles rising to the surface at pos (sinking wrecks, submarine diving). */
+  bubbles(pos: THREE.Vector3, n = 6, radius = 0.15): void {
+    bubbles(this.ctx, pos.x, this.ctx.waterLevel, pos.z, n, radius);
+  }
+
+  /** GPS satellite launch: rocket lifting off from pos (the tech centre) into the sky (~7 s). */
+  gpsLaunch(pos: THREE.Vector3): void {
+    this.flights.gpsLaunch(this.ctx, pos.x, Math.max(pos.y, this.ctx.getHeight(pos.x, pos.z)), pos.z);
+  }
+
+  /**
+   * Free-standing trail driven like a projectile handle: 'contrail' (white condensation from bomber /
+   * spy-plane engines — feed it the model's smokePoints world positions) or 'smoke' (burning aircraft).
+   */
+  spawnTrail(kind: TrailKind, width = 1): ProjectileHandle {
+    return new TrailVisual(this.ctx, kind, width);
+  }
+
+  /**
+   * Shader warm-up: show the pooled 3D bodies (bombs, depth charges, GPS rocket) while
+   * renderer.compile() runs, then call again with false.
+   */
+  prepareCompile(on: boolean): void {
+    this.bodies.prepareCompile(on);
+  }
+
+  /** Water surface height used by water effects. */
+  get waterLevel(): number {
+    return this.ctx.waterLevel;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -302,6 +429,8 @@ export class Effects implements EffectsApi {
     this.sprites.dispose();
     this.decals.dispose();
     this.shells.dispose();
+    this.flights.dispose();
+    this.bodies.dispose();
     this.lights.dispose();
     this.tex.dispose();
     this.emitters.length = 0;

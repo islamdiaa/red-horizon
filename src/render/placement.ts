@@ -61,9 +61,10 @@ export class PlacementGhost {
     if (!this.model) return;
     this.model.root.visible = false;
     this.ring.visible = false;
-    const m = new THREE.Matrix4();
+    const m = _m4;
     let k = 0;
-    for (const [cx, cy, ok] of cells.slice(0, 64)) {
+    for (let i = 0; i < cells.length && i < 64; i++) {
+      const [cx, cy, ok] = cells[i];
       const tx = cx + 0.5, ty = cy + 0.5;
       m.makeTranslation(tx, this.map.heightAt(tx, ty) + 0.05, ty);
       this.tiles.setMatrixAt(k, m);
@@ -88,7 +89,7 @@ export class PlacementGhost {
     this.model.root.position.set(x, g, y);
     this.holo.uniforms.uTime.value = time;
     this.holo.uniforms.uColor.value.set(valid ? 0x40d8ff : 0xff4030);
-    const m = new THREE.Matrix4();
+    const m = _m4;
     let k = 0;
     for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
       const tx = cx + dx + 0.5, ty = cy + dy + 0.5;
@@ -105,3 +106,5 @@ export class PlacementGhost {
     this.ring.position.set(x, g + 0.08, y);
   }
 }
+
+const _m4 = new THREE.Matrix4();

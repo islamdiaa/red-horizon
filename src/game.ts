@@ -13,6 +13,10 @@ import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
 import { releaseGpuResources } from './render/gpuregistry';
+import { ShipWakes, type WakeShip } from './render/wakes';
+import { GapField, type GapSource } from './render/gapfield';
+import { BridgeRenderer } from './render/bridges';
+import { WATER_LEVEL } from './sim/map';
 import { LightPools } from './render/lightpools';
 import { CrateRenderer } from './render/crates';
 import { TrackMarks } from './render/tracks';
@@ -42,6 +46,9 @@ import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
 import { loadCuratedMap } from './maps'; // [D] curated skirmish maps
 import { ReplayRecorder } from './replay/recorder'; // [D] replays
 import type { PlaybackOptions } from './replay/format';
+
+/** Hull lengths (cells) for wake sizes. */
+const SHIP_LENGTH: Record<string, number> = { pt: 0.9, dd: 1.5, ca: 2.35, lst: 1.4, ss: 1.3 };
 
 /** Progression tracker shared by every match (XP, ranks, medals, records). Unlocks pop as toasts. */
 export const meta = new MetaTracker();
@@ -115,6 +122,12 @@ export class Game {
   private nukeWatched = new Set<number>();
   private endCine: (() => void) | null = null;
   private nukeCine: (() => void) | null = null;
+  // round-4 content renderers: ship wakes, gap-generator shroud domes, bridges
+  private wakes!: ShipWakes;
+  private gapField!: GapField;
+  bridges!: BridgeRenderer;
+  private wakeShips: WakeShip[] = [];
+  private gapSources: GapSource[] = [];
   private ambT = 0;
   private envT = 0;
   private offHeat = 0;
@@ -236,6 +249,12 @@ export class Game {
     });
     this.gfx.fog.enabled = this.world.fog;
     this.effects = new Effects({ scene: this.gfx.scene, camera: this.gfx.cam.camera, renderer: this.gfx.renderer, getHeight: (x, z) => map.surfaceAt(x, z) });
+    this.wakes = new ShipWakes({ waterLevel: WATER_LEVEL, effects: this.effects });
+    this.gfx.scene.add(this.wakes.mesh);
+    this.gapField = new GapField({ getHeight: (x, z) => map.surfaceAt(x, z) });
+    this.gfx.scene.add(this.gapField.mesh);
+    this.bridges = new BridgeRenderer({ heightAt: (x, y) => map.heightAt(x, y), climate: map.climate, effects: this.effects });
+    this.gfx.scene.add(this.bridges.group);
     this.effects.setSunDirection?.(this.gfx.sunDir);
     if (setup.quality === 'low') this.effects.setDensity?.(0.5);
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
@@ -397,6 +416,53 @@ export class Game {
     this.gfx.fog.snap(this.local);
   }
 
+  /** Visual counterparts of simulation sound cues (splashes, radar jamming). */
+  private sfxVisual(key: string, x: number, y: number) {
+    if (key === 'water_splash') this.effects.waterSplash(new THREE.Vector3(x, 0, y), 1);
+    else if (key === 'jammer') this.effects.radarJamPulse(new THREE.Vector3(x, 0, y), 4);
+  }
+
+  /** Support powers: the GPS launch from the tech centre, sonar contacts lighting up across the sea. */
+  private powerVisual(ev: Extract<GameEvent, { e: 'power' }>) {
+    if (ev.kind === 'gps' && ev.x >= 0 && this.gfx.fog.visibilityAt(ev.x, ev.y) > 0.2) {
+      this.effects.gpsLaunch(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y), ev.y));
+    } else if (ev.kind === 'sonar' && ev.player === this.local.id) {
+      for (const u of this.world.units) {
+        if (u.alive && u.ut.cloakable && this.local.isEnemy(u.owner)) this.effects.sonarPing(new THREE.Vector3(u.x, 0, u.y), 3);
+      }
+    }
+  }
+
+  /** Wakes behind moving ships, shroud domes over our gap generators, bridge decks (and their collapse). */
+  private updateContentVisuals(fdt: number) {
+    const a = this.alpha;
+    let n = 0;
+    for (const u of this.world.units) {
+      if (!u.alive || u.kind !== 'naval' || !this.ents.isShown(u.id)) continue;
+      const w = this.wakeShips[n] ?? (this.wakeShips[n] = { x: 0, y: 0, heading: 0, speed: 0, size: 1, id: 0 });
+      w.id = u.id;
+      w.x = u.prevX + (u.x - u.prevX) * a;
+      w.y = u.prevY + (u.y - u.prevY) * a;
+      w.heading = u.heading;
+      w.speed = u.moving ? u.speedFrac : 0;
+      w.size = (SHIP_LENGTH[u.ut.id] ?? 1.2) * (u.submerged ? 0.35 : 1);
+      n++;
+    }
+    this.wakeShips.length = n;
+    this.wakes.update(this.wakeShips, fdt);
+    let g = 0;
+    const put = (x: number, y: number, r: number) => {
+      const s = this.gapSources[g] ?? (this.gapSources[g] = { x: 0, y: 0, radius: 1 });
+      s.x = x; s.y = y; s.radius = r;
+      g++;
+    };
+    for (const b of this.world.buildings) if (b.alive && b.owner === this.local && b.bt.gapRadius && b.active && !b.owner.lowPower) put(b.x, b.y, b.bt.gapRadius);
+    for (const u of this.world.units) if (u.alive && u.owner === this.local && u.ut.gapRadius && !u.transport) put(u.x, u.y, u.ut.gapRadius);
+    this.gapSources.length = g;
+    this.gapField.update(this.gapSources, this.time);
+    this.bridges.update(this.world.bridges, fdt, this.time);
+  }
+
   /**
    * Compile every model / effect shader during loading (in parallel where the driver supports it) so the
    * first tank, explosion or missile of a battle doesn't stall a frame. compile() traverses synchronously,
@@ -408,12 +474,14 @@ export class Game {
     const color = new THREE.Color(this.local.color);
     const models = listModelIds().flatMap((id) => { try { return [createModel(id, color)]; } catch { return []; } });
     for (const m of models) group.add(m.root);
-    for (const k of ['shell', 'missile', 'scud', 'grenade', 'nuke', 'fireball'] as const) group.add(createProjectileModel(k));
+    for (const k of ['shell', 'missile', 'scud', 'grenade', 'nuke', 'fireball', 'torpedo', 'depthcharge', 'bomb', 'satrocket'] as const) group.add(createProjectileModel(k));
     this.gfx.scene.add(group);
     try {
       const r = this.gfx.renderer;
+      this.effects.prepareCompile(true); // pooled 3D effect bodies join the warm-up
       if (r.extensions.has('KHR_parallel_shader_compile')) void r.compileAsync(this.gfx.scene, this.gfx.cam.camera).catch(() => {});
       else r.compile(this.gfx.scene, this.gfx.cam.camera); // blocking, but on the loading screen rather than mid-battle
+      this.effects.prepareCompile(false);
     } catch (e) {
       console.warn('shader precompile failed', e);
     }
@@ -537,6 +605,7 @@ export class Game {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
     }
     this.effects.setAmbientCenter?.(this.gfx.cam.x, this.gfx.cam.y);
+    this.updateContentVisuals(fdt);
     this.effects.update(fdt, this.time);
 
     // camera shake
@@ -660,7 +729,19 @@ export class Game {
           break;
         }
         case 'sfx':
-          if (ev.x < 0 || fog.visibilityAt(ev.x, ev.y) > 0.2) this.audio.play(ev.key, ev.x < 0 ? undefined : { x: ev.x, y: ev.y });
+          if (ev.x < 0 || fog.visibilityAt(ev.x, ev.y) > 0.2) {
+            this.audio.play(ev.key, ev.x < 0 ? undefined : { x: ev.x, y: ev.y });
+            if (ev.x >= 0) this.sfxVisual(ev.key, ev.x, ev.y);
+          }
+          break;
+        case 'power':
+          this.powerVisual(ev);
+          break;
+        case 'infiltrate':
+          if (!demo && this.overlay && (ev.player === this.local.id || ev.victim === this.local.id)) {
+            const text = ev.kind === 'thief' ? (ev.victim === this.local.id ? `-$${ev.amount}` : `+$${ev.amount}`) : ev.player === this.local.id ? 'INFILTRATED' : 'SPY!';
+            this.overlay.addFloat(ev.x, world.map.heightAt(ev.x, ev.y) + 1.8, ev.y, text, ev.victim === this.local.id ? '#ff6a4a' : '#7fe0ff');
+          }
           break;
         case 'harvest':
           this.harvestSfxT -= 1;
@@ -906,6 +987,9 @@ export class Game {
     this.endCine?.();
     this.nukeCine?.();
     this.ents.dispose();
+    this.wakes.dispose();
+    this.gapField.dispose();
+    this.bridges.dispose();
     this.effects.dispose?.();
     // shared/cached resources hold dispose listeners that would pin this renderer in memory forever
     releaseGpuResources();

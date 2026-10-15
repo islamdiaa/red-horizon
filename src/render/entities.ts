@@ -8,10 +8,12 @@ import type { World } from '../sim/world';
 import type { Projectile } from '../sim/combat';
 import { createModel } from './models';
 import type { ModelAnimState, ModelInstance } from './models/types';
+import { bodyMaterial, BodyVariant, setLitMaterialPatch } from './models/materials';
 import type { Effects } from './effects';
 import type { EmitterHandle, ProjectileHandle } from './effects/types';
 import type { FogOfWar } from './fog';
 import { createHoloMaterial } from './holo';
+import { Water } from './water';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
@@ -42,6 +44,10 @@ interface View {
   /** Destroyed while fogged: the ghost stays until the player looks again. */
   ghostDead: boolean;
   wasExplored: boolean;
+  /** Inside the (shadow-expanded) camera frustum at the last render; culled views skip animation and matrix updates. */
+  inView: boolean;
+  /** model.update was skipped this frame because the view was culled. */
+  animSkipped: boolean;
 }
 
 interface ProjView {
@@ -52,12 +58,28 @@ interface ProjView {
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
+const _e = new THREE.Vector3();
+const _from = new THREE.Vector3();
+const _to = new THREE.Vector3();
+const _frustum = new THREE.Frustum();
+const _pm = new THREE.Matrix4();
+const _sphere = new THREE.Sphere();
+
+/**
+ * Weather surface uniforms shared by every model material for the lifetime of the page. Model materials
+ * are cached across matches, so they bind to this stable object and each match's weather values are
+ * copied in per frame (binding a match's own uniforms would leave the next match's models dry).
+ */
+const WX: WeatherSurfaceUniforms = { uWxWet: { value: 0 }, uWxSnow: { value: 0 }, uWxSky: { value: new THREE.Color() } };
+const patchWx = (m: THREE.MeshStandardMaterial) => patchMaterialForWeather(m, WX);
+
+/** Camera height above which infantry stop casting shadows (a couple of pixels at that zoom). */
+const SMALL_SHADOW_HEIGHT = 34;
 const _v2 = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _qy = new THREE.Quaternion();
 
-const charred = new THREE.MeshStandardMaterial({ color: 0x1a1612, roughness: 1, metalness: 0.1 });
 
 /** Keeps a 3D model per simulation entity in sync, and turns sim events into visual effects. */
 export class EntityRenderer {
@@ -69,6 +91,8 @@ export class EntityRenderer {
   private rings = new Map<number, THREE.Mesh>();
   private bracketMat: THREE.ShaderMaterial;
   private holoMat = createHoloMaterial(0x46c8ff);
+  /** Same hologram for skinned meshes (shared uniforms; a separate material avoids program ping-pong). */
+  private holoMatSk = (() => { const m = this.holoMat.clone(); m.uniforms = this.holoMat.uniforms; return m; })();
   private ringMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     uniforms: { opacity: { value: 0.8 } },
@@ -86,8 +110,18 @@ export class EntityRenderer {
   private time = 0;
   /** Set after the first update: views created later are 'new' (built in the fog, unseen). */
   private primed = false;
+  private wxSource: WeatherSurfaceUniforms | null = null;
+  private seenProj = new Set<number>();
+  private smallShadows = true;
   /** When set, model materials get rain gloss / snow cover from the weather system. */
-  weatherUniforms: WeatherSurfaceUniforms | null = null;
+  get weatherUniforms(): WeatherSurfaceUniforms | null {
+    return this.wxSource;
+  }
+  set weatherUniforms(u: WeatherSurfaceUniforms | null) {
+    this.wxSource = u;
+    // every lit model material (all damage variants, existing and future) shares one patched program
+    if (u) setLitMaterialPatch(patchWx);
+  }
   /** Vehicles whose wrecks linger. */
   private wreckTime = 22;
 
@@ -100,6 +134,9 @@ export class EntityRenderer {
   ) {
     const mk = (c: number, o = 0.85) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     this.ringMats = { own: mk(0x58ff8a), ally: mk(0x5ac8ff), enemy: mk(0xff4a3a), iron: mk(0xff2020, 0.7) };
+    // flat additive rings: one pass is identical (three would draw double-sided transparents twice)
+    for (const m of Object.values(this.ringMats)) m.forceSinglePass = true;
+    this.ringMat.forceSinglePass = true;
     this.ringGeo.rotateX(-Math.PI / 2);
     this.bracketMat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -120,7 +157,21 @@ export class EntityRenderer {
           gl_FragColor = vec4(uColor * 2.0, a);
         }`,
     });
+    // never-drawn stand-ins: materials that first appear mid-battle (selection rings and brackets, the
+    // construction hologram on rigid and skinned models) get compiled on the loading screen with the scene
+    const warm = this.warm;
+    warm.name = 'entities-warmup';
+    warm.visible = false;
+    for (const m of [this.ringMats.own, this.bracketMat, this.ringMat, this.holoMat]) warm.add(new THREE.Mesh(this.ringGeo2, m));
+    const sg = new THREE.PlaneGeometry(0.01, 0.01);
+    const n = sg.attributes.position.count;
+    sg.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(n * 4), 4));
+    sg.setAttribute('skinWeight', new THREE.Float32BufferAttribute(new Float32Array(n * 4).fill(0.25), 4));
+    warm.add(new THREE.SkinnedMesh(sg, this.holoMatSk));
+    scene.add(warm);
   }
+
+  private warm = new THREE.Group();
 
   teamColor(p: Player): THREE.Color {
     let c = this.teamColors.get(p.id);
@@ -133,20 +184,22 @@ export class EntityRenderer {
       ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
       : createModel(e.type.id, this.teamColor(e.owner));
     this.scene.add(model.root);
-    if (this.weatherUniforms) {
-      const wu = this.weatherUniforms;
-      model.root.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-          const sm = m as THREE.MeshStandardMaterial;
-          if (sm.isMeshStandardMaterial && !sm.userData.wx && !sm.transparent) {
-            sm.userData.wx = true;
-            patchMaterialForWeather(sm, wu);
-          }
+    const wx = !!this.wxSource;
+    model.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        const sm = m as THREE.MeshStandardMaterial;
+        // other lit materials a model brings along (body/track materials are patched at creation)
+        if (wx && sm.isMeshStandardMaterial && !sm.userData.wx && !sm.transparent) {
+          sm.userData.wx = true;
+          patchWx(sm);
         }
-      });
-    }
+        // additive double-sided fx render identically in one pass (no per-draw program re-checks)
+        if (m.transparent && m.side === THREE.DoubleSide && m.blending === THREE.AdditiveBlending) m.forceSinglePass = true;
+        if (e.kind === 'infantry' && !this.smallShadows && !m.transparent) mesh.castShadow = false;
+      }
+    });
     const anim: ModelAnimState = {
       time: 0, dt: 0, moving: false, speed: 0, firing: 0, firingMuzzle: 0, powered: true, health: 1,
       door: 0, load: 0, harvesting: false, charge: 0, dying: 0, altitude: 0,
@@ -157,10 +210,12 @@ export class EntityRenderer {
       // structures present when the battle (or a save) starts count as known wherever the map is already explored;
       // anything built later inside the fog stays hidden until scouted
       seen: false, fogged: false, ghostDead: false, wasExplored: this.primed && e instanceof Building && this.buildingExplored(e),
+      inView: true, animSkipped: false,
     };
     if (e instanceof Building) {
-      model.root.position.set(e.x, this.world.map.heightAt(e.x, e.y), e.y);
-      if (e.buildAnim < 1) this.effects.constructionBurst(new THREE.Vector3(e.x, this.world.map.heightAt(e.x, e.y), e.y), Math.max(e.w, e.h));
+      // surfaceAt: structures built on water (shipyard, sub pen) stand on the surface, not the lake bed
+      model.root.position.set(e.x, this.world.map.surfaceAt(e.x, e.y), e.y);
+      if (e.buildAnim < 1) this.effects.constructionBurst(new THREE.Vector3(e.x, this.world.map.surfaceAt(e.x, e.y), e.y), Math.max(e.w, e.h));
     }
     this.views.set(e.id, v);
     return v;
@@ -208,13 +263,22 @@ export class EntityRenderer {
   }
 
   /** Structures as the local player knows them (ghosts included), for the radar. */
-  *structureMarkers(): Generator<{ cx: number; cy: number; w: number; h: number; color: number }> {
+  structureMarkers(): Iterable<{ cx: number; cy: number; w: number; h: number; color: number }> {
+    // a reused list of reused records (read immediately by the radar; no per-call allocations)
+    const out = this.markers;
+    let n = 0;
     for (const v of this.views.values()) {
       const b = v.ent;
       if (!(b instanceof Building) || b.bt.wall || !v.model.root.visible || (v.dead && !v.ghostDead)) continue;
-      yield { cx: b.cx, cy: b.cy, w: b.w, h: b.h, color: b.owner.color };
+      const m = this.markerPool[n] ?? (this.markerPool[n] = { cx: 0, cy: 0, w: 0, h: 0, color: 0 });
+      m.cx = b.cx; m.cy = b.cy; m.w = b.w; m.h = b.h; m.color = b.owner.color;
+      out[n++] = m;
     }
+    out.length = n;
+    return out;
   }
+  private markers: { cx: number; cy: number; w: number; h: number; color: number }[] = [];
+  private markerPool: { cx: number; cy: number; w: number; h: number; color: number }[] = [];
 
   handleEvent(ev: GameEvent) {
     switch (ev.e) {
@@ -245,7 +309,7 @@ export class EntityRenderer {
         } else if (e.kind === 'vehicle' || e.kind === 'aircraft') {
           this.effects.explosion(p.clone().setY(p.y + 0.25), 'large', e.type.id === '4tnk' || e.type.id === 'harv' || e.type.id === 'mcv' ? 1.3 : 1);
           this.effects.scorch(p, 1.1);
-          v.model.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = charred; });
+          this.charWreck(v);
           v.fire = this.effects.createEmitter('fire', p.clone().setY(p.y + 0.3));
           v.fire.setIntensity(0.7);
         } else {
@@ -291,12 +355,12 @@ export class EntityRenderer {
         if (this.fog.visibilityAt(ev.x, ev.y) > 0.3) this.effects.oreSparkle(new THREE.Vector3(ev.x, this.world.map.heightAt(ev.x, ev.y) + 0.15, ev.y), ev.gems);
         break;
       case 'teleport': {
-        this.effects.chronoFlash(new THREE.Vector3(ev.fromX, this.world.map.heightAt(ev.fromX, ev.fromY), ev.fromY));
-        this.effects.chronoFlash(new THREE.Vector3(ev.x, this.world.map.heightAt(ev.x, ev.y), ev.y));
+        this.effects.chronoFlash(new THREE.Vector3(ev.fromX, this.world.map.surfaceAt(ev.fromX, ev.fromY), ev.fromY));
+        this.effects.chronoFlash(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y), ev.y));
         break;
       }
       case 'ironcurtain':
-        this.effects.ironCurtainPulse(new THREE.Vector3(ev.x, this.world.map.heightAt(ev.x, ev.y) + 0.3, ev.y), 2);
+        this.effects.ironCurtainPulse(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y) + 0.3, ev.y), 2);
         break;
     }
   }
@@ -310,9 +374,9 @@ export class EntityRenderer {
       v.anim.firing = 1;
       v.anim.firingMuzzle = ev.muzzle;
     }
-    const from = new THREE.Vector3(ev.fx, ev.fz, ev.fy);
+    const from = _from.set(ev.fx, ev.fz, ev.fy);
     this.muzzleWorld(ev.shooter, this.muzzleIndex(ev.shooter, ev.weapon.id, ev.muzzle), from);
-    const to = new THREE.Vector3(ev.tx, ev.tz, ev.ty);
+    const to = _to.set(ev.tx, ev.tz, ev.ty);
     const dir = _v2.copy(to).sub(from).normalize();
     const w = ev.weapon;
     switch (w.projectile) {
@@ -350,6 +414,24 @@ export class EntityRenderer {
     }
   }
 
+  /**
+   * Burnt-out wreck: the body's own Charred variant (same shader program as the living model, so a death
+   * never compiles a shader mid-battle); lamps, glows and fx go dark.
+   */
+  private charWreck(v: View) {
+    const hex = this.teamColor(v.ent.owner).getHex();
+    v.model.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const m = mesh.material as THREE.Material;
+      if (mesh.geometry.getAttribute('pbr') && !m.transparent && (m as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+        mesh.material = bodyMaterial(hex, BodyVariant.Charred, false, (mesh as THREE.SkinnedMesh).isSkinnedMesh === true);
+      }
+      else if (mesh.geometry.getAttribute('pbr') && !m.transparent && m.name.startsWith('glow')) mesh.visible = false;
+      else if (m.transparent) mesh.visible = false;
+    });
+  }
+
   private clearHolo(v: View) {
     if (v.holo) { v.holo.dispose(); v.holo = null; }
     if (v.holoRing) { this.scene.remove(v.holoRing); v.holoRing = null; }
@@ -373,12 +455,21 @@ export class EntityRenderer {
     this.time = time;
     const world = this.world;
     const map = world.map;
+    // the renderer calls back right before drawing, with this frame's camera (see preRender)
+    this.scene.userData.preRender = this.preRender;
+    if (this.wxSource) {
+      WX.uWxWet.value = this.wxSource.uWxWet.value;
+      WX.uWxSnow.value = this.wxSource.uWxSnow.value;
+      WX.uWxSky.value.copy(this.wxSource.uWxSky.value);
+    }
     // create views for new entities
     for (const u of world.units) if (!this.views.has(u.id)) this.createView(u);
     for (const b of world.buildings) if (!this.views.has(b.id)) this.createView(b);
 
-    for (const [id, v] of this.views) {
+    // values() rather than entries(): no [id, view] pair allocated per view per frame
+    for (const v of this.views.values()) {
       const e = v.ent;
+      const id = e.id;
       const anim = v.anim;
       anim.time = time;
       anim.dt = dt;
@@ -419,7 +510,12 @@ export class EntityRenderer {
       if (e instanceof Building) this.updateBuilding(v, e, dt);
       else this.updateUnit(v, e as Unit, alpha, dt);
 
-      if (show) v.model.update(anim);
+      // off-screen models skip their animation (caught up in preRender if they come into view)
+      v.animSkipped = false;
+      if (show) {
+        if (v.inView) v.model.update(anim);
+        else v.animSkipped = true;
+      }
       this.updateRing(v, selected.has(id) || hovered === id, selected.has(id));
     }
 
@@ -427,6 +523,60 @@ export class EntityRenderer {
     this.bracketMat.uniforms.uTime.value = time;
     this.primed = true;
   }
+
+  /**
+   * Called by the renderer after the camera moved and before anything is drawn. Views outside the camera
+   * frustum (grown by a shadow margin) neither animate nor update their node matrices: three would
+   * otherwise walk every bone and node of every model every frame. Hidden views skip matrix updates too.
+   */
+  private preRender = (camera: THREE.Camera) => {
+    this.scene.userData.postRender = this.postRender;
+    this.culled.length = 0;
+    _frustum.setFromProjectionMatrix(_pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const sun = this.scene.userData.sunDir as THREE.Vector3 | undefined;
+    const shadowLen = sun ? Math.min(6, Math.hypot(sun.x, sun.z) / Math.max(0.15, sun.y)) + 0.5 : 4;
+    const small = camera.position.y < SMALL_SHADOW_HEIGHT;
+    const smallChanged = small !== this.smallShadows;
+    this.smallShadows = small;
+    for (const v of this.views.values()) {
+      const root = v.model.root;
+      if (v.dead || v.ghostDead || v.fogged) {
+        root.matrixWorldAutoUpdate = true;
+        continue;
+      }
+      if (!root.visible) {
+        root.matrixWorldAutoUpdate = false;
+        v.inView = false;
+        continue;
+      }
+      // grown by the length of the shadow the model can throw into view
+      const alt = v.anim.altitude ?? 0;
+      _sphere.center.copy(root.position);
+      _sphere.center.y += v.model.height * 0.5;
+      _sphere.radius = v.model.radius + 1.5 + (v.model.height + alt) * shadowLen;
+      const inView = _frustum.intersectsSphere(_sphere);
+      if (inView && v.animSkipped) {
+        v.model.update(v.anim);
+        v.animSkipped = false;
+      }
+      v.inView = inView;
+      root.matrixWorldAutoUpdate = inView;
+      if (!inView) {
+        // hidden for this render only (shadow pass included); visible again in postRender for the radar etc.
+        root.visible = false;
+        this.culled.push(root);
+      }
+      if (smallChanged && v.ent.kind === 'infantry') {
+        root.traverse((o) => { if ((o as THREE.Mesh).isMesh && (o as THREE.Mesh).material && !((o as THREE.Mesh).material as THREE.Material).transparent) o.castShadow = small; });
+      }
+    }
+  };
+
+  private culled: THREE.Object3D[] = [];
+  private postRender = () => {
+    for (const r of this.culled) r.visible = true;
+    this.culled.length = 0;
+  };
 
   private buildingVisible(b: Building): boolean {
     return this.fog.visibilityAt(b.x, b.y) > 0.5 || this.fog.visibilityAt(b.cx + 0.5, b.cy + 0.5) > 0.5;
@@ -439,7 +589,7 @@ export class EntityRenderer {
   private updateBuilding(v: View, b: Building, dt: number) {
     const anim = v.anim;
     const root = v.model.root;
-    const g = this.world.map.heightAt(b.x, b.y);
+    const g = this.world.map.surfaceAt(b.x, b.y);
     root.position.set(b.x, g, b.y);
     // construction: hologram shell + solid structure rising inside it with a scanning ring
     let sy = 1;
@@ -448,7 +598,7 @@ export class EntityRenderer {
       sy = Math.max(0.02, 1 - Math.pow(1 - t, 2.2));
       if (!v.holo && root.visible && !b.bt.wall) {
         v.holo = createModel(b.bt.id, this.teamColor(b.owner));
-        v.holo.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = this.holoMat; m.castShadow = false; m.receiveShadow = false; } });
+        v.holo.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = (m as THREE.SkinnedMesh).isSkinnedMesh ? this.holoMatSk : this.holoMat; m.castShadow = false; m.receiveShadow = false; } });
         v.holo.root.position.set(b.x, g, b.y);
         this.scene.add(v.holo.root);
         v.holoRing = new THREE.Mesh(this.ringGeo2, this.ringMat);
@@ -497,7 +647,7 @@ export class EntityRenderer {
       const on = root.visible && anim.powered && b.selling < 0 ? 1 : 0;
       for (const c of v.chimneys) c.setIntensity(on);
     }
-    this.damageEmitters(v, b.healthFrac, root.visible && b.buildAnim >= 1, new THREE.Vector3(b.x, g + v.model.height * 0.8, b.y), 1 + Math.max(b.w, b.h) * 0.3);
+    this.damageEmitters(v, b.healthFrac, root.visible && b.buildAnim >= 1, _e.set(b.x, g + v.model.height * 0.8, b.y), 1 + Math.max(b.w, b.h) * 0.3);
   }
 
   private damageEmitters(v: View, hf: number, visible: boolean, pos: THREE.Vector3, size: number) {
@@ -555,7 +705,16 @@ export class EntityRenderer {
         this.effects.dust(back.clone(), amt);
       }
     }
-    if (u.kind === 'vehicle') this.damageEmitters(v, u.healthFrac + 0.2, root.visible, new THREE.Vector3(x, g + 0.4, y), 0.5);
+    if (u.kind === 'vehicle') this.damageEmitters(v, u.healthFrac + 0.2, root.visible, _e.set(x, g + 0.4, y), 0.5);
+    // boats push rings out from the bow as they move (the wake proper is drawn by wakes.ts)
+    if ((u.kind as string) === 'naval' && u.moving && root.visible) {
+      v.dustT -= dt;
+      if (v.dustT <= 0) {
+        v.dustT = 0.45;
+        const r = u.ut.radius ?? 0.4;
+        Water.current?.addRipple(x + Math.cos(heading) * r * 0.8, y + Math.sin(heading) * r * 0.8, 0.25 + 0.35 * u.speedFrac);
+      }
+    }
   }
 
   /** Returns false when the view should be removed. */
@@ -630,7 +789,7 @@ export class EntityRenderer {
       const mat = r.material as THREE.ShaderMaterial;
       mat.uniforms.uColor.value.set(iron ? 0xff2020 : rel === 'own' ? 0x58ff8a : rel === 'ally' ? 0x5ac8ff : 0xff4a3a);
       mat.uniforms.uTime.value = this.time;
-      r.position.set(e.x, this.world.map.heightAt(e.x, e.y) + 0.06, e.y);
+      r.position.set(e.x, this.world.map.surfaceAt(e.x, e.y) + 0.06, e.y);
     } else {
       r.material = iron ? this.ringMats.iron : this.ringMats[rel];
       const p = v.model.root.position;
@@ -642,7 +801,8 @@ export class EntityRenderer {
   }
 
   private updateProjectiles(alpha: number) {
-    const seen = new Set<number>();
+    const seen = this.seenProj;
+    seen.clear();
     for (const p of this.world.projectiles) {
       if (!p.alive) continue;
       seen.add(p.id);
@@ -682,6 +842,8 @@ export class EntityRenderer {
   }
 
   dispose() {
+    this.warm.removeFromParent();
+    if (this.scene.userData.preRender === this.preRender) delete this.scene.userData.preRender;
     for (const id of [...this.views.keys()]) this.removeView(id);
     for (const pv of this.projViews.values()) pv.handle.end();
     this.projViews.clear();

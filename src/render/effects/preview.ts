@@ -3,6 +3,10 @@
  *
  * URL params:
  *   only=all|explosions|projectiles|beams|emitters|decals|misc|markers|<ExplosionKind>|tracer|tesla|flame
+ *        naval   – ships with wakes & bow spray, 8-inch shells, torpedoes, depth charges, splashes, sonar
+ *        powers  – GPS launch, gap generator domes, radar jammer, Badger bombing run with contrails,
+ *                  paratroopers, mines, camo pillbox, U2 flyover
+ *        bridges – stone arch / sandstone / steel truss bridges, damage, collapse + rebuild
  *   t=SECONDS   fast-forward the simulation (fixed 1/60 steps) and freeze there (add play=1 to continue)
  *   dist=N      camera distance (default depends on scenario), cx/cz camera target
  *   seed=N      random seed (default 1) for repeatable screenshots
@@ -18,6 +22,13 @@ import type { ExplosionKind, ProjectileKind } from '../../data/rules';
 import type { EmitterHandle, ProjectileHandle } from './types';
 import { Effects } from './index';
 import { seedRandom } from './rand';
+import { WATER_LEVEL, GameMap } from '../../sim/map';
+import { Water } from '../water';
+import { createModel } from '../models';
+import type { ModelAnimState, ModelInstance } from '../models/types';
+import { ShipWakes, type WakeShip } from '../wakes';
+import { GapField, type GapSource } from '../gapfield';
+import { BridgeRenderer, type BridgeState, type BridgeClimate } from '../bridges';
 
 const params = new URLSearchParams(location.search);
 const only = params.get('only') ?? 'all';
@@ -38,14 +49,60 @@ const sspread = (r: number) => (srnd() * 2 - 1) * r;
 // ---------------------------------------------------------------------------------------------
 // Terrain
 
-function getHeight(x: number, z: number): number {
+/** Round-4 scenarios live in map space around (32, 32) so the real Water renderer can be used. */
+const WATER_SCENES = ['naval', 'bridges', 'powers'];
+const WATERY = WATER_SCENES.includes(only);
+const OX = 32;
+const OZ = 32;
+
+function baseHeight(x: number, z: number): number {
   return 0.22 * Math.sin(x * 0.23) * Math.cos(z * 0.19) + 0.14 * Math.sin(x * 0.071 + z * 0.113) + 0.05 * Math.sin(x * 0.9 + 1.3) * Math.sin(z * 0.7);
 }
 
+/** 0..1 water mask for the round-4 scenes (lake / river / channel). */
+function waterMask(x: number, z: number): number {
+  const sm = (e0: number, e1: number, v: number) => {
+    const t = Math.min(1, Math.max(0, (v - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  };
+  if (only === 'naval') {
+    const d = Math.hypot((x - OX) / 12.5, (z - OZ + 0.5) / 7.5) + 0.04 * Math.sin(x * 1.3) * Math.cos(z * 0.9);
+    return sm(1.0, 0.82, d);
+  }
+  if (only === 'bridges') {
+    const river = Math.abs(z - (OZ - 0.5) - 0.5 * Math.sin(x * 0.25));
+    const channel = x > OX + 9.5 && x < OX + 16 ? Math.abs(x - (OX + 12.5)) : 99;
+    return Math.max(sm(2.6, 1.6, river), sm(2.4, 1.4, channel));
+  }
+  if (only === 'powers') {
+    const d = Math.hypot((x - (OX + 12)) / 4, (z - (OZ + 7)) / 3);
+    return sm(1.0, 0.7, d);
+  }
+  return 0;
+}
+
+/** Ground / seabed height. */
+function terrainH(x: number, z: number): number {
+  const h = baseHeight(x, z);
+  if (!WATERY) return h;
+  const land = h * 0.6 + 0.02;
+  return land + (WATER_LEVEL - 0.42 - land) * waterMask(x, z);
+}
+
+/** Surface height (never below the water) — what the game hands the effects system. */
+function getHeight(x: number, z: number): number {
+  const h = terrainH(x, z);
+  return WATERY ? Math.max(h, WATER_LEVEL) : h;
+}
+
 const EXPLOSION_KINDS: ExplosionKind[] = ['piff', 'small', 'medium', 'large', 'huge', 'fire', 'electric', 'building', 'nuke'];
-const defaultDist: Record<string, number> = { nuke: 36, all: 30, building: 20 };
+const defaultDist: Record<string, number> = { nuke: 36, all: 30, building: 20, naval: 21, bridges: 20, powers: 22 };
 const dist = params.has('dist') ? parseFloat(params.get('dist')!) : defaultDist[only] ?? (EXPLOSION_KINDS.includes(only as ExplosionKind) ? 16 : 26);
-const target = new THREE.Vector3(parseFloat(params.get('cx') ?? '0'), 0, parseFloat(params.get('cz') ?? (only === 'nuke' ? '-3' : '0')));
+const target = new THREE.Vector3(
+  parseFloat(params.get('cx') ?? (WATERY ? String(OX) : '0')),
+  0,
+  parseFloat(params.get('cz') ?? (only === 'nuke' ? '-3' : WATERY ? String(OZ) : '0')),
+);
 
 // ---------------------------------------------------------------------------------------------
 // Renderer / scene
@@ -64,7 +121,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x6f8aa6);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.3, 400);
-const pitch = THREE.MathUtils.degToRad(53);
+const pitch = THREE.MathUtils.degToRad(params.has('pitch') ? parseFloat(params.get('pitch')!) : 53);
 camera.position.set(target.x, target.y + dist * Math.sin(pitch), target.z + dist * Math.cos(pitch));
 camera.lookAt(target);
 
@@ -93,7 +150,7 @@ scene.add(new THREE.HemisphereLight(0xb8cdf0, 0x4a3e2a, 0.95));
     const z = pos.getZ(i) + target.z;
     pos.setX(i, x);
     pos.setZ(i, z);
-    pos.setY(i, getHeight(x, z));
+    pos.setY(i, terrainH(x, z));
     const n = 0.5 + 0.5 * Math.sin(x * 0.45 + Math.sin(z * 0.37) * 1.5) * Math.cos(z * 0.41 - x * 0.17);
     const n2 = 0.5 + 0.5 * Math.sin(x * 2.1 + z * 1.3) * Math.sin(z * 1.7 - x * 0.6);
     c.setRGB(0.19 + 0.07 * n + 0.02 * n2, 0.29 + 0.08 * n + 0.02 * n2, 0.11 + 0.03 * n, THREE.SRGBColorSpace);
@@ -148,7 +205,7 @@ function tank(x: number, z: number, side: 'red' | 'blue', rot = 0): THREE.Group 
 // ---------------------------------------------------------------------------------------------
 // Effects
 
-const fx = new Effects({ scene, camera, renderer, getHeight });
+const fx = new Effects({ scene, camera, renderer, getHeight, waterLevel: WATERY ? WATER_LEVEL : -100 });
 fx.setSunDirection(sun.position.clone().sub(target));
 {
   // debug toggles: hide=main,glow,beams,sprites,decals  nolight=1
@@ -383,6 +440,400 @@ function misc(ox: number, oz: number): Scenario {
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Round-4 scenarios: naval combat, support powers, bridges (map space around OX, OZ)
+
+interface Actor {
+  m: ModelInstance;
+  s: ModelAnimState;
+  drive: (t: number, dt: number, a: Actor) => void;
+  x: number;
+  z: number;
+  heading: number;
+  speed: number;
+}
+const actors: Actor[] = [];
+let water: Water | null = null;
+let wakes: ShipWakes | null = null;
+let gapField: GapField | null = null;
+const gapSources: GapSource[] = [];
+const bridgeRenderers: { r: BridgeRenderer; list: BridgeState[] }[] = [];
+const wakeShips: WakeShip[] = [];
+const ALLIED = new THREE.Color(0x3d7be0);
+const SOVIET = new THREE.Color(0xd23a2c);
+
+function animState(): ModelAnimState {
+  return {
+    time: 0, dt: 0, moving: false, speed: 0, firing: 0, firingMuzzle: 0, powered: true, health: 1,
+    door: 0, load: 0, harvesting: false, charge: 1, dying: 0, altitude: 0,
+    submerged: 0, parachute: 0, deployed: 0, cloak: 0,
+  };
+}
+
+function actor(id: string, color: THREE.Color, x: number, z: number, drive: Actor['drive'] = () => {}): Actor {
+  const m = createModel(id, color);
+  m.root.position.set(x, getHeight(x, z), z);
+  scene.add(m.root);
+  const a: Actor = { m, s: animState(), drive, x, z, heading: 0, speed: 0 };
+  actors.push(a);
+  return a;
+}
+
+function place(a: Actor, x: number, y: number, z: number, heading: number): void {
+  a.x = x;
+  a.z = z;
+  a.heading = heading;
+  a.m.root.position.set(x, y, z);
+  a.m.root.rotation.y = -heading;
+}
+
+function addWater(): void {
+  const map = new GameMap(64, 64);
+  for (let j = 0; j <= 64; j++) for (let i = 0; i <= 64; i++) map.heights[j * 65 + i] = terrainH(i, j);
+  const sd = sun.position.clone().sub(target).normalize();
+  water = new Water(map, (x, y) => map.heightAt(x, y), sd, false);
+  water.sun = sun;
+  const pr = renderer.getPixelRatio();
+  water.setSize(innerWidth * pr, innerHeight * pr);
+  water.setLighting(sd, sun.color, sun.intensity, new THREE.Color(0x8fb0d0), (scene.background as THREE.Color) ?? new THREE.Color(0x6f8aa6), 0);
+  scene.add(water.mesh);
+}
+
+function muzzlePos(a: Actor, i: number, out: THREE.Vector3): THREE.Vector3 {
+  a.m.root.updateMatrixWorld(true);
+  const mz = a.m.muzzles[i % Math.max(1, a.m.muzzles.length)];
+  if (mz) mz.getWorldPosition(out);
+  else out.copy(a.m.root.position);
+  return out;
+}
+
+interface NShot {
+  h: ProjectileHandle;
+  a: THREE.Vector3;
+  b: THREE.Vector3;
+  arc: number;
+  t: number;
+  dur: number;
+  impact: () => void;
+}
+const nshots: NShot[] = [];
+function nfire(kind: ProjectileKind, a: THREE.Vector3, b: THREE.Vector3, speed: number, arc: number, impact: () => void, size = 1): void {
+  const h = fx.spawnProjectile(kind, size);
+  nshots.push({ h, a: a.clone(), b: b.clone(), arc, t: 0, dur: Math.max(0.2, a.distanceTo(b) / speed), impact });
+}
+function stepNShots(dt: number): void {
+  for (let i = nshots.length - 1; i >= 0; i--) {
+    const s = nshots[i];
+    s.t += dt;
+    const pos = (t: number, out: THREE.Vector3) => {
+      const f = Math.min(1, t / s.dur);
+      out.lerpVectors(s.a, s.b, f);
+      out.y += s.arc * 4 * f * (1 - f);
+      return out;
+    };
+    pos(s.t, tmpP);
+    pos(s.t + 0.01, tmpD).sub(tmpP);
+    if (tmpD.lengthSq() < 1e-9) tmpD.set(1, 0, 0);
+    tmpD.normalize();
+    s.h.update(tmpP, tmpD);
+    if (s.t >= s.dur) {
+      s.h.end();
+      s.impact();
+      nshots.splice(i, 1);
+    }
+  }
+}
+
+/** Point on a circle path + tangent heading. */
+function circ(cx: number, cz: number, r: number, w: number, t: number, ph: number): [number, number, number] {
+  const th = ph + w * t;
+  return [cx + Math.cos(th) * r, cz + Math.sin(th) * r, th + (w >= 0 ? Math.PI / 2 : -Math.PI / 2)];
+}
+
+function naval(): Scenario {
+  addWater();
+  wakes = new ShipWakes({ waterLevel: WATER_LEVEL, effects: fx });
+  scene.add(wakes.mesh);
+  const WL = WATER_LEVEL;
+  const ships: Actor[] = [];
+  const ca = actor('ca', ALLIED, OX, OZ, (t, _dt, a) => {
+    const [x, z, h] = circ(OX + 0.5, OZ + 0.8, 5.6, 0.15, t, 2.2);
+    place(a, x, WL, z, h);
+    a.s.moving = true;
+    a.s.speed = a.speed = 0.7;
+  });
+  const dd = actor('dd', ALLIED, OX, OZ, (t, _dt, a) => {
+    const [x, z, h] = circ(OX - 1.5, OZ + 0.2, 3.3, -0.32, t, 0.5);
+    place(a, x, WL, z, h);
+    a.s.moving = true;
+    a.s.speed = a.speed = 0.9;
+  });
+  const pt = actor('pt', ALLIED, OX, OZ, (t, _dt, a) => {
+    const [x, z, h] = circ(OX + 7.2, OZ - 0.8, 2.0, 0.62, t, 1);
+    place(a, x, WL, z, h);
+    a.s.moving = true;
+    a.s.speed = a.speed = 1;
+  });
+  const ss = actor('ss', SOVIET, OX, OZ, (t, _dt, a) => {
+    const k = Math.sin(t * 0.22);
+    const x = OX - 3 + k * 5;
+    const z = OZ + 4.6 + Math.sin(t * 0.5) * 0.3;
+    const h = Math.cos(t * 0.22) >= 0 ? 0 : Math.PI;
+    place(a, x, WL, z, h);
+    a.s.moving = true;
+    a.s.speed = a.speed = 0.6;
+    a.s.submerged = (t % 16) > 8 ? 1 : 0;
+  });
+  const lst = actor('lst', ALLIED, OX, OZ, (t, _dt, a) => {
+    place(a, OX - 10.4, WL, OZ - 1.5, Math.PI + 0.15);
+    a.s.deployed = (t % 10) > 4 ? 1 : 0;
+    a.speed = 0;
+  });
+  const spen = actor('spen', SOVIET, OX + 2.5, OZ - 5.2, (t, _dt, a) => {
+    a.m.root.position.set(OX + 2.5, WL, OZ - 5.2);
+    a.s.door = (t % 12) > 9 ? 1 : 0;
+  });
+  void spen;
+  ships.push(ca, dd, pt, ss, lst);
+  for (let i = 0; i < ships.length; i++) wakeShips.push({ x: 0, y: 0, heading: 0, speed: 0, size: 1, id: i });
+  const sizes = [2.35, 1.5, 0.9, 1.3, 1.4];
+  const p = new THREE.Vector3();
+  const q = new THREE.Vector3();
+  return (t0, t1) => {
+    for (let i = 0; i < ships.length; i++) {
+      const w = wakeShips[i];
+      const a = ships[i];
+      w.x = a.x;
+      w.y = a.z;
+      w.heading = a.heading;
+      w.speed = a.speed;
+      w.size = i === 3 ? sizes[i] * (1 - 0.5 * (a.s.submerged ?? 0)) : sizes[i];
+    }
+    // cruiser: 8-inch salvo into the lake (alternating fore / aft turret)
+    if (every(t0, t1, 2.6, 0.4)) {
+      const m = Math.floor(t1 / 2.6) % 2;
+      ca.s.firing = 1;
+      ca.s.firingMuzzle = m;
+      muzzlePos(ca, m, p);
+      const tx = OX - 4 + sspread(5), tz = OZ + 2 + sspread(3);
+      q.set(tx, WL, tz);
+      fx.muzzleFlash(p, tmpD.subVectors(q, p).normalize(), 2.2);
+      nfire('ballistic', p, q, 8, 1.8, () => fx.explosion(q.clone(), 'medium', 1.2), 1.8);
+    }
+    // gunboat: quick cannon shots splashing short
+    if (every(t0, t1, 1.7, 0.9)) {
+      pt.s.firing = 1;
+      muzzlePos(pt, 0, p);
+      q.set(OX + 9 + sspread(1.5), WL, OZ + 2.5 + sspread(1));
+      fx.muzzleFlash(p, tmpD.subVectors(q, p).normalize(), 1);
+      const dest = q.clone();
+      nfire('cannon', p, q, 12, 0.15, () => fx.explosion(dest, 'small'));
+    }
+    // submarine: torpedo at the destroyer
+    if (every(t0, t1, 3.4, 1.2)) {
+      muzzlePos(ss, 0, p);
+      p.y = WL - 0.06;
+      q.set(dd.x, WL - 0.06, dd.z);
+      const dest = q.clone();
+      nfire('torpedo', p, q, 4, 0, () => fx.explosion(dest, 'medium'));
+    }
+    // destroyer: depth charges over the side (land under water -> underwater blasts)
+    if (every(t0, t1, 4.2, 2.0)) {
+      for (const m of [2, 3]) {
+        dd.s.firing = 1;
+        muzzlePos(dd, m, p);
+        const side = m === 2 ? 1 : -1;
+        q.set(p.x - Math.sin(dd.heading) * 1.1 * side, WL - 0.25, p.z + Math.cos(dd.heading) * 1.1 * side);
+        const dest = q.clone();
+        nfire('depthcharge', p, q, 2.2, 0.55, () => fx.explosion(dest, 'small'));
+      }
+    }
+    // bullets kicking up water near the transport
+    if (every(t0, t1, 2.2, 0.3)) for (let i = 0; i < 4; i++) fx.waterSplash(V(OX - 8.5 + sspread(0.8), WL, OZ - 0.5 + sspread(0.8)), 0.3);
+    // sonar from the pen
+    if (every(t0, t1, 6.5, 0.8)) fx.sonarPing(V(OX + 2.5, WL, OZ - 3.6), 5);
+  };
+}
+
+function powers(): Scenario {
+  addWater();
+  gapField = new GapField({ getHeight });
+  scene.add(gapField.mesh);
+  const atek = actor('atek', ALLIED, OX - 6, OZ - 3);
+  const gap = actor('gap', ALLIED, OX + 2.5, OZ - 3.5);
+  const mgg = actor('mgg', ALLIED, OX + 7, OZ + 1, (_t, _dt, a) => {
+    a.s.deployed = 1;
+  });
+  const mrj = actor('mrj', ALLIED, OX - 2, OZ + 3.5, (_t, _dt, a) => {
+    a.s.deployed = 1;
+  });
+  mgg.m.root.rotation.y = 0.6;
+  mrj.m.root.rotation.y = -0.4;
+  actor('hbox', ALLIED, OX - 9.5, OZ + 2.5, (_t, _dt, a) => {
+    a.s.cloak = 1;
+  });
+  const mines = [actor('minv', ALLIED, OX - 7.5, OZ + 5.8), actor('minp', SOVIET, OX - 5.8, OZ + 5.8), actor('minv', SOVIET, OX - 4.2, OZ + 5.8)];
+  const mineless: number[] = [0, 0, 0];
+  gapSources.push({ x: OX + 2.5, y: OZ - 3.5, radius: 3.6 }, { x: OX + 7, y: OZ + 1, radius: 2.4 });
+  void atek;
+  void gap;
+  // badger bombing run with contrails
+  const badr = actor('badr', SOVIET, OX - 20, OZ + 0.5, (t, _dt, a) => {
+    const cyc = t % 12;
+    const x = OX - 22 + cyc * 4;
+    place(a, x, getHeight(x, OZ + 0.5) + 3.4, OZ + 0.5, 0);
+    a.m.root.position.y = 3.4;
+    a.s.altitude = 3.4;
+    a.s.moving = true;
+    a.s.deployed = x > OX - 6 && x < OX + 6 ? 1 : 0;
+  });
+  const u2 = actor('u2', ALLIED, OX, OZ, (t, _dt, a) => {
+    const cyc = (t + 5) % 14;
+    const x = OX + 22 - cyc * 3.4;
+    place(a, x, 4.6, OZ - 6 + cyc * 0.9, Math.PI - 0.26);
+    a.s.altitude = 4.6;
+    a.s.moving = true;
+  });
+  let trails: ProjectileHandle[] = [];
+  let u2trail: ProjectileHandle | null = null;
+  // paratroopers
+  const paras = [0, 1, 2, 3].map((i) =>
+    actor(i === 3 ? 'spy' : 'e1', SOVIET, OX + 1 + i * 0.7, OZ + 5.5, (t, dt, a) => {
+      const cyc = (t + i * 0.6) % 10;
+      const fall = 5;
+      const gy = getHeight(a.x, a.z);
+      const alt = Math.max(0, 4 * (1 - cyc / fall));
+      a.m.root.position.y = gy + alt;
+      const target = cyc < fall ? 1 : 0;
+      a.s.parachute = (a.s.parachute ?? 0) + (target - (a.s.parachute ?? 0)) * Math.min(1, dt * (target ? 8 : 1.2));
+      a.s.moving = false;
+    }),
+  );
+  paras.forEach((a, i) => place(a, OX + 1 + i * 0.7, 0, OZ + 5.4 + (i % 2) * 0.5, 1.2));
+  const tran = actor('tran', ALLIED, OX + 9, OZ - 3, (_t, _dt, a) => {
+    a.m.root.position.y = getHeight(OX + 9, OZ - 3) + 0.9;
+    a.s.altitude = 0.9;
+    a.s.deployed = 1;
+    a.s.moving = true;
+  });
+  tran.m.root.rotation.y = 2.4;
+  const bombs: { h: ProjectileHandle; p: THREE.Vector3; v: THREE.Vector3 }[] = [];
+  const sp = new THREE.Vector3();
+  return (t0, t1) => {
+    const dt = t1 - t0;
+    // gps launch from the tech centre roof
+    if (every(t0, t1, 11, 0.5)) fx.gpsLaunch(G(OX - 6.3, OZ - 3.2, 0.95));
+    if (every(t0, t1, 2.4, 0.2)) fx.radarJamPulse(G(mrj.x, mrj.z), 3.2);
+    if (every(t0, t1, 7, 1.0)) fx.sonarPing(V(OX + 12, WATER_LEVEL, OZ + 7), 3);
+    // mines go off one after another and re-arm
+    for (let i = 0; i < 3; i++) {
+      if (every(t0, t1, 7.5, 1.5 + i * 2.2)) {
+        const m = mines[i];
+        fx.mineBlast(G(m.x, m.z), i === 1 ? 'ap' : 'at');
+        m.m.root.visible = false;
+        mineless[i] = 3;
+      }
+      if (mineless[i] > 0) {
+        mineless[i] -= dt;
+        if (mineless[i] <= 0) mines[i].m.root.visible = true;
+      }
+    }
+    // contrails follow the engine smoke points
+    const cyc = t1 % 12;
+    if (cyc < t0 % 12 || trails.length === 0) {
+      for (const tr of trails) tr.end();
+      trails = (badr.m.smokePoints ?? []).map(() => fx.spawnTrail('contrail', 1));
+    }
+    badr.m.root.updateMatrixWorld(true);
+    (badr.m.smokePoints ?? []).forEach((o, i) => trails[i]?.update(o.getWorldPosition(sp), tmpD.set(1, 0, 0)));
+    if (!u2trail || (t1 + 5) % 14 < (t0 + 5) % 14) {
+      u2trail?.end();
+      u2trail = fx.spawnTrail('contrail', 0.8);
+    }
+    u2.m.root.updateMatrixWorld(true);
+    const ex = u2.m.smokePoints?.[0];
+    if (ex) u2trail.update(ex.getWorldPosition(sp), tmpD.set(-1, 0, 0));
+    // bombs out of the bay
+    if (badr.s.deployed && every(t0, t1, 0.42, 0.1)) {
+      badr.m.root.updateMatrixWorld(true);
+      const m0 = badr.m.muzzles[0];
+      m0.getWorldPosition(sp);
+      bombs.push({ h: fx.spawnProjectile('bomb'), p: sp.clone(), v: new THREE.Vector3(4, -0.3, 0) });
+    }
+    for (let i = bombs.length - 1; i >= 0; i--) {
+      const b = bombs[i];
+      b.v.y -= 9 * dt;
+      b.v.x *= 1 - 0.25 * dt;
+      b.p.addScaledVector(b.v, dt);
+      b.h.update(b.p, tmpD.copy(b.v).normalize());
+      const gy = getHeight(b.p.x, b.p.z);
+      if (b.p.y <= gy) {
+        b.h.end();
+        fx.explosion(V(b.p.x, gy, b.p.z), 'medium', 1.1);
+        bombs.splice(i, 1);
+      }
+    }
+  };
+}
+
+function riverCells(cx0: number, axis: 'x' | 'y', across: number): [number, number][] {
+  const cells: [number, number][] = [];
+  for (let k = 0; k < 64; k++) {
+    const cx = axis === 'y' ? across : k;
+    const cy = axis === 'y' ? k : across;
+    if (waterMask(cx + 0.5, cy + 0.5) > 0.5) cells.push([cx, cy]);
+  }
+  void cx0;
+  return cells;
+}
+
+function bridges(): Scenario {
+  addWater();
+  const climates: BridgeClimate[] = ['temperate', 'desert', 'winter'];
+  const cols = [OX - 7, OX - 1, OX + 5];
+  climates.forEach((c, i) => {
+    const r = new BridgeRenderer({ heightAt: (x, y) => terrainH(x, y), climate: c, effects: fx });
+    scene.add(r.group);
+    const list: BridgeState[] = [{ id: i + 1, cells: riverCells(0, 'y', cols[i]), axis: 'y', hp: 1000, maxHp: 1000, alive: true }];
+    if (i === 0) list.push({ id: 9, cells: riverCells(0, 'x', OZ + 4), axis: 'x', hp: 1000, maxHp: 1000, alive: true });
+    bridgeRenderers.push({ r, list });
+  });
+  // a tank driving back and forth over the temperate bridge (uses deckHeightAt)
+  const br = bridgeRenderers[0].r;
+  actor('2tnk', ALLIED, cols[0] + 0.5, OZ, (t, _dt, a) => {
+    const z = OZ - 0.5 + Math.sin(t * 0.35) * 4.2;
+    const x = cols[0] + 0.5;
+    const y = br.deckHeightAt(x, z) ?? getHeight(x, z);
+    place(a, x, y, z, Math.cos(t * 0.35) >= 0 ? Math.PI / 2 : -Math.PI / 2);
+    a.s.moving = true;
+    a.s.speed = 0.8;
+  });
+  actor('3tnk', SOVIET, OX + 12.5, OZ + 4.5, (t, _dt, a) => {
+    const x = OX + 12.5 + Math.sin(t * 0.3) * 4;
+    const z = OZ + 4.5;
+    const y = bridgeRenderers[0].r.deckHeightAt(x, z) ?? getHeight(x, z);
+    place(a, x, y, z, Math.cos(t * 0.3) >= 0 ? 0 : Math.PI);
+    a.s.moving = true;
+    a.s.speed = 0.8;
+  });
+  return (_t0, t1) => {
+    // desert bridge: worn down, collapses, rebuilt (14 s cycle); winter bridge: badly damaged
+    const des = bridgeRenderers[1].list[0];
+    const cyc = t1 % 14;
+    if (cyc < 6) {
+      des.alive = true;
+      des.hp = des.maxHp * (1 - cyc / 6);
+    } else if (cyc < 11) {
+      des.alive = false;
+      des.hp = 0;
+    } else {
+      des.alive = true;
+      des.hp = des.maxHp;
+    }
+    bridgeRenderers[2].list[0].hp = 380;
+  };
+}
+
 let scenarios: Scenario[] = [];
 if (only === 'atlas') {
   // show the generated textures on planes (rgb | alpha | decals | ramp)
@@ -417,11 +868,14 @@ switch (only) {
   case 'emitters': scenarios = [emitters(0, 0)]; break;
   case 'decals': scenarios = [decals(0, 0)]; break;
   case 'misc': case 'markers': scenarios = [misc(0, 0)]; break;
+  case 'naval': scenarios = [naval()]; break;
+  case 'powers': scenarios = [powers()]; break;
+  case 'bridges': scenarios = [bridges()]; break;
   default:
     if (EXPLOSION_KINDS.includes(only as ExplosionKind)) scenarios = [singleExplosion(only as ExplosionKind)];
     else scenarios = [explosionsRow(0, 0)];
 }
-if (only !== 'all' && only !== 'emitters') {
+if (only !== 'all' && only !== 'emitters' && !WATERY) {
   // a few props for scale
   tank(4.5, 3.5, 'blue', 0.4);
   tank(-6, 4.8, 'red', 2.6);
@@ -438,6 +892,18 @@ function step(): void {
   const t1 = simTime + STEP;
   for (const s of scenarios) s(t0, t1);
   stepShots(STEP);
+  stepNShots(STEP);
+  for (const a of actors) {
+    a.drive(t1, STEP, a);
+    a.s.time = t1;
+    a.s.dt = STEP;
+    a.s.firing = Math.max(0, a.s.firing - STEP * 4);
+    a.m.update(a.s);
+  }
+  water?.update(t1);
+  wakes?.update(wakeShips, STEP);
+  gapField?.update(gapSources, t1);
+  for (const b of bridgeRenderers) b.r.update(b.list, STEP, t1);
   fx.update(STEP, t1);
   simTime = t1;
 }

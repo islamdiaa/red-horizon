@@ -83,6 +83,45 @@ function build(kind: ProjectileModelKind): ModelTemplate {
       flame(r, -0.33, 0.06, 0.3);
       break;
     }
+    case 'torpedo': {
+      r.cyl(M.steel, 0.022, 0.022, 0.26, 0, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 8 });
+      r.add(lathe([[0.022, 0], [0.018, 0.025], [0.0, 0.04]], 8), M.dark, { p: [0.13, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.cyl(M.dark, 0.022, 0.012, 0.04, -0.15, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 8 });
+      fins(r, -0.17, 0.04, 0.025, M.dark);
+      r.add(new THREE.BoxGeometry(0.006, 0.05, 0.012), M.brass, { p: [-0.175, 0, 0], r: [0.6, 0, 0] });
+      r.add(new THREE.BoxGeometry(0.006, 0.05, 0.012), M.brass, { p: [-0.175, 0, 0], r: [-0.9, 0, 0] });
+      r.cyl(M.red, 0.0225, 0.0225, 0.012, 0.09, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 8, open: true });
+      break;
+    }
+    case 'depthcharge': {
+      // oil-drum style charge (rolls end over end), lies along X
+      r.cyl(M.oliveDark, 0.04, 0.04, 0.09, 0, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 10 });
+      for (const x of [-0.03, 0.03]) r.cyl(M.dark, 0.042, 0.042, 0.008, x, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 10, open: true });
+      r.cyl(M.steel, 0.012, 0.012, 0.012, 0.05, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 6 });
+      r.box(M.yellow, 0.05, 0.004, 0.02, 0, 0.04, 0, { b: 0 });
+      break;
+    }
+    case 'bomb': {
+      r.add(lathe([[0.0, -0.13], [0.03, -0.1], [0.042, -0.04], [0.042, 0.05], [0.03, 0.1], [0.0, 0.13]], 10), M.oliveDark, { r: [0, 0, -Math.PI / 2] });
+      r.cyl(M.dark, 0.016, 0.006, 0.07, -0.16, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 6 });
+      fins(r, -0.2, 0.06, 0.04, M.oliveDark);
+      r.add(new THREE.CylinderGeometry(0.045, 0.045, 0.02, 8, 1, true), M.oliveDark, { p: [-0.19, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.cyl(M.yellow, 0.0425, 0.0425, 0.012, 0.06, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 10, open: true });
+      r.cyl(M.steel, 0.008, 0.012, 0.02, 0.135, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 6 });
+      break;
+    }
+    case 'satrocket': {
+      // GPS satellite launcher: white two-stage rocket with a blue band and a fairing
+      const R = 0.06;
+      r.cyl(M.white, R, R, 0.5, -0.06, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 12 });
+      r.cyl(M.white, R * 0.8, R, 0.06, 0.22, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 12 });
+      r.add(lathe([[R * 0.8, 0], [R * 0.8, 0.1], [R * 0.6, 0.17], [0.004, 0.24]], 12), M.offwhite, { p: [0.25, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.05, 12, 1, true), M.navy, { p: [0.06, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.add(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.02, 12, 1, true), M.dark, { p: [-0.12, 0, 0], r: [0, 0, -Math.PI / 2] });
+      r.cyl(M.dark, R * 0.7, R * 0.9, 0.06, -0.34, 0, 0, { r: [0, 0, -Math.PI / 2], seg: 10 });
+      fins(r, -0.33, 0.1, 0.07, M.white);
+      break;
+    }
     case 'fireball': {
       r.sph({ glow: 0xffd070, i: 2.4 }, 0.055, 0, 0, 0, { seg: 8 });
       r.sph({ glow: 0xff6010, i: 1.6 }, 0.08, -0.03, 0, 0, { seg: 8, s: [1.4, 1, 1] });

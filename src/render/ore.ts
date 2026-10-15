@@ -142,7 +142,7 @@ export class OreRenderer {
     if (cells.length * 3 > this.gold.instanceMatrix.count) this.allocate(cells.length * 3 + 128);
     let gi = 0, ei = 0;
     const d = this.dummy;
-    const gemColors = [new THREE.Color(0.05, 0.75, 1.0), new THREE.Color(0.85, 0.1, 0.75), new THREE.Color(0.15, 0.9, 0.35), new THREE.Color(1.0, 0.15, 0.12)];
+    const gemColors = GEM_COLORS;
     for (const ci of cells) {
       const amt = m.ore[ci];
       if (!amt) continue;
@@ -168,8 +168,12 @@ export class OreRenderer {
     }
     this.gold.count = gi;
     this.gems.count = ei;
+    this.gold.visible = gi > 0;
+    this.gems.visible = ei > 0;
     this.gold.instanceMatrix.needsUpdate = true;
     this.gems.instanceMatrix.needsUpdate = true;
     if (this.gems.instanceColor) this.gems.instanceColor.needsUpdate = true;
   }
 }
+
+const GEM_COLORS = [new THREE.Color(0.05, 0.75, 1.0), new THREE.Color(0.85, 0.1, 0.75), new THREE.Color(0.15, 0.9, 0.35), new THREE.Color(1.0, 0.15, 0.12)];

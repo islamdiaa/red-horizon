@@ -12,11 +12,41 @@ import {
   flash, star, fireCore, fireball, smoke, sparks, debris, dustRing, shockRing, groundGlow,
   embers, flames, lightFlash, scorchDecal, smokeFrame,
 } from './blocks';
+import { underwaterBlast, waterSplash } from './water';
 
 const TAU = Math.PI * 2;
 
+/** Splash size per explosion family when it happens on / in water. */
+const WATER_SIZE: Partial<Record<ExplosionKind, number>> = { piff: 0.3, small: 0.65, medium: 1, large: 1.35, huge: 2, building: 1.8, fire: 0.6, electric: 0.55 };
+
+/** Set while a recipe runs over open water: ground-contact layers (dust, shock dust, scorch) are skipped. */
+let overWater = false;
+
 export function explosion(ctx: FxContext, kind: ExplosionKind, x: number, y: number, z: number, scale: number, delay = 0): void {
   const gy = ctx.getHeight(x, z);
+  if (kind !== 'nuke' && kind !== 'none' && ctx.isWater(x, z)) {
+    const wl = ctx.waterLevel;
+    const ws = (WATER_SIZE[kind] ?? 1) * scale;
+    if (y < wl - 0.03) {
+      // under the surface (torpedo / depth charge hits): water column instead of a fireball
+      underwaterBlast(ctx, x, wl, z, ws, delay);
+      if (kind === 'large' || kind === 'huge' || kind === 'building') flash(ctx, x, wl + 0.2, z, 1.2 * scale, 2, delay, 0.15);
+      return;
+    }
+    overWater = true;
+    try {
+      explosionOn(ctx, kind, x, y, z, gy, scale, delay);
+    } finally {
+      overWater = false;
+    }
+    // near the surface the blast throws up water as well
+    if (y - wl < 0.45 * scale) waterSplash(ctx, x, wl, z, ws * 0.8, delay + 0.02);
+    return;
+  }
+  explosionOn(ctx, kind, x, y, z, gy, scale, delay);
+}
+
+function explosionOn(ctx: FxContext, kind: ExplosionKind, x: number, y: number, z: number, gy: number, scale: number, delay: number): void {
   switch (kind) {
     case 'none': return;
     case 'piff': piff(ctx, x, y, z, gy, scale, delay); return;
@@ -32,7 +62,7 @@ export function explosion(ctx: FxContext, kind: ExplosionKind, x: number, y: num
 }
 
 function onGround(y: number, gy: number, s: number): boolean {
-  return y - gy < 0.6 * s;
+  return !overWater && y - gy < 0.6 * s;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -255,8 +285,10 @@ function building(ctx: FxContext, x: number, _y: number, z: number, gy: number, 
   sparks(ctx, x, yc, z, 30, 6.5, fd, { life: 1.0 });
   debris(ctx, x, yc, z, gy, Math.round(10 + fp * 6), 5.5, fd, 0.45, 1.6);
   embers(ctx, x, yc, z, 20, half, fd, 2.5, 1.8);
-  dustRing(ctx, x, gy, z, half, Math.round(14 + fp * 4), 3.2, fd, { size: 0.8, life: 2.6, alpha: 0.7 });
-  dustRing(ctx, x, gy, z, half * 0.5, 10, 1.2, d + 0.2, { size: 0.6, life: 2.2, alpha: 0.5 });
+  if (!overWater) {
+    dustRing(ctx, x, gy, z, half, Math.round(14 + fp * 4), 3.2, fd, { size: 0.8, life: 2.6, alpha: 0.7 });
+    dustRing(ctx, x, gy, z, half * 0.5, 10, 1.2, d + 0.2, { size: 0.6, life: 2.2, alpha: 0.5 });
+  } else waterSplash(ctx, x, gy, z, 1 + fp * 0.4, fd);
   shockRing(ctx, x, gy, z, 3 + fp * 2, fd, 0.5, 1.5);
   groundGlow(ctx, x, gy, z, 2.5 + fp * 1.5, fd, 1.0);
   // smoke plume rising from the ruins for several seconds

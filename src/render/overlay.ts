@@ -16,6 +16,12 @@ export class Overlay {
   private ctx: CanvasRenderingContext2D;
   private dpr = 1;
   private floats: FloatText[] = [];
+  /** Projected screen position of the last project() call (no per-call array allocations). */
+  private px = 0;
+  private py = 0;
+  /** Something was drawn last frame (otherwise the empty canvas needs no clear). */
+  private drawn = true;
+  private pts: [number, number, string][] = [];
   selectionBox: { x0: number; y0: number; x1: number; y1: number } | null = null;
   showAllBars = false;
   groups = new Map<number, number>();
@@ -46,19 +52,29 @@ export class Overlay {
     this.floats.push({ x, y, z, text, color, t: 0, life: 1.6 });
   }
 
-  private project(camera: THREE.Camera, x: number, y: number, z: number): [number, number, boolean] {
+  /** Projects to screen space into this.px / this.py; returns false when outside the depth range. */
+  private project(camera: THREE.Camera, x: number, y: number, z: number): boolean {
     _v.set(x, y, z).project(camera);
-    const sx = (_v.x * 0.5 + 0.5) * window.innerWidth;
-    const sy = (-_v.y * 0.5 + 0.5) * window.innerHeight;
-    return [sx, sy, _v.z < 1 && _v.z > -1];
+    this.px = (_v.x * 0.5 + 0.5) * this.vw;
+    this.py = (-_v.y * 0.5 + 0.5) * this.vh;
+    return _v.z < 1 && _v.z > -1;
   }
+
+  private vw = 1;
+  private vh = 1;
 
   draw(camera: THREE.Camera, world: World, ents: EntityRenderer, local: Player, selected: Set<number>, hovered: number, alpha: number, dt: number) {
     const ctx = this.ctx;
     const d = this.dpr;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // the canvas covers the whole screen: skip the clear when it is already empty
+    if (this.drawn) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.drawn = false;
+    }
     ctx.setTransform(d, 0, 0, d, 0, 0);
+    this.vw = window.innerWidth;
+    this.vh = window.innerHeight;
     const map = world.map;
     const tick = world.tick;
 
@@ -72,8 +88,9 @@ export class Overlay {
       else { x = e.x; y = e.y; }
       const top = ents.topOf(e.id);
       const h = map.surfaceAt(x, y) + top + 0.18 + (e instanceof Unit && e.kind === 'aircraft' ? e.altitude : 0);
-      const [sx, sy, ok] = this.project(camera, x, h, y);
-      if (!ok) return;
+      if (!this.project(camera, x, h, y)) return;
+      const sx = this.px, sy = this.py;
+      this.drawn = true;
       let w: number;
       if (e instanceof Building) w = 26 + e.w * 16;
       else if (e.kind === 'infantry') w = 22;
@@ -100,8 +117,10 @@ export class Overlay {
     // planted demolition charges: a countdown that blinks faster as the fuse burns down
     for (const b of world.buildings) {
       if (!b.alive || b.c4Timer <= 0 || !ents.isLive(b.id)) continue;
-      const [sx, sy, ok] = this.project(camera, b.x, map.surfaceAt(b.x, b.y) + ents.topOf(b.id) + 0.55, b.y);
-      if (ok) this.c4Tag(sx, sy, b.c4Timer, world.time);
+      if (this.project(camera, b.x, map.surfaceAt(b.x, b.y) + ents.topOf(b.id) + 0.55, b.y)) {
+        this.drawn = true;
+        this.c4Tag(this.px, this.py, b.c4Timer, world.time);
+      }
     }
 
     // order lines for selected own units (current order + shift-queued waypoints)
@@ -110,7 +129,8 @@ export class Overlay {
     for (const id of selected) {
       const u = world.getEntity(id);
       if (!(u instanceof Unit) || u.owner !== local || !u.alive) continue;
-      const pts: [number, number, string][] = [];
+      const pts = this.pts;
+      pts.length = 0;
       const push = (o: typeof u.order) => {
         if (o.type === 'move' || o.type === 'attackGround' || o.type === 'guard') pts.push([o.x, o.y, o.type === 'move' && !o.attackMove ? '#58ff8a' : '#ff6a4a']);
         else if (o.type === 'attack' || o.type === 'enter') {
@@ -121,10 +141,12 @@ export class Overlay {
       push(u.order);
       for (const q of u.orderQueue) push(q);
       if (!pts.length) continue;
-      let [px, py] = this.project(camera, lerp(u.prevX, u.x, alpha), map.surfaceAt(u.x, u.y) + 0.05, lerp(u.prevY, u.y, alpha));
+      this.drawn = true;
+      this.project(camera, lerp(u.prevX, u.x, alpha), map.surfaceAt(u.x, u.y) + 0.05, lerp(u.prevY, u.y, alpha));
+      let px = this.px, py = this.py;
       for (const [x, y, col] of pts) {
-        const [qx, qy, ok] = this.project(camera, x, map.surfaceAt(x, y) + 0.05, y);
-        if (!ok) break;
+        if (!this.project(camera, x, map.surfaceAt(x, y) + 0.05, y)) break;
+        const qx = this.px, qy = this.py;
         ctx.strokeStyle = col;
         ctx.globalAlpha = 0.35;
         ctx.setLineDash([4, 5]);
@@ -142,8 +164,11 @@ export class Overlay {
     for (const id of selected) {
       const b = world.getEntity(id);
       if (!(b instanceof Building) || b.owner !== local || b.rallyX < 0) continue;
-      const [ax, ay] = this.project(camera, b.x, map.heightAt(b.x, b.y) + 0.3, b.y);
-      const [bx, by] = this.project(camera, b.rallyX, map.heightAt(b.rallyX, b.rallyY), b.rallyY);
+      this.project(camera, b.x, map.surfaceAt(b.x, b.y) + 0.3, b.y);
+      const ax = this.px, ay = this.py;
+      this.project(camera, b.rallyX, map.surfaceAt(b.rallyX, b.rallyY), b.rallyY);
+      const bx = this.px, by = this.py;
+      this.drawn = true;
       ctx.save();
       ctx.strokeStyle = 'rgba(255, 220, 90, 0.85)';
       ctx.lineWidth = 2;
@@ -160,8 +185,9 @@ export class Overlay {
     for (const f of this.floats) {
       f.t += dt;
       const k = f.t / f.life;
-      const [sx, sy, ok] = this.project(camera, f.x, f.y + k * 0.8, f.z);
-      if (!ok) continue;
+      if (!this.project(camera, f.x, f.y + k * 0.8, f.z)) continue;
+      const sx = this.px, sy = this.py;
+      this.drawn = true;
       ctx.save();
       ctx.globalAlpha = Math.min(1, (1 - k) * 2);
       ctx.font = '700 15px "Rajdhani", "Segoe UI", sans-serif';
@@ -173,13 +199,16 @@ export class Overlay {
       ctx.fillText(f.text, sx, sy);
       ctx.restore();
     }
-    this.floats = this.floats.filter((f) => f.t < f.life);
+    let nf = 0;
+    for (const f of this.floats) if (f.t < f.life) this.floats[nf++] = f;
+    this.floats.length = nf;
 
     // selection rectangle
     if (this.selectionBox) {
       const s = this.selectionBox;
       const x = Math.min(s.x0, s.x1), y = Math.min(s.y0, s.y1);
       const w = Math.abs(s.x1 - s.x0), h = Math.abs(s.y1 - s.y0);
+      this.drawn = true;
       ctx.save();
       ctx.fillStyle = 'rgba(90, 255, 140, 0.08)';
       ctx.fillRect(x, y, w, h);

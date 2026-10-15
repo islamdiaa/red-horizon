@@ -37,6 +37,20 @@ export interface ModelAnimState {
   deathKind?: 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed';
   /** Aircraft altitude above ground (world units). */
   altitude?: number;
+  /** 0..1 submarine dive (0 = surfaced, 1 = submerged). Raw `Unit.submerged ? 1 : 0` is fine: the model eases (~1.3 s). Default 0. */
+  submerged?: number;
+  /**
+   * 0..1 parachute: 1 while descending (canopy open, arms on the risers). Raw `Unit.parachute > 0 ? 1 : 0` is fine:
+   * the model opens it quickly and deflates it over ~1.5 s after landing. Default 0.
+   */
+  parachute?: number;
+  /**
+   * 0..1 deploy state (eased by the model): MGG dish spin + emitter haze, MRJ mast raise + array spin,
+   * LST bow ramp & doors, Chinook rear ramp, Badger bomb-bay doors. Default 0.
+   */
+  deployed?: number;
+  /** 0..1 cloak shimmer for the owner's own cloaked things (camo pillbox, mines). Default 0. */
+  cloak?: number;
 }
 
 export interface ModelInstance {
@@ -56,4 +70,4 @@ export interface ModelInstance {
   dispose(): void;
 }
 
-export type ProjectileModelKind = 'shell' | 'missile' | 'scud' | 'grenade' | 'nuke' | 'fireball';
+export type ProjectileModelKind = 'shell' | 'missile' | 'scud' | 'grenade' | 'nuke' | 'fireball' | 'torpedo' | 'depthcharge' | 'bomb' | 'satrocket';
