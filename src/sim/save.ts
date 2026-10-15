@@ -90,7 +90,10 @@ export function serializeWorld(w: World): Json {
   return {
     tick: w.tick, rng: (w.rng as any).s, nextId: W.nextId, nextProjectileId: w.nextProjectileId, fog: w.fog, gameOver: w.gameOver, winnerTeam: w.winnerTeam,
     crateTimer: W.crateTimer, crates: w.crates, cratesEnabled: w.cratesEnabled,
+    bridges: w.bridges.map((b) => ({ id: b.id, hp: b.hp, alive: b.alive })),
     pathQueue: W.pathQueue.map((u: Unit) => u.id),
+    // commands issued after the last step (AI thinks at the end of a tick) run at the start of the next one
+    commands: W.commands,
     units: w.units.map((u) => u.id), buildings: w.buildings.map((b) => b.id),
     entities: ents, projectiles, ais, mission,
     players: w.players.map(serPlayer),
@@ -180,7 +183,16 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   W.crateTimer = s.crateTimer;
   w.crates = s.crates;
   w.cratesEnabled = s.cratesEnabled;
-  W.commands = [];
+  // bridges (the map's list comes from the regenerated map; only their state is saved)
+  m.bridgeAt.fill(0);
+  for (const bs of (s.bridges ?? []) as Json[]) {
+    const b = w.bridges[bs.id - 1];
+    if (!b) continue;
+    b.hp = bs.hp;
+    b.alive = bs.alive;
+  }
+  for (const b of w.bridges) if (b.alive) for (const [x, y] of b.cells) m.bridgeAt[m.idx(x, y)] = b.id;
+  W.commands = s.commands ? JSON.parse(JSON.stringify(s.commands)) : [];
   W.pathQueue = [];
   for (const id of s.pathQueue as number[]) {
     const u = byId.get(id);

@@ -11,7 +11,23 @@ export class WeaponSlot {
   constructor(public def: WeaponDef) {}
 }
 
-export type HarvestState = 'seek' | 'toOre' | 'harvesting' | 'toRefinery' | 'waitDock' | 'unloading' | 'idle';
+/** A support aircraft's scripted run: fly in from the map edge over (tx, ty) along (dx, dy), deliver, fly out. */
+export interface Sortie {
+  kind: 'spyplane' | 'paratroopers' | 'parabombs';
+  tx: number;
+  ty: number;
+  /** Unit flight direction. */
+  dx: number;
+  dy: number;
+  /** Distance past the target at which the plane leaves the map. */
+  exit: number;
+  /** Payload items delivered so far. */
+  drops: number;
+  /** Fly-by sound / warning played. */
+  warned: boolean;
+}
+
+export type HarvestState ='seek' | 'toOre' | 'harvesting' | 'toRefinery' | 'waitDock' | 'unloading' | 'idle';
 
 export abstract class Entity {
   id: number;
@@ -40,7 +56,13 @@ export abstract class Entity {
   xp = 0;
   rank = 0;
   scanTimer = 0;
-  abstract readonly kind: 'infantry' | 'vehicle' | 'aircraft' | 'naval' | 'building';
+  /**
+   * Hidden from enemies (submerged submarine, mine, camo pillbox) unless detected: see World.canSee.
+   * `revealedTo` is the bitmask of player ids (1 << id) that currently detect this entity.
+   */
+  cloaked = false;
+  revealedTo = 0;
+  abstract readonly kind:'infantry' | 'vehicle' | 'aircraft' | 'naval' | 'building';
   abstract readonly type: TypeDef;
 
   constructor(id: number, owner: Player, x: number, y: number, hp: number) {
@@ -129,6 +151,27 @@ export class Unit extends Entity {
   c4Timer = 0;
   c4Target = 0;
 
+  // --- espionage / support powers (see infiltration.ts, powers.ts, mines.ts)
+  /** Spy: id of the player whose soldier it appears to be to enemies (-1 = not disguised). */
+  disguise = -1;
+  /** Paratrooper: seconds of parachute descent left (0 = on the ground). */
+  parachute = 0;
+  /** Support aircraft (Badger / spy plane): the scripted run it is flying, null otherwise. */
+  sortie: Sortie | null = null;
+
+  // --- naval (see naval.ts)
+  /** Submarine under water (cloaked). Subs surface to fire and dive again a few seconds later. */
+  submerged = false;
+  /** Seconds left of the surfacing manoeuvre (can't fire yet). */
+  surfacing = 0;
+  /** Seconds until a surfaced submarine dives again. */
+  diveTimer = 0;
+  /** Seconds a submarine is forced to stay surfaced (sonar pulse). */
+  surfaceLock = 0;
+  /** Transport ramp, 0 = closed .. 1 = fully lowered (LST loading / unloading); rampHold keeps it open. */
+  ramp = 0;
+  rampHold = 0;
+
   constructor(id: number, type: UnitTypeDef, owner: Player, x: number, y: number) {
     super(id, owner, x, y, type.strength);
     this.ut = type;
@@ -180,6 +223,10 @@ export class Building extends Entity {
   c4By = 0;
   /** Counted in owner.owned (tech / factory availability): set when construction completes. */
   counted = false;
+  /** Bitmask of player ids (1 << id) whose spies have infiltrated this structure (intel while it stands). */
+  spiedBy = 0;
+  /** Radar dome / SAM site jammed by an enemy Mobile Radar Jammer in range. */
+  jammed = false;
 
   constructor(id: number, type: BuildingTypeDef, owner: Player, cx: number, cy: number) {
     super(id, owner, cx + type.size[0] / 2, cy + type.size[1] / 2, type.strength);

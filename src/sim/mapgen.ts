@@ -1,13 +1,18 @@
 import { Noise2D, Rng, hash2 } from '../core/rng';
 import { GameMap, ORE_MAX, T, WATER_LEVEL } from './map';
+import { addBridgesToMap } from './bridges';
 
 export interface MapGenOptions {
   size: number;          // square maps
   players: number;       // 2..4
   seed: number;
   water: number;         // 0..1 amount of lakes
+  /** Naval map: a central sea with a bay reaching towards every start (default: water >= 0.9). */
+  sea?: boolean;
   trees: number;         // 0..1 forest density
   ore: number;           // 0..1 ore richness
+  /** Lay bridges over narrow water that would otherwise force a long detour (default: on, except sea maps; bridges.ts). */
+  bridges?: boolean;
 }
 
 const smooth = (e0: number, e1: number, x: number) => {
@@ -85,8 +90,30 @@ export function generateMap(opts: MapGenOptions): GameMap {
     return d;
   };
 
+  // ---- naval maps: a central sea with a bay reaching towards every start --------
+  // (ground routes then run around the sea along the map edges; every bay can host a shipyard)
+  const sea = opts.sea ?? opts.water >= 0.9;
+  const C = N / 2;
+  const seaR = N * 0.16, tipD = 12.5, tipR = 4.2, armW = 3.2;
+  const tips = allCorners.map((s) => {
+    const dx = C - s.x, dy = C - s.y, l = Math.hypot(dx, dy);
+    return { x: s.x + (dx / l) * tipD, y: s.y + (dy / l) * tipD };
+  });
+  const seaAt = (px: number, py: number, wob: number) => {
+    if (Math.hypot(px - C, py - C) < seaR + wob * 2) return true;
+    for (const tp of tips) {
+      if (Math.hypot(px - tp.x, py - tp.y) < tipR + wob * 0.4) return true;
+      // the arm joining the bay to the open sea
+      const ax = C - tp.x, ay = C - tp.y;
+      const t = Math.max(0, Math.min(1, ((px - tp.x) * ax + (py - tp.y) * ay) / (ax * ax + ay * ay)));
+      if (Math.hypot(px - tp.x - ax * t, py - tp.y - ay * t) < armW + wob * 0.6) return true;
+    }
+    return false;
+  };
+  const lakes = sea ? Math.min(opts.water, 0.35) : opts.water;
+
   // ---- terrain classification ----------------------------------------------
-  const waterT = 0.2 + opts.water * 0.17;
+  const waterT = 0.2 + lakes * 0.17;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const [cx, cy] = canon(x, y);
@@ -96,7 +123,8 @@ export function generateMap(opts: MapGenOptions): GameMap {
       const rf = noise.fbm(cx * 0.09 + 50, cy * 0.09 + 50, 3);
       const df = noise.fbm(cx * 0.07 + 300, cy * 0.07 + 300, 3);
       let t: number = T.Clear;
-      if (opts.water > 0 && wf < waterT && ds > baseR + 5) t = T.Water;
+      if (sea && seaAt(cx + 0.5, cy + 0.5, (noise.fbm(cx * 0.11 + 500, cy * 0.11 + 500, 2) - 0.5) * 3)) t = T.Water;
+      else if (lakes > 0 && wf < waterT && ds > baseR + 5) t = T.Water;
       else if (rf > 0.7 && ds > baseR + 3) t = T.Rock;
       else if (df > 0.66) t = T.Dirt;
       map.terrain[i] = t;
@@ -122,12 +150,13 @@ export function generateMap(opts: MapGenOptions): GameMap {
   }
 
   // ---- connectivity: carve corridors between all starts ---------------------
+  const wigAmp = sea ? 3 : 6;
   const carve = (ax: number, ay: number, bx: number, by: number, width: number) => {
     const steps = Math.ceil(Math.hypot(bx - ax, by - ay) * 2);
     for (let s = 0; s <= steps; s++) {
       const t = s / steps;
       // gentle wiggle so corridors are not ruler-straight
-      const wig = (noise.value(t * 4 + 11, 3.3) - 0.5) * 6;
+      const wig = (noise.value(t * 4 + 11, 3.3) - 0.5) * wigAmp;
       const nx = -(by - ay), ny = bx - ax;
       const nl = Math.hypot(nx, ny) || 1;
       const px = ax + (bx - ax) * t + (nx / nl) * wig;
@@ -142,11 +171,17 @@ export function generateMap(opts: MapGenOptions): GameMap {
       }
     }
   };
-  for (let a = 0; a < allCorners.length; a++) {
-    for (let b = a + 1; b < allCorners.length; b++) {
-      carve(allCorners[a].x, allCorners[a].y, allCorners[b].x, allCorners[b].y, 1);
+  // ground corridors: between every pair of starts, or on sea maps around the sea along the map edges
+  const routes: [number, number, number, number][] = [];
+  if (!sea) {
+    for (let a = 0; a < allCorners.length; a++) {
+      for (let b = a + 1; b < allCorners.length; b++) routes.push([allCorners[a].x, allCorners[a].y, allCorners[b].x, allCorners[b].y]);
     }
+  } else {
+    const ring = [{ x: m + 0.5, y: m + 0.5 }, { x: N - m - 0.5, y: m + 0.5 }, { x: N - m - 0.5, y: N - m - 0.5 }, { x: m + 0.5, y: N - m - 0.5 }];
+    for (let k = 0; k < 4; k++) routes.push([ring[k].x, ring[k].y, ring[(k + 1) % 4].x, ring[(k + 1) % 4].y]);
   }
+  for (const [ax, ay, bx, by] of routes) carve(ax, ay, bx, by, 1);
 
   // ---- distance to water (for shores and heights) ---------------------------
   const distWater = bfsDistance(map, (i) => map.terrain[i] === T.Water);
@@ -163,21 +198,29 @@ export function generateMap(opts: MapGenOptions): GameMap {
   const toward = Math.atan2(other.y - s0.y, other.x - s0.x);
   const fieldCount = 2;
   for (let k = 0; k < fieldCount; k++) {
-    const ang = toward + (k === 0 ? -1 : 1) * rng.range(0.6, 1.2);
+    const spreadA = rng.range(0.6, 1.2);
+    // (sea maps: keep the home fields clear of the bay, which points at the map centre)
+    const ang = toward + (k === 0 ? -1 : 1) * (sea ? 0.95 + (spreadA - 0.6) * 0.6 : spreadA);
     const d = rng.range(8.5, 11.5);
     canonFields.push({ x: s0.x + Math.cos(ang) * d, y: s0.y + Math.sin(ang) * d, r: rng.range(3.3, 4.0) * (0.8 + opts.ore * 0.4), gems: false });
   }
   // contested mid fields
   const mid = { x: (s0.x + other.x) / 2, y: (s0.y + other.y) / 2 };
   const perp = toward + Math.PI / 2;
-  const off = rng.range(N * 0.12, N * 0.2);
+  // (2-player sea maps: the middle is open sea, so the contested fields sit on the flanks)
+  const offR = rng.range(N * 0.12, N * 0.2);
+  const off = sea && !four ? N * 0.34 : offR;
   canonFields.push({ x: mid.x + Math.cos(perp) * off, y: mid.y + Math.sin(perp) * off, r: rng.range(3.6, 4.4), gems: false });
   // a third field a bit further out, behind the base flank
   const ang3 = toward + Math.PI + rng.range(-0.5, 0.5) * 2;
   canonFields.push({ x: s0.x + Math.cos(ang3) * 9 + (four ? 0 : 0), y: s0.y + Math.sin(ang3) * 9, r: rng.range(3.0, 3.6), gems: false });
-  if (four) canonFields.push({ x: (s0.x + N / 2) / 2 + 3, y: (s0.y + N / 2) / 2 - 3, r: 3.6, gems: false });
+  if (four) canonFields.push({ x: (s0.x + N / 2) / 2 + (sea ? -5 : 3), y: (s0.y + N / 2) / 2 + (sea ? -5 : -3), r: 3.6, gems: false });
   // gem field near the centre (symmetric images overlap into one rich field)
-  canonFields.push({ x: N / 2 + (four ? 0 : rng.range(-3, 3)), y: N / 2 + (four ? 0 : rng.range(-3, 3)), r: 2.3, gems: true });
+  const gx = N / 2 + (four ? 0 : rng.range(-3, 3)), gy = N / 2 + (four ? 0 : rng.range(-3, 3));
+  if (!sea) canonFields.push({ x: gx, y: gy, r: 2.3, gems: true });
+  // sea maps: gems on the flanks (2 players) or at the edge midpoints between neighbours (4 players)
+  else if (!four) canonFields.push({ x: N / 2 + Math.cos(perp) * N * 0.25, y: N / 2 + Math.sin(perp) * N * 0.25, r: 2.3, gems: true });
+  else if (opts.players === 4) canonFields.push({ x: N / 2, y: m + 3.5, r: 2.3, gems: true }, { x: m + 3.5, y: N / 2, r: 2.3, gems: true });
 
   const fields: Field[] = [];
   for (const f of canonFields) for (const [x, y] of images(f.x, f.y)) fields.push({ ...f, x, y });
@@ -244,13 +287,13 @@ export function generateMap(opts: MapGenOptions): GameMap {
     }
   }
   // re-open the corridors through forests
-  for (let a = 0; a < allCorners.length; a++) {
-    for (let b = a + 1; b < allCorners.length; b++) {
-      const A = allCorners[a], B = allCorners[b];
+  for (const [ax, ay, bx, by] of routes) {
+    {
+      const A = { x: ax, y: ay }, B = { x: bx, y: by };
       const steps = Math.ceil(Math.hypot(B.x - A.x, B.y - A.y) * 2);
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
-        const wig = (noise.value(t * 4 + 11, 3.3) - 0.5) * 6;
+        const wig = (noise.value(t * 4 + 11, 3.3) - 0.5) * wigAmp;
         const nx = -(B.y - A.y), ny = B.x - A.x, nl = Math.hypot(nx, ny) || 1;
         const px = A.x + (B.x - A.x) * t + (nx / nl) * wig, py = A.y + (B.y - A.y) * t + (ny / nl) * wig;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -307,11 +350,13 @@ export function generateMap(opts: MapGenOptions): GameMap {
       }
       // flatten bases
       const ds = distStart(cx, cy);
-      h = h * (1 - smooth(baseR + 4, baseR - 1, ds) * 0.85);
+      if (!(sea && water > 0)) h = h * (1 - smooth(baseR + 4, baseR - 1, ds) * 0.85);
       map.heights[vy * W + vx] = h;
     }
   }
 
+  // (sea maps keep their water open for naval play unless bridges are asked for)
+  if (opts.bridges ?? !sea) addBridgesToMap(map);
   return map;
 }
 

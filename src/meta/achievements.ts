@@ -36,6 +36,13 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'shock-therapy', title: 'Shock Therapy', desc: 'Destroy {n} enemies with Tesla Coils.', picto: 'bolt', category: 'combat', rarity: 'rare', counter: 'tesla', tiers: [100] },
   { id: 'hostile-takeover', title: 'Hostile Takeover', desc: 'Capture {n} enemy structures with Engineers.', picto: 'capture', category: 'combat', counter: 'captures', tiers: [1, 5, 25] },
   { id: 'ace-of-aces', title: 'Ace of Aces', desc: 'Destroy {n} enemies with aircraft.', picto: 'wings', category: 'combat', rarity: 'rare', counter: 'airKills', tiers: [50] },
+  { id: 'admiral', title: 'Admiral of the Fleet', desc: 'Sink {n} enemy ships.', picto: 'anchor', category: 'combat', counter: 'ships', tiers: [10, 50, 200] },
+  { id: 'silent-service', title: 'Silent Service', desc: 'Sink {n} enemy ships with submarines.', picto: 'periscope', category: 'combat', rarity: 'epic', counter: 'subKills', tiers: [25] },
+  { id: 'spymaster', title: 'Spymaster', desc: 'Infiltrate {n} enemy structures with Spies.', picto: 'spy', category: 'combat', counter: 'infiltrations', tiers: [1, 10, 50] },
+  { id: 'grand-larceny', title: 'Grand Larceny', desc: 'Steal {n} with Thieves.', picto: 'money', category: 'economy', rarity: 'rare', counter: 'stolen', tiers: [10000], money: true },
+  { id: 'airborne', title: 'Airborne', desc: 'Call in {n} air support missions (paratroopers, parabombs, spy planes).', picto: 'parachute', category: 'combat', counter: 'airPowers', tiers: [5, 25, 100] },
+  { id: 'minefield', title: 'Minefield', desc: 'Destroy {n} enemy units with mines.', picto: 'mine', category: 'combat', rarity: 'rare', counter: 'mineKills', tiers: [25] },
+  { id: 'burn-the-bridges', title: 'Burn the Bridges', desc: 'Watch {n} bridges fall with your forces nearby.', picto: 'bridge', category: 'secret', rarity: 'rare', counter: 'bridges', tiers: [3], hidden: true },
   { id: 'mutually-assured', title: 'Mutually Assured', desc: 'Destroy an enemy structure with an atomic strike.', picto: 'nuke', category: 'combat', rarity: 'epic' },
   { id: 'out-of-time', title: 'Out of Time', desc: 'Chronoshift a tank into an enemy base.', picto: 'chrono', category: 'combat', rarity: 'epic' },
   // ---- career

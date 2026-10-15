@@ -6,6 +6,9 @@ import { pickWeapon } from './combat';
 import { superReady } from './superweapons';
 import { TICK_HZ } from './types';
 import type { World } from './world';
+import { aiNavalStructure, aiNavalThink, aiPlacement } from './ai-naval';
+import { contentAI } from './ai-content';
+import { apparentType } from './infiltration';
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
@@ -33,18 +36,18 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
 const GOALS: Record<Faction, [string, number][]> = {
   allies: [
     ['tent', 1], ['proc', 1], ['weap', 1], ['proc', 2], ['dome', 1], ['gun', 1], ['pbox', 1], ['gun', 2],
-    ['atek', 1], ['agun', 1], ['hpad', 1], ['fix', 1], ['pbox', 2], ['gun', 3], ['proc', 3], ['weap', 2], ['gun', 4], ['agun', 2], ['hpad', 2], ['pdox', 1], ['mslo', 1], ['gun', 6], ['pbox', 4],
+    ['atek', 1], ['agun', 1], ['hpad', 1], ['fix', 1], ['hbox', 1], ['gun', 3], ['proc', 3], ['weap', 2], ['gun', 4], ['agun', 2], ['hpad', 2], ['pbox', 2], ['weaf', 1], ['pdox', 1], ['gap', 1], ['mslo', 1], ['gun', 6], ['pbox', 4], ['facf', 1], ['hbox', 2],
   ],
   soviet: [
     ['barr', 1], ['proc', 1], ['weap', 1], ['proc', 2], ['dome', 1], ['ftur', 1], ['tsla', 1], ['kenn', 1],
-    ['stek', 1], ['sam', 1], ['afld', 1], ['ftur', 2], ['tsla', 2], ['proc', 3], ['hpad', 1], ['weap', 2], ['sam', 2], ['tsla', 3], ['iron', 1], ['mslo', 1], ['tsla', 4], ['ftur', 4],
+    ['stek', 1], ['sam', 1], ['afld', 1], ['ftur', 2], ['tsla', 2], ['proc', 3], ['hpad', 1], ['weap', 2], ['fix', 1], ['sam', 2], ['tsla', 3], ['iron', 1], ['mslo', 1], ['tsla', 4], ['ftur', 4],
   ],
 };
 
 /** The first attack wave commits at most this multiple of the difficulty's wave value. */
 const FIRST_WAVE_CAP = 1.3;
 
-const DEFENSES = new Set(['gun', 'pbox', 'ftur', 'tsla']);
+const DEFENSES = new Set(['gun', 'pbox', 'hbox', 'ftur', 'tsla']);
 const AIR_DEFENSE = new Set(['agun', 'sam']);
 
 const INF_MIX: Record<Faction, [string, number][]> = {
@@ -113,10 +116,12 @@ export class AIController {
     this.planStructures();
     this.planUnits();
     this.repairBase();
+    aiNavalThink(this.world, this.p, this.thinks, this.difficulty, this.behaviour !== 'full');
     if (this.behaviour === 'defensive') { this.defendOnly(); return; }
     this.military();
     this.airStrikes();
     this.superweapons();
+    contentAI(this);
   }
 
   // ---------------------------------------------------------------------------
@@ -148,7 +153,7 @@ export class AIController {
     const [bx, by] = this.baseCenter();
     let best: [number, number] | null = null, bestD = Infinity;
     for (const b of this.world.buildings) {
-      if (!b.alive || !this.p.isEnemy(b.owner)) continue;
+      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.mine) continue;
       const d = Math.hypot(b.x - bx, b.y - by);
       if (d < bestD) { bestD = d; best = [b.x, b.y]; }
     }
@@ -187,7 +192,7 @@ export class AIController {
   private placeReadyStructure() {
     const q = this.p.queues.structure;
     if (!q.ready) return;
-    const spot = this.findPlacement(BUILDINGS[q.ready]);
+    const spot = aiPlacement(this.world, this.p, BUILDINGS[q.ready]) ?? this.findPlacement(BUILDINGS[q.ready]);
     if (spot) this.world.issue({ c: 'place', player: this.p.id, type: q.ready, cx: spot[0], cy: spot[1] });
     else this.world.issue({ c: 'cancel', player: this.p.id, type: q.ready });
   }
@@ -196,7 +201,7 @@ export class AIController {
     const p = this.p;
     const q = p.queues.structure;
     if (q.items.length || q.ready || !p.has('fact')) return;
-    const want = this.nextStructure();
+    const want = aiNavalStructure(this.world, p) ?? this.nextStructure();
     if (want) this.world.issue({ c: 'build', player: p.id, type: want });
   }
 
@@ -376,7 +381,7 @@ export class AIController {
     const [bx, by] = this.baseCenter();
     let threat: Unit | null = null;
     for (const u of w.units) {
-      if (!u.alive || !this.p.isEnemy(u.owner)) continue;
+      if (!u.alive || !this.p.isEnemy(u.owner) || u.kind === 'naval' || (u.ut.spy && u.disguise >= 0) || u.ut.supportPlane) continue; // ships: see ai-naval.ts
       if (Math.hypot(u.x - bx, u.y - by) < 14) { threat = u; break; }
     }
     if (!threat) return;
@@ -386,7 +391,7 @@ export class AIController {
 
   // ---------------------------------------------------------------------------
   private army(): Unit[] {
-    return this.myUnits().filter((u) => u.weapons.length && !u.ut.harvester && !u.ut.deploysInto && !u.ut.medic && u.kind !== 'aircraft');
+    return this.myUnits().filter((u) => u.weapons.length && !u.ut.harvester && !u.ut.deploysInto && !u.ut.medic && u.kind !== 'aircraft' && u.kind !== 'naval');
   }
 
   /** Aircraft strike harvesters, defences and soft targets when fully armed. */
@@ -400,13 +405,14 @@ export class AIController {
     const [bx, by] = this.baseCenter();
     for (const e of [...w.units, ...w.buildings] as Entity[]) {
       if (!e.alive || !this.p.isEnemy(e.owner)) continue;
+      if ((e instanceof Building && e.bt.mine) || (e instanceof Unit && e.ut.spy && e.disguise >= 0)) continue; // unseen mines, disguised spies
       if (!pickWeapon(ready[0], e)) continue; // walls, aircraft in flight...
       // avoid heavily defended spots
       let aa = 0;
       for (const b of w.buildings) if (b.alive && b.owner === e.owner && (b.bt.id === 'sam' || b.bt.id === 'agun') && Math.hypot(b.x - e.x, b.y - e.y) < 8) aa++;
       let score = Math.hypot(e.x - bx, e.y - by) * 0.3 + aa * 25;
       if (e instanceof Unit && e.ut.harvester) score -= 20;
-      if (e instanceof Building && e.bt.id === 'proc') score -= 10;
+      if (e instanceof Building && apparentType(e, this.p).id === 'proc') score -= 10;
       if (score < bestScore) { bestScore = score; best = e; }
     }
     if (best) w.issue({ c: 'attack', player: this.p.id, units: ready.map((u) => u.id), target: best.id });
@@ -423,6 +429,7 @@ export class AIController {
     // set rally points for factories
     if (this.due(TICK_HZ * 5)) {
       for (const b of this.myBuildings()) {
+        if (b.bt.factory === 'naval') continue; // the naval AI keeps its own anchorage
         if (b.bt.factory === 'aircraft') {
           // aircraft wait on their pads (a ground rally point would leave them hovering there forever)
           if (b.rallyX >= 0) w.issue({ c: 'rally', player: p.id, building: b.id, x: -1, y: -1 });
@@ -438,7 +445,7 @@ export class AIController {
     // --- defend the base
     let threat: Unit | null = null;
     for (const u of w.units) {
-      if (!u.alive || !p.isEnemy(u.owner) || u.ut.harvester) continue;
+      if (!u.alive || !p.isEnemy(u.owner) || u.ut.harvester || u.kind === 'naval' || (u.ut.spy && u.disguise >= 0) || u.ut.supportPlane) continue;
       if (Math.hypot(u.x - bx, u.y - by) < 13) { threat = u; break; }
     }
     if (threat && w.tick - this.lastDefend > TICK_HZ * 4) {
@@ -538,7 +545,7 @@ export class AIController {
   private nearestEnemyBuilding(x: number, y: number): Building | null {
     let best: Building | null = null, bestD = Infinity;
     for (const b of this.world.buildings) {
-      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.wall) continue;
+      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.wall || b.bt.mine) continue;
       const d = Math.hypot(b.x - x, b.y - y);
       if (d < bestD) { bestD = d; best = b; }
     }
@@ -550,9 +557,10 @@ export class AIController {
     const [bx, by] = fromX !== undefined ? [fromX, fromY!] : this.baseCenter();
     let best: [number, number] | null = null, bestScore = Infinity;
     for (const b of w.buildings) {
-      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.wall) continue;
+      if (!b.alive || !this.p.isEnemy(b.owner) || b.bt.wall || b.bt.mine) continue;
       let score = Math.hypot(b.x - bx, b.y - by);
-      if (b.bt.id === 'proc' || b.bt.factory) score -= 4;
+      const look = apparentType(b, this.p); // decoys pass for the real thing
+      if (look.id === 'proc' || look.factory) score -= 4;
       // steer around fortified spots
       if (b.weapons.length) score += 6;
       for (const d of w.buildings) if (d.alive && d.owner === b.owner && d.weapons.length && d !== b && Math.hypot(d.x - b.x, d.y - b.y) < 7) score += 3;
@@ -575,9 +583,9 @@ export class AIController {
       // aim at the densest cluster of enemy structures
       let best: Building | null = null, bestScore = -1;
       for (const b of w.buildings) {
-        if (!b.alive || !p.isEnemy(b.owner)) continue;
+        if (!b.alive || !p.isEnemy(b.owner) || b.bt.mine) continue;
         let score = 0;
-        for (const o of w.buildings) if (o.alive && o.owner === b.owner && Math.hypot(o.x - b.x, o.y - b.y) < 4) score += o.bt.cost;
+        for (const o of w.buildings) if (o.alive && o.owner === b.owner && Math.hypot(o.x - b.x, o.y - b.y) < 4) score += apparentType(o, p).cost;
         if (score > bestScore) { bestScore = score; best = b; }
       }
       if (best) w.issue({ c: 'superweapon', player: p.id, kind: 'nuke', x: best.x, y: best.y });

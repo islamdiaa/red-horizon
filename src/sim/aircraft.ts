@@ -4,6 +4,8 @@ import { Building, Entity, Unit, distToEntity } from './entities';
 import { findTarget, pickWeapon } from './combat';
 import { DT } from './types';
 import type { World } from './world';
+import { updateSortie } from './powers';
+import { updateTransportHeli } from './chinook';
 
 const HELI_ALT = 1.55;
 const PLANE_ALT = 2.3;
@@ -36,6 +38,9 @@ export function isLanded(u: Unit) {
 }
 
 export function updateAircraft(world: World, u: Unit) {
+  // support aircraft flying a power's run, transport helicopters (land/air content modules)
+  if (u.sortie) { updateSortie(world, u); return; }
+  if (u.ut.passengers) { updateTransportHeli(world, u); return; }
   const vtol = !!u.ut.vtol;
   const cruise = vtol ? HELI_ALT : PLANE_ALT;
   const speed = mphToCellsPerSecond(u.ut.speed);
@@ -100,7 +105,7 @@ export function updateAircraft(world: World, u: Unit) {
       if (!vtol || u.ammo <= 0) { goHome = true; break; }
       // a helicopter that has landed to rearm stays on the pad until fully loaded
       if (isLanded(u) && u.ammo < maxAmmo) { goHome = true; break; }
-      if (u.ammo > 0 && !isLanded(u)) {
+      if (u.ammo > 0 && !isLanded(u) && u.stance !== 'passive') {
         if (--u.scanTimer <= 0) {
           u.scanTimer = 10;
           const t = findTarget(world, u, u.ut.sight, u.ut.sight);

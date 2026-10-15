@@ -9,6 +9,11 @@ import { updateAircraft } from './aircraft';
 import { recalcPlayerEconomy } from './production';
 import { DT, TICK_HZ, type Order } from './types';
 import type { World } from './world';
+import { enterVessel, navalDeployOrder, updateNavalUnit } from './naval';
+import { stanceIdle } from './stance';
+import { infiltrate } from './infiltration';
+import { updateLayMines } from './mines';
+import { updateRepairBridge } from './bridges';
 
 const LEASH = 5;
 
@@ -29,11 +34,18 @@ export function updateUnit(world: World, u: Unit) {
     updateAircraft(world, u);
     return;
   }
+  if (u.kind === 'naval') updateNavalUnit(u);
   const o = u.order;
   switch (o.type) {
     case 'idle':
     case 'guard':
-      idle(world, u);
+      if (!stanceIdle(world, u)) idle(world, u);
+      break;
+    case 'layMines':
+      updateLayMines(world, u, o);
+      break;
+    case 'repairBridge':
+      updateRepairBridge(world, u, o);
       break;
     case 'move':
       move(world, u, o);
@@ -51,6 +63,7 @@ export function updateUnit(world: World, u: Unit) {
       enter(world, u, o);
       break;
     case 'deploy':
+      if (u.kind === 'naval') { navalDeployOrder(world, u); break; }
       if (world.deploy(u)) return;
       world.announce(u.owner, 'cannot_deploy', 1);
       world.setOrder(u, { type: 'idle' });
@@ -196,7 +209,7 @@ function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
     }
   }
   // opportunistic fire on the move (turreted units)
-  if (u.ut.turret && u.weapons.length && !o.attackMove) {
+  if (u.ut.turret && u.weapons.length && !o.attackMove && u.stance !== 'passive') {
     if (u.target && !validEnemyTarget(world, u, u.target)) u.target = null;
     if (!u.target && --u.scanTimer <= 0) {
       u.scanTimer = 8;
@@ -207,7 +220,7 @@ function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
 
 function attack(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>) {
   const t = world.entities.get(o.target);
-  if (!t || !t.alive || (!o.forced && !u.owner.isEnemy(t.owner))) {
+  if (!t || !t.alive || (!o.forced && !u.owner.isEnemy(t.owner)) || (t.cloaked && !world.canSee(u.owner, t))) {
     u.target = null;
     if (o.resume) world.setOrder(u, o.resume);
     else finishOrder(world, u);
@@ -260,6 +273,7 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
   const t = world.entities.get(o.target);
   if (!t || !t.alive) return finishOrder(world, u);
   if (t instanceof Unit) {
+    if (t.kind === 'naval') return enterVessel(world, u, t);
     // board a friendly transport
     if (t.owner !== u.owner || !t.ut.passengers || u.kind !== 'infantry' || t.passengers.length >= t.ut.passengers) return finishOrder(world, u);
     if (Math.hypot(t.x - u.x, t.y - u.y) < 0.9) { world.board(u, t); return; }
@@ -277,7 +291,8 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
     if (!u.hasGoal && !u.pathPending) world.requestPath(u, px, py);
     return;
   }
-  if (d > 0.7) {
+  // structures out on the water (shipyard / sub pen) are entered from the shore
+  if (d > (t.bt.water ? 1.6 : 0.7)) {
     const [px, py] = t.closestPoint(u.x, u.y);
     if (u.path || u.pathPending) return;
     // right next to the structure: its edge is inside a blocked cell, so the path search can't
@@ -304,6 +319,7 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
     world.kill(u, 'sold');
     return;
   }
+  if ((u.ut.spy || u.ut.thief) && infiltrate(world, u, t)) return;
   if (u.ut.c4 && u.owner.isEnemy(t.owner)) {
     // the charge lives on the building: it goes off even if the commando dies or moves on,
     // and planting again on an armed building doesn't restart its fuse
@@ -325,7 +341,7 @@ const C4_FUSE = 1.6;
 
 /** Engineers enter enemy structures (capture / sabotage) and damaged friendly ones (repair); never walls. */
 export function engineerCanEnter(u: Unit, b: Building): boolean {
-  if (b.bt.wall) return false;
+  if (b.bt.wall || b.bt.mine) return false;
   if (u.owner.isEnemy(b.owner)) return true;
   return b.hp < b.maxHp;
 }
@@ -368,13 +384,14 @@ function cellOk(world: World, u: Unit, x: number, y: number): boolean {
   const cx = Math.floor(x), cy = Math.floor(y);
   if (cx < 0 || cy < 0 || cx >= m.w || cy >= m.h) return false;
   const i = cy * m.w + cx;
+  if (u.kind === 'naval') return m.navalPassableIdx(i);
   if (m.passableIdx(i)) return true;
   return u.exitBuilding !== 0 && m.occupant[i] === u.exitBuilding && m.terrainPassable(i);
 }
 
 function posOk(world: World, u: Unit, x: number, y: number, dx: number, dy: number): boolean {
   if (!cellOk(world, u, x, y)) return false;
-  if (u.kind === 'vehicle') {
+  if (u.kind === 'vehicle' || u.kind === 'naval') {
     const l = Math.hypot(dx, dy);
     if (l > 0) {
       const r = u.ut.radius * 0.7;
@@ -486,7 +503,7 @@ export function pathRemaining(u: Unit): number {
 
 function crush(world: World, u: Unit) {
   world.grid.query(u.x, u.y, 0.6, (o) => {
-    if (!o.alive || !o.ut.crushable || !u.owner.isEnemy(o.owner)) return;
+    if (!o.alive || !o.ut.crushable || !u.owner.isEnemy(o.owner) || !crushableNow(o)) return;
     if (Math.hypot(o.x - u.x, o.y - u.y) < u.ut.radius * 0.75) {
       world.sfx('crush', o.x, o.y);
       world.kill(o, 'crushed', u);
@@ -494,7 +511,9 @@ function crush(world: World, u: Unit) {
   });
 }
 
-const runsOver = (a: Unit, b: Unit) => a.moving && a.ut.crusher && b.ut.crushable && a.owner.isEnemy(b.owner);
+/** Paratroopers still in the air can't be run over; enemy drivers take a disguised spy for one of their own (RA). */
+const crushableNow = (o: Unit) => o.parachute <= 0 && !(o.ut.spy && o.disguise >= 0);
+const runsOver = (a: Unit, b: Unit) => a.moving && a.ut.crusher && b.ut.crushable && a.owner.isEnemy(b.owner) && crushableNow(b);
 
 /** Push overlapping ground units apart. Idle units make way for moving ones. */
 export function resolveCollisions(world: World) {
@@ -502,7 +521,7 @@ export function resolveCollisions(world: World) {
   for (const u of units) {
     if (!u.alive || u.kind === 'aircraft') continue;
     world.grid.query(u.x, u.y, 0.9, (o) => {
-      if (o.id <= u.id || !o.alive || o.kind === 'aircraft') return;
+      if (o.id <= u.id || !o.alive || o.kind === 'aircraft' || (o.kind === 'naval') !== (u.kind === 'naval')) return;
       const minD = (u.ut.radius + o.ut.radius) * 0.92;
       let dx = o.x - u.x, dy = o.y - u.y;
       let d2 = dx * dx + dy * dy;

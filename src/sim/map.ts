@@ -53,6 +53,8 @@ export class GameMap {
   climate: 'temperate' | 'winter' | 'desert' = 'temperate';
   /** Bridges laid over water by the map (cells under an intact bridge are passable to ground units). */
   bridges: MapBridge[] = [];
+  /** Per cell: id (1-based, World.bridges) of the intact bridge spanning it, 0 = none / destroyed (bridges.ts). */
+  readonly bridgeAt: Uint8Array;
 
   constructor(w: number, h: number) {
     this.w = w;
@@ -67,6 +69,7 @@ export class GameMap {
     this.occupant = new Int32Array(n);
     this.reserved = new Uint8Array(n);
     this.passableOverride = new Uint8Array(n);
+    this.bridgeAt = new Uint8Array(n);
   }
 
   idx(x: number, y: number) {
@@ -79,7 +82,9 @@ export class GameMap {
   /** Static terrain passability for ground units (ignores buildings). */
   terrainPassable(i: number): boolean {
     const t = this.terrain[i];
-    return t !== T.Water && t !== T.Rock && this.tree[i] === 0;
+    // an intact bridge carries ground units over the water
+    if (t === T.Water) return this.bridgeAt[i] !== 0;
+    return t !== T.Rock && this.tree[i] === 0;
   }
 
   /** Ground passability including buildings. */
@@ -92,6 +97,22 @@ export class GameMap {
   passableIdx(i: number): boolean {
     if (!this.terrainPassable(i)) return false;
     return this.occupant[i] === 0 || this.passableOverride[i] === 1;
+  }
+
+  /**
+   * Static passability for ships: open water (ignores buildings). As in RA an intact bridge deck blocks ships;
+   * once it collapses the channel opens (generated sea maps lay no bridges, so harbours stay connected).
+   */
+  navalTerrain(i: number): boolean {
+    return this.terrain[i] === T.Water && this.bridgeAt[i] === 0;
+  }
+  /** Ship passability including structures (shipyards / sub pens stand on water). */
+  navalPassable(x: number, y: number): boolean {
+    if (!this.inBounds(x, y)) return false;
+    return this.navalPassableIdx(y * this.w + x);
+  }
+  navalPassableIdx(i: number): boolean {
+    return this.navalTerrain(i) && this.occupant[i] === 0;
   }
 
   buildable(x: number, y: number): boolean {

@@ -23,6 +23,14 @@ export class ProductionQueue {
   }
 }
 
+/** What a player's spies have found out (player ids per category). */
+export interface PlayerIntel {
+  radar: number[];
+  power: number[];
+  credits: number[];
+  production: number[];
+}
+
 export interface PlayerStats {
   unitsBuilt: number;
   unitsLost: number;
@@ -41,6 +49,7 @@ export function queueKindOf(t: TypeDef): QueueKind {
   if (isBuildingType(t)) return 'structure';
   if (t.kind === 'infantry') return 'infantry';
   if (t.kind === 'aircraft') return 'aircraft';
+  if (t.kind === 'naval') return 'naval';
   return 'vehicle';
 }
 
@@ -89,6 +98,25 @@ export class Player {
   allowedTypes: Set<string> | null = null;
   /** Snapshot of buildable ids to detect "new construction options". */
   knownOptions = new Set<string>();
+  /**
+   * Espionage results (spies, see infiltration.ts): ids of the players whose radar view (their `visible` cells
+   * and units, for the minimap), power, credits and factory production this player can currently see.
+   * Recomputed every second from the infiltrated structures still standing.
+   */
+  intel: PlayerIntel = { radar: [], power: [], credits: [], production: [] };
+  /** GPS satellite launched: the whole map stays explored, radar can't be jammed. */
+  gps = false;
+  /** Seconds left of the full-visibility snapshot after a GPS launch. */
+  gpsPulse = 0;
+  /** Sonar pulses granted by spies in enemy sub pens (one-shot each). */
+  sonarCharges = 0;
+  /** Temporary reveals (spy plane photos): cells within r of (x, y) visible for t more seconds. */
+  reveals: { x: number; y: number; r: number; t: number }[] = [];
+  /** Sonar pulse: enemy submarines are revealed to this player's team until this tick (see World.revealCloaked). */
+  sonarUntil = 0;
+  /** Naval yards (shipyard / sub pen) destroyed so far and the tick of the last loss (naval AI pacing). */
+  yardsLost = 0;
+  yardLostTick = -1e9;
 
   constructor(opts: { id: number; name: string; faction: Faction; color: number; team: number; isHuman: boolean; cash: number; mapCells: number }) {
     this.id = opts.id;

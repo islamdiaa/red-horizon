@@ -106,6 +106,10 @@ interface Match {
   nukeX: number;
   nukeY: number;
   nukeKills: number;
+  /** Last explosion caused by the local player (mine kills have no surviving attacker to credit). */
+  boomTick: number;
+  boomX: number;
+  boomY: number;
   wallParent: Map<number, number>;
   wallSize: Map<number, number>;
   lastSaveTick: number;
@@ -173,7 +177,7 @@ export class MetaTracker {
     }
     this.match = {
       info: { ...info, difficulty }, local: 0, xpAtStart: this.profile.xp, climate: info.climate, storm: info.weather === 'storm', factLost: false,
-      killXp: 0, xp: 0, lines: new Map(), medals: [], kills: 0, structures: 0, nukeTick: -1, nukeX: 0, nukeY: 0, nukeKills: 0,
+      killXp: 0, xp: 0, lines: new Map(), medals: [], kills: 0, structures: 0, nukeTick: -1, nukeX: 0, nukeY: 0, nukeKills: 0, boomTick: -1, boomX: 0, boomY: 0,
       wallParent: new Map(), wallSize: new Map(), lastSaveTick: 0, dirty: false,
     };
     if (info.faction === 'allies' || info.faction === 'soviet') this.profile.faction = info.faction;
@@ -213,7 +217,24 @@ export class MetaTracker {
         break;
       case 'impact':
         if (ev.kind === 'nuke' && ev.owner === local) { m.nukeTick = world.tick; m.nukeX = ev.x; m.nukeY = ev.y; m.nukeKills = 0; }
+        if (ev.owner === local) { m.boomTick = world.tick; m.boomX = ev.x; m.boomY = ev.y; }
         return;
+      case 'infiltrate':
+        if (ev.player !== local) return;
+        if (ev.kind === 'spy') this.bump('infiltrations');
+        else this.bump('stolen', ev.amount);
+        break;
+      case 'power':
+        if (ev.player === local && (ev.kind === 'paratroopers' || ev.kind === 'parabombs' || ev.kind === 'spyplane')) this.bump('airPowers');
+        else return;
+        break;
+      case 'bridge': {
+        const br = world.bridges.find((b) => b.id === ev.id);
+        const c = br?.cells[Math.floor(br.cells.length / 2)];
+        if (ev.alive || !c || !this.localUnitNear(world, local, c[0] + 0.5, c[1] + 0.5, 9, () => true)) return;
+        this.bump('bridges');
+        break;
+      }
       case 'promoted':
         if (ev.rank >= 2 && world.getEntity(ev.id)?.owner.id === local) this.bump('elite');
         break;
@@ -283,6 +304,10 @@ export class MetaTracker {
         const t = this.localUnitNear(world, local, ev.x, ev.y, 3.5, (u) => !!UNITS[u.type.id]?.c4);
         if (!t) return;
         kType = t.type.id; kKind = t.kind;
+      } else if (ev.how === 'blown' && m.boomTick === world.tick && Math.hypot(ev.x - m.boomX, ev.y - m.boomY) < 1.5) {
+        // a mine: it is removed when it goes off, so the explosion it caused this tick is the only trace
+        kType = 'mine'; kKind = 'building';
+        this.bump('mineKills');
       } else return;
     }
 
@@ -297,6 +322,10 @@ export class MetaTracker {
       if (TANKS.has(vType)) this.bump('tanks');
       if (vType === '4tnk') this.bump('mammoths');
       if (vKind === 'aircraft') this.bump('aircraft');
+      if (vKind === 'naval') {
+        this.bump('ships');
+        if (kType === 'ss') this.bump('subKills');
+      }
       if (vKind === 'infantry') {
         if (ev.how === 'crushed') this.bump('crushed');
         if (kType === 'e7') this.bump('commando');

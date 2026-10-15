@@ -16,7 +16,11 @@ export type Order =
   | { type: 'harvest'; x?: number; y?: number }
   | { type: 'enter'; target: number }
   | { type: 'deploy' }
-  | { type: 'guard'; x: number; y: number };
+  | { type: 'guard'; x: number; y: number }
+  /** Minelayer: lay a mine in each of these cells (map indices), nearest first (mines.ts). */
+  | { type: 'layMines'; cells: number[]; tries?: number; field?: boolean }
+  /** Engineer: walk to an end of a destroyed bridge and rebuild it (bridges.ts). */
+  | { type: 'repairBridge'; bridge: number };
 
 /** Player-issued commands. All game-state changes from input/AI go through these. */
 export type Command =
@@ -37,7 +41,11 @@ export type Command =
   | { c: 'rally'; player: number; building: number; x: number; y: number }
   | { c: 'primary'; player: number; building: number }
   | { c: 'superweapon'; player: number; kind: SuperKind; x: number; y: number; unit?: number }
-  | { c: 'stance'; player: number; units: number[]; stance: Stance };
+  | { c: 'stance'; player: number; units: number[]; stance: Stance }
+  /** Minelayers lay a small minefield around (x, y) (deploy = one mine under the minelayer). */
+  | { c: 'mine'; player: number; units: number[]; x: number; y: number }
+  /** Engineers rebuild a destroyed bridge (World.bridges id) from its nearest end. */
+  | { c: 'repairBridge'; player: number; units: number[]; bridge: number };
 
 /** How a unit picks fights: chase anything seen / engage in range and return (default) / never move / never fire unprompted. */
 export type Stance = 'aggressive' | 'guard' | 'hold' | 'passive';
@@ -60,4 +68,10 @@ export type GameEvent =
   | { e: 'crate'; x: number; y: number; player: number; reward: 'money' | 'unit' | 'heal' | 'reveal'; amount: number }
   | { e: 'promoted'; id: number; rank: number }
   | { e: 'eliminated'; player: number }
-  | { e: 'gameover'; winnerTeam: number };
+  | { e: 'gameover'; winnerTeam: number }
+  /** A spy (intel / sonar) or thief (credits stolen, `amount`) got into a structure. */
+  | { e: 'infiltrate'; building: number; player: number; victim: number; kind: 'spy' | 'thief'; amount: number; x: number; y: number }
+  /** A bridge collapsed or was rebuilt (World.bridges id). */
+  | { e: 'bridge'; id: number; alive: boolean }
+  /** Support power effects for the renderer: GPS launch (map reveal), sonar pulse, spy-plane photo, paradrop. */
+  | { e: 'power'; kind: 'gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs'; player: number; x: number; y: number };

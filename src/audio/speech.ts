@@ -52,6 +52,11 @@ export const ANNOUNCER_TEXT: Record<AnnouncerKey, string> = {
   bridge_repaired: 'Bridge repaired.',
   enemy_aircraft: 'Enemy aircraft approaching.',
   naval_unit_lost: 'Naval unit lost.',
+  radar_jammed: 'Radar jammed.',
+  mine_detected: 'Mines detected.',
+  paratroopers_inbound: 'Enemy paratroopers inbound.',
+  spy_detected: 'Enemy spy eliminated.',
+  mines_laid: 'Mines laid.',
 };
 
 /** Minimum ms between two announcements of the same key. */
@@ -67,6 +72,9 @@ export const ANNOUNCER_THROTTLE: Partial<Record<AnnouncerKey, number>> = {
   naval_unit_lost: 6000,
   enemy_aircraft: 15000,
   sub_detected: 12000,
+  mine_detected: 15000,
+  mines_laid: 10000,
+  radar_jammed: 15000,
 };
 export const DEFAULT_THROTTLE = 4000;
 

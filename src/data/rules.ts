@@ -82,6 +82,10 @@ export interface BaseTypeDef {
   buildable: boolean;
   category: Category;
   description: string;
+  /** Gap generator: re-shrouds cells within this radius for every enemy (RA GapRadius / mobile gap). */
+  gapRadius?: number;
+  /** Radar jammer: enemy radar domes and SAM sites within this radius stop working (RA RadarJamRadius). */
+  jamRadius?: number;
 }
 
 export interface UnitTypeDef extends BaseTypeDef {
@@ -108,9 +112,21 @@ export interface UnitTypeDef extends BaseTypeDef {
   dog?: boolean;
   c4?: boolean;
   hero?: boolean;
+  /** Spy: disguised to enemies, infiltrates structures (RA Infiltrate=yes). */
+  spy?: boolean;
+  /** Thief: steals half the credits of the owner of a refinery / silo it enters. */
+  thief?: boolean;
+  /** Minelayer: lays `ammo` mines (Allied AT `minv`, Soviet AP `minp`), re-arms at a service depot. */
+  minelayer?: boolean;
+  /** Support aircraft flown in by a power (Badger / spy plane): not buildable, flies a scripted sortie. */
+  supportPlane?: boolean;
   /** Aircraft: needs a pad to rearm; VTOL = helicopter. */
   vtol?: boolean;
   ammo?: number;
+  /** Naval: submerges when not firing (RA Cloakable=yes); cloaked from enemies unless detected. */
+  cloakable?: boolean;
+  /** Naval: detects submerged submarines within this many cells (RA Sensors / IsScanner). */
+  sensors?: number;
 }
 
 export interface BuildingTypeDef extends BaseTypeDef {
@@ -121,7 +137,9 @@ export interface BuildingTypeDef extends BaseTypeDef {
   primary?: string;
   turret?: boolean;
   freeUnit?: string;
-  factory?: 'building' | 'infantry' | 'vehicle' | 'aircraft';
+  factory?: 'building' | 'infantry' | 'vehicle' | 'aircraft' | 'naval';
+  /** Naval structure: the whole footprint must be placed on water (shipyard / sub pen). */
+  water?: boolean;
   /** Only produces these unit ids (e.g. kennel => dogs). */
   factoryOnly?: string[];
   /** Weapon/feature is disabled under low power. */
@@ -137,6 +155,14 @@ export interface BuildingTypeDef extends BaseTypeDef {
   /** Seconds to charge the superweapon. */
   superCharge?: number;
   wall?: boolean;
+  /** Land mine (1x1, cloaked to enemies): 'ap' hurts infantry, 'at' hurts vehicles (RA MINP / MINV). */
+  mine?: 'ap' | 'at';
+  /** Camouflaged: cloaked from enemies until it fires or an enemy is adjacent (RA HBOX). */
+  camo?: boolean;
+  /** Decoy: looks exactly like this real structure to enemies (RA FACF / WEAF / SYRF / SPEF / DOMF). */
+  fakeOf?: string;
+  /** Support powers this structure provides (RA: Airfield = spy plane / paratroopers / parabombs, Tech Center = GPS). */
+  powers?: ('gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs')[];
 }
 
 export type TypeDef = UnitTypeDef | BuildingTypeDef;
@@ -194,6 +220,15 @@ export const WEAPONS: Record<string, WeaponDef> = {
   ChainGun:         W({ id: 'ChainGun', damage: 25, rof: 10, range: 5, projectile: 'bullet', warhead: 'SA', report: 'mg' }),
   Maverick:         W({ id: 'Maverick', damage: 50, rof: 30, range: 6, projectile: 'missile', speed: 50, warhead: 'AP', report: 'missile_launch', burst: 2 }),
   Nuke:             W({ id: 'Nuke', damage: 1000, rof: 1, range: 99, projectile: 'scud', speed: 25, warhead: 'Nuke', report: 'nuke_launch' }),
+  // Badger parabombs (RA [ParaBomb]: Damage=300 Warhead=HE, parachuted bomb); dropped by the parabombs power, never fired
+  ParaBomb:         W({ id: 'ParaBomb', damage: 300, rof: 5, range: 4.5, projectile: 'bomb', speed: 5, warhead: 'HE', report: 'bomb_whistle' }),
+  // ---- naval (RA RULES.INI [2Inch] [8Inch] [Stinger] [TorpTube] [DepthCharge])
+  // torpedo = RA Torpedo bullet (UnderWater=yes): naval targets only; depth charge = Catapult (ASW=yes): submarines only
+  '2Inch':          W({ id: '2Inch', damage: 25, rof: 60, range: 5.5, projectile: 'cannon', speed: 60, warhead: 'AP', report: 'cannon_small' }),
+  '8Inch':          W({ id: '8Inch', damage: 500, rof: 160, range: 22, projectile: 'ballistic', speed: 12, warhead: 'HE', report: 'naval_gun', inaccuracy: 1.5 }),
+  Stinger:          W({ id: 'Stinger', damage: 30, rof: 60, range: 9, projectile: 'missile', speed: 60, warhead: 'AP', report: 'missile_launch', burst: 2, antiAir: true }),
+  TorpTube:         W({ id: 'TorpTube', damage: 90, rof: 60, range: 9, projectile: 'torpedo', speed: 35, warhead: 'AP', report: 'torpedo' }),
+  DepthCharge:      W({ id: 'DepthCharge', damage: 80, rof: 60, range: 5, projectile: 'depthcharge', speed: 5, warhead: 'AP', report: 'depth_charge', inaccuracy: 0.3 }),
 };
 
 // ---------------------------------------------------------------------------
@@ -218,6 +253,12 @@ const VEH = (u: Omit<UnitInit, 'kind'>): UnitTypeDef => ({
 const AIR = (u: Omit<UnitInit, 'kind'>): UnitTypeDef => ({
   kind: 'aircraft', category: 'aircraft', buildable: true, turret: false, tracked: false, crusher: false, crushable: false,
   radius: 0.4, sight: 6, armor: 'light', owner: BOTH, prereq: ['hpad'], ...u,
+});
+
+/** Vessels (RA VDATA.CPP / RULES.INI [PT] [DD] [CA] [LST] [SS]): move on water only, built at a shipyard / sub pen. */
+const NAV = (u: Omit<UnitInit, 'kind'>): UnitTypeDef => ({
+  kind: 'naval', category: 'naval', buildable: true, turret: false, tracked: false, crusher: false, crushable: false,
+  radius: 0.5, sight: 6, armor: 'heavy', owner: BOTH, prereq: ['syrd'], ...u,
 });
 
 export const UNITS: Record<string, UnitTypeDef> = {
@@ -248,6 +289,23 @@ export const UNITS: Record<string, UnitTypeDef> = {
   hind: AIR({ id: 'hind', name: 'Hind', cost: 1200, strength: 225, armor: 'heavy', speed: 12, rot: 4, primary: 'ChainGun', vtol: true, ammo: 12, owner: ['soviet'], description: 'Assault helicopter with a chain gun.' }),
   mig:  AIR({ id: 'mig', name: 'MiG', cost: 1200, strength: 50, speed: 20, rot: 5, primary: 'Maverick', ammo: 3, owner: ['soviet'], prereq: ['afld'], description: 'Strike jet armed with Maverick missiles.' }),
   yak:  AIR({ id: 'yak', name: 'Yak', cost: 800, strength: 60, speed: 16, rot: 5, primary: 'ChainGun', ammo: 15, owner: ['soviet'], prereq: ['afld'], description: 'Ground-attack plane with cannons.' }),
+
+  // ---- Land / air special units (RA IDATA.CPP / UDATA.CPP / AADATA.CPP, values from RULES.INI)
+  spy:  INF({ id: 'spy', name: 'Spy', cost: 500, strength: 25, speed: 4, sight: 5, spy: true, owner: ['allies'], prereq: ['tent', 'dome'], description: 'Disguised as an enemy soldier; only dogs see through it. Infiltrates structures: radar, power, money and factory intel, sonar from a sub pen.' }),
+  thf:  INF({ id: 'thf', name: 'Thief', cost: 500, strength: 25, speed: 4, sight: 5, thief: true, owner: ['allies'], prereq: ['tent', 'atek'], description: 'Sneaks into an enemy refinery or silo and steals half of their credits.' }),
+  mnly: VEH({ id: 'mnly', name: 'Minelayer', cost: 800, strength: 100, speed: 9, rot: 5, sight: 5, ammo: 5, minelayer: true, prereq: ['weap', 'fix'], radius: 0.4, description: 'Lays five hidden mines (Allied anti-tank, Soviet anti-personnel). Re-arms at a Service Depot.' }),
+  mgg:  VEH({ id: 'mgg', name: 'Mobile Gap Generator', cost: 600, strength: 110, armor: 'light', speed: 9, rot: 5, sight: 4, gapRadius: 3, tracked: false, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.4, description: 'Shrouds the area around it from enemy eyes and radar.' }),
+  mrj:  VEH({ id: 'mrj', name: 'Mobile Radar Jammer', cost: 600, strength: 110, armor: 'light', speed: 9, rot: 5, sight: 7, jamRadius: 10, tracked: false, owner: ['allies'], prereq: ['weap', 'dome'], radius: 0.4, description: 'Jams enemy radar domes and SAM sites within range.' }),
+  tran: AIR({ id: 'tran', name: 'Chinook', cost: 1200, strength: 90, armor: 'heavy', speed: 12, rot: 5, sight: 3, vtol: true, passengers: 5, radius: 0.5, description: 'Transport helicopter. Carries five infantry; lands to load and unload.' }),
+  badr: AIR({ id: 'badr', name: 'Badger', cost: 10, strength: 60, armor: 'light', speed: 16, rot: 5, sight: 0, buildable: false, supportPlane: true, owner: ['soviet'], prereq: [], radius: 0.6, description: 'Soviet bomber: drops paratroopers or parabombs.' }),
+  u2:   AIR({ id: 'u2', name: 'Spy Plane', cost: 10, strength: 2000, armor: 'heavy', speed: 40, rot: 7, sight: 0, buildable: false, supportPlane: true, owner: ['soviet'], prereq: [], radius: 0.5, description: 'High-altitude reconnaissance plane.' }),
+
+  // ---- Naval
+  pt:   NAV({ id: 'pt', name: 'Gunboat', cost: 500, strength: 200, speed: 9, rot: 7, sight: 7, primary: '2Inch', secondary: 'DepthCharge', turret: true, sensors: 2.5, owner: ['allies'], radius: 0.42, description: 'Fast patrol boat with a deck gun and depth charges. Detects submarines nearby.' }),
+  dd:   NAV({ id: 'dd', name: 'Destroyer', cost: 1000, strength: 400, speed: 6, rot: 7, sight: 6, primary: 'Stinger', secondary: 'DepthCharge', turret: true, sensors: 2.5, owner: ['allies'], radius: 0.52, description: 'Escort ship. Missiles hit ships, ground and aircraft; depth charges hunt submarines.' }),
+  ca:   NAV({ id: 'ca', name: 'Cruiser', cost: 2000, strength: 700, speed: 4, rot: 5, sight: 7, primary: '8Inch', secondary: '8Inch', twinShot: true, turret: true, owner: ['allies'], prereq: ['syrd', 'atek'], radius: 0.62, description: 'Heavy warship. Twin 8-inch guns bombard targets far inland. Cannot engage submarines.' }),
+  lst:  NAV({ id: 'lst', name: 'Transport', cost: 700, strength: 350, speed: 14, rot: 10, sight: 6, passengers: 5, prereq: ['syrd|spen'], radius: 0.55, description: 'Landing craft. Carries five infantry or vehicles; beach it next to land to load and unload.' }),
+  ss:   NAV({ id: 'ss', name: 'Submarine', cost: 950, strength: 120, armor: 'light', speed: 6, rot: 7, sight: 6, primary: 'TorpTube', cloakable: true, owner: ['soviet'], prereq: ['spen'], radius: 0.42, description: 'Stealthy attack submarine. Surfaces only to fire torpedoes at ships.' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -273,13 +331,16 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   weap: BLD({ id: 'weap', name: 'War Factory', cost: 2000, strength: 1000, armor: 'light', size: [3, 3], power: -30, prereq: ['proc'], factory: 'vehicle', exit: [1, 3], description: 'Produces vehicles.' }),
   dome: BLD({ id: 'dome', name: 'Radar Dome', cost: 1000, strength: 1000, size: [2, 2], power: -40, prereq: ['proc'], radar: true, requiresPower: true, sight: 10, description: 'Provides the radar minimap.' }),
   fix:  BLD({ id: 'fix', name: 'Service Depot', cost: 1200, strength: 800, armor: 'heavy', size: [3, 3], power: -30, prereq: ['weap'], repairPad: true, passable: [[1, 1], [0, 2], [1, 2], [2, 2]], description: 'Repairs vehicles parked on its pad.' }),
-  atek: BLD({ id: 'atek', name: 'Allied Tech Center', cost: 1500, strength: 400, size: [2, 2], power: -200, prereq: ['weap', 'dome'], owner: ['allies'], description: 'Unlocks advanced Allied technology.' }),
+  atek: BLD({ id: 'atek', name: 'Allied Tech Center', cost: 1500, strength: 400, size: [2, 2], power: -200, prereq: ['weap', 'dome'], owner: ['allies'], powers: ['gps'], description: 'Unlocks advanced Allied technology and launches the GPS satellite.' }),
   stek: BLD({ id: 'stek', name: 'Soviet Tech Center', cost: 1500, strength: 600, size: [3, 3], power: -100, prereq: ['weap', 'dome'], owner: ['soviet'], description: 'Unlocks advanced Soviet technology.' }),
-  hpad: BLD({ id: 'hpad', name: 'Helipad', cost: 1500, strength: 800, size: [2, 2], power: -10, prereq: ['dome'], factory: 'aircraft', factoryOnly: ['heli', 'hind'], description: 'Builds and rearms helicopters.' }),
-  afld: BLD({ id: 'afld', name: 'Airfield', cost: 600, strength: 1000, armor: 'heavy', size: [3, 2], power: -30, prereq: ['dome'], owner: ['soviet'], factory: 'aircraft', factoryOnly: ['mig', 'yak'], description: 'Builds and rearms Soviet aircraft.' }),
+  hpad: BLD({ id: 'hpad', name: 'Helipad', cost: 1500, strength: 800, size: [2, 2], power: -10, prereq: ['dome'], factory: 'aircraft', factoryOnly: ['heli', 'hind', 'tran'], description: 'Builds and rearms helicopters.' }),
+  afld: BLD({ id: 'afld', name: 'Airfield', cost: 600, strength: 1000, armor: 'heavy', size: [3, 2], power: -30, prereq: ['dome'], owner: ['soviet'], factory: 'aircraft', factoryOnly: ['mig', 'yak'], powers: ['spyplane', 'paratroopers', 'parabombs'], description: 'Builds and rearms Soviet aircraft. Provides the spy plane, paratroopers and parabombs.' }),
   mslo: BLD({ id: 'mslo', name: 'Missile Silo', cost: 2500, strength: 400, armor: 'heavy', size: [2, 1], power: -100, prereq: ['stek|atek'], superweapon: 'nuke', superCharge: 300, requiresPower: true, description: 'Launches a devastating atomic missile.' }),
   iron: BLD({ id: 'iron', name: 'Iron Curtain', cost: 2800, strength: 400, size: [2, 2], power: -200, prereq: ['stek'], owner: ['soviet'], superweapon: 'ironcurtain', superCharge: 240, requiresPower: true, description: 'Makes a group of units invulnerable for a short time.' }),
   pdox: BLD({ id: 'pdox', name: 'Chronosphere', cost: 2800, strength: 400, size: [2, 2], power: -200, prereq: ['atek'], owner: ['allies'], superweapon: 'chrono', superCharge: 240, requiresPower: true, description: 'Teleports a vehicle anywhere on the battlefield.' }),
+  // naval yards: 3x3 on water, next to the base (RA [SYRD] / [SPEN]); they also repair docked ships
+  syrd: BLD({ id: 'syrd', name: 'Shipyard', cost: 650, strength: 1000, armor: 'light', size: [3, 3], power: -30, prereq: ['powr'], owner: ['allies'], factory: 'naval', water: true, category: 'building', description: 'Builds and repairs Allied ships. Must be placed on water next to your base.' }),
+  spen: BLD({ id: 'spen', name: 'Sub Pen', cost: 650, strength: 1000, armor: 'light', size: [3, 3], power: -30, prereq: ['powr'], owner: ['soviet'], factory: 'naval', water: true, category: 'building', description: 'Builds and repairs Soviet submarines and transports. Must be placed on water next to your base.' }),
 
   // ---- Defenses
   pbox: DEF({ id: 'pbox', name: 'Pillbox', cost: 400, strength: 400, armor: 'wood', size: [1, 1], power: -15, prereq: ['tent'], owner: ['allies'], primary: 'Vulcan', description: 'Machine-gun bunker. Shreds infantry.' }),
@@ -292,6 +353,19 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   barb: DEF({ id: 'barb', name: 'Barbed Wire', cost: 25, strength: 100, armor: 'wood', size: [1, 1], power: 0, prereq: ['fact'], owner: ['soviet'], wall: true, sight: 1, description: 'Barbed-wire barrier. Drag to build a line. Blocks movement.' }),
   brik: DEF({ id: 'brik', name: 'Concrete Wall', cost: 100, strength: 500, armor: 'concrete', size: [1, 1], power: 0, prereq: ['fact', 'weap'], wall: true, sight: 1, description: 'Heavy concrete wall. Drag to build a line. Only explosives breach it.' }),
   sam:  DEF({ id: 'sam', name: 'SAM Site', cost: 750, strength: 400, size: [2, 1], power: -20, prereq: ['dome'], owner: ['soviet'], primary: 'Nike', turret: true, description: 'Surface-to-air missile launcher.' }),
+
+  // ---- Land / air special structures (RA BDATA.CPP, values from RULES.INI)
+  gap:  BLD({ id: 'gap', name: 'Gap Generator', cost: 500, strength: 1000, size: [1, 2], power: -60, prereq: ['atek'], owner: ['allies'], gapRadius: 10, requiresPower: true, sight: 6, description: 'Shrouds the area around it from enemy eyes and radar. Needs full power.' }),
+  hbox: DEF({ id: 'hbox', name: 'Camo Pillbox', cost: 600, strength: 600, armor: 'wood', size: [1, 1], power: -15, prereq: ['tent'], owner: ['allies'], primary: 'Vulcan', camo: true, sight: 5, description: 'Camouflaged machine-gun bunker: invisible to the enemy until it opens fire.' }),
+  // decoys: cheap, flimsy, drawn as the real thing to enemies
+  facf: BLD({ id: 'facf', name: 'Fake Construction Yard', cost: 50, strength: 30, size: [3, 3], power: -2, prereq: ['powr'], owner: ['allies'], fakeOf: 'fact', description: 'Decoy: looks like a Construction Yard to the enemy.' }),
+  weaf: BLD({ id: 'weaf', name: 'Fake War Factory', cost: 50, strength: 30, size: [3, 3], power: -2, prereq: ['proc'], owner: ['allies'], fakeOf: 'weap', description: 'Decoy: looks like a War Factory to the enemy.' }),
+  syrf: BLD({ id: 'syrf', name: 'Fake Shipyard', cost: 50, strength: 30, size: [3, 3], power: -2, prereq: ['powr'], owner: ['allies'], fakeOf: 'syrd', water: true, description: 'Decoy: looks like a Shipyard to the enemy. Placed on water.' }),
+  spef: BLD({ id: 'spef', name: 'Fake Sub Pen', cost: 50, strength: 30, size: [3, 3], power: -2, prereq: ['powr'], owner: ['soviet'], fakeOf: 'spen', water: true, description: 'Decoy: looks like a Sub Pen to the enemy. Placed on water.' }),
+  domf: BLD({ id: 'domf', name: 'Fake Radar Dome', cost: 50, strength: 30, size: [2, 2], power: -2, prereq: ['proc'], owner: ['allies'], fakeOf: 'dome', buildable: false, description: 'Decoy: looks like a Radar Dome to the enemy (scenario only, as in RA).' }),
+  // land mines (laid by minelayers, never built): enemies can't see them unless right next to one
+  minp: BLD({ id: 'minp', name: 'Anti-Personnel Mine', cost: 25, strength: 100, armor: 'heavy', size: [1, 1], power: 0, prereq: [], buildable: false, mine: 'ap', passable: [[0, 0]], sight: 0, category: 'defense', description: 'Blows up enemy infantry that step on it.' }),
+  minv: BLD({ id: 'minv', name: 'Anti-Tank Mine', cost: 25, strength: 100, armor: 'heavy', size: [1, 1], power: 0, prereq: [], buildable: false, mine: 'at', passable: [[0, 0]], sight: 0, category: 'defense', description: 'Wrecks enemy vehicles that drive over it.' }),
 };
 
 export function getType(id: string): TypeDef {

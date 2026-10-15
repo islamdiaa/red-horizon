@@ -4,19 +4,21 @@ import { placeOnPad } from './aircraft';
 import type { Player } from './player';
 import { DT, type QueueKind } from './types';
 import type { World } from './world';
+import { spawnNaval } from './naval';
 
-const KINDS: QueueKind[] = ['structure', 'infantry', 'vehicle', 'aircraft'];
+const KINDS: QueueKind[] = ['structure', 'infantry', 'vehicle', 'aircraft', 'naval'];
 
 /** Recompute power, storage and radar for a player (cheap; called often). */
 export function recalcPlayerEconomy(world: World, p: Player) {
-  let out = 0, use = 0, storage = 0, radarBld = false;
+  let out = 0, use = 0, storage = 0, radarBld = false, jammedBld = false;
   for (const b of world.buildings) {
     if (!b.alive || b.owner !== p || b.buildAnim < 1) continue;
     const pw = b.bt.power;
     if (pw > 0) out += pw * (0.5 + 0.5 * b.healthFrac);
     else use -= pw;
     storage += b.bt.storage ?? 0;
-    if (b.bt.radar) radarBld = true;
+    if (b.bt.radar && (!b.jammed || p.gps)) radarBld = true; // an enemy radar jammer in range blinds it (GPS: never)
+    else if (b.bt.radar) jammedBld = true;
   }
   const wasLow = p.lowPower;
   p.powerOut = Math.round(out);
@@ -27,7 +29,8 @@ export function recalcPlayerEconomy(world: World, p: Player) {
   const radar = radarBld && !p.lowPower;
   if (radar !== p.radar) {
     p.radar = radar;
-    if (world.tick > 1) world.announce(p, radar ? 'radar_online' : 'radar_offline', 2);
+    // (jammed: stealth.ts already announced radar_jammed)
+    if (world.tick > 1 && (radar || !jammedBld || p.lowPower)) world.announce(p, radar ? 'radar_online' : 'radar_offline', 2);
     if (radar) world.events.push({ e: 'sfx', key: 'radar_on', x: -1, y: -1 });
   }
 }
@@ -122,6 +125,7 @@ export function spawnProduced(world: World, p: Player, typeId: string): boolean 
   const facs = factoriesFor(world, p, typeId);
   if (!facs.length) return false;
   const f = facs.find((b) => b.primary) ?? facs[0];
+  if (ut.kind === 'naval') return !!spawnNaval(world, p, f, typeId);
   const [ex, ey] = f.exitCell();
   let u;
   if (ut.kind === 'aircraft') {

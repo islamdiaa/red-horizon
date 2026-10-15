@@ -12,6 +12,11 @@ import { updateProduction, recalcPlayerEconomy } from './production';
 import { AIController, type AIDifficulty } from './ai';
 import { updateSuperweapons, fireSuperweapon } from './superweapons';
 import type { MissionRuntime } from './mission';
+import { navalDeploy, navalLaunchOk, placeNaval, sonarPulse, updateNaval } from './naval';
+import { contentPostMove, contentPreTick, contentStepUnit, contentVisibility } from './content';
+import { canInfiltrate } from './infiltration';
+import { deployMinelayer, orderMinefield } from './mines';
+import { initBridges, orderRepairBridge, type Bridge } from './bridges';
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -114,6 +119,8 @@ export class World {
   projectiles: Projectile[] = [];
   /** Bonus crates lying on the map. */
   crates: { id: number; x: number; y: number }[] = [];
+  /** Bridges from the map, with their state (bridges.ts); intact decks are passable via map.bridgeAt. */
+  bridges: Bridge[] = [];
   cratesEnabled = true;
   private crateTimer = 60;
   events: GameEvent[] = [];
@@ -144,6 +151,7 @@ export class World {
     this.pathfinder = new PathFinder(this.map);
     this.grid = new UnitGrid(this.map.w, this.map.h);
     this.fog = opts.fog;
+    initBridges(this);
     const cells = this.map.w * this.map.h;
     opts.players.forEach((ps, i) => {
       const p = new Player({ id: i, name: ps.name, faction: ps.faction, color: ps.color, team: ps.team, isHuman: ps.isHuman, cash: opts.creditsPer?.[i] ?? opts.credits, mapCells: cells });
@@ -201,6 +209,7 @@ export class World {
     const u = new Unit(this.nextId++, UNITS[typeId], owner, x, y);
     this.entities.set(u.id, u);
     this.units.push(u);
+    if (u.kind === 'naval') placeNaval(this, u);
     if (u.ut.harvester) {
       u.order = { type: 'harvest' };
       u.hstate = 'seek';
@@ -248,7 +257,7 @@ export class World {
       m.reserved[i] = on ? Math.min(255, m.reserved[i] + 1) : Math.max(0, m.reserved[i] - 1);
     };
     reserve(b.dockCell());
-    if (b.bt.factory && b.bt.factory !== 'building') reserve(b.exitCell());
+    if (b.bt.factory && b.bt.factory !== 'building' && !b.bt.water) reserve(b.exitCell());
   }
 
   /** Remove a building's footprint (death / sale / capture handled elsewhere). */
@@ -276,6 +285,10 @@ export class World {
   /** Kill an entity. `how` drives death visuals. */
   kill(e: Entity, how: DeathHow = 'normal', killer?: Entity) {
     if (!e.alive) return;
+    // a mine going off / being shot is no "structure lost"
+    if (e instanceof Building && e.bt.mine) how = 'sold';
+    // a dog sniffed out a disguised spy
+    if (e instanceof Unit && e.ut.spy && e.disguise >= 0 && killer instanceof Unit && killer.ut.dog) this.announce(killer.owner, 'spy_detected', 4);
     e.alive = false;
     e.hp = 0;
     this.dirtyLists = true;
@@ -293,6 +306,7 @@ export class World {
         owner.stats.buildingsLost++;
         this.announce(owner, 'structure_lost', 3);
         this.spawnSurvivors(e, 0.5);
+        if (e.bt.factory === 'naval') { owner.yardsLost++; owner.yardLostTick = this.tick; }
       }
       // release docked harvester
       if (e.dockOccupant) {
@@ -302,7 +316,7 @@ export class World {
       recalcPlayerEconomy(this, owner);
     } else if (e instanceof Unit) {
       owner.stats.unitsLost++;
-      if (how !== 'sold') this.announce(owner, 'unit_lost', 6);
+      if (how !== 'sold') this.announce(owner, e.kind === 'naval' ? 'naval_unit_lost' : 'unit_lost', 6);
       if (e.dockAt) {
         const r = this.entities.get(e.dockAt) as Building | undefined;
         if (r && r.dockOccupant === e.id) r.dockOccupant = 0;
@@ -316,6 +330,15 @@ export class World {
       }
       e.passengers.length = 0;
     }
+  }
+
+  /** Remove a unit without it counting as lost (support aircraft leaving the map). */
+  despawn(u: Unit) {
+    if (!u.alive) return;
+    u.alive = false;
+    u.hp = 0;
+    this.dirtyLists = true;
+    this.events.push({ e: 'death', id: u.id, x: u.x, y: u.y, how: 'sold' });
   }
 
   /** Veterancy: experience from kills; veteran at its own cost destroyed, elite at three times that. */
@@ -338,6 +361,7 @@ export class World {
     for (let k = 0; k < n; k++) {
       if (!this.rng.chance(chance)) continue;
       const [x, y] = this.findFreeSpot(b.x + this.rng.range(-1, 1), b.y + b.h / 2 + 0.6, 3);
+      if (!this.map.passable(Math.floor(x), Math.floor(y))) continue; // a naval yard far from the shore
       const u = this.addUnit('e1', b.owner, x, y);
       u.heading = Math.PI / 2;
     }
@@ -357,7 +381,7 @@ export class World {
   }
 
   /** Nearest passable spot around (x, y) not crowded by units. */
-  findFreeSpot(x: number, y: number, maxR: number, forVehicle = true): [number, number] {
+  findFreeSpot(x: number, y: number, maxR: number, forVehicle = true, naval = false): [number, number] {
     const m = this.map;
     const fx = Math.floor(x), fy = Math.floor(y);
     for (let r = 0; r <= maxR; r++) {
@@ -366,7 +390,7 @@ export class World {
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const cx = fx + dx, cy = fy + dy;
-        if (!m.passable(cx, cy)) continue;
+        if (!(naval ? m.navalPassable(cx, cy) : m.passable(cx, cy))) continue;
         let crowd = 0;
         this.grid.query(cx + 0.5, cy + 0.5, 0.6, (u) => { if (u.alive && Math.floor(u.x) === cx && Math.floor(u.y) === cy) crowd++; });
         if (crowd > (forVehicle ? 0 : 2)) continue;
@@ -403,24 +427,28 @@ export class World {
         if (!units.length) return;
         const dests = this.formation(units, cmd.x, cmd.y);
         // mixed groups travel together at the pace of their slowest member
-        const ground = units.filter((u) => u.kind !== 'aircraft');
+        const ground = units.filter((u) => u.kind !== 'aircraft' && u.kind !== 'naval');
         const cap = ground.length > 1 ? Math.min(...ground.map((u) => unitSpeed(u))) * 1.05 : 0;
         units.forEach((u, k) => {
           const o: Order = { type: 'move', x: dests[k][0], y: dests[k][1], attackMove: !!cmd.attackMove };
           this.giveOrder(u, o, !!cmd.queue);
-          if (!cmd.queue && u.kind !== 'aircraft') u.speedCap = cap;
+          if (!cmd.queue && u.kind !== 'aircraft' && u.kind !== 'naval') u.speedCap = cap;
         });
         break;
       }
       case 'attack': {
         const target = this.entities.get(cmd.target);
-        if (!target || !target.alive) return;
+        if (!target || !target.alive || (target.cloaked && !this.canSee(p, target))) return;
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
           if (u.ut.engineer && target instanceof Building) {
             if (engineerCanEnter(u, target)) this.giveOrder(u, { type: 'enter', target: target.id });
             continue;
           }
           if (u.ut.c4 && target.kind === 'building' && p.isEnemy(target.owner)) { this.giveOrder(u, { type: 'enter', target: target.id }); continue; }
+          if (u.ut.spy || u.ut.thief) {
+            if (target instanceof Building && canInfiltrate(u, target)) this.giveOrder(u, { type: 'enter', target: target.id });
+            continue;
+          }
           // refuse targets none of the unit's weapons can hurt (rifles vs walls, dogs vs tanks)
           if (!u.weapons.length || !pickWeapon(u, target)) continue;
           this.giveOrder(u, { type: 'attack', target: target.id, forced: !!cmd.forced });
@@ -445,13 +473,15 @@ export class World {
       case 'scatter':
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
           const a = this.rng.range(0, Math.PI * 2);
-          const [x, y] = this.findFreeSpot(u.x + Math.cos(a) * 2, u.y + Math.sin(a) * 2, 2, u.kind !== 'infantry');
+          const [x, y] = this.findFreeSpot(u.x + Math.cos(a) * 2, u.y + Math.sin(a) * 2, 2, u.kind !== 'infantry', u.kind === 'naval');
           this.setOrder(u, { type: 'move', x, y, attackMove: false });
         }
         break;
       case 'deploy':
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
-          if (u.ut.passengers) this.unload(u);
+          if (u.kind === 'naval') navalDeploy(this, u);
+          else if (u.ut.passengers && u.kind !== 'aircraft') this.unload(u);
+          else if (u.ut.minelayer) deployMinelayer(this, u);
           else if (u.ut.deploysInto || u.kind === 'aircraft') this.setOrder(u, { type: 'deploy' });
         }
         break;
@@ -476,6 +506,7 @@ export class World {
             continue;
           }
           if (u.ut.engineer && target instanceof Building && !engineerCanEnter(u, target)) continue;
+          if ((u.ut.spy || u.ut.thief) && target instanceof Building && !canInfiltrate(u, target)) continue;
           this.giveOrder(u, { type: 'enter', target: target.id });
         }
         break;
@@ -566,7 +597,7 @@ export class World {
       }
       case 'sell': {
         const b = this.entities.get(cmd.building);
-        if (!(b instanceof Building) || b.owner !== p || !b.active) return;
+        if (!(b instanceof Building) || b.owner !== p || !b.active || b.bt.mine) return; // (mines re-arm for free: no selling them)
         b.selling = 0.9;
         this.events.push({ e: 'sfx', key: 'sell', x: b.x, y: b.y });
         this.announce(p, 'structure_sold', 0);
@@ -605,6 +636,12 @@ export class World {
       }
       case 'superweapon':
         fireSuperweapon(this, p, cmd.kind, cmd.x, cmd.y, cmd.unit);
+        break;
+      case 'mine':
+        orderMinefield(this, this.ownedUnits(cmd.player, cmd.units), cmd.x, cmd.y);
+        break;
+      case 'repairBridge':
+        orderRepairBridge(this, this.ownedUnits(cmd.player, cmd.units), cmd.bridge);
         break;
     }
   }
@@ -646,7 +683,8 @@ export class World {
 
   /** Destination slots for a group move. Keeps relative formation for tight groups. */
   formation(units: Unit[], x: number, y: number): [number, number][] {
-    if (units.length === 1) return [[x, y]];
+    // (a lone ship still gets a water slot: a click on the shore sends it to the nearest water)
+    if (units.length === 1 && (units[0].kind !== 'naval' || this.map.navalPassable(Math.floor(x), Math.floor(y)))) return [[x, y]];
     let cx = 0, cy = 0;
     for (const u of units) { cx += u.x; cy += u.y; }
     cx /= units.length; cy /= units.length;
@@ -656,7 +694,7 @@ export class World {
     const taken = new Set<number>();
     const m = this.map;
     const slotKey = (sx: number, sy: number) => Math.floor(sx * 2) + Math.floor(sy * 2) * (m.w * 2 + 7);
-    const claim = (px: number, py: number, inf: boolean): [number, number] => {
+    const claim = (px: number, py: number, inf: boolean, nav = false): [number, number] => {
       // search outward for a free (sub)cell
       const step = inf ? 0.5 : 1;
       for (let r = 0; r < 12; r++) {
@@ -665,7 +703,7 @@ export class World {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
           const sx = inf ? (Math.floor(px * 2) + dx) / 2 + 0.25 : Math.floor(px) + dx * step + 0.5;
           const sy = inf ? (Math.floor(py * 2) + dy) / 2 + 0.25 : Math.floor(py) + dy * step + 0.5;
-          if (!m.passable(Math.floor(sx), Math.floor(sy))) continue;
+          if (!(nav ? m.navalPassable(Math.floor(sx), Math.floor(sy)) : m.passable(Math.floor(sx), Math.floor(sy)))) continue;
           const key = inf ? slotKey(sx, sy) : -(Math.floor(sy) * m.w + Math.floor(sx)) - 1;
           // a vehicle slot occupies all 4 sub-slots of its cell
           if (taken.has(key)) continue;
@@ -697,7 +735,7 @@ export class World {
     for (const k of order) {
       const u = units[k];
       const px = x + (u.x - cx) * scale, py = y + (u.y - cy) * scale;
-      out[k] = claim(px, py, u.kind === 'infantry');
+      out[k] = claim(px, py, u.kind === 'infantry', u.kind === 'naval');
     }
     return out;
   }
@@ -722,7 +760,7 @@ export class World {
       if (!m.inBounds(x, y)) return 'terrain';
       const i = m.idx(x, y);
       const t = m.terrain[i];
-      if ((t !== T.Clear && t !== T.Sand && t !== T.Dirt) || m.tree[i] || m.ore[i]) return 'terrain';
+      if (bt.water ? !m.navalTerrain(i) : (t !== T.Clear && t !== T.Sand && t !== T.Dirt) || m.tree[i] || m.ore[i]) return 'terrain';
       if (m.occupant[i]) occupied = true;
       else if (m.reserved[i]) reserved = true;
     }
@@ -738,10 +776,11 @@ export class World {
     if (reserved) return 'exit';
     const need: [number, number][] = [];
     if (bt.dock) need.push([cx + bt.dock[0], cy + bt.dock[1]]);
-    if (bt.factory && bt.factory !== 'building') {
+    if (bt.factory && bt.factory !== 'building' && !bt.water) {
       const e = bt.exit ?? [Math.floor(bt.size[0] / 2), bt.size[1]];
       need.push([cx + e[0], cy + e[1]]);
     }
+    if (bt.water && bt.factory && !navalLaunchOk(m, bt, cx, cy)) return 'exit';
     for (const [x, y] of need) if (!m.inBounds(x, y) || !m.passable(x, y) || !this.hasOpenSide(bt, cx, cy, x, y)) return 'exit';
     if (this.sealsDockOrExit(bt, cx, cy)) return 'exit';
     // base adjacency: structures need a (non-wall) structure within 2 cells. Walls may be placed
@@ -756,7 +795,7 @@ export class World {
   /** Whether an own structure lies within `gap` cells of the footprint (optionally ignoring walls). */
   isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2, ignoreWalls = false): boolean {
     for (const b of this.buildings) {
-      if (!b.alive || b.owner !== p || (ignoreWalls && b.bt.wall)) continue;
+      if (!b.alive || b.owner !== p || b.bt.mine || (ignoreWalls && b.bt.wall)) continue;
       const gx = Math.max(b.cx - (cx + bt.size[0]), cx - (b.cx + b.w), 0);
       const gy = Math.max(b.cy - (cy + bt.size[1]), cy - (b.cy + b.h), 0);
       if (Math.max(gx, gy) <= gap) return true;
@@ -805,7 +844,7 @@ export class World {
     for (const u of this.units) {
       if (!u.alive || u.isAir) continue;
       if (u.x >= b.cx && u.x < b.cx + b.w && u.y >= b.cy && u.y < b.cy + b.h) {
-        const [x, y] = this.findFreeSpot(b.x, b.cy + b.h + 0.5, 6, u.kind !== 'infantry');
+        const [x, y] = this.findFreeSpot(b.x, b.cy + b.h + 0.5, 6, u.kind !== 'infantry', u.kind === 'naval');
         u.x = u.prevX = x;
         u.y = u.prevY = y;
         this.setOrder(u, { type: 'idle' });
@@ -815,7 +854,11 @@ export class World {
 
   /** Put an infantry unit inside a transport. */
   board(u: Unit, apc: Unit): boolean {
-    if (!apc.alive || apc.passengers.length >= (apc.ut.passengers ?? 0) || u.kind !== 'infantry') return false;
+    if (!apc.alive || apc.passengers.length >= (apc.ut.passengers ?? 0)) return false;
+    // a Chinook has to be on the ground to take passengers
+    if (apc.kind === 'aircraft' && apc.altitude > 0.05) return false;
+    // infantry ride anything; a naval transport (LST) also carries vehicles
+    if (u.kind !== 'infantry' && !(apc.kind === 'naval' && u.kind === 'vehicle')) return false;
     apc.passengers.push(u);
     u.transport = apc.id;
     this.setOrder(u, { type: 'idle' });
@@ -911,7 +954,7 @@ export class World {
         continue;
       }
       n++;
-      const path = this.pathfinder.find(sx, sy, gx, gy, maxNodes, u.exitBuilding);
+      const path = this.pathfinder.find(sx, sy, gx, gy, maxNodes, u.exitBuilding, u.kind === 'naval' ? 'naval' : 'ground');
       budget -= this.pathfinder.expandedLastSearch + 50;
       const last = path && path.length ? path[path.length - 1] : null;
       const reached = !!last && Math.floor(last.x) === gx && Math.floor(last.y) === gy;
@@ -957,6 +1000,7 @@ export class World {
     };
     for (const u of this.units) if (u.alive && u.owner.team === p.team) stamp(u.x, u.y, u.ut.sight + 0.5);
     for (const b of this.buildings) if (b.alive && b.owner.team === p.team) stamp(b.x, b.y, b.bt.sight + Math.max(b.w, b.h) / 2);
+    contentVisibility(this, p);
   }
 
   isVisible(p: Player, x: number, y: number): boolean {
@@ -968,6 +1012,9 @@ export class World {
   /** Whether entity e is visible to player p. */
   canSee(p: Player, e: Entity): boolean {
     if (e.owner.team === p.team) return true;
+    // detected (sensor ship nearby, sonar pulse): visible even through fog; cloaked and undetected: hidden
+    if (e.revealedTo & (1 << p.id)) return true;
+    if (e.cloaked) return false;
     if (e instanceof Building) {
       for (let dy = 0; dy < e.h; dy++) for (let dx = 0; dx < e.w; dx++) {
         if (p.visible[(e.cy + dy) * this.map.w + e.cx + dx]) return true;
@@ -975,6 +1022,11 @@ export class World {
       return false;
     }
     return this.isVisible(p, e.x, e.y);
+  }
+
+  /** Sonar pulse (support power): enemy submarines surface and are revealed to `p`'s team for `seconds`. */
+  revealCloaked(p: Player, seconds: number) {
+    sonarPulse(this, p, seconds);
   }
 
   // ---------------------------------------------------------------------------
@@ -1002,12 +1054,14 @@ export class World {
     for (const b of this.buildings) b.prevTurret = b.turret;
 
     this.grid.rebuild(this.units);
+    updateNaval(this);
 
     for (const p of this.players) {
       if (p.defeated) continue;
       updateProduction(this, p);
       updateSuperweapons(this, p);
     }
+    contentPreTick(this);
     this.deferDeaths = true;
     for (const b of this.buildings) if (b.alive) this.updateBuilding(b);
     this.processPaths();
@@ -1021,6 +1075,7 @@ export class World {
       for (let k = 0; k < n; k++) this.stepUnit(units[(start + k) % n]);
     }
     resolveCollisions(this);
+    contentPostMove(this);
     updateProjectiles(this);
     this.deferDeaths = false;
     this.flushDeaths();
@@ -1039,6 +1094,7 @@ export class World {
 
   private stepUnit(u: Unit) {
     if (!u.alive) return;
+    if (contentStepUnit(this, u)) return;
     updateUnit(this, u);
     if (u.alive) updateUnitWeapons(this, u);
   }
@@ -1237,7 +1293,7 @@ export class World {
     if (this.gameOver) return;
     for (const p of this.players) {
       if (p.defeated) continue;
-      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall) || this.units.some((u) => u.alive && u.owner === p);
+      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !b.bt.mine) || this.units.some((u) => u.alive && u.owner === p);
       if (!alive) {
         p.defeated = true;
         this.events.push({ e: 'eliminated', player: p.id });

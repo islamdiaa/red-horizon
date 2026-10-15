@@ -8,6 +8,9 @@ const COST = [1, 1, 1, 1, SQRT2, SQRT2, SQRT2, SQRT2];
 
 export interface PathPoint { x: number; y: number }
 
+/** Movement layer: ground units (land, bridges) or ships (open water). */
+export type Locomotor = 'ground' | 'naval';
+
 /**
  * Grid A* (8-connected, no corner cutting) with nearest-reachable fallback and
  * line-of-sight path smoothing. Uses generation counters to avoid clearing arrays.
@@ -21,10 +24,12 @@ export class PathFinder {
   private heap = new MinHeap(4096);
   /** Cells temporarily treated as passable (e.g. the factory a unit is leaving). */
   private ignoreOccupant = 0;
+  /** Separate searcher for ships (water cells), created on first use so ground searches stay as they were. */
+  private navalFinder: NavalPathFinder | null = null;
   /** Diagnostics. */
   expandedLastSearch = 0;
 
-  constructor(private map: GameMap) {
+  constructor(protected map: GameMap) {
     const n = map.w * map.h;
     this.g = new Float32Array(n);
     this.from = new Int32Array(n);
@@ -32,7 +37,7 @@ export class PathFinder {
     this.closed = new Uint32Array(n);
   }
 
-  private ok(i: number): boolean {
+  protected ok(i: number): boolean {
     const m = this.map;
     if (m.passableIdx(i)) return true;
     return this.ignoreOccupant !== 0 && m.occupant[i] === this.ignoreOccupant && m.terrainPassable(i);
@@ -41,8 +46,15 @@ export class PathFinder {
   /**
    * Find a path between cell coordinates. Returns smoothed waypoints (cell centres),
    * excluding the start, ending at the goal or the closest reachable cell. Null if no progress possible.
+   * `loco` 'naval' searches open water for ships instead of ground cells.
    */
-  find(sx: number, sy: number, tx: number, ty: number, maxNodes = 12000, ignoreOccupant = 0): PathPoint[] | null {
+  find(sx: number, sy: number, tx: number, ty: number, maxNodes = 12000, ignoreOccupant = 0, loco: Locomotor = 'ground'): PathPoint[] | null {
+    if (loco === 'naval') {
+      const nf = (this.navalFinder ??= new NavalPathFinder(this.map));
+      const path = nf.find(sx, sy, tx, ty, maxNodes);
+      this.expandedLastSearch = nf.expandedLastSearch;
+      return path;
+    }
     this.ignoreOccupant = ignoreOccupant;
     try {
       return this.search(sx, sy, tx, ty, maxNodes);
@@ -158,6 +170,13 @@ export class PathFinder {
       }
     }
     return true;
+  }
+}
+
+/** Path search over open water for ships (same A* / smoothing, different passability). */
+class NavalPathFinder extends PathFinder {
+  protected ok(i: number): boolean {
+    return this.map.navalPassableIdx(i);
   }
 }
 

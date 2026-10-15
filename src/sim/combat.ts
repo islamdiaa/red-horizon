@@ -7,6 +7,9 @@ import { Building, Entity, Unit, WeaponSlot, distToEntity } from './entities';
 import type { Player } from './player';
 import { DT } from './types';
 import type { World } from './world';
+import { initNavalProjectile, navalImpactOk, navalReadyToFire, navalSplash, navalWeaponOk, stepTorpedo } from './naval';
+import { autoTargetable } from './stealth';
+import { damageBridgeAt, damageBridgesInRadius } from './bridges';
 
 export interface Projectile {
   id: number;
@@ -53,6 +56,7 @@ export function muzzleHeight(e: Entity): number {
 export function weaponCanHit(w: WeaponDef, attacker: Entity, t: Entity): boolean {
   const air = t instanceof Unit && t.isAir;
   if (air ? !w.antiAir : !w.antiGround) return false;
+  if (!navalWeaponOk(w, attacker, t)) return false;
   if (w.warhead === 'Organic' && w.damage > 0) {
     // dog jaws: infantry only
     return t instanceof Unit && t.kind === 'infantry';
@@ -117,7 +121,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     if (!u.alive || u.hp <= 0 || !owner.isEnemy(u.owner)) return;
     const d = Math.hypot(u.x - e.x, u.y - e.y);
     if (d > range) return;
-    if (!world.canSee(owner, u)) return;
+    if (!world.canSee(owner, u) || !autoTargetable(e, u)) return;
     const slot = pickWeapon(e, u);
     if (!slot) return;
     let score = d;
@@ -130,7 +134,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
   });
   // structures (defences first)
   for (const b of world.buildings) {
-    if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1 || b.bt.wall) continue;
+    if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1 || b.bt.wall || b.bt.mine) continue;
     const d = b.distTo(e.x, e.y);
     if (d > buildingRange) continue;
     if (!pickWeapon(e, b)) continue;
@@ -244,6 +248,7 @@ function doShot(world: World, shooter: Entity, slot: WeaponSlot, target: Entity 
     case 'ballistic': p.dur = 0.7 + d * 0.11; p.arc = 0.6 + d * 0.3; break;
     case 'lobbed': p.dur = 0.45 + d * 0.1; p.arc = 0.35 + d * 0.22; break;
     case 'scud': p.dur = 1.4 + d * 0.12; p.arc = 2 + d * 0.45; break;
+    case 'torpedo': case 'depthcharge': initNavalProjectile(p, target, d); break;
   }
   world.projectiles.push(p);
 }
@@ -279,9 +284,12 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
   const firepower = attacker ? 1 + 0.15 * attacker.rank : 1;
   for (const [v, d] of victims) {
     if (v instanceof Building && v.bt.wall && !wh.wall) continue; // only explosives breach walls
+    if (!navalImpactOk(w, v)) continue; // torpedoes stay in the water, submerged subs only feel underwater blasts
     const dmg = modifyDamage(w.damage, wh, ARMOR_INDEX[v.type.armor], d) * firepower * (1 - 0.12 * v.rank);
     if (dmg > 0) damageEntity(world, v, dmg, attacker, wh.infDeath);
   }
+  // explosives landing on a bridge deck wear it down (bridges.ts)
+  if (wh.wall && world.bridges.length && !hitAir) damageBridgeAt(world, x, y, w.damage * firepower, attacker);
 
   // trees catch fire / get flattened by big explosions
   if (wh.wood && w.damage >= 60) {
@@ -292,6 +300,7 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
     }
   }
 
+  navalSplash(world, w, direct, x, y);
   let kind: ExplosionKind = wh.explosion;
   let scale = 1;
   if (w.projectile === 'scud') { kind = 'huge'; scale = 1; }
@@ -387,6 +396,7 @@ export function updateUnitWeapons(world: World, u: Unit) {
   if (!u.ut.turret && u.kind === 'vehicle' && u.moving) return;
   if (u.kind === 'aircraft' && !u.target && !u.hasGroundTarget) return;
   if (aligned && slot.cooldown <= 0 && slot.burstLeft <= 0) {
+    if (u.kind === 'naval' && !navalReadyToFire(u)) return; // subs surface first
     fire(world, u, slot, t && t.alive ? t : null, tx, ty);
   }
 }
@@ -396,7 +406,7 @@ export function updateBuildingWeapons(world: World, b: Building) {
   tickSlots(world, b);
   const slot = b.weapons[0];
   const w = slot.def;
-  if (b.bt.requiresPower && b.owner.lowPower) {
+  if ((b.bt.requiresPower && b.owner.lowPower) || b.jammed) {
     b.charge = Math.max(0, b.charge - DT);
     b.target = null;
     return;
@@ -444,7 +454,7 @@ function findTargetForBuilding(world: World, b: Building, range: number): Entity
     if (!u.alive || !b.owner.isEnemy(u.owner)) return;
     const d = b.distTo(u.x, u.y);
     if (d > range || d >= bestD) return;
-    if (!pickWeapon(b, u) || !world.canSee(b.owner, u)) return;
+    if (!pickWeapon(b, u) || !world.canSee(b.owner, u) || !autoTargetable(b, u)) return;
     bestD = d;
     best = u;
   });
@@ -468,6 +478,9 @@ export function updateProjectiles(world: World) {
       p.tz = map.surfaceAt(p.target.x, p.target.y) + aimHeight(p.target);
     }
     switch (p.kind) {
+      case 'torpedo':
+        stepTorpedo(world, p);
+        break;
       case 'cannon':
       case 'fireball': {
         const dx = p.tx - p.x, dy = p.ty - p.y, dz = p.tz - p.z;
@@ -532,6 +545,7 @@ export function nukeImpact(world: World, owner: Player, x: number, y: number) {
     const dmg = 1000 * wh.verses[ARMOR_INDEX[v.type.armor]] * fall + (v instanceof Building ? 0 : 200 * fall);
     damageEntity(world, v, dmg, null, 'burn');
   }
+  if (world.bridges.length) damageBridgesInRadius(world, x, y, R, 1000);
   const m = world.map;
   for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
     const cx = Math.floor(x) + dx, cy = Math.floor(y) + dy;

@@ -28,7 +28,8 @@ export type AnnouncerKey =
   | 'enemy_destroyed' | 'unit_promoted'
   | 'gps_ready' | 'gps_launched' | 'sonar_ready' | 'spyplane_ready' | 'paratroopers_ready' | 'parabombs_ready'
   | 'building_infiltrated' | 'credits_stolen' | 'sub_detected' | 'bridge_destroyed' | 'bridge_repaired'
-  | 'enemy_aircraft' | 'naval_unit_lost';
+  | 'enemy_aircraft' | 'naval_unit_lost'
+  | 'radar_jammed' | 'mine_detected' | 'paratroopers_inbound' | 'spy_detected' | 'mines_laid';
 
 export type VoiceKind = 'infantry' | 'vehicle' | 'dog' | 'tanya' | 'engineer' | 'medic' | 'harvester' | 'aircraft' | 'naval' | 'spy';
 export type ResponseKind = 'select' | 'move' | 'attack';

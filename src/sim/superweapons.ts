@@ -3,6 +3,8 @@ import { Building, Unit } from './entities';
 import type { Projectile } from './combat';
 import type { Player } from './player';
 import { DT } from './types';
+import type { AnnouncerKey } from '../audio/types';
+import { firePower, isSupportPower } from './powers';
 import type { World } from './world';
 
 /** Superweapons and support powers (RA "special weapons"). */
@@ -14,37 +16,89 @@ export const SUPER_TARGET: Record<SuperKind, 'point' | 'unit-point' | 'none'> = 
   nuke: 'point', ironcurtain: 'point', chrono: 'unit-point', gps: 'none', sonar: 'none', spyplane: 'point', paratroopers: 'point', parabombs: 'point',
 };
 const KINDS: SuperKind[] = SUPER_KINDS;
-/** Announcer line when a power becomes ready (support powers without their own line stay quiet). */
-const READY_KEY: Partial<Record<SuperKind, 'nuke_ready' | 'iron_curtain_ready' | 'chrono_ready'>> = { nuke: 'nuke_ready', ironcurtain: 'iron_curtain_ready', chrono: 'chrono_ready' };
+/** Announcer line when a power becomes ready (GPS launches itself and announces the launch; sonar on infiltration). */
+const READY_KEY: Partial<Record<SuperKind, AnnouncerKey>> = {
+  nuke: 'nuke_ready', ironcurtain: 'iron_curtain_ready', chrono: 'chrono_ready',
+  spyplane: 'spyplane_ready', paratroopers: 'paratroopers_ready', parabombs: 'parabombs_ready',
+};
+/**
+ * Seconds to charge each power when its structure does not say otherwise. Support powers follow the RA
+ * [Recharge] minutes (GPS 8, SpyPlane 3, Paratrooper 7, ParaBomb 14, Nuke 13) compressed like the nuke
+ * (13 min -> 300 s). Sonar is a one-shot pulse a spy steals from a sub pen: ready the moment it is granted.
+ */
+const CHARGE_TIME: Record<SuperKind, number> = {
+  nuke: 300, ironcurtain: 240, chrono: 240, gps: 180, sonar: 1, spyplane: 75, paratroopers: 165, parabombs: 320,
+};
+/** Airfield powers charge without power (RA only suspends the GPS on low power). */
+const NEEDS_POWER: Record<SuperKind, boolean> = {
+  nuke: true, ironcurtain: true, chrono: true, gps: true, sonar: false, spyplane: false, paratroopers: false, parabombs: false,
+};
 
 export function superBuilding(world: World, p: Player, kind: SuperKind): Building | null {
   for (const b of world.buildings) {
-    if (b.alive && b.owner === p && b.active && b.bt.superweapon === kind) return b;
+    if (!b.alive || b.owner !== p || !b.active) continue;
+    if (b.bt.superweapon === kind) return b;
+    // support powers: the Airfield / Tech Center providing them (the GPS satellite only launches once)
+    if (b.bt.powers && (b.bt.powers as SuperKind[]).includes(kind) && !(kind === 'gps' && p.gps)) return b;
   }
   return null;
 }
 
 export function superChargeTime(kind: SuperKind): number {
-  return kind === 'nuke' ? 300 : 240;
+  return CHARGE_TIME[kind];
+}
+
+/** Whether the player has this power at all right now (its structure stands / a sonar pulse was stolen). HUD lists these. */
+export function superAvailable(world: World, p: Player, kind: SuperKind): boolean {
+  if (kind === 'sonar') return p.sonarCharges > 0;
+  return !!superBuilding(world, p, kind);
+}
+
+/** Seconds of charge the power needs (compare with p.superCharge[kind] for the HUD progress). */
+export function superFull(world: World, p: Player, kind: SuperKind): number {
+  if (kind === 'sonar') return CHARGE_TIME.sonar;
+  return superBuilding(world, p, kind)?.bt.superCharge ?? CHARGE_TIME[kind];
 }
 
 export function superReady(world: World, p: Player, kind: SuperKind): boolean {
+  if (kind === 'sonar') return p.sonarCharges > 0;
   const b = superBuilding(world, p, kind);
   return !!b && p.superCharge[kind] >= (b.bt.superCharge ?? superChargeTime(kind));
 }
 
+/** Every power's providing structure for p, found in one pass over the buildings (superBuilding semantics). */
+function superSources(world: World, p: Player): Partial<Record<SuperKind, Building>> {
+  const out: Partial<Record<SuperKind, Building>> = {};
+  for (const b of world.buildings) {
+    if (!b.alive || b.owner !== p || !b.active) continue;
+    const sw = b.bt.superweapon;
+    if (sw && !out[sw]) out[sw] = b;
+    if (b.bt.powers) for (const k of b.bt.powers as SuperKind[]) if (!out[k] && !(k === 'gps' && p.gps)) out[k] = b;
+  }
+  return out;
+}
+
 export function updateSuperweapons(world: World, p: Player) {
+  const sources = superSources(world, p);
   for (const kind of KINDS) {
-    const b = superBuilding(world, p, kind);
+    if (kind === 'sonar') {
+      // one-shot pulses granted by spies: full while any is held
+      p.superCharge.sonar = p.sonarCharges > 0 ? CHARGE_TIME.sonar : 0;
+      continue;
+    }
+    const b = sources[kind];
     if (!b) {
       p.superCharge[kind] = 0;
       p.superAnnounced[kind] = false;
       continue;
     }
     const full = b.bt.superCharge ?? superChargeTime(kind);
-    if (p.lowPower) continue; // charging pauses without power
+    if (p.lowPower && NEEDS_POWER[kind]) continue; // charging pauses without power
     if (p.superCharge[kind] < full) {
       p.superCharge[kind] = Math.min(full, p.superCharge[kind] + DT);
+    } else if (kind === 'gps') {
+      // RA: the GPS satellite launches by itself as soon as it is charged
+      firePower(world, p, 'gps', 0, 0);
     } else if (!p.superAnnounced[kind]) {
       p.superAnnounced[kind] = true;
       const key = READY_KEY[kind];
@@ -56,8 +110,12 @@ export function updateSuperweapons(world: World, p: Player) {
 export function fireSuperweapon(world: World, p: Player, kind: SuperKind, x: number, y: number, unitId?: number) {
   if (!superReady(world, p, kind)) return;
   // a target off the map (e.g. clicking the horizon) is refused; the charge is kept
-  if (!(x >= 0 && y >= 0 && x < world.map.w && y < world.map.h)) {
+  if (SUPER_TARGET[kind] !== 'none' && !(x >= 0 && y >= 0 && x < world.map.w && y < world.map.h)) {
     world.announce(p, 'select_target', 0);
+    return;
+  }
+  if (isSupportPower(kind)) {
+    firePower(world, p, kind, x, y);
     return;
   }
   const b = superBuilding(world, p, kind)!;

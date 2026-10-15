@@ -56,7 +56,7 @@ eq(rankIndexFor(10_000_000), 14, 'XP beyond the top stays at Field Marshal');
 const rp = rankProgress(RANKS[6].xp + (RANKS[7].xp - RANKS[6].xp) / 2, 'soviet');
 eq(rp.name, 'Captain', 'soviet name at rank 6');
 ok(Math.abs(rp.frac - 0.5) < 1e-9, 'half-way progress fraction');
-eq(ACHIEVEMENTS.length, 40, 'forty achievements');
+eq(ACHIEVEMENTS.length, 47, 'forty-seven achievements');
 ok(new Set(ACHIEVEMENTS.map((a) => a.id)).size === ACHIEVEMENTS.length, 'unique achievement ids');
 ok(ACHIEVEMENTS.filter((a) => a.hidden).length >= 5, 'at least five hidden medals');
 ok(ACHIEVEMENTS.filter((a) => (a.tiers?.length ?? 0) === 3).length >= 10, 'at least ten tiered (bronze/silver/gold) medals');

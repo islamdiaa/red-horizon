@@ -184,7 +184,7 @@ export function checkInvariants(world: World, maxEntities = 1500): string[] {
       const b = world.entities.get(occ);
       out.push(`unit #${u.id} ${u.ut.id} (${u.owner.name}) inside building #${occ} ${b instanceof Building ? b.bt.id : '?'} at (${u.x.toFixed(2)}, ${u.y.toFixed(2)}) order=${u.order.type}`);
     }
-    if (!m.terrainPassable(i)) out.push(`unit #${u.id} ${u.ut.id} on impassable terrain (${u.x.toFixed(2)}, ${u.y.toFixed(2)}) t=${m.terrain[i]} tree=${m.tree[i]}`);
+    if (u.kind === 'naval' ? !m.navalTerrain(i) : !m.terrainPassable(i)) out.push(`unit #${u.id} ${u.ut.id} on impassable terrain (${u.x.toFixed(2)}, ${u.y.toFixed(2)}) t=${m.terrain[i]} tree=${m.tree[i]}`);
   }
   for (const b of world.buildings) {
     if (!b.alive) out.push(`dead building #${b.id} still listed`);
