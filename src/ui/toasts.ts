@@ -95,8 +95,13 @@ export class Toasts {
     t.addEventListener('click', () => this.dismiss(a));
     this.stack.prepend(t);
     this.active.unshift(a);
-    const live = this.active.filter((x) => !x.leaving);
-    for (const x of live.slice(MAX_VISIBLE)) this.dismiss(x);
+    // over capacity: evict the oldest routine toast first so warnings stay on screen
+    let live = this.active.filter((x) => !x.leaving);
+    while (live.length > MAX_VISIBLE) {
+      const victim = [...live].reverse().find((x) => x.kind !== 'warn' && x !== a) ?? live[live.length - 1];
+      this.dismiss(victim);
+      live = live.filter((x) => x !== victim);
+    }
   }
 
   update(dt: number) {
@@ -121,6 +126,7 @@ export class Toasts {
   toggle(open = !this.panel.classList.contains('open')) {
     this.panel.classList.toggle('open', open);
     this.bell.classList.toggle('active', open);
+    this.stack.classList.toggle('hush', open);
     if (open) {
       this.unread = 0;
       this.renderBadge();

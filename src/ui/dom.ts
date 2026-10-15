@@ -12,6 +12,16 @@ export const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 
 export const hexColor = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
+/** Restart a one-shot CSS animation class and remove it again afterwards. */
+export function replay(e: Element, cls: string, ms = 700) {
+  e.classList.remove(cls);
+  void (e as HTMLElement).offsetWidth;
+  e.classList.add(cls);
+  const t = +((e as HTMLElement).dataset[`t_${cls}`] ?? 0);
+  if (t) clearTimeout(t);
+  (e as HTMLElement).dataset[`t_${cls}`] = String(window.setTimeout(() => e.classList.remove(cls), ms));
+}
+
 export function reducedMotion(): boolean {
   return document.body.classList.contains('reduce-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
@@ -140,6 +150,7 @@ export type TipSide = 'left' | 'right' | 'top' | 'bottom';
 export class Tooltip {
   readonly el: HTMLElement;
   private anchor: HTMLElement | null = null;
+  private html = '';
   constructor() {
     document.getElementById('tooltip')?.remove();
     this.el = el('div', 'panel');
@@ -148,6 +159,7 @@ export class Tooltip {
   }
   show(anchor: HTMLElement, html: string, side: TipSide = 'left') {
     this.anchor = anchor;
+    this.html = html;
     this.el.innerHTML = html;
     this.el.dataset.side = side;
     this.el.classList.add('on');
@@ -155,7 +167,8 @@ export class Tooltip {
   }
   /** Refresh the content if this anchor is still showing. */
   refresh(anchor: HTMLElement, html: string) {
-    if (this.anchor === anchor && this.el.classList.contains('on')) {
+    if (this.anchor === anchor && this.el.classList.contains('on') && html !== this.html) {
+      this.html = html;
       this.el.innerHTML = html;
       this.position(this.el.dataset.side as TipSide);
     }

@@ -43,6 +43,8 @@ export class GameMap {
   /** Cells whose ore changed since last renderer sync. */
   oreDirty = new Set<number>();
   seed = 0;
+  /** Visual climate (affects rendering only). */
+  climate: 'temperate' | 'winter' | 'desert' = 'temperate';
 
   constructor(w: number, h: number) {
     this.w = w;

@@ -161,9 +161,10 @@ export function alliedEmblem(): string {
   const id = `ae${++uid}`;
   let feathers = '';
   for (let k = 5; k >= 0; k--) {
-    const a = (198 - k * 11) * deg;
-    const L = 60 - k * 6.5, w = 5.8 - k * 0.25;
-    const bx = 66, by = 44 + k * 3.2;
+    // top feather sweeps up and out, lower ones fan downwards and get shorter
+    const a = (158 + k * 11) * deg;
+    const L = 64 - k * 5.5, w = 7.8 - k * 0.55;
+    const bx = 64, by = 41 + k * 3.4;
     const tx = bx + Math.cos(a) * L, ty = by - Math.sin(a) * L;
     const mx = (bx + tx) / 2, my = (by + ty) / 2;
     const px = -Math.sin(a) * w, py = -Math.cos(a) * w;

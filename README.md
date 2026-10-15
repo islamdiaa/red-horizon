@@ -11,8 +11,9 @@ game ships **zero copyrighted assets** — the whole thing is ~340 KB gzipped.
 
 | | |
 |---|---|
-| ![Allied base](docs/base.jpg) | ![Battle at dusk](docs/battle.jpg) |
-| ![Night](docs/night.jpg) | ![Main menu](docs/menu.jpg) |
+| ![Main menu](docs/menu.jpg) | ![Thunderstorm battle at dusk](docs/battle.jpg) |
+| ![Allied base, golden hour](docs/base.jpg) | ![Winter night](docs/winter.jpg) |
+| ![Snowfall](docs/snow.jpg) | ![Desert climate](docs/desert.jpg) |
 | ![Soviet armour close-up](docs/closeup.jpg) | ![Nuclear strike](docs/nuke.jpg) |
 
 ## Running it
@@ -71,6 +72,26 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
 - **UI**: sidebar with build queues and live 3D-rendered portraits, radar minimap,
   context-sensitive cursors, control groups, multi-select panel, tooltips with stats.
 
+### Atmosphere & "magic" (round 2)
+
+- **Cinematic intro** per match: letterboxed operation briefing while the camera sweeps down from a
+  satellite recon view onto your base (any key skips).
+- **Real-time day/night cycle** (a day passes in ~18 minutes): the sun travels east to west, dawn,
+  golden hour and moonlit nights; base floodlights and headlights switch on after dark.
+- **Dynamic weather**: rain, thunderstorms with branching lightning and distance-delayed thunder,
+  snowfall that settles on terrain, roofs, trees and rocks, drifting fog banks and desert
+  sandstorms. Wet ground darkens and turns glossy. *Auto* weather follows the climate.
+- **Climates**: temperate, winter (snowfields, snow-laden pines, cracked frozen lakes) and desert.
+- **A world beyond the map**: forested foothills and snow-capped mountains with distance haze.
+- **Rendering**: ambient occlusion (GTAO), tilt-shift miniature lens, holographic construction,
+  tread marks, burning/smouldering wrecks, rubble, bird flocks by day and fireflies at night.
+- **Living soundscape**: birdsong, crickets, wind, rain, water, forest ambience, off-screen battle
+  rumble, environment reverb, and musical stingers for key moments.
+- **Gameplay**: unit veterancy (Veteran / Elite with chevrons), focus-fire targeting, walls
+  (sandbags, barbed wire, concrete — drag to build), superweapon target reticles, order/waypoint lines.
+- **UI overhaul**: animated build cards with tilt and progress rings, toast notifications with an
+  event log, control-group bar, rich selection panel, redesigned menus, loading tips and end screen.
+
 ## Controls
 
 | Input | Action |
@@ -84,6 +105,8 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
 | Ctrl+1–9 / 1–9 | Assign / recall control group (double-tap to jump) |
 | H / Space | Jump to base · jump to last attack |
 | Arrows, screen edge, middle- or right-drag | Scroll · mouse wheel: zoom |
+| Q / , / . | Rotate camera · Backspace: reset to north |
+| U | Photo mode (hide the interface) |
 | Hold Alt | Show all health bars |
 | Esc | Cancel / pause menu |
 | Sidebar | Left click: build (Shift ×5) / place · right click: hold / cancel |
@@ -120,5 +143,8 @@ DIFF=brutal,easy node --import tsx tools/simtest.ts 777 30 96 2
 ```
 
 Testing URL parameters: `?autostart=1&scenario=battle&charge=1&fog=0&tod=night&size=64`
-(`scenario=base|battle`, `ff=<seconds>` fast-forward, `cam=x,y,dist`, `units=mcv|light|heavy`).
-Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`.
+(`scenario=base|battle`, `ff=<seconds>` fast-forward, `cam=x,y,dist`, `units=mcv|light|heavy`,
+`hour=0..24`, `cycle=1`, `wx=rain|storm|snow|fog|dust`, `climate=winter|desert`, `intro=1`,
+`selfplay=hard` lets an AI play your side).
+Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
+`/preview-weather.html`.

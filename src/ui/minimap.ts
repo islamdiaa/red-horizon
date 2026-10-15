@@ -2,6 +2,12 @@ import { GameMap, T } from '../sim/map';
 import type { Player } from '../sim/player';
 import type { World } from '../sim/world';
 
+const WINTER_RGB: Record<number, [number, number, number]> = {
+  [T.Clear]: [196, 204, 214], [T.Water]: [150, 176, 196], [T.Rock]: [104, 108, 116], [T.Sand]: [160, 160, 162], [T.Dirt]: [128, 124, 122],
+};
+const DESERT_RGB: Record<number, [number, number, number]> = {
+  [T.Clear]: [178, 142, 92], [T.Water]: [40, 86, 96], [T.Rock]: [132, 92, 70], [T.Sand]: [206, 176, 124], [T.Dirt]: [150, 106, 70],
+};
 const TERRAIN_RGB: Record<number, [number, number, number]> = {
   [T.Clear]: [58, 84, 44],
   [T.Water]: [16, 46, 70],
@@ -70,12 +76,17 @@ export class Minimap {
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const i = map.idx(x, y);
-        const c = TERRAIN_RGB[map.terrain[i]] ?? TERRAIN_RGB[T.Clear];
+        const pal = map.climate === 'winter' ? WINTER_RGB : map.climate === 'desert' ? DESERT_RGB : TERRAIN_RGB;
+        const c = pal[map.terrain[i]] ?? pal[T.Clear];
         // hill shading from the height gradient
         const h0 = map.vertexHeight(x, y), h1 = map.vertexHeight(x + 1, y + 1);
         const shade = Math.max(0.6, Math.min(1.4, 1 + (h0 - h1) * 1.2 + (map.vertexHeight(x, y + 1) - map.vertexHeight(x + 1, y)) * 0.3));
         let [r, g, b] = c;
-        if (map.tree[i]) { r = 30; g = 58; b = 28; }
+        if (map.tree[i]) {
+          if (map.climate === 'winter') { r = 70; g = 92; b = 84; }
+          else if (map.climate === 'desert') { r = 92; g = 88; b = 50; }
+          else { r = 30; g = 58; b = 28; }
+        }
         this.base[i * 3] = r * shade;
         this.base[i * 3 + 1] = g * shade;
         this.base[i * 3 + 2] = b * shade;

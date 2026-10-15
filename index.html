@@ -12,9 +12,25 @@
   <body>
     <div id="ui"></div>
     <div id="loading">
-      <div style="font-size:42px;font-weight:800;letter-spacing:12px;color:#fff">RED HORIZON</div>
-      <div class="bar"><div></div></div>
-      <div class="label">LOADING</div>
+      <div class="ld-grid"></div>
+      <div class="ld-glow"></div>
+      <div class="ld-center">
+        <div class="ld-mark">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3" />
+            <circle cx="50" cy="50" r="44" fill="none" stroke="#ff5a3a" stroke-width="3" stroke-linecap="round" stroke-dasharray="70 207" />
+            <circle cx="50" cy="50" r="34" fill="none" stroke="#ffb08a" stroke-width="2" stroke-linecap="round" stroke-dasharray="30 184" stroke-dashoffset="-90" opacity="0.7" />
+            <path d="M50 30l5.9 12.1 13.1 1.9-9.5 9.3 2.2 13.1L50 60.2l-11.7 6.2 2.2-13.1-9.5-9.3 13.1-1.9z" fill="#ff6a46" />
+          </svg>
+        </div>
+        <div class="ld-title">RED <span>HORIZON</span></div>
+        <div class="ld-sub">A Cold War Real-Time Strategy</div>
+      </div>
+      <div class="ld-bottom">
+        <div class="ld-row"><span class="label">LOADING</span><span class="ld-pct"></span></div>
+        <div class="bar"><div></div></div>
+        <div class="ld-tip"><span class="ld-tip-k">Field tip</span><span class="ld-tip-t">Ore regrows over time — gem fields are worth twice as much as ore.</span></div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

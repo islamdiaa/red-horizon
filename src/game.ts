@@ -129,6 +129,7 @@ export class Game {
       water: climate === 'desert' ? Math.min(setup.water, 0.2) : setup.water,
       trees: climate === 'desert' ? setup.trees * 0.35 : climate === 'winter' ? Math.min(1, setup.trees * 1.2) : setup.trees,
     });
+    map.climate = climate;
     const rngFaction = (i: number): Faction => ((setup.seed >> i) & 1 ? 'allies' : 'soviet');
     const usedColors = new Set([setup.color]);
     const players: PlayerSetup[] = [{ name: setup.demo ? 'Allied Command' : 'Commander', faction: setup.faction, color: setup.color, team: 0, isHuman: !setup.demo, ai: setup.demo ? 'hard' : undefined }];
@@ -223,6 +224,16 @@ export class Game {
         setSpeed: (s) => { this.speed = s; },
         getSpeed: () => this.speed,
         keyCommand: (k, b) => this.input?.keyCommand(k, b),
+        getGroups: () => this.input?.groups ?? new Map(),
+        selectGroup: (g, jump) => {
+          const ids = (this.input?.groups.get(g) ?? []).filter((id) => this.world.getEntity(id)?.alive);
+          if (!ids.length) return;
+          this.input?.select(ids);
+          if (jump) {
+            const u = this.world.getEntity(ids[0])!;
+            this.gfx.cam.flyToPoint(u.x, u.y);
+          }
+        },
         stats: () => `${this.gfx.stats.calls} calls · ${(this.gfx.stats.tris / 1000).toFixed(0)}k tris`,
       });
       const game = this;

@@ -9,7 +9,7 @@ import type { World } from '../sim/world';
 import type { AudioSystem } from '../audio';
 import { Minimap } from './minimap';
 import { ICONS, rankBadge } from './icons';
-import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, tipHtml } from './dom';
+import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtml } from './dom';
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
 import { RANK_NAMES, factionTypes, missingRequirements, statLines, xpThresholds } from './tech';
 import { applyUiSettings } from './settings';
@@ -126,7 +126,7 @@ export class Hud {
   private shownCredits = 0;
   private lastCredits = -1;
   private income = 0;
-  private incomeIdle = 0;
+  private incomeAt = 0;
   private cards = new Map<string, Card>();
   private gridKey = '';
   private selKey = '';
@@ -206,6 +206,7 @@ export class Hud {
     this.catStatus = ch.querySelector('.cat-status')!;
     sb.appendChild(ch);
     this.grid = el('div', 'build-grid');
+    this.grid.addEventListener('scroll', () => this.updateScrollFade(), { passive: true });
     sb.appendChild(this.grid);
     this.supers = el('div', 'supers');
     sb.appendChild(this.supers);
@@ -255,6 +256,17 @@ export class Hud {
     ui.appendChild(this.dock);
     this.tip.bind(this.dock, 'top');
     this.sound.bind(this.dock, 'button');
+
+    // HUD buttons must not keep keyboard focus: Space / Enter are game hotkeys and would re-click them.
+    const noFocus = (e: MouseEvent) => { if ((e.target as HTMLElement).closest('button')) e.preventDefault(); };
+    for (const c of [sb, tb, tr, this.dock]) c.addEventListener('mousedown', noFocus);
+    const label = (b: HTMLElement, l: string) => b.setAttribute('aria-label', l);
+    label(this.repairBtn, 'Repair mode');
+    label(this.sellBtn, 'Sell mode');
+    label(menuBtn, 'Menu');
+    label(this.toasts.bell, 'Event log');
+    this.speedBtns.forEach((b) => label(b, `Game speed ${b.dataset.speed}x`));
+    TABS.forEach((t) => label(this.tabEls.get(t.cat)!, t.title));
 
     this.shownCredits = host.local.credits;
     this.odo.set(this.shownCredits);
@@ -316,12 +328,11 @@ export class Hud {
     // income pops: accumulate deposits until the flow pauses, then show "+$X"
     if (this.lastCredits >= 0) {
       const d = target - this.lastCredits;
-      if (d > 0) { this.income += d; this.incomeIdle = 0; this.flash('gain'); }
+      if (d > 0) { this.income += d; this.incomeAt = performance.now(); this.flash('gain'); }
       else if (d <= -150) { this.flash('spend'); this.popDelta(d); }
     }
     this.lastCredits = target;
-    this.incomeIdle += dt;
-    if (this.income > 0 && this.incomeIdle > 0.6) {
+    if (this.income > 0 && performance.now() - this.incomeAt > 600) {
       if (this.income >= 20) this.popDelta(this.income);
       this.income = 0;
     }
@@ -360,11 +371,11 @@ export class Hud {
       this.sidebar.classList.toggle('low-power', state === 'low');
       this.pw.state.textContent = state === 'low' ? 'Low power' : state === 'tight' ? 'Near capacity' : '';
     }
-    const num = `<b>${p.powerUse}</b><small>/</small><b>${p.powerOut}</b>`;
+    const num = `<b class="pw-o">${p.powerOut}</b><small>/</small><b class="${p.lowPower ? 'pw-over' : ''}">${p.powerUse}</b>`;
     if (this.pw.num.innerHTML !== num) this.pw.num.innerHTML = num;
-    const tip = tipHtml('Power grid', p.lowPower
-      ? '<span class="tt-bad">Low power!</span> Production is slowed, radar, Tesla Coils and superweapons are offline. Build more power plants.'
-      : `Drain <b>${p.powerUse}</b> of <b>${p.powerOut}</b> produced. Surplus <b>${p.powerOut - p.powerUse}</b>.`);
+    const tip = tipHtml('Power grid', (p.lowPower
+      ? '<span class="tt-bad">Low power!</span> Production is slowed; radar, Tesla Coils and superweapons are offline. Build more power plants.'
+      : `Surplus <b>${p.powerOut - p.powerUse}</b>.`) + `<br>Output <b>${p.powerOut}</b> · drain <b>${p.powerUse}</b>`);
     this.powerBox.dataset.tip = tip;
     this.tip.refresh(this.powerBox, tip);
   }
@@ -422,7 +433,6 @@ export class Hud {
       const hasNew = [...(avail.get(t.cat) ?? [])].some((id) => (this.newUntil.get(id) ?? 0) > now);
       b.classList.toggle('empty', n === 0);
       b.classList.toggle('active', t.cat === this.activeTab);
-      if (t.cat === this.activeTab) this.tabInd.style.transform = `translateX(${i * 100}%)`;
       b.classList.toggle('has-new', hasNew && t.cat !== this.activeTab);
       const badge = b.querySelector('.badge') as HTMLElement;
       const txt = ready ? '' : mine.length ? String(mine.length) : '';
@@ -444,7 +454,15 @@ export class Hud {
     if (key !== this.gridKey) this.rebuildGrid(list, locked, key);
     for (const c of this.cards.values()) c.el.classList.toggle('is-new', (this.newUntil.get(c.id) ?? 0) > now);
     this.updateCatHeader(p, list, locked);
+    this.updateScrollFade();
     if (this.hoverCard) this.tip.refresh(this.hoverCard.el, this.cardTip(this.hoverCard));
+  }
+
+  /** Fade the grid edges only where more cards are hidden by scrolling. */
+  private updateScrollFade() {
+    const g = this.grid;
+    g.classList.toggle('more-below', g.scrollHeight - g.clientHeight - g.scrollTop > 4);
+    g.classList.toggle('more-above', g.scrollTop > 4);
   }
 
   private updateCatHeader(p: Player, list: string[], locked: string[]) {
@@ -522,7 +540,6 @@ export class Hud {
     c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); this.rightClickItem(card); });
     c.addEventListener('pointerenter', () => { this.hoverCard = card; this.tip.show(c, this.cardTip(card), 'left'); });
     c.addEventListener('pointerleave', () => { if (this.hoverCard === card) this.hoverCard = null; this.tip.hide(c); });
-    c.addEventListener('pointerdown', () => { c.classList.remove('press'); void c.offsetWidth; c.classList.add('press'); });
     bindTilt(c, 10);
     this.cards.set(id, card);
     return c;
@@ -549,7 +566,7 @@ export class Hud {
           : state === 'hold' ? `<span class="lb-hold">On hold</span>`
           : state === 'nofunds' ? `${ICONS.coin}<span>No funds</span>`
           : state === 'queued' ? `<span class="lb-q">Queued</span>` : '';
-        if (state === 'ready' && was) { card.el.classList.remove('pop'); void card.el.offsetWidth; card.el.classList.add('pop'); }
+        if (state === 'ready' && was) replay(card.el, 'pop', 650);
       }
       if (pct !== card.pct) {
         card.pct = pct;
@@ -560,7 +577,7 @@ export class Hud {
         card.count = n;
         card.countEl.textContent = n > 1 ? `×${n}` : '';
         card.countEl.classList.toggle('on', n > 1);
-        if (n > 1) { card.countEl.classList.remove('bump'); void card.countEl.offsetWidth; card.countEl.classList.add('bump'); }
+        if (n > 1) replay(card.countEl, 'bump', 400);
       }
       const poor = state === 'idle' && credits < t.cost;
       if (poor !== card.poor) { card.poor = poor; card.el.classList.toggle('poor', poor); }
@@ -596,7 +613,7 @@ export class Hud {
       this.sound.play('error');
       const req = missingRequirements(p, id);
       this.message(`${t.name} requires ${req.join(', ') || 'more technology'}`, true);
-      card.el.classList.remove('shake'); void card.el.offsetWidth; card.el.classList.add('shake');
+      replay(card.el, 'shake', 450);
       return;
     }
     this.sound.play('click');
@@ -605,7 +622,7 @@ export class Hud {
       if (q.ready || (q.items.length && q.items[0].type !== id)) {
         this.message('Already building', true);
         this.host.audio.play('error');
-        card.el.classList.remove('shake'); void card.el.offsetWidth; card.el.classList.add('shake');
+        replay(card.el, 'shake', 450);
         return;
       }
       if (q.items[0]?.type === id) {
@@ -710,8 +727,7 @@ export class Hud {
     if (ents.length === 1) sp.append(...this.singleView(first));
     else sp.append(this.multiView(ents));
     if (own) sp.appendChild(this.commandButtons(ents.filter((e): e is Unit | Building => e instanceof Unit || e instanceof Building)));
-    if (!wasOpen) { sp.classList.remove('pop'); void sp.offsetWidth; sp.classList.add('pop'); }
-    else { sp.classList.remove('swap'); void sp.offsetWidth; sp.classList.add('swap'); }
+    replay(sp, wasOpen ? 'swap' : 'pop', 500);
   }
 
   private chip(icon: string, value: string, sub: string, tip: string, k = ''): string {
@@ -727,7 +743,8 @@ export class Hud {
     const chips: string[] = [];
     chips.push(this.chip(ICONS.shield, cap(t.armor), '', tipHtml('Armour', `Armour class <b>${cap(t.armor)}</b> — determines how much damage each warhead deals.`)));
     if (e instanceof Unit) {
-      const wps = [t.primary, (t as typeof e.ut).secondary !== t.primary ? (t as typeof e.ut).secondary : undefined].filter(Boolean) as string[];
+      const ut = e.ut;
+      const wps = [ut.primary, ut.secondary !== ut.primary ? ut.secondary : undefined].filter(Boolean) as string[];
       for (const wid of wps) {
         const wd = WEAPONS[wid];
         chips.push(this.chip(ICONS.target, esc(wd.id), `R${+wd.range.toFixed(2)}`, tipHtml(`Weapon: ${esc(wd.id)}`, `Damage <b>${Math.abs(wd.damage)}</b>${wd.burst > 1 ? ` ×${wd.burst}` : ''} · range <b>${+wd.range.toFixed(2)}</b> cells${wd.antiAir ? ' · anti-air' : ''}${!wd.antiGround ? ' (air only)' : ''}`)));
@@ -995,7 +1012,7 @@ export class Hud {
     pips.innerHTML = foes.map((o) => `<i class="${o.defeated ? 'dead' : ''}" style="--c:${hexColor(o.color)}"></i>`).join('') + `<span><b>${alive}</b>/${foes.length}</span>`;
     this.objEl.dataset.tip = tipHtml('Objective', 'Destroy every enemy structure and unit.<br>' + foes.map((o) => `<span class="tt-foe${o.defeated ? ' dead' : ''}" style="--c:${hexColor(o.color)}"><i></i>${esc(o.name)} <small>${o.faction === 'soviet' ? 'Soviet' : 'Allied'}${o.defeated ? ' · eliminated' : ''}</small></span>`).join(''));
     this.tip.refresh(this.objEl, this.objEl.dataset.tip);
-    if (!first) { this.objEl.classList.remove('flash'); void this.objEl.offsetWidth; this.objEl.classList.add('flash'); }
+    if (!first) replay(this.objEl, 'flash', 1600);
   }
 }
 
