@@ -1,0 +1,425 @@
+/**
+ * Replay playback: the regular Game (same deterministic simulation, AI included) built from the
+ * recorded setup, with the human player's orders fed from the recording at their ticks.
+ *
+ *  - controls: pause (Space), 1× / 2× / 4× / 8× ([ / ]), skip ±30 s, restart, timeline scrubber
+ *    (forward seeks step the simulation fast; backward seeks restart the match and fast-forward)
+ *  - player view: any player's eyes (their fog, HUD and radar) or an observer view without fog (V)
+ *  - read-only spectator HUD (no build / sell / power / unit orders)
+ *  - desync detection against the recorded state hashes
+ */
+import type { Game, GameSetup } from '../game';
+import { BUILDINGS, UNITS } from '../data/rules';
+import { formatTime } from '../core/util';
+import { DT, TICK_HZ } from '../sim/types';
+import { Building } from '../sim/entities';
+import type { Player } from '../sim/player';
+import { Hud } from '../ui/hud';
+import { ICONS, factionEmblem } from '../ui/icons';
+import { el, esc, hexColor } from '../ui/dom';
+import { renderThumbnails } from '../render/thumbnails';
+import { CommandFeeder } from './core';
+import type { PlaybackOptions, ReplayData } from './format';
+
+export interface PlaybackHost {
+  /** Start a new game from this setup (seeking backwards, watching again). */
+  restart(setup: GameSetup): void;
+  /** Leave the replay: to the replay list, or the main menu. */
+  exit(toReplays: boolean): void;
+}
+
+const SPEEDS = [1, 2, 4, 8];
+const SKIP = 30 * TICK_HZ;
+
+export function attachPlayback(game: Game, host: PlaybackHost): ReplayPlayback {
+  const pb = new ReplayPlayback(game, host);
+  game.attachments.push(pb);
+  return pb;
+}
+
+export class ReplayPlayback {
+  readonly data: ReplayData;
+  private opts: PlaybackOptions;
+  private feeder: CommandFeeder;
+  private unhook: () => void;
+  /** Viewed player index; -1 = observer (no fog). */
+  view: number;
+  /** Player whose HUD is shown in observer mode. */
+  private hudPlayer: number;
+  private speed = 1;
+  private paused = false;
+  private seeking = false;
+  private ended = false;
+  private disposed = false;
+  private endTimer = 0;
+  private bar: HTMLElement;
+  private panel: HTMLElement;
+  private endBox: HTMLElement | null = null;
+  private seekBox: HTMLElement | null = null;
+  private timer = 0;
+  private dragFrac = -1;
+  private keyHandler = (e: KeyboardEvent) => this.onKey(e);
+
+  constructor(private game: Game, private host: PlaybackHost) {
+    this.opts = game.setup.replay!;
+    this.data = this.opts.data;
+    const world = game.world;
+    this.feeder = new CommandFeeder(world, this.data.cmds, this.data.hashes);
+    // feed the recorded orders; a recording that stops before the match ended freezes on its last tick
+    const orig = world.step;
+    const step = () => {
+      if (this.ended && !world.gameOver) return;
+      this.feeder.beforeStep();
+      orig.call(world);
+      this.feeder.afterStep();
+      if (!this.ended && world.tick >= this.data.ticks) this.reachEnd();
+    };
+    world.step = step;
+    this.unhook = () => { if (world.step === step) world.step = orig; };
+    game.hints = null;
+    if (game.input) game.input.spectator = true;
+    document.body.classList.add('spectating');
+    this.renderMissingThumbs();
+    this.view = this.opts.view ?? this.data.local;
+    this.hudPlayer = this.view >= 0 ? this.view : this.data.local;
+    this.bar = el('div', 'rp-bar panel');
+    this.bar.id = 'replay-bar';
+    this.panel = el('div', 'rp-players panel');
+    document.body.append(this.bar, this.panel);
+    this.buildBar();
+    this.setView(this.view);
+    this.setSpeed(this.opts.speed ?? 1);
+    if (this.opts.paused) this.setPaused(true);
+    window.addEventListener('keydown', this.keyHandler);
+    this.timer = window.setInterval(() => this.refresh(), 250);
+    this.refresh();
+    if (this.opts.seekTo && this.opts.seekTo > world.tick) this.seek(this.opts.seekTo);
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.unhook();
+    window.clearInterval(this.timer);
+    window.clearTimeout(this.endTimer);
+    window.removeEventListener('keydown', this.keyHandler);
+    document.body.classList.remove('spectating');
+    this.bar.remove();
+    this.panel.remove();
+    this.endBox?.remove();
+    this.seekBox?.remove();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Time control
+  // ---------------------------------------------------------------------------
+  setSpeed(s: number) {
+    this.speed = s;
+    if (!this.paused && !this.seeking) this.game.speed = s;
+    for (const b of this.bar.querySelectorAll<HTMLElement>('[data-speed]')) b.classList.toggle('on', +b.dataset.speed! === s);
+  }
+
+  setPaused(p: boolean) {
+    if (this.ended && !p && !this.game.world.gameOver) return;
+    this.paused = p;
+    if (!this.seeking) this.game.speed = p ? 0 : this.speed;
+    const b = this.bar.querySelector('.rp-play');
+    if (b) b.innerHTML = p ? ICONS.play : ICONS.pause;
+    this.bar.classList.toggle('paused', p);
+  }
+
+  /** Jump to a tick: forward by fast simulation, backward by restarting the match and seeking. */
+  seek(tick: number) {
+    const world = this.game.world;
+    tick = Math.max(0, Math.min(this.data.ticks, Math.round(tick)));
+    if (this.seeking) return;
+    if (tick < world.tick) {
+      const { load: _l, ...setup } = this.game.setup;
+      this.host.restart({ ...setup, intro: false, replay: { ...this.opts, seekTo: tick, view: this.view, speed: this.speed, paused: this.paused } });
+      return;
+    }
+    if (tick === world.tick) return;
+    this.seeking = true;
+    this.game.speed = 0;
+    this.endBox?.remove();
+    this.endBox = null;
+    const box = el('div', 'rp-seek panel', `<b>Seeking</b><span class="rp-seek-t"></span><span class="rp-seek-bar"><i></i></span>`);
+    document.body.appendChild(box);
+    this.seekBox = box;
+    const from = world.tick;
+    const step = () => {
+      if (this.disposed) return;
+      const t0 = performance.now();
+      while (world.tick < tick && performance.now() - t0 < 45) {
+        world.step();
+        world.events.length = 0;
+      }
+      const f = (world.tick - from) / Math.max(1, tick - from);
+      (box.querySelector('.rp-seek-bar i') as HTMLElement).style.width = `${(f * 100).toFixed(1)}%`;
+      (box.querySelector('.rp-seek-t') as HTMLElement).textContent = `${formatTime(world.tick * DT)} / ${formatTime(tick * DT)}`;
+      this.refresh();
+      if (world.tick < tick) { window.setTimeout(step, 0); return; }
+      this.finishSeek();
+    };
+    window.setTimeout(step, 30);
+  }
+
+  private finishSeek() {
+    this.seeking = false;
+    this.seekBox?.remove();
+    this.seekBox = null;
+    const g = this.game, w = g.world;
+    // structures placed while skipping: hide the trees under them, then snap the fog
+    const cells: number[] = [];
+    for (const b of w.buildings) for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) cells.push(w.map.idx(b.cx + dx, b.cy + dy));
+    g.gfx.vegetation.hideCells(cells);
+    g.gfx.fog.snap(g.local);
+    if (!this.ended) g.speed = this.paused ? 0 : this.speed;
+    this.refresh();
+  }
+
+  private reachEnd() {
+    this.ended = true;
+    const w = this.game.world;
+    if (w.gameOver) {
+      // let the game's own finale (slow motion, banner) play, then offer the next steps
+      this.endTimer = window.setTimeout(() => this.showEnd(), 5200);
+    } else {
+      this.setPaused(true);
+      this.showEnd();
+    }
+  }
+
+  private showEnd() {
+    if (this.disposed || this.endBox) return;
+    const d = this.data;
+    const winner = d.players.find((p) => p.team === d.winnerTeam);
+    const title = d.result === 'abandoned' ? 'End of recording' : winner ? `${esc(winner.name)} wins` : 'Match over';
+    const sub = d.result === 'abandoned' ? `The match was left at ${formatTime(d.ticks * DT)}` : `${d.result === 'victory' ? 'Victory' : 'Defeat'} for ${esc(d.players[d.local]?.name ?? 'the commander')} · ${formatTime(d.ticks * DT)}`;
+    const box = el('div', 'rp-end panel', `<div class="rp-end-ic">${ICONS.replay}</div><div class="rp-end-txt"><small>Replay complete</small><b>${title}</b><span>${sub}</span></div>`);
+    const btns = el('div', 'rp-end-btns');
+    const mk = (label: string, icon: string, fn: () => void, cls = 'btn') => {
+      const b = el('button', cls, `${icon}<span>${label}</span>`);
+      b.onclick = fn;
+      btns.appendChild(b);
+    };
+    mk('Watch again', ICONS.restart, () => this.seek(0), 'btn-primary');
+    mk('Replays', ICONS.history, () => this.host.exit(true));
+    mk('Main menu', ICONS.exit, () => this.host.exit(false));
+    box.appendChild(btns);
+    document.body.appendChild(box);
+    this.endBox = box;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Player view
+  // ---------------------------------------------------------------------------
+  /** Look through a player's eyes (their fog, HUD, radar), or -1 for an observer view without fog. */
+  setView(view: number) {
+    const g = this.game, w = g.world;
+    this.view = view;
+    if (view >= 0) this.hudPlayer = view;
+    const p = w.players[this.hudPlayer] ?? w.players[0];
+    const observer = view < 0;
+    g.local = p;
+    // renderers that colour own / allied / enemy and fog ghosts
+    const ents = g.ents as unknown as { local: Player; views?: Map<number, { seen?: boolean; wasExplored?: boolean; fogged?: boolean; ghostDead?: boolean }> };
+    ents.local = p;
+    (g.walls as unknown as { local: Player }).local = p;
+    if (ents.views) for (const v of ents.views.values()) { v.seen = false; v.wasExplored = false; v.fogged = false; }
+    g.gfx.fog.enabled = w.fog && !observer;
+    g.gfx.fog.snap(p);
+    g.input?.setLocal(p);
+    document.body.classList.toggle('faction-soviet', p.faction === 'soviet');
+    g.hud = new Hud({
+      world: w, local: p, thumbs: g.thumbs, selection: g.selection, audio: g.audio, spectator: true,
+      issue: () => {},
+      beginPlacement: () => {},
+      setMode: (m) => g.input?.setMode(m),
+      getMode: () => g.input?.mode ?? 'normal',
+      beginSuperweapon: () => {},
+      select: (ids) => g.input?.select(ids),
+      focusOn: (x, y) => g.gfx.cam.flyToPoint(x, y),
+      minimapPoint: (x, y, b) => { if (b === 0) g.gfx.cam.jumpTo(x, y); },
+      openPauseMenu: () => g.pause(),
+      setSpeed: (s) => this.setSpeed(s),
+      getSpeed: () => this.speed,
+      keyCommand: (k, b) => g.input?.keyCommand(k, b),
+      getGroups: () => g.input?.groups ?? new Map(),
+      stats: () => `${g.gfx.stats.calls} calls · ${(g.gfx.stats.tris / 1000).toFixed(0)}k tris`,
+    });
+    g.hud.minimap.structures = observer ? null : () => g.ents.structureMarkers();
+    g.hud.minimap.revealAll = observer;
+    this.refresh(true);
+  }
+
+  private cycleView(dir = 1) {
+    const n = this.game.world.players.length;
+    const order = [...Array(n).keys(), -1];
+    const i = order.indexOf(this.view);
+    this.setView(order[(i + dir + order.length) % order.length]);
+  }
+
+  /** Portraits for the other faction's units (the game only renders the local faction's). */
+  private renderMissingThumbs() {
+    const g = this.game;
+    const seen = new Set<string>();
+    for (const p of g.world.players) {
+      if (seen.has(p.faction)) continue;
+      seen.add(p.faction);
+      const ids = [...Object.keys(BUILDINGS), ...Object.keys(UNITS)].filter((id) => {
+        const t = BUILDINGS[id] ?? UNITS[id];
+        return t.owner.includes(p.faction) && !g.thumbs.has(id);
+      });
+      if (!ids.length) continue;
+      try {
+        for (const [id, url] of renderThumbnails(ids, p.color)) g.thumbs.set(id, url);
+      } catch (e) {
+        console.warn('thumbnails failed', e);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------------------------
+  private buildBar() {
+    const d = this.data;
+    const btn = (cls: string, icon: string, tip: string, fn: () => void) => {
+      const b = el('button', 'rp-btn ' + cls, icon);
+      b.title = tip;
+      b.setAttribute('aria-label', tip);
+      b.onclick = fn;
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      return b;
+    };
+    const left = el('div', 'rp-ctl');
+    left.append(
+      btn('rp-restart', ICONS.skipBack, 'Restart (Home)', () => this.seek(0)),
+      btn('rp-back', ICONS.rewind, 'Back 30 s', () => this.seek(this.game.world.tick - SKIP)),
+      btn('rp-play', ICONS.pause, 'Pause / play (Space)', () => this.setPaused(!this.paused)),
+      btn('rp-fwd', ICONS.forward, 'Skip 30 s', () => this.seek(this.game.world.tick + SKIP)),
+    );
+    const speeds = el('div', 'rp-speeds');
+    for (const s of SPEEDS) {
+      const b = el('button', 'rp-speed', `${s}×`);
+      b.dataset.speed = String(s);
+      b.title = `${s}× speed ([ / ])`;
+      b.onclick = () => this.setSpeed(s);
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      speeds.appendChild(b);
+    }
+    const tl = el('div', 'rp-timeline', `<span class="rp-time">00:00</span><div class="rp-track"><i class="rp-fill"></i><i class="rp-head"></i><i class="rp-desync"></i><span class="rp-hover"></span></div><span class="rp-total">${formatTime(d.ticks * DT)}</span>`);
+    const track = tl.querySelector('.rp-track') as HTMLElement;
+    const fracAt = (e: PointerEvent) => {
+      const r = track.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    };
+    track.addEventListener('pointerdown', (e) => {
+      track.setPointerCapture(e.pointerId);
+      this.dragFrac = fracAt(e);
+      this.refresh();
+    });
+    track.addEventListener('pointermove', (e) => {
+      const f = fracAt(e);
+      const hv = track.querySelector('.rp-hover') as HTMLElement;
+      hv.style.left = `${(f * 100).toFixed(2)}%`;
+      hv.textContent = formatTime(f * d.ticks * DT);
+      if (this.dragFrac >= 0) { this.dragFrac = f; this.refresh(); }
+    });
+    track.addEventListener('pointerup', (e) => {
+      if (this.dragFrac < 0) return;
+      const f = fracAt(e);
+      this.dragFrac = -1;
+      this.seek(f * d.ticks);
+    });
+    const right = el('div', 'rp-side');
+    const fog = btn('rp-fog', ICONS.eye, 'Observer view: no fog of war (V cycles views)', () => this.setView(this.view < 0 ? this.hudPlayer : -1));
+    const sync = el('span', 'rp-sync');
+    const exit = btn('rp-exit', ICONS.close, 'Leave the replay', () => this.host.exit(true));
+    right.append(fog, sync, exit);
+    const tag = el('div', 'rp-tag', `${ICONS.replay}<span><b>Replay</b><small>${esc(d.mapName)}</small></span>`);
+    this.bar.append(tag, left, speeds, tl, right);
+  }
+
+  /** Refresh the bar (time, sync) and the players panel. */
+  private refresh(rebuildPanel = false) {
+    if (this.disposed) return;
+    const g = this.game, w = g.world, d = this.data;
+    const frac = this.dragFrac >= 0 ? this.dragFrac : Math.min(1, w.tick / Math.max(1, d.ticks));
+    (this.bar.querySelector('.rp-fill') as HTMLElement).style.width = `${(frac * 100).toFixed(2)}%`;
+    (this.bar.querySelector('.rp-head') as HTMLElement).style.left = `${(frac * 100).toFixed(2)}%`;
+    (this.bar.querySelector('.rp-time') as HTMLElement).textContent = formatTime((this.dragFrac >= 0 ? frac * d.ticks : Math.min(w.tick, d.ticks)) * DT);
+    const sync = this.bar.querySelector('.rp-sync') as HTMLElement;
+    const ds = this.feeder.desyncTick;
+    const html = ds >= 0
+      ? `${ICONS.warn}<span>Desync at ${formatTime(ds * DT)}</span>`
+      : `${ICONS.check}<span>${this.feeder.checked ? 'In sync' : 'Verifying'}</span>`;
+    if (sync.innerHTML !== html) {
+      sync.innerHTML = html;
+      sync.className = 'rp-sync ' + (ds >= 0 ? 'bad' : 'ok');
+      sync.title = ds >= 0
+        ? `The simulation no longer matches the recording from ${formatTime(ds * DT)} (recorded with build ${d.gameVersion}). What follows may differ from the original match.`
+        : `Simulation verified against ${this.feeder.checked} of ${d.hashes.length} recorded checkpoints.`;
+      const mark = this.bar.querySelector('.rp-desync') as HTMLElement;
+      mark.style.display = ds >= 0 ? 'block' : 'none';
+      if (ds >= 0) mark.style.left = `${((ds / Math.max(1, d.ticks)) * 100).toFixed(2)}%`;
+    }
+    this.bar.querySelector('.rp-fog')?.classList.toggle('on', this.view < 0);
+    this.renderPlayers(rebuildPanel);
+  }
+
+  private panelKey = '';
+  private renderPlayers(force: boolean) {
+    const w = this.game.world;
+    const key = `${this.view}|${this.hudPlayer}`;
+    if (force || key !== this.panelKey || !this.panel.childElementCount) {
+      this.panelKey = key;
+      this.panel.innerHTML = `<div class="rp-ph"><span>${ICONS.people}<b>Players</b></span><small>V · switch view</small></div>`;
+      w.players.forEach((p, i) => {
+        const row = el('button', 'rp-pl' + (i === this.view ? ' on' : '') + (i === this.hudPlayer && this.view < 0 ? ' hud' : ''));
+        row.style.setProperty('--c', hexColor(p.color));
+        row.innerHTML = `<span class="rp-em">${factionEmblem(p.faction)}</span><span class="rp-nm"><b>${esc(p.name)}</b><small>${esc(this.data.players[i]?.ai ? `AI · ${this.data.players[i].ai}` : 'Commander')}</small></span>
+          <span class="rp-st" data-k="cr"></span><span class="rp-st" data-k="pw"></span><span class="rp-st" data-k="army"></span>`;
+        row.title = `View the battle as ${p.name}`;
+        row.onclick = () => this.setView(i);
+        row.addEventListener('mousedown', (e) => e.preventDefault());
+        this.panel.appendChild(row);
+      });
+      const obs = el('button', 'rp-pl rp-obs' + (this.view < 0 ? ' on' : ''), `<span class="rp-em">${ICONS.eye}</span><span class="rp-nm"><b>Observer</b><small>No fog of war</small></span>`);
+      obs.onclick = () => this.setView(-1);
+      obs.addEventListener('mousedown', (e) => e.preventDefault());
+      this.panel.appendChild(obs);
+    }
+    const rows = this.panel.querySelectorAll<HTMLElement>('.rp-pl:not(.rp-obs)');
+    w.players.forEach((p, i) => {
+      const row = rows[i];
+      if (!row) return;
+      row.classList.toggle('dead', p.defeated);
+      let army = 0;
+      for (const u of w.units) if (u.alive && u.owner === p && u.weapons.length && !u.ut.harvester) army++;
+      let blds = 0;
+      for (const b of w.buildings) if (b.alive && b.owner === p && b instanceof Building && !b.bt.wall) blds++;
+      const set = (k: string, html: string) => {
+        const e = row.querySelector(`[data-k="${k}"]`) as HTMLElement;
+        if (e.innerHTML !== html) e.innerHTML = html;
+      };
+      set('cr', `${ICONS.coin}<b>${p.credits.toLocaleString('en-US')}</b>`);
+      set('pw', `${ICONS.bolt}<b class="${p.lowPower ? 'low' : ''}">${p.powerOut}/${p.powerUse}</b>`);
+      set('army', `${ICONS.target}<b>${army}</b><small>· ${blds}</small>`);
+    });
+  }
+
+  private onKey(e: KeyboardEvent) {
+    const t = e.target as HTMLElement;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    if (this.game.paused) return;
+    const k = e.key.toLowerCase();
+    if (k === ' ') { e.preventDefault(); this.setPaused(!this.paused); }
+    else if (k === '[' || k === ']') {
+      const i = SPEEDS.indexOf(this.speed);
+      this.setSpeed(SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (i < 0 ? 0 : i) + (k === ']' ? 1 : -1)))]);
+    } else if (k === 'v' && !e.ctrlKey && !e.metaKey) this.cycleView(e.shiftKey ? -1 : 1);
+    else if (k === 'home') this.seek(0);
+  }
+}

@@ -4,8 +4,8 @@ import { wallLine } from '../sim/world';
 import { lerp } from '../core/util';
 import { Building, Entity, Unit } from '../sim/entities';
 import type { Player } from '../sim/player';
-import type { SuperKind } from '../sim/superweapons';
-import type { Command } from '../sim/types';
+import { SUPER_TARGET, type SuperKind } from '../sim/superweapons';
+import type { Command, Stance } from '../sim/types';
 import type { PlacementIssue, World } from '../sim/world';
 import type { GameRenderer } from '../render/renderer';
 import type { EntityRenderer } from '../render/entities';
@@ -15,8 +15,28 @@ import type { Effects } from '../render/effects';
 import type { AudioSystem } from '../audio';
 import type { VoiceKind } from '../audio/types';
 import type { TargetReticle } from '../render/reticle';
+import { bridgeAtCell } from '../sim/bridges';
+import { disguisedAs } from '../sim/infiltration';
+import { canCarry } from '../sim/naval';
+import { T } from '../sim/map';
 
-export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super';
+export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines';
+
+/** Units the player can click or box-select: not support planes (Badger, U2), not still under a parachute. */
+export function selectableUnit(u: Unit): boolean {
+  return u.alive && !u.ut.supportPlane && !(u.parachute > 0) && !u.transport;
+}
+
+/** Targeting reticle per superweapon / support power: affected radius (cells) and colour. */
+export const SUPER_RETICLE: Record<SuperKind, { r: number; color: number }> = {
+  nuke: { r: 4.5, color: 0xff3a1a }, ironcurtain: { r: 1.8, color: 0xff2050 }, chrono: { r: 0.9, color: 0x30e0ff },
+  gps: { r: 0, color: 0x40ff90 }, sonar: { r: 0, color: 0x40c8ff }, spyplane: { r: 6, color: 0x7dffb0 },
+  paratroopers: { r: 2.5, color: 0xf0f4ff }, parabombs: { r: 3.5, color: 0xff8a30 },
+};
+
+/** Stance hotkeys (F1–F4). */
+export const STANCE_KEYS: Record<string, Stance> = { f1: 'aggressive', f2: 'guard', f3: 'hold', f4: 'passive' };
+const STANCE_NAME: Record<Stance, string> = { aggressive: 'Aggressive', guard: 'Guard', hold: 'Hold position', passive: 'Hold fire' };
 
 export interface InputHost {
   world: World;
@@ -47,7 +67,9 @@ export function voiceOf(u: Unit): VoiceKind {
   if (t.engineer) return 'engineer';
   if (t.medic) return 'medic';
   if (t.harvester) return 'harvester';
+  if (t.id === 'spy' || t.id === 'thf') return 'spy';
   if (u.kind === 'aircraft') return 'aircraft';
+  if (u.kind === 'naval') return 'naval';
   return u.kind === 'infantry' ? 'infantry' : 'vehicle';
 }
 
@@ -74,6 +96,11 @@ export class InputController {
   private disposers: (() => void)[] = [];
   edgeScroll = true;
   unitVoices = true;
+  /** Replay spectator: select and look around, but no orders. */
+  spectator = false;
+  /** Camera follows the selection (F). */
+  follow = false;
+  private idleCursor = 0;
 
   constructor(private h: InputHost) {
     this.canvas = h.gfx.canvas;
@@ -95,6 +122,13 @@ export class InputController {
 
   dispose() {
     for (const d of this.disposers) d();
+  }
+
+  /** Switch the player whose units are "own" (replay player-view switch). */
+  setLocal(p: Player) {
+    this.h.local = p;
+    this.h.selection.clear();
+    this.setMode('normal');
   }
 
   // ---------------------------------------------------------------------------
@@ -130,7 +164,7 @@ export class InputController {
     let best: Entity | null = null, bestD = Infinity;
     const a = this.h.alpha;
     for (const u of world.units) {
-      if (!u.alive || !ents.isShown(u.id)) continue;
+      if (!selectableUnit(u) || !ents.isShown(u.id)) continue;
       const x = lerp(u.prevX, u.x, a), y = lerp(u.prevY, u.y, a);
       const top = ents.topOf(u.id);
       const wy = map.surfaceAt(x, y) + top * 0.5 + (u.kind === 'aircraft' ? u.altitude : 0);
@@ -146,11 +180,11 @@ export class InputController {
     if (map.inBounds(cx, cy)) {
       const id = map.occupant[map.idx(cx, cy)];
       const b = id ? world.getEntity(id) : undefined;
-      if (b && b.alive && ents.isShown(b.id)) return b;
+      if (b && b.alive && ents.isShown(b.id) && !(b instanceof Building && b.bt.mine)) return b;
     }
     // tall structures: screen-space box test
     for (const b of world.buildings) {
-      if (!b.alive || !ents.isShown(b.id)) continue;
+      if (!b.alive || !ents.isShown(b.id) || b.bt.mine) continue;
       const top = ents.topOf(b.id);
       const g = map.heightAt(b.x, b.y);
       const [x0, y0] = this.project(b.cx, g, b.cy + b.h);
@@ -208,7 +242,7 @@ export class InputController {
     const a = this.h.alpha;
     let hits: Unit[] = [];
     for (const u of this.h.world.units) {
-      if (!u.alive || u.owner !== this.h.local) continue;
+      if (!selectableUnit(u) || u.owner !== this.h.local) continue;
       const x = lerp(u.prevX, u.x, a), y = lerp(u.prevY, u.y, a);
       const [px, py] = this.project(x, map.surfaceAt(x, y) + 0.2, y);
       if (px >= minX && px <= maxX && py >= minY && py <= maxY) hits.push(u);
@@ -220,16 +254,74 @@ export class InputController {
     else if (!add) this.h.selection.clear();
   }
 
-  private selectSameTypeOnScreen(typeId: string) {
+  private selectSameTypeOnScreen(types: string | Set<string>) {
     const ids: number[] = [];
     const W = window.innerWidth - this.sidebarW(), H = window.innerHeight;
     const map = this.h.world.map;
+    const want = typeof types === 'string' ? new Set([types]) : types;
     for (const u of this.h.world.units) {
-      if (!u.alive || u.owner !== this.h.local || u.ut.id !== typeId) continue;
+      if (!selectableUnit(u) || u.owner !== this.h.local || !want.has(u.ut.id)) continue;
       const [px, py] = this.project(u.x, map.surfaceAt(u.x, u.y), u.y);
       if (px >= 0 && px <= W && py >= 0 && py <= H) ids.push(u.id);
     }
     if (ids.length) this.select(ids);
+  }
+
+  /** Who an entity appears to belong to for this player (a disguised spy passes for the player it mimics). */
+  private apparentOwner(e: Entity): Player {
+    return (e instanceof Unit ? disguisedAs(this.h.world, e, this.h.local)?.owner : undefined) ?? e.owner;
+  }
+
+  /** A destroyed bridge whose gap (or either landing) is at this ground point. */
+  private destroyedBridgeAt(gx: number, gy: number): { id: number } | null {
+    const w = this.h.world as World & { bridges?: { id: number; alive: boolean; ends: [number, number][] }[] };
+    if (!w.bridges?.length) return null;
+    const cx = Math.floor(gx), cy = Math.floor(gy);
+    const b = bridgeAtCell(this.h.world, cx, cy);
+    if (b && !b.alive) return b;
+    return w.bridges.find((br) => !br.alive && br.ends.some(([x, y]) => x === cx && y === cy)) ?? null;
+  }
+
+  /** Ctrl+A: every own unit on screen (combat units preferred over harvesters / MCVs, like box select). */
+  private selectOnScreen() {
+    const W = window.innerWidth - this.sidebarW(), H = window.innerHeight;
+    const map = this.h.world.map;
+    let hits: Unit[] = [];
+    for (const u of this.h.world.units) {
+      if (!selectableUnit(u) || u.owner !== this.h.local) continue;
+      const [px, py] = this.project(u.x, map.surfaceAt(u.x, u.y), u.y);
+      if (px >= 0 && px <= W && py >= 0 && py <= H) hits.push(u);
+    }
+    const combat = hits.filter((u) => !u.ut.harvester && !u.ut.deploysInto);
+    if (combat.length) hits = combat;
+    if (hits.length) this.select(hits.map((u) => u.id));
+  }
+
+  /** I: select and centre the next idle unit (Shift: idle harvesters). */
+  cycleIdle(harvesters: boolean) {
+    const idle = this.h.world.units.filter((u) => {
+      if (!selectableUnit(u) || u.owner !== this.h.local || !!u.ut.harvester !== harvesters) return false;
+      if (harvesters) return u.order.type === 'idle' || u.hstate === 'idle';
+      return u.order.type === 'idle' || u.order.type === 'guard';
+    }).sort((a, b) => a.id - b.id);
+    if (!idle.length) {
+      this.h.message(harvesters ? 'No idle harvesters' : 'No idle units');
+      return;
+    }
+    const next = idle.find((u) => u.id > this.idleCursor) ?? idle[0];
+    this.idleCursor = next.id;
+    this.select([next.id]);
+    this.h.gfx.cam.flyToPoint(next.x, next.y);
+  }
+
+  /** F1–F4: set the stance of the selected own combat units. */
+  setStance(stance: Stance) {
+    if (this.spectator) return;
+    const ids = this.ownSelectedUnits().filter((u) => u.weapons.length).map((u) => u.id);
+    if (!ids.length) return;
+    this.h.issue({ c: 'stance', player: this.h.local.id, units: ids, stance });
+    this.h.message(`Stance: ${STANCE_NAME[stance]}`);
+    this.h.audio.play('click');
   }
 
   // ---------------------------------------------------------------------------
@@ -253,7 +345,8 @@ export class InputController {
   }
 
   beginSuperweapon(kind: SuperKind) {
-    if (kind === 'chrono' && !this.ownSelectedUnits().some((u) => u.kind === 'vehicle')) {
+    if (this.spectator) return;
+    if (SUPER_TARGET[kind] === 'unit-point' && !this.ownSelectedUnits().some((u) => u.kind === 'vehicle')) {
       this.h.message('Select a vehicle to chronoshift first', true);
       this.h.audio.play('error');
       return;
@@ -288,6 +381,7 @@ export class InputController {
     const [gx, gy] = this.screenToGround(e.clientX, e.clientY);
     const world = this.h.world;
     const local = this.h.local;
+    if (this.spectator && this.mode !== 'normal') this.setMode('normal');
     switch (this.mode) {
       case 'place': {
         const [cx, cy] = this.placementCell();
@@ -295,7 +389,7 @@ export class InputController {
         if (issue) {
           this.h.audio.play('error');
           this.h.audio.announce('cannot_build_here');
-          this.h.message(placementText(issue, !!BUILDINGS[this.placeType!].wall), true);
+          this.h.message(placementText(issue, !!BUILDINGS[this.placeType!].wall, !!BUILDINGS[this.placeType!].water), true);
           return;
         }
         if (BUILDINGS[this.placeType!].wall) { this.wallStart = [cx, cy]; return; }
@@ -333,9 +427,19 @@ export class InputController {
         if (!e.shiftKey) this.setMode('normal');
         return;
       }
+      case 'layMines': {
+        const layers = this.ownSelectedUnits().filter((u) => u.ut.minelayer);
+        if (layers.length) {
+          this.h.issue({ c: 'mine', player: local.id, units: layers.map((u) => u.id), x: gx, y: gy });
+          this.marker(gx, gy, 'attack');
+          this.voice('move', voiceOf(layers[0]));
+        } else this.h.audio.play('error');
+        if (!e.shiftKey) this.setMode('normal');
+        return;
+      }
       case 'super': {
         const kind = this.superKind!;
-        const unit = kind === 'chrono' ? this.ownSelectedUnits().find((u) => u.kind === 'vehicle') : undefined;
+        const unit = SUPER_TARGET[kind] === 'unit-point' ? this.ownSelectedUnits().find((u) => u.kind === 'vehicle') : undefined;
         this.h.issue({ c: 'superweapon', player: local.id, kind, x: gx, y: gy, unit: unit?.id });
         this.setMode('normal');
         return;
@@ -372,7 +476,7 @@ export class InputController {
       this.rightDown = null;
       if (!rd || rd.moved || this.h.paused) return;
       if (this.mode !== 'normal') { this.setMode('normal'); return; }
-      this.command(e);
+      if (!this.spectator) this.command(e);
       return;
     }
     if (e.button === 0 && this.wallStart && this.mode === 'place' && this.placeType) {
@@ -404,7 +508,7 @@ export class InputController {
       return;
     }
     // clicking an already selected MCV deploys it (classic behaviour)
-    if (t instanceof Unit && t.owner === this.h.local && t.ut.deploysInto && sel.size === 1 && sel.has(t.id)) {
+    if (!this.spectator && t instanceof Unit && t.owner === this.h.local && t.ut.deploysInto && sel.size === 1 && sel.has(t.id)) {
       this.h.issue({ c: 'deploy', player: this.h.local.id, units: [t.id] });
       return;
     }
@@ -437,7 +541,7 @@ export class InputController {
     }
     const t = e.altKey ? null : this.pickAt(e.clientX, e.clientY);
     const voice = voiceOf(units[0]);
-    if (t && t.owner !== local && local.isEnemy(t.owner)) {
+    if (t && t.owner !== local && local.isEnemy(this.apparentOwner(t))) {
       this.h.issue({ c: 'attack', player: local.id, units: ids, target: t.id });
       this.marker(t.x, t.y, 'attack');
       this.voice('attack', voice);
@@ -449,9 +553,9 @@ export class InputController {
       this.voice('attack', voice);
       return;
     }
-    if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => u.kind === 'infantry')) {
-      const inf = units.filter((u) => u.kind === 'infantry').map((u) => u.id);
-      this.h.issue({ c: 'enter', player: local.id, units: inf, target: t.id });
+    const riders = t instanceof Unit && t.owner === local && t.ut.passengers ? units.filter((u) => canCarry(t, u)) : [];
+    if (riders.length && t) {
+      this.h.issue({ c: 'enter', player: local.id, units: riders.map((u) => u.id), target: t.id });
       this.marker(t.x, t.y, 'move');
       this.voice('move', voice);
       return;
@@ -469,6 +573,27 @@ export class InputController {
         this.voice('move', voice);
         return;
       }
+    }
+    // engineers rebuild a destroyed bridge (click its gap or either end)
+    const engineers = units.filter((u) => u.ut.engineer);
+    const wreck = engineers.length ? this.destroyedBridgeAt(gx, gy) : null;
+    if (wreck) {
+      this.h.issue({ c: 'repairBridge', player: local.id, units: engineers.map((u) => u.id), bridge: wreck.id });
+      const rest = ids.filter((id) => !engineers.some((u) => u.id === id));
+      if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: gx, y: gy, queue: e.shiftKey });
+      this.marker(gx, gy, 'move');
+      this.voice('move', voiceOf(engineers[0]));
+      return;
+    }
+    // Ctrl + right click with minelayers: lay a minefield there (the rest force-fire)
+    const layers = units.filter((u) => u.ut.minelayer);
+    if (e.ctrlKey && layers.length) {
+      this.h.issue({ c: 'mine', player: local.id, units: layers.map((u) => u.id), x: gx, y: gy });
+      const rest = units.filter((u) => !u.ut.minelayer).map((u) => u.id);
+      if (rest.length) this.h.issue({ c: 'attackGround', player: local.id, units: rest, x: gx, y: gy });
+      this.marker(gx, gy, 'attack');
+      this.voice('move', voice);
+      return;
     }
     if (e.ctrlKey) {
       this.h.issue({ c: 'attackGround', player: local.id, units: ids, x: gx, y: gy });
@@ -518,6 +643,12 @@ export class InputController {
     }
     if (this.h.paused) return;
     if (k === 'tab' || k === 'alt') e.preventDefault();
+    if (/^f[1-4]$/.test(k)) {
+      // stance hotkeys (the browser's F1 help / F3 find are suppressed in game)
+      e.preventDefault();
+      this.setStance(STANCE_KEYS[k]);
+      return;
+    }
     // control groups
     if (/^[0-9]$/.test(k)) {
       const g = +k;
@@ -545,10 +676,11 @@ export class InputController {
     }
     if ((e.ctrlKey || e.metaKey) && k === 'a') {
       e.preventDefault();
-      this.select(this.h.world.units.filter((u) => u.alive && u.owner === this.h.local && u.weapons.length && !u.ut.harvester).map((u) => u.id));
+      this.selectOnScreen();
       return;
     }
     if (e.ctrlKey || e.metaKey) return;
+    if (k === 'i') { this.cycleIdle(e.shiftKey); return; }
     this.keyCommand(k);
   }
 
@@ -557,6 +689,8 @@ export class InputController {
     const units = this.ownSelectedUnits();
     const ids = units.map((u) => u.id);
     const blds = this.ownSelectedBuildings();
+    // spectators keep the camera and selection keys only
+    if (this.spectator && k.length === 1 && 'sagxdzrpm '.includes(k)) return;
     switch (k) {
       case 's':
         if (ids.length) this.h.issue({ c: 'stop', player: local.id, units: ids });
@@ -601,7 +735,19 @@ export class InputController {
         this.h.gfx.cam.targetYaw -= Math.PI / 4;
         break;
       case 'e':
-        if (units.length) this.selectSameTypeOnScreen(units[0].ut.id);
+        // all combat units on the map
+        this.select(this.h.world.units.filter((u) => selectableUnit(u) && u.owner === local && u.weapons.length && !u.ut.harvester).map((u) => u.id));
+        break;
+      case 'm':
+        if (units.some((u) => u.ut.minelayer)) this.setMode(this.mode === 'layMines' ? 'normal' : 'layMines');
+        break;
+      case 'w':
+        // every unit of the selected type(s) on screen
+        if (units.length) this.selectSameTypeOnScreen(new Set(units.map((u) => u.ut.id)));
+        break;
+      case 'f':
+        this.follow = !this.follow && this.h.selection.size > 0;
+        this.h.message(this.follow ? 'Camera following the selection (F or scroll to release)' : 'Camera released');
         break;
       case 'backspace':
         this.h.gfx.cam.targetYaw = Math.round(this.h.gfx.cam.targetYaw / (Math.PI * 2)) * Math.PI * 2;
@@ -640,6 +786,19 @@ export class InputController {
       if (this.mouseY <= m) py -= 1;
       if (this.mouseY >= window.innerHeight - m) py += 1;
     }
+    if (this.follow) {
+      // follow the selection; any manual scroll releases the camera
+      let n = 0, fx = 0, fy = 0;
+      for (const id of this.h.selection) {
+        const e = this.h.world.getEntity(id);
+        if (e?.alive) { fx += e.x; fy += e.y; n++; }
+      }
+      if (!n || px || py || this.middleDown || this.rightDown?.moved) this.follow = false;
+      else {
+        const k = Math.min(1, dt * 4);
+        cam.jumpTo(cam.x + (fx / n - cam.x) * k, cam.y + (fy / n - cam.y) * k);
+      }
+    }
     cam.pan(px, py, dt);
 
     const [gx, gy] = this.screenToGround(this.mouseX, this.mouseY);
@@ -660,13 +819,18 @@ export class InputController {
       const [cx, cy] = this.placementCell();
       const map = this.h.world.map;
       const valid = this.h.world.canPlace(this.h.local, this.placeType, cx, cy);
-      this.h.placement.update(cx, cy, (dx, dy) => map.buildable(cx + dx, cy + dy), valid, time);
+      const water = !!BUILDINGS[this.placeType].water;
+      // shipyards / sub pens stand on open water; everything else on clear dry ground
+      const cellOk = water
+        ? (dx: number, dy: number) => map.inBounds(cx + dx, cy + dy) && map.navalTerrain(map.idx(cx + dx, cy + dy)) && !map.occupant[map.idx(cx + dx, cy + dy)]
+        : (dx: number, dy: number) => map.buildable(cx + dx, cy + dy);
+      this.h.placement.update(cx, cy, cellOk, valid, time);
       const u = this.h.gfx.terrain.uniforms.uGrid.value;
       u.set(gx, gy, 7, 1);
     }
     if (this.mode === 'super' && this.superKind && this.h.reticle) {
-      const k = this.superKind;
-      this.h.reticle.show(this.groundX, this.groundY, k === 'nuke' ? 4.5 : k === 'ironcurtain' ? 1.8 : 0.9, k === 'nuke' ? 0xff3a1a : k === 'ironcurtain' ? 0xff2050 : 0x30e0ff, time);
+      const ret = SUPER_RETICLE[this.superKind] ?? { r: 1.5, color: 0xffffff };
+      this.h.reticle.show(this.groundX, this.groundY, Math.max(0.9, ret.r), ret.color, time);
     } else this.h.reticle?.hide();
     this.updateCursor();
   }
@@ -682,13 +846,13 @@ export class InputController {
       case 'sell': c = t instanceof Building && t.owner === local ? 'sell' : 'nomove'; break;
       case 'repair': c = t instanceof Building && t.owner === local && t.hp < t.maxHp ? 'repair' : 'nomove'; break;
       case 'attackMove': case 'attackGround': c = 'attack'; break;
-      case 'super': c = 'target'; break;
+      case 'super': case 'layMines': c = 'target'; break;
       default: {
         const units = this.ownSelectedUnits();
-        if (!units.length) { c = t ? 'select' : ''; break; }
-        if (t && local.isEnemy(t.owner)) {
+        if (!units.length || this.spectator) { c = t ? 'select' : ''; break; }
+        if (t && local.isEnemy(this.apparentOwner(t))) {
           c = units.some((u) => u.weapons.length || u.ut.engineer || u.ut.c4) ? (units.every((u) => u.ut.engineer) ? 'enter' : 'attack') : 'select';
-        } else if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => u.kind === 'infantry')) {
+        } else if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => canCarry(t, u))) {
           c = 'enter';
         } else if (t instanceof Unit && t.ut.deploysInto && this.h.selection.has(t.id) && units.length === 1) {
           c = 'deploy';
@@ -700,8 +864,10 @@ export class InputController {
           const map = this.h.world.map;
           const cx = Math.floor(this.groundX), cy = Math.floor(this.groundY);
           if (!map.inBounds(cx, cy)) c = 'nomove';
+          else if (units.some((u) => u.ut.engineer) && this.destroyedBridgeAt(this.groundX, this.groundY)) c = 'enter';
           else if (map.ore[map.idx(cx, cy)] && units.some((u) => u.ut.harvester)) c = 'harvest';
-          else c = map.passable(cx, cy) ? 'move' : 'nomove';
+          else if (units.every((u) => u.kind === 'naval')) c = 'move'; // ships head for the nearest water
+          else c = map.passable(cx, cy) || (units.some((u) => u.kind === 'naval') && map.terrain[map.idx(cx, cy)] === T.Water) ? 'move' : 'nomove';
         }
       }
     }
@@ -719,10 +885,10 @@ export class InputController {
 }
 
 /** Why a structure can't go where the player clicked. */
-function placementText(issue: PlacementIssue, wall: boolean): string {
+function placementText(issue: PlacementIssue, wall: boolean, water = false): string {
   switch (issue) {
     case 'no-yard': return 'You need a Construction Yard to build structures';
-    case 'terrain': return 'Cannot build here: needs clear, dry ground';
+    case 'terrain': return water ? 'Cannot build here: shipyards and sub pens go on open water next to your base' : 'Cannot build here: needs clear, dry ground';
     case 'occupied': return 'Cannot build here: something is in the way';
     case 'exit': return 'Cannot build here: it would block a factory exit or refinery dock';
     case 'distance': return wall ? 'Too far from your base: walls must stay close to your structures' : 'Too far from your base: build next to your other structures';

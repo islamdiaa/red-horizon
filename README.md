@@ -162,19 +162,25 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
 | Input | Action |
 |---|---|
 | Left click / drag | Select / box select (double-click or Ctrl+click: all of a type on screen) |
+| E · W · Ctrl+A | All combat units on the map · all of the selected type(s) on screen · all own units on screen |
+| I · Shift+I | Select and centre the next idle unit · the next idle harvester |
 | Right click | Move · attack · harvest · enter (context sensitive) · set rally point (factory selected) |
 | Shift + right click | Queue waypoints |
 | Ctrl + right click | Force fire (ground or friendly) · Alt + right click: force move |
 | A / S / X / G / D | Attack-move · Stop · Scatter · Fire at ground · Deploy / unload / return |
+| F1 / F2 / F3 / F4 | Stance of the selected units: aggressive · guard · hold position · hold fire |
+| M | Lay mines with the selected minelayers (or Ctrl + right click the spot) · engineers: right click a destroyed bridge to rebuild it |
 | Z / R / P | Sell · Repair · Primary factory |
 | Ctrl+1–9 / 1–9 | Assign / recall control group (double-tap to jump) |
 | H / Space | Jump to base · jump to last attack |
+| F | Camera follows the selection (scroll to release) |
 | Arrows, screen edge, middle- or right-drag | Scroll · mouse wheel: zoom |
 | Q / , / . | Rotate camera · Backspace: reset to north |
 | U | Photo mode (hide the interface) |
 | Hold Alt | Show all health bars |
 | Esc | Cancel / pause menu |
-| Sidebar | Left click: build (Shift ×5) / place · right click: hold / cancel |
+| Sidebar | Left click: build (Shift ×5) / place · right click: hold / cancel · power bar: click to fire / aim |
+| Replays | Space: pause / play · [ / ]: slower / faster (1×–8×) · V: next player view / observer · Home: restart |
 
 ## Project layout
 
@@ -226,6 +232,7 @@ helpers, and six 15-minute AI-vs-AI soak games with invariant checks.
 Testing URL parameters: `?autostart=1&scenario=battle&charge=1&fog=0&tod=night&size=64`
 (`scenario=base|battle`, `ff=<seconds>` fast-forward, `cam=x,y,dist`, `units=mcv|light|heavy`,
 `hour=0..24`, `cycle=1`, `wx=rain|storm|snow|fog|dust`, `climate=winter|desert`, `intro=1`,
-`selfplay=hard` lets an AI play your side, `mission=<id>` starts a mission, e.g. `allied-01`, `survival`, `daily`).
+`selfplay=hard` lets an AI play your side, `mission=<id>` starts a mission, e.g. `bootcamp`, `allied-01`, `wolfpack`, `survival`, `daily`,
+`map=<id>` a curated map, `mapcode=<code>` a shared generated map, `replay=<id>|latest[&view=<n>|obs]` a replay).
 Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
 `/preview-weather.html`.

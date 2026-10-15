@@ -39,6 +39,9 @@ import { recalcPlayerEconomy } from './sim/production';
 import { guardFrame } from './platform/errors';
 import { watchContextLoss, type ContextWatch } from './platform/webgl';
 import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
+import { loadCuratedMap } from './maps'; // [D] curated skirmish maps
+import { ReplayRecorder } from './replay/recorder'; // [D] replays
+import type { PlaybackOptions } from './replay/format';
 
 /** Progression tracker shared by every match (XP, ranks, medals, records). Unlocks pop as toasts. */
 export const meta = new MetaTracker();
@@ -76,6 +79,10 @@ export interface GameSetup {
   mission?: string;
   /** Resume from a saved game. */
   load?: SaveData;
+  /** [D] Curated skirmish map id (src/maps); used instead of the generated map. */
+  mapId?: string;
+  /** [D] Watch a recorded match (src/replay): the human player's orders come from the recording. */
+  replay?: PlaybackOptions;
 }
 
 export interface GameCallbacks {
@@ -125,6 +132,10 @@ export class Game {
   missionHud: MissionHud | null = null;
   /** Result of a finished mission (stars, time, score). */
   missionResult: { won: boolean; stars: number; time: number; score: number } | null = null;
+  /** [D] Records the local player's commands for replays (skirmish only). */
+  recorder: ReplayRecorder | null = null;
+  /** [D] Extra per-match UI (replay controls) torn down with the game. */
+  attachments: { dispose(): void }[] = [];
   local;
   selection = new Set<number>();
   paused = false;
@@ -161,10 +172,12 @@ export class Game {
       (this as { setup: GameSetup }).setup = setup;
     }
     const nPlayers = def ? def.map.players : 1 + setup.opponents.length;
-    const climate = (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
-    const map = generateMap({
+    const curated = !def && setup.mapId ? loadCuratedMap(setup.mapId) : null; // [D] curated skirmish map
+    const climate = curated?.climate ?? (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
+    const map = curated ?? generateMap({
       size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
-      water: climate === 'desert' ? Math.min(setup.water, 0.2) : setup.water,
+      // deserts are dry, except that a sea map (water >= 0.9) becomes a desert coastline
+      water: climate === 'desert' && setup.water < 0.9 ? Math.min(setup.water, 0.2) : setup.water,
       trees: climate === 'desert' ? setup.trees * 0.35 : climate === 'winter' ? Math.min(1, setup.trees * 1.2) : setup.trees,
     });
     map.climate = climate;
@@ -196,6 +209,7 @@ export class Game {
     if (setup.load) {
       deserializeWorld(this.world, setup.load.world, null);
     }
+    if (!def && !setup.demo && !setup.replay) this.recorder = new ReplayRecorder(this, setup.load?.game?.replay); // [D] replays
     if (def) {
       const rt = new MissionRuntime(this.world, def);
       this.world.mission = rt;
@@ -336,7 +350,7 @@ export class Game {
       this.demoCam.ty = map.h / 2;
     }
     if (setup.load) this.restoreView(setup.load);
-    if (!setup.demo) {
+    if (!setup.demo && !setup.replay) {
       meta.onGameStart({
         mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
         difficulties: this.missionDef ? undefined : setup.opponents.map((o) => o.difficulty),
@@ -353,6 +367,8 @@ export class Game {
   }
 
   issue(cmd: Command) {
+    if (this.setup.replay) return; // [D] spectating a replay: no orders
+    this.recorder?.record(cmd); // [D] replays
     this.world.issue(cmd);
   }
 
@@ -775,7 +791,7 @@ export class Game {
 
   /** Snapshot the whole game into a save slot. */
   save(slot = 'auto'): boolean {
-    if (this.setup.demo || this.world.gameOver) return false;
+    if (this.setup.demo || this.setup.replay || this.world.gameOver) return false;
     const cam = this.gfx.cam;
     const { load: _ignore, ...setup } = this.setup;
     const label = this.missionDef ? `Operation ${this.missionDef.codename}` : `Skirmish · ${this.local.faction === 'allies' ? 'Allies' : 'Soviets'} vs ${this.world.players.length - 1}`;
@@ -785,6 +801,7 @@ export class Game {
         setup, label, hours: this.hours, wxIdx: this.wxIdx, wxTimer: this.wxTimer, time: this.world.time,
         cam: { x: cam.x, y: cam.y, dist: cam.targetDist, yaw: cam.targetYaw },
         groups: this.input ? [...this.input.groups.entries()] : [],
+        replay: this.recorder?.snapshot(), // [D] the replay continues after loading
       },
     };
     return writeSave(slot, data);
@@ -875,6 +892,8 @@ export class Game {
   }
 
   dispose() {
+    this.recorder?.finish(); // [D] store the replay of a match left before its end
+    for (const a of this.attachments) a.dispose();
     if (!this.setup.demo && meta.active) meta.abandon(); // quit / restart mid-battle
     this.contextWatch?.dispose(); // first: forceContextLoss below must not trigger the lost-context overlay
     this.contextWatch = null;

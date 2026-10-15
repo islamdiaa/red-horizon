@@ -19,6 +19,8 @@ import { checkSupport, renderUnsupported } from './platform/webgl';
 import { detectQuality } from './platform/gpu';
 import { registerServiceWorker } from './platform/pwa';
 import { loadSettings, saveSettings } from './ui/settings';
+import { attachPlayback } from './replay/playback'; // [D] replays
+import { resolveTestSetup } from './replay/launch';
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -67,6 +69,7 @@ const menus = new Menus(audio, {
   openCampaign: () => openCampaign(),
   openChallenges: () => openChallenges(),
   openProfile: () => openProfile(),
+  openBootCamp: () => deployMission('bootcamp'),
   continueInfo: () => {
     const s = latestSave();
     return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
@@ -140,6 +143,7 @@ async function startGame(setup: GameSetup) {
     game = new Game(setup, audio, {
       onPause: () => menus.showPause(game!),
       onEnd: (g, won) => {
+        if (g.setup.replay) return; // [D] replay playback shows its own end panel
         g.paused = true;
         const def = g.missionDef, res = g.missionResult;
         if (!def || !res) { menus.showEnd(g, won); return; }
@@ -157,6 +161,8 @@ async function startGame(setup: GameSetup) {
     exposeDebug(game);
     (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
+    // [D] watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
+    if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
     game.start();
   } catch (e) {
     reportError(e, true);
@@ -184,6 +190,7 @@ function applyTestParams(g: Game) {
   if (params.get('hour')) g.hours = +params.get('hour')!;
   const sp = params.get('selfplay');
   if (sp) g.world.ais.push(new AIController(g.world, g.local, sp as AIDifficulty));
+  if (sc || params.get('charge') || sp) { g.recorder?.discard(); g.recorder = null; } // [D] edited worlds can't be replayed
   if (params.get('speed')) g.speed = +params.get('speed')!;
   if (params.get('sel') === 'army') {
     for (const u of g.world.units) if (u.alive && u.owner === g.local && u.weapons.length) g.selection.add(u.id);
@@ -221,7 +228,8 @@ function startDemo() {
 
 if (params.get('autostart')) {
   // Testing shortcut: ?autostart=1&faction=soviet&ai=hard&size=64&fog=0&tod=dusk&units=heavy
-  void startGame({
+  // [D] plus map=<curated id> · mapcode=<code> · replay=<id>|latest (resolveTestSetup)
+  void resolveTestSetup(params, {
     faction: (params.get('faction') as Faction) ?? 'allies',
     color: params.get('faction') === 'soviet' ? 0xd23a2c : 0x3d7be0,
     opponents: [{ faction: (params.get('enemy') as Faction) ?? (params.get('faction') === 'soviet' ? 'allies' : 'soviet'), difficulty: (params.get('ai') as AIDifficulty) ?? 'normal' }],
@@ -229,7 +237,7 @@ if (params.get('autostart')) {
     startUnits: (params.get('units') as any) ?? 'light', fog: params.get('fog') !== '0', timeOfDay: (params.get('tod') as TimeOfDay) ?? 'day',
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: +(params.get('seed') ?? 1234),
     dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate', mission: params.get('mission') ?? undefined,
-  });
+  }).then(startGame);
 } else {
   setLoading(0.5, 'Loading');
   setTimeout(startDemo, 30);

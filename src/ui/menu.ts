@@ -6,13 +6,22 @@ import { formatTime } from '../core/util';
 import { TEAM_COLORS, type Game, type GameSetup } from '../game';
 import type { AudioSystem } from '../audio';
 import { ICONS, alliedEmblem, medalSvg, rankBadge, sovietEmblem, type MedalTier } from './icons';
-import { UiSound, bindTilt, countUp, el as h, esc, hexColor } from './dom';
+import { UiSound, bindTilt, countUp, el as h, esc, hexColor, replay as replayAnim } from './dom';
 import { Embers } from './embers';
 import { initLoadingScreen } from './loading';
 import { applyUiSettings, loadSettings, saveSettings, type Settings } from './settings';
 import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
 import { showProfile } from './profile';
 import { showChallenges } from './challenges';
+import { CURATED_MAPS, getMapDef, loadCuratedMap } from '../maps';
+import { decodeMapCode, encodeMapCode, generatorOptions, mapCodeForSetup, normaliseParams, type GenParams } from '../maps/code';
+import { mapPreviewUrl } from '../maps/preview';
+import { generateMap } from '../sim/mapgen';
+import type { GameMap } from '../sim/map';
+import { fitOpponents, playbackSetup } from '../replay/launch';
+import { MAX_REPLAYS, type ReplayData } from '../replay/format';
+import { deleteReplay, exportReplay, importReplayFile, listReplays } from '../replay/store';
+import { loadProgress } from '../missions/progress';
 
 export { loadSettings, saveSettings, type Settings };
 
@@ -43,6 +52,12 @@ interface SkirmishPrefs {
   weather: Weather;
   climate: Climate;
   dayCycle: boolean;
+  /** Curated map id (undefined = generated battlefield). */
+  mapId?: string;
+  /** Seed of the generated battlefield shown in the panel (its map code). */
+  seed?: number;
+  /** Keep the same generated map for the next match (a pasted code locks it). */
+  lockSeed?: boolean;
 }
 
 function loadPrefs(): SkirmishPrefs {
@@ -57,6 +72,39 @@ function loadPrefs(): SkirmishPrefs {
     return def;
   }
 }
+
+const randomSeed = () => Math.floor(Math.random() * 1e9);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Start-marker colours for previews: the player's colour first, then the AI colours in game order. */
+function startColors(own: number, players: number): string[] {
+  const used = new Set([own]);
+  const out = [hexColor(own)];
+  for (let i = 1; i < players; i++) {
+    const c = TEAM_COLORS.find((x) => !used.has(x))!;
+    used.add(c);
+    out.push(hexColor(c));
+  }
+  return out;
+}
+
+/** The generated map for these parameters, with start 1 = the player's base (as the game orders them). */
+function previewGenerated(p: GenParams): GameMap {
+  const map = generateMap(generatorOptions(p));
+  map.climate = p.climate;
+  if (p.seed & 2) map.startPositions.reverse();
+  return map;
+}
+
+function copyText(text: string) {
+  try { void navigator.clipboard?.writeText(text); } catch { /* clipboard blocked */ }
+}
+
+function bootCampDone(): boolean {
+  try { return !!loadProgress()['bootcamp']?.completed; } catch { return false; }
+}
+
+const RESULT_LABEL: Record<ReplayData['result'], string> = { victory: 'Victory', defeat: 'Defeat', abandoned: 'Left' };
 
 // ---------------------------------------------------------------------------
 // Controls
@@ -166,6 +214,8 @@ export interface MenuCallbacks {
   openChallenges?(): void;
   /** Open the commander profile (rank, medals, history). Falls back to a built-in screen. */
   openProfile?(): void;
+  /** Start the Boot Camp tutorial mission (shown as a nav item; highlighted until completed). */
+  openBootCamp?(): void;
 }
 
 export class Menus {
@@ -222,6 +272,8 @@ export class Menus {
   showMain() {
     const s = this.open('main-screen', false);
     const prefs = loadPrefs();
+    if (!prefs.lockSeed || prefs.seed === undefined) prefs.seed = randomSeed();
+    if (prefs.mapId && !getMapDef(prefs.mapId)) prefs.mapId = undefined;
     document.body.classList.toggle('faction-soviet', prefs.faction === 'soviet');
     s.innerHTML = `<div class="mm-shade"></div><canvas class="mm-embers"></canvas><div class="mm-lines"></div>`;
     const embers = new Embers(s.querySelector('.mm-embers') as HTMLCanvasElement);
@@ -249,13 +301,18 @@ export class Menus {
       nav.appendChild(b);
     };
     const cont = this.cb.continueInfo?.();
+    const bootDone = bootCampDone();
     if (cont) navItem('▶', `Continue · ${cont.label}`, ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
+    if (this.cb.openBootCamp && !bootDone) navItem('00', `Boot Camp<em class="rh-daily-pill rh-new-pill">Start here</em>`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
     if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
     navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
     navItem('03', `Challenges${dailyPending() ? '<em class="rh-daily-pill">Daily</em>' : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
-    navItem('04', 'Commander', picto('chevrons', 'ic'), () => this.openProfile());
-    navItem('05', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
-    navItem('06', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
+    navItem('04', 'Replays', ICONS.replay, () => this.showReplays());
+    navItem('05', 'Commander', picto('chevrons', 'ic'), () => this.openProfile());
+    if (this.cb.openBootCamp && bootDone) navItem('06', 'Boot Camp', ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
+    navItem(bootDone && this.cb.openBootCamp ? '07' : '06', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
+    navItem(bootDone && this.cb.openBootCamp ? '08' : '07', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
+    nav.classList.toggle('dense', nav.childElementCount > 7);
     nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
     left.appendChild(nav);
     // commander badge (rank insignia + name) next to the title; opens the profile
@@ -298,6 +355,7 @@ export class Menus {
       prefs.color = c;
       for (const sw of colors.children) sw.classList.toggle('on', +(sw as HTMLElement).dataset.c! === c);
       renderOpps();
+      renderMap();
     };
     for (const c of TEAM_COLORS) {
       const sw = h('div', 'sw' + (c === prefs.color ? ' on' : ''));
@@ -307,11 +365,13 @@ export class Menus {
       colors.appendChild(sw);
     }
 
-    // opponents
+    // opponents (a curated map fixes their number)
     const oppBox = h('div', 'opponents');
     const oppCount = h('span', 'sec-count');
     const renderOpps = () => {
       oppBox.innerHTML = '';
+      const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
+      if (def) prefs.opponents = fitOpponents(prefs.opponents, def.players);
       const used = new Set([prefs.color]);
       prefs.opponents.forEach((o, i) => {
         const color = TEAM_COLORS.find((c) => !used.has(c))!;
@@ -323,20 +383,19 @@ export class Menus {
         r.appendChild(seg<AIDifficulty>([['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['brutal', 'Brutal']], o.difficulty, (v) => { o.difficulty = v; r.dataset.diff = v; }, 'op-diff'));
         r.dataset.diff = o.difficulty;
         const x = h('button', 'op-x', ICONS.close);
-        x.title = 'Remove opponent';
-        x.disabled = prefs.opponents.length <= 1;
-        x.onclick = () => { prefs.opponents.splice(i, 1); renderOpps(); };
+        x.title = def ? `${def.name} is a ${def.players}-player map` : 'Remove opponent';
+        x.disabled = prefs.opponents.length <= 1 || !!def;
+        x.onclick = () => { prefs.opponents.splice(i, 1); renderOpps(); renderMap(); };
         r.appendChild(x);
         oppBox.appendChild(r);
       });
-      if (prefs.opponents.length < 3) {
+      if (prefs.opponents.length < 3 && !def) {
         const add = h('button', 'op-add', `${ICONS.plus}<span>Add opponent</span>`);
-        add.onclick = () => { prefs.opponents.push({ faction: 'random', difficulty: 'normal' }); renderOpps(); };
+        add.onclick = () => { prefs.opponents.push({ faction: 'random', difficulty: 'normal' }); renderOpps(); renderMap(); };
         oppBox.appendChild(add);
       }
-      oppCount.textContent = `${prefs.opponents.length} / 3`;
+      oppCount.textContent = def ? `${prefs.opponents.length} · fixed by map` : `${prefs.opponents.length} / 3`;
     };
-    renderOpps();
     const forces = h('div', 'mp-section');
     const secHead = h('div', 'sec-title', `<span>Opponents</span>`);
     secHead.appendChild(oppCount);
@@ -345,16 +404,63 @@ export class Menus {
     forces.append(colorRow, secHead, oppBox);
     panel.appendChild(forces);
 
+    // map: curated pick or a generated battlefield with a shareable code
+    const mapRow = h('div', 'map-row');
+    const genParams = (): GenParams => normaliseParams({ size: prefs.mapSize, players: 1 + prefs.opponents.length, water: prefs.water, trees: prefs.trees, ore: prefs.ore, climate: prefs.climate, seed: prefs.seed! });
+    let thumbTimer = 0;
+    const renderMap = () => {
+      const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
+      const p = genParams();
+      const code = encodeMapCode(p);
+      const colorsFor = startColors(prefs.color, def ? def.players : p.players);
+      mapRow.className = 'map-row' + (def ? ' curated' : '');
+      mapRow.innerHTML = `<div class="mr-thumb"><img alt=""><span class="mr-load"></span></div>
+        <div class="mr-info"><small>Battlefield</small><b>${esc(def ? def.name : 'Random battlefield')}</b>
+        <span class="mr-meta">${def ? `${def.size}×${def.size} · ${def.players} players · ${cap(def.climate)}${def.tags?.length ? ' · ' + def.tags.slice(0, 2).map(esc).join(' · ') : ''}` : `${p.size}×${p.size} · ${p.players} players · ${cap(p.climate)} · new every match`}</span>
+        ${def ? '' : `<span class="mr-code"><span class="mr-code-lbl">Map code</span><code>${code}</code><button class="mr-ib mr-copy" title="Copy the map code">${ICONS.copy}</button><button class="mr-ib mr-lock${prefs.lockSeed ? ' on' : ''}" title="${prefs.lockSeed ? 'This exact map is kept for the next match — click for a new one each time' : 'Keep this exact map for the next match'}">${ICONS.lock}</button><button class="mr-ib mr-dice" title="Roll a different map">${ICONS.dice}</button></span>`}</div>
+        <button class="btn mr-change">${ICONS.map}<span>Maps</span></button>`;
+      const img = mapRow.querySelector('img') as HTMLImageElement;
+      window.clearTimeout(thumbTimer);
+      const draw = () => {
+        img.src = def
+          ? mapPreviewUrl(`c:${def.id}:${colorsFor.join(',')}`, () => loadCuratedMap(def.id)!, { size: 160, colors: colorsFor })
+          : mapPreviewUrl(`g:${code}:${prefs.color}`, () => previewGenerated(p), { size: 160, colors: colorsFor, highlight: 0 });
+        mapRow.classList.remove('loading');
+      };
+      mapRow.classList.add('loading');
+      thumbTimer = window.setTimeout(draw, 120);
+      (mapRow.querySelector('.mr-change') as HTMLElement).onclick = () => this.mapPicker(prefs, () => { renderOpps(); renderBf(); renderMap(); });
+      (mapRow.querySelector('.mr-thumb') as HTMLElement).onclick = () => this.mapPicker(prefs, () => { renderOpps(); renderBf(); renderMap(); });
+      const copy = mapRow.querySelector('.mr-copy') as HTMLElement | null;
+      if (copy) copy.onclick = () => { copyText(code); this.flashTip(copy, 'Copied'); };
+      const lock = mapRow.querySelector('.mr-lock') as HTMLElement | null;
+      if (lock) lock.onclick = () => { prefs.lockSeed = !prefs.lockSeed; renderMap(); };
+      const dice = mapRow.querySelector('.mr-dice') as HTMLElement | null;
+      if (dice) dice.onclick = () => { prefs.seed = randomSeed(); prefs.lockSeed = false; renderMap(); };
+    };
+    panel.appendChild(mapRow);
+
     // battlefield / conditions
     const grid = h('div', 'mp-grid');
     const bf = h('div', 'mp-col');
-    bf.appendChild(h('div', 'sec-title', '<span>Battlefield</span>'));
-    bf.appendChild(field('Map size', ICONS.map, seg<number>([[64, 'Small'], [96, 'Medium'], [128, 'Large']], prefs.mapSize, (v) => { prefs.mapSize = v; })));
-    bf.appendChild(field('Terrain', ICONS.water, seg<number>([[0, 'Dry'], [0.5, 'Lakes'], [1, 'Wet']], prefs.water, (v) => { prefs.water = v; })));
-    bf.appendChild(field('Climate', ICONS.tree, seg<Climate>([['temperate', 'Temperate', ICONS.tree], ['winter', 'Winter', ICONS.snow], ['desert', 'Desert', ICONS.desert]], prefs.climate, (v) => { prefs.climate = v; }, 'with-ic')));
-    bf.appendChild(field('Weather', ICONS.rain, stepper<Weather>([
-      ['auto', 'Auto', ICONS.auto], ['clear', 'Clear', ICONS.clear], ['rain', 'Rain', ICONS.rain], ['storm', 'Storm', ICONS.storm],
-      ['snow', 'Snow', ICONS.snow], ['fog', 'Fog', ICONS.fog], ['dust', 'Dust', ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
+    const renderBf = () => {
+      bf.innerHTML = '';
+      const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
+      bf.appendChild(h('div', 'sec-title', '<span>Battlefield</span>'));
+      if (def) {
+        const info = (icon: string, label: string, value: string) => bf.appendChild(field(label, icon, h('div', 'fixed-val', `<b>${value}</b><small>set by the map</small>`)));
+        info(ICONS.map, 'Map size', `${def.size}×${def.size}`);
+        info(ICONS.water, 'Terrain', esc(def.tags?.find((t) => /naval|river|lake|island|canyon|ridge/i.test(t)) ?? 'Hand-made'));
+        info(def.climate === 'winter' ? ICONS.snow : def.climate === 'desert' ? ICONS.desert : ICONS.tree, 'Climate', cap(def.climate));
+      } else {
+        bf.appendChild(field('Map size', ICONS.map, seg<number>([[64, 'Small'], [96, 'Medium'], [128, 'Large']], prefs.mapSize, (v) => { prefs.mapSize = v; renderMap(); })));
+        bf.appendChild(field('Terrain', ICONS.water, seg<number>([[0, 'Dry'], [0.5, 'Lakes'], [1, 'Sea']], prefs.water, (v) => { prefs.water = v; renderMap(); })));
+        bf.appendChild(field('Climate', ICONS.tree, seg<Climate>([['temperate', 'Temperate', ICONS.tree], ['winter', 'Winter', ICONS.snow], ['desert', 'Desert', ICONS.desert]], prefs.climate, (v) => { prefs.climate = v; renderMap(); }, 'with-ic')));
+      }
+      bf.appendChild(field('Weather', ICONS.rain, stepper<Weather>([
+        ['auto', 'Auto', ICONS.auto], ['clear', 'Clear', ICONS.clear], ['rain', 'Rain', ICONS.rain], ['storm', 'Storm', ICONS.storm],
+        ['snow', 'Snow', ICONS.snow], ['fog', 'Fog', ICONS.fog], ['dust', 'Dust', ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
+    };
     const cond = h('div', 'mp-col');
     cond.appendChild(h('div', 'sec-title', '<span>Conditions</span>'));
     cond.appendChild(field('Time of day', ICONS.sun, seg<TimeOfDay>([['day', 'Day', ICONS.sun], ['dusk', 'Dusk', ICONS.dusk], ['night', 'Night', ICONS.moon]], prefs.timeOfDay, (v) => { prefs.timeOfDay = v; }, 'with-ic')));
@@ -371,21 +477,116 @@ export class Menus {
     cond.appendChild(toggles);
     grid.append(bf, cond);
     panel.appendChild(grid);
+    renderOpps();
+    renderBf();
+    renderMap();
 
     const go = h('button', 'btn-primary deploy', `<span>Deploy</span>${ICONS.arrowR}<i class="shine"></i>`);
     go.onclick = () => {
-      try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
       this.audio.unlock().catch(() => {});
+      const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
+      // a generated map is started from exactly the parameters its map code encodes
+      const p = genParams();
       const setup: GameSetup & AtmosphereSetup = {
-        faction: prefs.faction, color: prefs.color, opponents: prefs.opponents.map((o) => ({ ...o })), mapSize: prefs.mapSize,
-        water: prefs.water, trees: prefs.trees, ore: prefs.ore, credits: prefs.credits, startUnits: prefs.startUnits, fog: prefs.fog,
-        timeOfDay: prefs.timeOfDay, quality: this.settings.quality, seed: (Math.random() * 1e9) | 0,
-        weather: prefs.weather, climate: prefs.climate, dayCycle: prefs.dayCycle,
+        faction: prefs.faction, color: prefs.color, opponents: prefs.opponents.map((o) => ({ ...o })),
+        mapSize: def ? def.size : p.size, water: p.water, trees: p.trees, ore: p.ore, credits: prefs.credits, startUnits: prefs.startUnits, fog: prefs.fog,
+        timeOfDay: prefs.timeOfDay, quality: this.settings.quality, seed: def ? randomSeed() : p.seed,
+        weather: prefs.weather, climate: def ? def.climate : p.climate, dayCycle: prefs.dayCycle, mapId: def?.id,
       };
+      try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
       this.cb.start(setup);
     };
     panel.appendChild(go);
     layout.append(left, panel);
+  }
+
+  /** Brief "Copied" style confirmation on a button. */
+  private flashTip(el: HTMLElement, text: string) {
+    el.dataset.flash = text;
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1100);
+  }
+
+  /** Map picker overlay: "Random" plus every curated map, with previews; map codes for random maps. */
+  private mapPicker(prefs: SkirmishPrefs, done: () => void) {
+    const host = this.screen;
+    if (!host) return;
+    const ov = h('div', 'map-picker');
+    const pnl = h('div', 'menu-panel panel mpk-panel');
+    pnl.appendChild(this.header('Choose your ground', 'Battlefield', ICONS.map));
+    const close = () => {
+      ov.classList.add('leaving');
+      setTimeout(() => ov.remove(), 300);
+      this.escAction = null;
+      done();
+    };
+    const x = h('button', 'mpk-x', ICONS.close);
+    x.title = 'Close (Esc)';
+    x.onclick = close;
+    pnl.appendChild(x);
+    const gridEl = h('div', 'mpk-grid');
+    const p = normaliseParams({ size: prefs.mapSize, players: 1 + prefs.opponents.length, water: prefs.water, trees: prefs.trees, ore: prefs.ore, climate: prefs.climate, seed: prefs.seed! });
+    const card = (id: string | null, name: string, meta: string, desc: string, tags: string[], thumb: () => string) => {
+      const c = h('button', 'mpk-card' + ((prefs.mapId ?? null) === id ? ' on' : ''), `<div class="mpk-thumb"><img alt=""></div>
+        <div class="mpk-info"><b>${esc(name)}</b><span class="mpk-meta">${meta}</span><p>${esc(desc)}</p><span class="mpk-tags">${tags.map((t) => `<i>${esc(t)}</i>`).join('')}</span></div>`);
+      const img = c.querySelector('img') as HTMLImageElement;
+      // previews are built lazily, a few per frame, so the picker opens instantly
+      queue.push(() => { img.src = thumb(); c.classList.add('ready'); });
+      c.onclick = () => {
+        this.sound.play('click');
+        prefs.mapId = id ?? undefined;
+        close();
+      };
+      gridEl.appendChild(c);
+    };
+    const queue: (() => void)[] = [];
+    card(null, 'Random battlefield', `${p.size}×${p.size} · 2–4 players · any climate`, 'A new procedurally generated, symmetric battlefield every match. Size, terrain and climate are set in the skirmish panel; paste a map code below to replay a map.',
+      ['Generated', 'Map codes'], () => mapPreviewUrl(`g:${encodeMapCode(p)}:${prefs.color}`, () => previewGenerated(p), { size: 160, colors: startColors(prefs.color, p.players), highlight: 0 }));
+    for (const m of CURATED_MAPS) {
+      card(m.id, m.name, `${m.size}×${m.size} · ${m.players} players · ${cap(m.climate)}`, m.desc, m.tags ?? [],
+        () => mapPreviewUrl(`c:${m.id}:${startColors(prefs.color, m.players).join(',')}`, () => loadCuratedMap(m.id)!, { size: 160, colors: startColors(prefs.color, m.players) }));
+    }
+    pnl.appendChild(gridEl);
+    // map code box (generated maps)
+    const codeBox = h('div', 'mpk-code', `<span class="sec-title"><span>Map code</span></span>
+      <div class="mpk-code-row"><input type="text" spellcheck="false" maxlength="24" placeholder="e.g. ${encodeMapCode(p)}" value="${encodeMapCode(p)}"><button class="btn mpk-apply">${ICONS.check}<span>Use code</span></button><button class="btn mpk-copy">${ICONS.copy}<span>Copy</span></button></div>
+      <small class="mpk-msg">Every random battlefield has a code. Share it, or paste one to fight on the exact same map (a curated map's name works too).</small>`);
+    const input = codeBox.querySelector('input') as HTMLInputElement;
+    const msg = codeBox.querySelector('.mpk-msg') as HTMLElement;
+    const apply = () => {
+      const raw = input.value.trim();
+      const cur = CURATED_MAPS.find((m) => m.id === raw.toLowerCase() || m.name.toLowerCase() === raw.toLowerCase());
+      if (cur) { prefs.mapId = cur.id; close(); return; }
+      const dec = decodeMapCode(raw);
+      if (!dec) {
+        msg.textContent = 'That is not a valid map code — check for typos.';
+        msg.classList.add('bad');
+        replayAnim(codeBox, 'shake', 450);
+        this.sound.play('error');
+        return;
+      }
+      prefs.mapId = undefined;
+      prefs.mapSize = dec.size; prefs.water = dec.water; prefs.trees = dec.trees; prefs.ore = dec.ore; prefs.climate = dec.climate; prefs.seed = dec.seed;
+      prefs.lockSeed = true;
+      prefs.opponents = fitOpponents(prefs.opponents, dec.players);
+      close();
+    };
+    (codeBox.querySelector('.mpk-apply') as HTMLElement).onclick = apply;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); e.stopPropagation(); });
+    (codeBox.querySelector('.mpk-copy') as HTMLElement).onclick = (e) => { copyText(encodeMapCode(p)); this.flashTip(e.currentTarget as HTMLElement, 'Copied'); };
+    pnl.appendChild(codeBox);
+    ov.appendChild(pnl);
+    ov.addEventListener('pointerdown', (e) => { if (e.target === ov) close(); });
+    host.appendChild(ov);
+    this.sound.bind(ov, 'button');
+    this.escAction = close;
+    const pump = () => {
+      if (!ov.isConnected) return;
+      const t0 = performance.now();
+      while (queue.length && performance.now() - t0 < 30) queue.shift()!();
+      if (queue.length) requestAnimationFrame(pump);
+    };
+    requestAnimationFrame(pump);
   }
 
   /** Challenges hub (daily challenge + survival); built-in fallback deploys through cb.start(). */
@@ -408,6 +609,91 @@ export class Menus {
     this.hide();
     if (this.cb.openProfile) { this.cb.openProfile(); return; }
     showProfile({ play: (k) => this.sound.play(k), onBack: () => this.showMain() });
+  }
+
+  // ---------------------------------------------------------------------------
+  /** Replay archive: the last matches with watch / export / delete, plus import from a file. */
+  showReplays(back: () => void = () => this.showMain()) {
+    const s = this.open('sub-screen');
+    const panel = h('div', 'menu-panel panel replays-panel');
+    panel.appendChild(this.header('Archive', 'Replays', ICONS.replay));
+    const list = h('div', 'rpl-list', `<div class="rpl-empty"><span class="rpl-spin"></span>Loading replays…</div>`);
+    panel.appendChild(list);
+    const foot = h('div', 'rpl-foot');
+    const note = h('small', 'rpl-note', `Every skirmish is recorded automatically (campaign missions are not). The last ${MAX_REPLAYS} are kept on this device.`);
+    const file = h('input') as HTMLInputElement;
+    file.type = 'file';
+    file.accept = '.json,application/json';
+    file.style.display = 'none';
+    const imp = h('button', 'btn', `${ICONS.upload}<span>Import file</span>`);
+    imp.onclick = () => file.click();
+    file.onchange = async () => {
+      const f = file.files?.[0];
+      file.value = '';
+      if (!f) return;
+      try {
+        const r = await importReplayFile(f);
+        note.textContent = `Imported: ${r.mapName}, ${new Date(r.createdAt).toLocaleString()}`;
+        note.classList.remove('bad');
+        void render();
+      } catch (e) {
+        note.textContent = (e as Error).message;
+        note.classList.add('bad');
+        this.sound.play('error');
+      }
+    };
+    foot.append(note, file, imp);
+    panel.appendChild(foot);
+    const b = h('button', 'btn btn-back', `${ICONS.chevL}<span>Back</span><kbd>Esc</kbd>`);
+    b.onclick = back;
+    panel.appendChild(b);
+    s.appendChild(panel);
+    this.escAction = back;
+
+    const render = async () => {
+      let replays: ReplayData[] = [];
+      try { replays = await listReplays(); } catch { /* storage unavailable */ }
+      if (!panel.isConnected) return;
+      list.innerHTML = '';
+      if (!replays.length) {
+        list.appendChild(h('div', 'rpl-empty', `${ICONS.replay}<b>No replays yet</b><span>Play a skirmish: the whole match is recorded so you can rewatch it from any player's view.</span>`));
+        return;
+      }
+      replays.forEach((r, i) => {
+        const d = new Date(r.createdAt);
+        const players = r.players.map((p) => `<span class="rpl-pl" style="--c:${hexColor(p.color)}"><i></i>${esc(p.name)}${p.ai ? `<small>${esc(p.ai)}</small>` : ''}</span>`).join('');
+        const row = h('div', `rpl-row res-${r.result}`, `
+          <span class="rpl-res">${RESULT_LABEL[r.result]}</span>
+          <span class="rpl-when"><b>${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</b><small>${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}${r.gameVersion !== VERSION ? ` · <span class="rpl-old" title="Recorded with build ${esc(r.gameVersion)}: it may desync on this build">v${esc(r.gameVersion)}</span>` : ''}</small></span>
+          <span class="rpl-map"><b>${esc(r.mapName)}</b><small>${r.mapW}×${r.mapH}${r.mapCode ? ` · <code>${esc(r.mapCode)}</code>` : ''}</small></span>
+          <span class="rpl-pls">${players}</span>
+          <span class="rpl-dur">${ICONS.clock}${formatTime(r.ticks / 20)}</span>`);
+        row.style.setProperty('--i', String(i));
+        const acts = h('span', 'rpl-acts');
+        const act = (icon: string, title: string, fn: (b: HTMLButtonElement) => void, cls = '') => {
+          const btn = h('button', 'rpl-btn ' + cls, icon) as HTMLButtonElement;
+          btn.title = title;
+          btn.setAttribute('aria-label', title);
+          btn.onclick = () => fn(btn);
+          acts.appendChild(btn);
+        };
+        act(ICONS.play, 'Watch', () => { this.hide(); this.cb.start(playbackSetup(r, this.settings.quality)); }, 'watch');
+        act(ICONS.download, 'Export to a .json file', () => exportReplay(r));
+        act(ICONS.trash, 'Delete', (btn) => {
+          if (!btn.classList.contains('confirm')) {
+            btn.classList.add('confirm');
+            btn.title = 'Click again to delete';
+            setTimeout(() => btn.classList.remove('confirm'), 2500);
+            return;
+          }
+          void deleteReplay(r.id).then(render);
+        }, 'del');
+        row.appendChild(acts);
+        row.ondblclick = () => { this.hide(); this.cb.start(playbackSetup(r, this.settings.quality)); };
+        list.appendChild(row);
+      });
+    };
+    void render();
   }
 
   // ---------------------------------------------------------------------------
@@ -454,11 +740,14 @@ export class Menus {
     const groups: [string, string, [string, string][]][] = [
       ['Selection', ICONS.target, [
         ['LMB', 'Select · drag to box select'], ['Double-click', 'All of that type on screen'], ['Ctrl + LMB', 'All of that type on screen'],
-        ['Ctrl + A', 'All combat units'], ['Ctrl + 1–9', 'Assign control group'], ['1–9', 'Recall group · double tap to jump'],
+        ['E', 'All combat units on the map'], ['W', 'All of the selected type(s) on screen'], ['Ctrl + A', 'All own units on screen'],
+        ['I', 'Next idle unit (Shift: idle harvester)'], ['Ctrl + 1–9', 'Assign control group'], ['1–9', 'Recall group · double tap to jump'],
       ]],
       ['Orders', ICONS.attackMove, [
         ['RMB', 'Move · attack · harvest · enter'], ['Shift + RMB', 'Queue waypoints'], ['Ctrl + RMB', 'Force fire'], ['Alt + RMB', 'Force move'],
         ['A', 'Attack-move'], ['S / X / G', 'Stop · scatter · fire at ground'], ['D', 'Deploy · unload · return to base'],
+        ['F1 / F2 / F3 / F4', 'Stance: aggressive · guard · hold · hold fire'],
+        ['M', 'Minelayers: lay a minefield (or Ctrl + RMB)'],
       ]],
       ['Base', ICONS.building, [
         ['Z / R / P', 'Sell · repair · primary factory'], ['LMB', 'Sidebar: build (Shift ×5) · place'], ['RMB', 'Sidebar: hold / cancel'],
@@ -466,7 +755,11 @@ export class Menus {
       ]],
       ['Camera', ICONS.eye, [
         ['Arrows', 'Scroll (or touch the screen edge)'], ['MMB / RMB drag', 'Pan the battlefield'], ['Wheel', 'Zoom'],
-        ['H / Space', 'Home base · last attack'], ['Alt', 'Hold: show all health bars'], ['Esc', 'Cancel · pause menu'],
+        ['H / Space', 'Home base · last attack'], ['F', 'Camera follows the selection'], ['Q / , / .', 'Rotate camera · Backspace: north'],
+        ['Alt', 'Hold: show all health bars'], ['U', 'Photo mode'], ['Esc', 'Cancel · pause menu'],
+      ]],
+      ['Replays', ICONS.replay, [
+        ['Space', 'Pause / play'], ['[ / ]', 'Slower · faster (1× – 8×)'], ['V', 'Next player view · observer'], ['Home', 'Restart the replay'],
       ]],
     ];
     const g = h('div', 'help-grid');
@@ -487,14 +780,31 @@ export class Menus {
   showPause(game: Game) {
     const s = this.open('sub-screen pause-screen');
     const panel = h('div', 'menu-panel panel pause-panel');
-    panel.appendChild(h('div', 'mp-head', `<span class="mp-ic pause-ic"><i></i><i></i></span><div><small>Mission on hold</small><h2>Paused</h2></div>`));
+    const rp = game.setup.replay;
+    panel.appendChild(h('div', 'mp-head', `<span class="mp-ic pause-ic"><i></i><i></i></span><div><small>${rp ? 'Replay on hold' : 'Mission on hold'}</small><h2>Paused</h2></div>`));
     const me = game.local;
     const foes = game.world.players.filter((o) => me.isEnemy(o));
     const alive = foes.filter((o) => !o.defeated).length;
-    panel.appendChild(h('div', 'pp-stats', `
+    panel.appendChild(h('div', 'pp-stats', rp ? `
+      <div>${ICONS.clock}<small>Replay time</small><b>${formatTime(game.world.time)} / ${formatTime(rp.data.ticks / 20)}</b></div>
+      <div>${ICONS.map}<small>Battlefield</small><b>${esc(rp.data.mapName)}</b></div>
+      <div>${ICONS.eye}<small>Viewing</small><b>${esc(me.name)}</b></div>` : `
       <div>${ICONS.clock}<small>Mission time</small><b>${formatTime(game.world.time)}</b></div>
       <div>${ICONS.target}<small>Hostiles</small><b>${alive} / ${foes.length}</b></div>
       <div>${ICONS.coin}<small>Credits</small><b>$${me.credits.toLocaleString('en-US')}</b></div>`));
+    // the battlefield: curated map name, or the shareable code of a generated map
+    const code = !rp && !game.setup.mission ? mapCodeForSetup(game.setup) : null;
+    const mapDef = game.setup.mapId ? getMapDef(game.setup.mapId) : undefined;
+    if (code || mapDef) {
+      const row = h('div', 'pp-map', `${ICONS.map}<span>${mapDef ? `<b>${esc(mapDef.name)}</b><small>${mapDef.size}×${mapDef.size} · ${mapDef.players} players</small>` : `<small>Map code</small><code>${code}</code>`}</span>`);
+      if (code) {
+        const c = h('button', 'mr-ib', ICONS.copy);
+        c.title = 'Copy the map code';
+        c.onclick = () => { copyText(code); this.flashTip(c, 'Copied'); };
+        row.appendChild(c);
+      }
+      panel.appendChild(row);
+    }
     const list = h('div', 'pp-list');
     const mk = (label: string, icon: string, fn: () => void, cls = '') => {
       const b = h('button', 'pp-btn ' + cls, `<span class="pp-bic">${icon}</span><span>${label}</span>${cls.includes('primary') ? '<kbd>Esc</kbd>' : ICONS.chevR}`);
@@ -503,6 +813,17 @@ export class Menus {
     };
     const resume = () => { this.hide(); this.cb.resume(); };
     mk('Resume', ICONS.play, resume, 'primary');
+    if (rp) {
+      mk('Settings', ICONS.gear, () => this.showSettings(() => this.showPause(game)));
+      mk('Controls', ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
+      mk('Watch from the start', ICONS.restart, () => { this.hide(); this.cb.start(playbackSetup(rp.data, this.settings.quality, { view: game.world.players.indexOf(game.local) })); });
+      mk('Back to replays', ICONS.replay, () => { this.hide(); this.cb.quit(); this.showReplays(); });
+      mk('Quit to menu', ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
+      panel.appendChild(list);
+      s.appendChild(panel);
+      this.escAction = resume;
+      return;
+    }
     if (this.cb.saveGame) mk('Save game', ICONS.history, () => {
       const ok = this.cb.saveGame!();
       const lbl = list.querySelector('.pp-btn:nth-child(2) span:nth-child(2)');
@@ -529,7 +850,7 @@ export class Menus {
     wrap.innerHTML = `
       <div class="end-kicker">${won ? 'Mission accomplished' : 'Mission failed'}</div>
       <h1 class="end-title" data-text="${title}">${[...title].map((c, i) => `<span class="ltr" style="--i:${i}">${c}</span>`).join('')}</h1>
-      <div class="end-meta"><span>${ICONS.clock}${formatTime(game.world.time)}</span><span>${ICONS.map}${game.world.map.w}×${game.world.map.h}</span><span>${ICONS.target}${foes.length} opponent${foes.length === 1 ? '' : 's'}</span></div>`;
+      <div class="end-meta"><span>${ICONS.clock}${formatTime(game.world.time)}</span><span>${ICONS.map}${game.setup.mapId ? esc(getMapDef(game.setup.mapId)?.name ?? '') + ' · ' : ''}${game.world.map.w}×${game.world.map.h}</span><span>${ICONS.target}${foes.length} opponent${foes.length === 1 ? '' : 's'}</span>${mapCodeForSetup(game.setup) ? `<span class="end-code">${ICONS.copy}<code>${mapCodeForSetup(game.setup)}</code></span>` : ''}</div>`;
     const body = h('div', 'end-body');
     // medal / rank
     const rank = h('div', 'end-rank panel', `<div class="er-medal">${medalSvg(rating.tier)}</div>
@@ -566,9 +887,19 @@ export class Menus {
     watch.onclick = () => { this.hide(); this.cb.resume(); };
     const quit = h('button', 'btn', `${ICONS.exit}<span>Main menu</span>`);
     quit.onclick = () => { this.hide(); this.cb.quit(); };
-    btns.append(again, watch, quit);
+    btns.append(again, watch);
+    const rec = game.recorder;
+    if (rec) {
+      // the whole match from the start, from any player's view
+      const rb = h('button', 'btn', `${ICONS.replay}<span>Watch replay</span>`);
+      rb.onclick = () => { const data = rec.toData(); this.hide(); this.cb.start(playbackSetup(data, this.settings.quality)); };
+      btns.appendChild(rb);
+    }
+    btns.appendChild(quit);
     wrap.appendChild(btns);
     s.appendChild(wrap);
+    const codeEl = wrap.querySelector('.end-code') as HTMLElement | null;
+    if (codeEl) { codeEl.title = 'Copy the map code'; codeEl.onclick = () => { copyText(codeEl.textContent ?? ''); this.flashTip(codeEl, 'Copied'); }; }
     setTimeout(() => countUp(wrap, 1300, 60), 900);
   }
 }

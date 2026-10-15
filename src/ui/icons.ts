@@ -143,6 +143,31 @@ export const ICONS = {
   motion: svg('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
   user: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
   flag: svg('<path d="M5 21V3.5"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>'),
+  // naval sidebar tab
+  naval: svg('<path d="M2.5 14.5h19l-2.6 4.6H5.1z"/><path d="M6.5 14.5v-3.2h8.5v3.2"/><path d="M9.5 11.3V7.8h3.4v3.5"/><path d="M11.2 7.8V4.5M15 11.3l3.5-2"/><path d="M2 22c1.6 0 1.6-1 3.3-1s1.6 1 3.3 1 1.6-1 3.3-1 1.7 1 3.3 1 1.7-1 3.3-1 1.6 1 2.5 1" opacity=".7"/>'),
+  // support powers
+  gps: svg('<path d="M2.8 7.6L7.6 2.8l3.4 3.4-4.8 4.8z"/><path d="M13 17.8l4.8-4.8 3.4 3.4-4.8 4.8z"/><path d="M8.6 8.6l6.8 6.8"/><circle cx="12" cy="12" r="2.4"/><path d="M15.2 4.4a5 5 0 0 1 4.4 4.4M15 1.6a8 8 0 0 1 7.4 7.4"/>'),
+  sonar: svg('<circle cx="12" cy="12" r="1.7"/><path d="M8.4 8.4a5.1 5.1 0 0 0 0 7.2M15.6 8.4a5.1 5.1 0 0 1 0 7.2"/><path d="M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>'),
+  spyplane: svg('<path d="M12 3c.8 0 1.2 1.2 1.2 2.4V9l7.8 4.5v1.8l-7.8-2.3v4.3l2.3 1.7v1.4L12 19.6l-3.5.8V19l2.3-1.7V13l-7.8 2.3v-1.8L10.8 9V5.4C10.8 4.2 11.2 3 12 3z"/><path d="M2 21.5l3-3M22 21.5l-3-3" opacity=".6"/>'),
+  paratroopers: svg('<path d="M3 10a9 7 0 0 1 18 0"/><path d="M3 10c1.5-1.3 3-1.3 4.5 0 1.5-1.3 3-1.3 4.5 0 1.5-1.3 3-1.3 4.5 0 1.5-1.3 3-1.3 4.5 0"/><path d="M3.2 10.4l7.6 6.6M20.8 10.4l-7.6 6.6M12 10v7"/><circle cx="12" cy="18.6" r="1.5"/><path d="M12 20.1V22"/>'),
+  parabombs: svg('<path d="M4 8.5a8 5.5 0 0 1 16 0"/><path d="M4.2 8.8l6.3 5M19.8 8.8l-6.3 5"/><path d="M12 12.6c1.6 0 2.6 1.9 2.6 4.3S13.6 22 12 22s-2.6-2.7-2.6-5.1 1-4.3 2.6-4.3z"/><path d="M12 12.6v-1.3M10.2 21l-1 1.3M13.8 21l1 1.3"/>'),
+  // unit stances
+  stanceAggressive: svg('<path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6M16 16l4 4M19 21l2-2"/><path d="M14.5 6.5L18 3h3v3l-3.5 3.5"/><path d="M5 14l4 4M7 17l-3 3M3 19l2 2"/>'),
+  stanceHold: svg('<circle cx="12" cy="5" r="2.6"/><path d="M12 7.6V22"/><path d="M5 12H2.5a9.5 9.5 0 0 0 19 0H19"/><path d="M8.5 11h7"/>'),
+  stancePassive: svg('<circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><path d="M5.5 5.5l13 13"/>'),
+  // replays
+  replay: svg('<path d="M3.2 12a8.8 8.8 0 1 0 2.6-6.2L3.2 8.4"/><path d="M3.2 3.4v5h5"/><path d="M10 8.6l5 3.4-5 3.4z"/>'),
+  pause: solid('<rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/>'),
+  skipBack: svg('<path d="M5.5 5v14"/><path d="M19 5.5l-10 6.5 10 6.5z"/>'),
+  rewind: svg('<path d="M11.5 6L4 12l7.5 6z"/><path d="M20.5 6L13 12l7.5 6z"/>'),
+  forward: svg('<path d="M12.5 6l7.5 6-7.5 6z"/><path d="M3.5 6l7.5 6-7.5 6z"/>'),
+  download: svg('<path d="M12 3.5v11.5"/><path d="M7 10.5l5 5 5-5"/><path d="M4 20.5h16"/>'),
+  upload: svg('<path d="M12 15.5V4"/><path d="M7 9l5-5 5 5"/><path d="M4 20.5h16"/>'),
+  copy: svg('<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"/>'),
+  follow: svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/><path d="M5 5l2 2M19 19l-2-2M19 5l-2 2M5 19l2-2" opacity=".55"/>'),
+  intel: svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v1.2M12 13.8V15M9 12h1.2M13.8 12H15"/>'),
+  mine: svg('<circle cx="12" cy="14" r="5.5"/><path d="M12 4.5v4M7 6.5l1.6 3M17 6.5l-1.6 3M4 20h16"/><circle cx="12" cy="14" r="1.6"/>'),
+  idle: svg('<path d="M4 6h6l-6 7h6"/><path d="M13 3h5l-5 5h5"/><path d="M14 14h5l-5 6h5"/>'),
 };
 
 export type IconName = keyof typeof ICONS;

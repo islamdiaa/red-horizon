@@ -1,6 +1,7 @@
 import { GameMap, T } from '../sim/map';
 import type { Player } from '../sim/player';
 import type { World } from '../sim/world';
+import { disguisedAs, sharedRadar } from '../sim/infiltration';
 
 const WINTER_RGB: Record<number, [number, number, number]> = {
   [T.Clear]: [196, 204, 214], [T.Water]: [150, 176, 196], [T.Rock]: [104, 108, 116], [T.Sand]: [160, 160, 162], [T.Dirt]: [128, 124, 122],
@@ -29,6 +30,9 @@ export class Minimap {
   private dragging = false;
   private vignette: CanvasGradient | null = null;
   pings: { x: number; y: number; t: number; color: string }[] = [];
+
+  /** Observer view (replays): radar always on, no fog. */
+  revealAll = false;
 
   /** Structures as the player knows them (fog ghosts included); defaults to live world state. */
   structures: (() => Iterable<{ cx: number; cy: number; w: number; h: number; color: number }>) | null = null;
@@ -60,7 +64,7 @@ export class Minimap {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('pointerdown', (ev) => {
       // without radar the scope shows static, but it still works as a camera jump pad (no orders)
-      if (!this.local.radar && this.world.fog && ev.button !== 0) return;
+      if (!this.revealAll && !this.local.radar && this.world.fog && ev.button !== 0) return;
       const [x, y] = toMap(ev);
       if (ev.button === 0) {
         this.dragging = true;
@@ -77,6 +81,8 @@ export class Minimap {
   }
 
   private buildBase(map: GameMap) {
+    const bridges = new Set<number>();
+    for (const br of map.bridges ?? []) for (const [x, y] of br.cells) bridges.add(map.idx(x, y));
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const i = map.idx(x, y);
@@ -91,6 +97,7 @@ export class Minimap {
           else if (map.climate === 'desert') { r = 92; g = 88; b = 50; }
           else { r = 30; g = 58; b = 28; }
         }
+        if (bridges.has(i)) { r = 150; g = 112; b = 70; }
         this.base[i * 3] = r * shade;
         this.base[i * 3 + 1] = g * shade;
         this.base[i * 3 + 2] = b * shade;
@@ -106,7 +113,7 @@ export class Minimap {
     const world = this.world;
     const map = world.map;
     const p = this.local;
-    const online = p.radar || !world.fog;
+    const online = this.revealAll || p.radar || !world.fog;
     const ctx = this.ctx;
     const W = this.canvas.width, H = this.canvas.height;
     if (online && !this.wasOnline) this.onlineT = 0;
@@ -131,7 +138,7 @@ export class Minimap {
 
     // terrain + ore + fog per cell
     const d = this.img.data;
-    const fogOn = world.fog;
+    const fogOn = world.fog && !this.revealAll;
     for (let i = 0, n = map.w * map.h; i < n; i++) {
       let r = this.base[i * 3], g = this.base[i * 3 + 1], b = this.base[i * 3 + 2];
       if (map.ore[i]) {
@@ -158,7 +165,7 @@ export class Minimap {
     ctx.fillStyle = this.vignette;
     ctx.fillRect(0, 0, W, H);
 
-    const structures = this.structures?.() ?? world.buildings.filter((b) => b.alive && (b.owner.team === p.team || !fogOn || p.explored[map.idx(b.cx, b.cy)]));
+    const structures = this.structures?.() ?? world.buildings.filter((b) => b.alive && !(b.bt.mine && b.owner.team !== p.team) && (b.owner.team === p.team || !fogOn || p.explored[map.idx(b.cx, b.cy)]));
     for (const b of structures) {
       const x = b.cx * sx, y = b.cy * sy, w = b.w * sx, h = b.h * sy;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -169,15 +176,21 @@ export class Minimap {
       ctx.lineWidth = 1.2;
       ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
     }
-    // units
+    // units (cloaked submarines / disguises: world.canSee is the single visibility rule once it exists)
+    const canSee = (world as unknown as { canSee?: (v: Player, e: unknown) => boolean }).canSee;
+    const sees = (v: Player, u: { x: number; y: number }) => (canSee ? canSee.call(world, v, u) : world.isVisible(v, u.x, u.y));
+    // a spy in an enemy radar dome shares that player's radar picture (player.intel.radar)
+    const shared = sharedRadar(world, p);
     for (const u of world.units) {
       if (!u.alive) continue;
-      if (u.owner.team !== p.team && fogOn && !world.isVisible(p, u.x, u.y)) continue;
+      if (u.owner.team !== p.team && fogOn && !sees(p, u) && !shared.some((o) => o === u.owner || sees(o, u))) continue;
       const s = u.kind === 'infantry' ? 4 : u.kind === 'aircraft' ? 7 : 6;
       const x = u.x * sx - s / 2, y = u.y * sy - s / 2;
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(x - 1, y - 1, s + 2, s + 2);
-      ctx.fillStyle = u.owner === p ? lighten(u.owner.color) : hex(u.owner.color);
+      // a disguised enemy spy shows in the colours of the player it mimics
+      const shown = disguisedAs(world, u, p)?.owner ?? u.owner;
+      ctx.fillStyle = shown === p ? lighten(shown.color) : hex(shown.color);
       ctx.fillRect(x, y, s, s);
     }
     // camera view

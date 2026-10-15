@@ -1,10 +1,11 @@
-import { BAIL_COUNT, BUILDINGS, CONDITION_RED, CONDITION_YELLOW, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, type Category, type TypeDef } from '../data/rules';
+import { BAIL_COUNT, BUILDINGS, CATEGORIES, CONDITION_RED, CONDITION_YELLOW, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, type BuildingTypeDef, type Category, type TypeDef, type UnitTypeDef } from '../data/rules';
 import { formatTime } from '../core/util';
 import { Building, Unit, type Entity } from '../sim/entities';
 import { queueKindOf, type Player, type ProductionQueue } from '../sim/player';
 import { buildSeconds } from '../sim/production';
-import { superBuilding, superReady, type SuperKind } from '../sim/superweapons';
-import type { Command } from '../sim/types';
+import { SUPER_KINDS, SUPER_TARGET, superAvailable, superBuilding, superFull, superReady, type SuperKind } from '../sim/superweapons';
+import { apparentType, disguisedAs } from '../sim/infiltration';
+import type { Command, Stance } from '../sim/types';
 import type { World } from '../sim/world';
 import type { AudioSystem } from '../audio';
 import { Minimap } from './minimap';
@@ -43,27 +44,85 @@ export interface HudHost {
    * i.e. also centre the camera). Without it the HUD falls back to select() + focusOn().
    */
   selectGroup?(g: number, jump: boolean): void;
+  /** Read-only spectator HUD (replays): no build, power or unit orders; `local` is the viewed player. */
+  spectator?: boolean;
 }
 
-const TABS: { cat: Category; icon: string; title: string }[] = [
-  { cat: 'building', icon: ICONS.building, title: 'Structures' },
-  { cat: 'defense', icon: ICONS.defense, title: 'Defenses' },
-  { cat: 'infantry', icon: ICONS.infantry, title: 'Infantry' },
-  { cat: 'vehicle', icon: ICONS.vehicle, title: 'Vehicles' },
-  { cat: 'aircraft', icon: ICONS.aircraft, title: 'Aircraft' },
-];
+/**
+ * Sidebar tabs, data-driven from CATEGORIES (sidebar order). Conditional categories (naval, and any
+ * category added later without an entry here) only get a tab once the player can build them or owns
+ * a structure that produces them.
+ */
+const CAT_META: Partial<Record<Category, { icon: string; title: string; conditional?: boolean }>> = {
+  building: { icon: ICONS.building, title: 'Structures' },
+  defense: { icon: ICONS.defense, title: 'Defenses' },
+  infantry: { icon: ICONS.infantry, title: 'Infantry' },
+  vehicle: { icon: ICONS.vehicle, title: 'Vehicles' },
+  aircraft: { icon: ICONS.aircraft, title: 'Aircraft' },
+  naval: { icon: ICONS.naval, title: 'Naval', conditional: true },
+};
+const TABS: { cat: Category; icon: string; title: string; conditional: boolean }[] = CATEGORIES.map((cat) => {
+  const m = CAT_META[cat];
+  return { cat, icon: m?.icon ?? ICONS.building, title: m?.title ?? cat.charAt(0).toUpperCase() + cat.slice(1), conditional: m ? !!m.conditional : true };
+});
 const CAT_ICON: Record<Category, string> = Object.fromEntries(TABS.map((t) => [t.cat, t.icon])) as Record<Category, string>;
 
+/** Superweapons and support powers, in SUPER_KINDS order. Aiming follows SUPER_TARGET. */
 const SUPER_INFO: Record<SuperKind, { icon: string; name: string; desc: string }> = {
   nuke: { icon: ICONS.nuke, name: 'A-Bomb', desc: 'Launch a nuclear missile at any target on the map.' },
   ironcurtain: { icon: ICONS.ironCurtain, name: 'Iron Curtain', desc: 'Make a group of your units invulnerable for a short time.' },
   chrono: { icon: ICONS.chrono, name: 'Chronoshift', desc: 'Teleport one of your vehicles anywhere on the battlefield.' },
-  gps: { icon: ICONS.radar ?? ICONS.target, name: 'GPS Satellite', desc: 'Launch a satellite that reveals the entire map.' },
-  sonar: { icon: ICONS.radar ?? ICONS.target, name: 'Sonar Pulse', desc: 'Reveal every enemy submarine for a short time.' },
-  spyplane: { icon: ICONS.aircraft, name: 'Spy Plane', desc: 'Fly a reconnaissance plane over any part of the map.' },
-  paratroopers: { icon: ICONS.infantry, name: 'Paratroopers', desc: 'Drop a squad of infantry anywhere you can see.' },
-  parabombs: { icon: ICONS.nuke, name: 'Parabombs', desc: 'A bomber carpet-bombs the target area.' },
+  gps: { icon: ICONS.gps, name: 'GPS Satellite', desc: 'Launch a satellite that permanently reveals the entire map. One use.' },
+  sonar: { icon: ICONS.sonar, name: 'Sonar Pulse', desc: 'Reveal every enemy submarine on the map for a short time.' },
+  spyplane: { icon: ICONS.spyplane, name: 'Spy Plane', desc: 'A reconnaissance plane photographs the area around the target.' },
+  paratroopers: { icon: ICONS.paratroopers, name: 'Paratroopers', desc: 'A Badger drops a squad of riflemen at the target.' },
+  parabombs: { icon: ICONS.parabombs, name: 'Parabombs', desc: 'Badger bombers carpet-bomb the target area.' },
 };
+
+/** The player owns a structure that produces this category (shipyard → naval). */
+function ownsProducer(p: Player, cat: Category): boolean {
+  for (const b of Object.values(BUILDINGS)) if ((b.factory as string | undefined) === cat && p.has(b.id)) return true;
+  return false;
+}
+/** Powers the HUD lists (structure standing, or granted like a stolen sonar pulse) and their charge time. */
+const powerAvailable = superAvailable;
+const powerFull = superFull;
+
+export const STANCES: { id: Stance; key: string; icon: string; title: string; desc: string }[] = [
+  { id: 'aggressive', key: 'F1', icon: ICONS.stanceAggressive, title: 'Aggressive', desc: 'Engage anything in sight and chase it down.' },
+  { id: 'guard', key: 'F2', icon: ICONS.guard, title: 'Guard', desc: 'Engage nearby enemies, then return to position (default).' },
+  { id: 'hold', key: 'F3', icon: ICONS.stanceHold, title: 'Hold position', desc: 'Fire at enemies in range but never move to chase.' },
+  { id: 'passive', key: 'F4', icon: ICONS.stancePassive, title: 'Hold fire', desc: 'Never open fire on its own (stealthy scouts, spies).' },
+];
+
+/**
+ * Spy intel on another player (player.intel, filled when a spy infiltrates a structure). Reads the
+ * sim's `{ radar: id[], power: id[], credits: id[], production: id[] }`, and tolerates simpler shapes
+ * (a set / array of player ids, or a per-id record) so the HUD never depends on the exact layout.
+ */
+export interface IntelView { credits: boolean; power: boolean; radar: boolean; production: boolean }
+export function intelOn(viewer: Player, other: Player): IntelView | null {
+  const intel = (viewer as { intel?: unknown }).intel;
+  if (!intel) return null;
+  const all: IntelView = { credits: true, power: true, radar: true, production: true };
+  if (intel instanceof Set) return intel.has(other.id) ? all : null;
+  if (intel instanceof Map) return intel.get(other.id) ? all : null;
+  if (Array.isArray(intel)) return intel.includes(other.id) ? all : null;
+  if (typeof intel !== 'object') return null;
+  const o = intel as Record<string, unknown>;
+  if (['credits', 'power', 'radar', 'production'].some((k) => Array.isArray(o[k]))) {
+    const has = (k: string) => Array.isArray(o[k]) && (o[k] as unknown[]).includes(other.id);
+    const v: IntelView = { credits: has('credits'), power: has('power'), radar: has('radar'), production: has('production') };
+    return v.credits || v.power || v.radar || v.production ? v : null;
+  }
+  const v = o[other.id];
+  if (!v) return null;
+  if (typeof v === 'object') {
+    const f = v as Partial<IntelView>;
+    return { credits: !!f.credits, power: !!f.power, radar: !!f.radar, production: !!f.production };
+  }
+  return all;
+}
 
 const SHORT_NAMES: Record<string, string> = {
   'Advanced Power Plant': 'Adv. Power',
@@ -123,6 +182,9 @@ export class Hud {
   private clock: HTMLElement;
   private fpsEl: HTMLElement;
   private objEl: HTMLElement;
+  private intelEl: HTMLElement;
+  private intelKey = '';
+  private tabsKey = '';
   private speedBtns: HTMLButtonElement[] = [];
   private sellBtn: HTMLButtonElement;
   private repairBtn: HTMLButtonElement;
@@ -151,6 +213,7 @@ export class Hud {
     const ui = document.getElementById('ui')!;
     this.root = ui;
     ui.innerHTML = '';
+    ui.classList.toggle('spectator', !!host.spectator);
     applyUiSettings();
     this.sound = new UiSound(host.audio);
     this.tip = new Tooltip();
@@ -170,8 +233,8 @@ export class Hud {
     this.repairBtn.dataset.tip = tipHtml('Repair mode', 'Click damaged structures to repair them. Costs credits.', [['R', 'Toggle']]);
     this.sellBtn = el('button', 'mode-btn', ICONS.sell);
     this.sellBtn.dataset.tip = tipHtml('Sell mode', 'Click a structure to sell it for a partial refund.', [['Z', 'Toggle']]);
-    this.repairBtn.onclick = () => { this.sound.play('click'); host.setMode(host.getMode() === 'repair' ? 'normal' : 'repair'); };
-    this.sellBtn.onclick = () => { this.sound.play('click'); host.setMode(host.getMode() === 'sell' ? 'normal' : 'sell'); };
+    this.repairBtn.onclick = () => { if (host.spectator) return; this.sound.play('click'); host.setMode(host.getMode() === 'repair' ? 'normal' : 'repair'); };
+    this.sellBtn.onclick = () => { if (host.spectator) return; this.sound.play('click'); host.setMode(host.getMode() === 'sell' ? 'normal' : 'sell'); };
     head.append(this.creditsBox, this.repairBtn, this.sellBtn);
     sb.appendChild(head);
 
@@ -237,7 +300,8 @@ export class Hud {
       speed.appendChild(b);
     }
     this.objEl = el('div', 'tb-chip tb-obj', `<span class="obj-ic">${ICONS.target}</span><span class="obj-txt"><small>Objective</small><b>Destroy all enemy forces</b></span><span class="obj-pips"></span>`);
-    tb.append(menuBtn, this.clock, speed, this.objEl);
+    this.intelEl = el('div', 'tb-chip tb-intel');
+    tb.append(menuBtn, this.clock, speed, this.objEl, this.intelEl);
     ui.appendChild(tb);
     this.tip.bind(tb, 'bottom');
     this.sound.bind(tb, 'button');
@@ -305,7 +369,7 @@ export class Hud {
     }
     (this.clock.lastElementChild as HTMLElement).textContent = formatTime(w.time);
     this.updatePower(p);
-    const online = p.radar || !w.fog;
+    const online = p.radar || !w.fog || this.minimap.revealAll;
     this.radar.classList.toggle('online', online);
     this.sellBtn.classList.toggle('active', this.host.getMode() === 'sell');
     this.repairBtn.classList.toggle('active', this.host.getMode() === 'repair');
@@ -318,6 +382,7 @@ export class Hud {
     this.updateSelection();
     this.updateGroups();
     this.updateObjective();
+    this.updateIntel();
   }
 
   // ---------------------------------------------------------------------------
@@ -428,6 +493,26 @@ export class Hud {
       if (first && first.cat !== this.activeTab) { this.activeTab = first.cat; this.gridKey = ''; }
     }
     if (avail.get(this.activeTab)?.length) this.tabUserChosen = false;
+
+    // conditional tabs (naval, …) appear once the category can be built or a producer is owned
+    const visible = TABS.filter((t) => !t.conditional || (avail.get(t.cat)?.length ?? 0) > 0 || ownsProducer(p, t.cat));
+    if (!visible.some((t) => t.cat === this.activeTab)) { this.activeTab = visible[0].cat; this.gridKey = ''; }
+    const vkey = visible.map((t) => t.cat).join(',');
+    if (vkey !== this.tabsKey) {
+      const grew = this.tabsKey && visible.length > this.tabsKey.split(',').length;
+      this.tabsKey = vkey;
+      for (const t of TABS) {
+        const b = this.tabEls.get(t.cat)!;
+        const show = visible.includes(t);
+        b.style.display = show ? '' : 'none';
+        if (show && grew && t.conditional) replay(b, 'pop', 650);
+      }
+      (this.tabInd.parentElement as HTMLElement).style.gridTemplateColumns = `repeat(${visible.length}, 1fr)`;
+      this.tabInd.style.width = `calc((100% - ${((visible.length - 1) * 0.3).toFixed(1)}rem) / ${visible.length})`;
+    }
+    const vi = Math.max(0, visible.findIndex((t) => t.cat === this.activeTab));
+    const tr = `translateX(calc(${vi * 100}% + ${(vi * 0.3).toFixed(1)}rem))`;
+    if (this.tabInd.style.transform !== tr) this.tabInd.style.transform = tr;
 
     TABS.forEach((t, i) => {
       const b = this.tabEls.get(t.cat)!;
@@ -611,6 +696,7 @@ export class Hud {
   }
 
   private clickItem(card: Card, shift: boolean) {
+    if (this.host.spectator) return;
     const id = card.id;
     const p = this.host.local;
     const t = getType(id);
@@ -644,7 +730,7 @@ export class Hud {
   }
 
   private rightClickItem(card: Card) {
-    if (card.locked) return;
+    if (card.locked || this.host.spectator) return;
     const id = card.id;
     const p = this.host.local;
     const t = getType(id);
@@ -665,39 +751,54 @@ export class Hud {
   // ---------------------------------------------------------------------------
   private updateSupers() {
     const w = this.host.world, p = this.host.local;
-    const kinds = (['nuke', 'ironcurtain', 'chrono'] as SuperKind[]).filter((k) => superBuilding(w, p, k));
+    const kinds = SUPER_KINDS.filter((k) => powerAvailable(w, p, k));
     const key = kinds.join(',');
     if (this.superKey !== key) {
       this.superKey = key;
       this.supers.innerHTML = '';
       this.supers.classList.toggle('on', kinds.length > 0);
+      this.supers.classList.toggle('compact', kinds.length > 2);
       for (const k of kinds) {
         const b = el('button', `super sw-${k}`, `<span class="sw-ring"><svg viewBox="0 0 100 100"><circle class="trk" cx="50" cy="50" r="44"/><circle class="arc" cx="50" cy="50" r="44" pathLength="100"/></svg><span class="sw-ic">${SUPER_INFO[k].icon}</span></span>
           <span class="sw-txt"><b>${SUPER_INFO[k].name}</b><small></small></span><span class="sw-shine"></span>`);
         b.dataset.kind = k;
-        b.onclick = () => {
-          if (superReady(w, p, k)) { this.sound.play('click'); this.host.beginSuperweapon(k); }
-          else { this.sound.play('error'); this.message(`${SUPER_INFO[k].name} not ready`, true); }
-        };
+        b.setAttribute('aria-label', SUPER_INFO[k].name);
+        b.onclick = () => this.activatePower(k);
         this.supers.appendChild(b);
       }
     }
     for (const b of this.supers.querySelectorAll<HTMLElement>('.super')) {
       const k = b.dataset.kind as SuperKind;
-      const bld = superBuilding(w, p, k);
-      const full = bld?.bt.superCharge ?? 300;
+      const full = powerFull(w, p, k);
       const frac = Math.min(1, p.superCharge[k] / full);
       (b.querySelector('.arc') as SVGElement).style.strokeDashoffset = String(100 - frac * 100);
-      const ready = frac >= 1;
+      const ready = superReady(w, p, k);
       const offline = !ready && p.lowPower;
       b.classList.toggle('ready', ready);
       b.classList.toggle('offline', offline);
-      const sub = ready ? 'Ready' : offline ? 'Offline' : `${Math.floor(frac * 100)}% · ${formatTime(Math.max(0, full - p.superCharge[k]))}`;
+      const compact = this.supers.classList.contains('compact');
+      const sub = ready ? 'Ready' : offline ? 'Offline' : compact ? formatTime(Math.max(0, full - p.superCharge[k])) : `${Math.floor(frac * 100)}% · ${formatTime(Math.max(0, full - p.superCharge[k]))}`;
       const small = b.querySelector('small')!;
       if (small.textContent !== sub) small.textContent = sub;
-      const tip = tipHtml(SUPER_INFO[k].name, SUPER_INFO[k].desc + (ready ? ' <span class="tt-ok">Ready — click, then choose a target.</span>' : offline ? ' <span class="tt-bad">Charging halted: low power.</span>' : ` Charging: ${Math.floor(frac * 100)}%.`));
+      const how = k === 'gps' ? 'launching' : SUPER_TARGET[k] === 'none' ? 'click to activate' : SUPER_TARGET[k] === 'unit-point' ? 'select a vehicle, click, then choose the destination' : 'click, then choose a target';
+      const tip = tipHtml(SUPER_INFO[k].name, SUPER_INFO[k].desc + (this.host.spectator ? '' : ready ? ` <span class="tt-ok">Ready — ${how}.</span>` : offline ? ' <span class="tt-bad">Charging halted: low power.</span>' : ` Charging: ${Math.floor(frac * 100)}%.`));
       if (b.dataset.tip !== tip) { b.dataset.tip = tip; this.tip.refresh(b, tip); }
     }
+  }
+
+  /** Superweapon / support power button: 'none' powers fire at once, the others enter targeting. */
+  private activatePower(k: SuperKind) {
+    const w = this.host.world, p = this.host.local;
+    if (this.host.spectator) return;
+    if (k === 'gps') { this.message('The GPS satellite launches by itself when it is ready'); return; }
+    if (!superReady(w, p, k)) { this.sound.play('error'); this.message(`${SUPER_INFO[k].name} not ready`, true); return; }
+    this.sound.play('click');
+    if (SUPER_TARGET[k] === 'none') {
+      // no aiming: the command still carries an on-map point (the power's structure, or the map centre)
+      const b = superBuilding(w, p, k);
+      this.host.issue({ c: 'superweapon', player: p.id, kind: k, x: b?.x ?? w.map.w / 2, y: b?.y ?? w.map.h / 2 });
+      this.message(`${SUPER_INFO[k].name} activated`);
+    } else this.host.beginSuperweapon(k);
   }
 
   // ---------------------------------------------------------------------------
@@ -724,21 +825,100 @@ export class Hud {
     }
     if (ents.length === 1) this.refreshSingle(ents[0]);
     else this.refreshMulti(ents);
+    this.refreshStances(ents);
+  }
+
+  /** Stance selector for own combat units (current stance highlighted; mixed selections show none). */
+  private stanceButtons(ents: (Unit | Building)[]): HTMLElement | null {
+    const units = ents.filter((e): e is Unit => e instanceof Unit && e.weapons.length > 0 && !e.ut.harvester);
+    if (!units.length) return null;
+    const box = el('div', 'stances');
+    box.appendChild(el('span', 'st-lbl', 'Stance'));
+    for (const st of STANCES) {
+      const b = el('button', 'stance', `${st.icon}<kbd>${st.key}</kbd>`);
+      b.dataset.stance = st.id;
+      b.dataset.tip = tipHtml(st.title, st.desc, [[st.key, 'hotkey']]);
+      b.setAttribute('aria-label', `Stance: ${st.title}`);
+      b.onclick = () => { this.sound.play('click'); this.setStance(st.id); };
+      box.appendChild(b);
+    }
+    return box;
+  }
+
+  /** Order the selected own units into a stance (also used by the F1–F4 hotkeys). */
+  setStance(stance: Stance) {
+    if (this.host.spectator) return;
+    const w = this.host.world, p = this.host.local;
+    const ids: number[] = [];
+    for (const id of this.host.selection) {
+      const e = w.getEntity(id);
+      if (e instanceof Unit && e.alive && e.owner === p && e.weapons.length) ids.push(id);
+    }
+    if (!ids.length) return;
+    this.host.issue({ c: 'stance', player: p.id, units: ids, stance });
+    const st = STANCES.find((s) => s.id === stance)!;
+    this.message(`Stance: ${st.title}`);
+  }
+
+  private refreshStances(ents: Entity[]) {
+    const box = this.selpanel.querySelector('.stances');
+    if (!box) return;
+    let cur: string | null = null;
+    for (const e of ents) {
+      if (!(e instanceof Unit) || !e.weapons.length || e.ut.harvester) continue;
+      const s = e.stance ?? 'guard';
+      if (cur === null) cur = s;
+      else if (cur !== s) { cur = 'mixed'; break; }
+    }
+    for (const b of box.querySelectorAll<HTMLElement>('.stance')) b.classList.toggle('on', b.dataset.stance === cur);
+  }
+
+  /** Enemy economy revealed by spies (player.intel): credits, power and production per infiltrated player. */
+  private updateIntel() {
+    const me = this.host.local, w = this.host.world;
+    const rows: string[] = [];
+    const tips: string[] = [];
+    let key = '';
+    for (const o of w.players) {
+      if (o === me || !me.isEnemy(o) || o.defeated) continue;
+      const it = intelOn(me, o);
+      if (!it) continue;
+      const making = it.production ? Object.values(o.queues).map((q) => q.items[0]?.type ?? q.ready).filter((t): t is string => !!t).map((t) => getType(t).name) : [];
+      key += `${o.id}:${it.credits ? o.credits : ''}:${it.power ? o.powerOut + '/' + o.powerUse : ''}:${it.radar ? 'r' : ''}:${making.join(',')}|`;
+      if (!it.credits && !it.power && !making.length && !it.radar) continue;
+      rows.push(`<span class="in-row" style="--c:${hexColor(o.color)}"><i></i><b>${esc(o.name)}</b>${it.credits ? `<span class="in-cr">$${o.credits.toLocaleString('en-US')}</span>` : ''}${it.power ? `<span class="in-pw${o.lowPower ? ' low' : ''}">${ICONS.bolt}${o.powerOut}/${o.powerUse}</span>` : ''}${it.radar ? `<span class="in-rd" title="Radar shared">${ICONS.radar}</span>` : ''}${making.length ? `<span class="in-mk">${ICONS.building}${making.length}</span>` : ''}</span>`);
+      const lines = [it.credits ? `Credits <b>$${o.credits.toLocaleString('en-US')}</b>` : '', it.power ? `Power <b>${o.powerOut}</b> / drain <b>${o.powerUse}</b>${o.lowPower ? ' <span class="tt-bad">low power</span>' : ''}` : '',
+        it.radar ? 'Radar view shared on your minimap' : '', making.length ? `Producing: <b>${making.map(esc).join('</b>, <b>')}</b>` : ''].filter(Boolean);
+      tips.push(`<span class="tt-foe" style="--c:${hexColor(o.color)}"><i></i>${esc(o.name)}</span><br>${lines.join('<br>')}`);
+    }
+    if (key === this.intelKey) return;
+    this.intelKey = key;
+    this.intelEl.classList.toggle('on', rows.length > 0);
+    this.intelEl.innerHTML = rows.length ? `<span class="in-ic">${ICONS.intel}</span><span class="in-rows">${rows.join('')}</span>` : '';
+    const tip = tipHtml('Spy intel', tips.join('<br>') || 'Infiltrate enemy structures with spies.');
+    this.intelEl.dataset.tip = tip;
+    this.tip.refresh(this.intelEl, tip);
   }
 
   private buildSelection(ents: Entity[], wasOpen: boolean) {
     const first = ents[0];
     const local = this.host.local;
     const own = first.owner === local;
+    const look = this.appear(first);
     const sp = this.selpanel;
     sp.innerHTML = '';
     this.extraHtml = '';
-    sp.className = 'panel on ' + (ents.length === 1 ? 'single' : 'multi') + (own ? '' : local.isEnemy(first.owner) ? ' enemy' : ' ally');
-    sp.style.setProperty('--team', hexColor(first.owner.color));
+    sp.className = 'panel on ' + (ents.length === 1 ? 'single' : 'multi') + (own ? '' : look.owner === local ? '' : local.isEnemy(look.owner) ? ' enemy' : ' ally');
+    sp.style.setProperty('--team', hexColor(look.owner.color));
     this.dock.classList.add('has-sel');
     if (ents.length === 1) sp.append(...this.singleView(first));
     else sp.append(this.multiView(ents));
-    if (own) sp.appendChild(this.commandButtons(ents.filter((e): e is Unit | Building => e instanceof Unit || e instanceof Building)));
+    if (own && !this.host.spectator) {
+      const cmdEnts = ents.filter((e): e is Unit | Building => e instanceof Unit || e instanceof Building);
+      sp.appendChild(this.commandButtons(cmdEnts));
+      const st = this.stanceButtons(cmdEnts);
+      if (st) sp.appendChild(st);
+    }
     replay(sp, wasOpen ? 'swap' : 'pop', 500);
   }
 
@@ -746,33 +926,52 @@ export class Hud {
     return `<span class="chip"${tip ? ` data-tip="${esc(tip)}"` : ''}><span class="chip-ic">${icon}</span><span class="chip-v"${k ? ` data-k="${k}"` : ''}>${value}</span>${sub ? `<span class="chip-s">${sub}</span>` : ''}</span>`;
   }
 
+  /**
+   * What the local player sees: decoy structures pass for the real thing and disguised spies for a
+   * rifleman of another player, unless the viewer is in on it (sim apparentType / disguisedAs).
+   */
+  private appear(e: Entity): { type: TypeDef; owner: Player; masked: boolean } {
+    const me = this.host.local;
+    if (e instanceof Building) {
+      const t = apparentType(e, me);
+      return { type: t, owner: e.owner, masked: t !== e.bt };
+    }
+    if (e instanceof Unit) {
+      const d = disguisedAs(this.host.world, e, me);
+      if (d) return { type: getType(d.type), owner: d.owner, masked: true };
+    }
+    return { type: e.type, owner: e.owner, masked: false };
+  }
+
   private singleView(e: Entity): HTMLElement[] {
-    const t = e.type;
+    const look = this.appear(e);
+    const t = look.type;
     const img = this.host.thumbs.get(t.id);
-    const own = e.owner === this.host.local;
+    const own = look.owner === this.host.local;
     const por = el('div', 'sp-portrait', `<div class="sp-img">${img ? `<img src="${img}" alt="" draggable="false">` : `<span class="sp-fallback">${CAT_ICON[t.category]}</span>`}</div>
       <span class="sp-rank" data-k="rank"></span><span class="sp-teamstrip"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i>`);
     const chips: string[] = [];
     chips.push(this.chip(ICONS.shield, cap(t.armor), '', tipHtml('Armour', `Armour class <b>${cap(t.armor)}</b> — determines how much damage each warhead deals.`)));
     if (e instanceof Unit) {
-      const ut = e.ut;
+      const ut = look.masked ? (t as UnitTypeDef) : e.ut;
       const wps = [ut.primary, ut.secondary !== ut.primary ? ut.secondary : undefined].filter(Boolean) as string[];
       for (const wid of wps) {
         const wd = WEAPONS[wid];
         chips.push(this.chip(ICONS.target, esc(wd.id), `R${+wd.range.toFixed(2)}`, tipHtml(`Weapon: ${esc(wd.id)}`, `Damage <b>${Math.abs(wd.damage)}</b>${wd.burst > 1 ? ` ×${wd.burst}` : ''} · range <b>${+wd.range.toFixed(2)}</b> cells${wd.antiAir ? ' · anti-air' : ''}${!wd.antiGround ? ' (air only)' : ''}`)));
       }
-      chips.push(this.chip(ICONS.gauge, mphToCellsPerSecond(e.ut.speed).toFixed(1), 'c/s', tipHtml('Speed', 'Cells per second.')));
+      chips.push(this.chip(ICONS.gauge, mphToCellsPerSecond(ut.speed).toFixed(1), 'c/s', tipHtml('Speed', 'Cells per second.')));
     } else if (e instanceof Building) {
-      const pw = e.bt.power;
+      const bt = t as BuildingTypeDef;
+      const pw = bt.power;
       if (pw) chips.push(`<span class="chip ${pw > 0 ? 'pos' : 'neg'}" data-tip="${esc(tipHtml('Power', pw > 0 ? 'Produces power (less when damaged).' : 'Consumes power.'))}"><span class="chip-ic">${ICONS.bolt}</span><span class="chip-v">${pw > 0 ? '+' : ''}${pw}</span></span>`);
-      if (e.bt.primary) {
-        const wd = WEAPONS[e.bt.primary];
+      if (bt.primary) {
+        const wd = WEAPONS[bt.primary];
         chips.push(this.chip(ICONS.target, esc(wd.id), `R${+wd.range.toFixed(2)}`, tipHtml(`Weapon: ${esc(wd.id)}`, `Damage <b>${Math.abs(wd.damage)}</b> · range <b>${+wd.range.toFixed(2)}</b> cells`)));
       }
-      if (e.bt.storage) chips.push(this.chip(ICONS.coin, `$${e.bt.storage.toLocaleString('en-US')}`, 'store', tipHtml('Ore storage')));
+      if (bt.storage) chips.push(this.chip(ICONS.coin, `$${bt.storage.toLocaleString('en-US')}`, 'store', tipHtml('Ore storage')));
     }
-    if (e.weapons.length) chips.push(this.chip(ICONS.kills, '0', 'kills', tipHtml('Confirmed kills'), 'kills'));
-    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name">${esc(t.name)}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(e.owner.name)}</span>`}</div>
+    if (e.weapons.length || look.masked) chips.push(this.chip(ICONS.kills, '0', 'kills', tipHtml('Confirmed kills'), 'kills'));
+    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name">${esc(t.name)}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(look.owner.name)}</span>`}</div>
       <div class="sp-hp"><div class="hp-bar"><i class="hp-trail"></i><i class="hp-fill"></i><i class="hp-segs"></i></div><span class="hp-num" data-k="hp"></span></div>
       <div class="sp-chips">${chips.join('')}</div>
       <div class="sp-extra" data-k="extra"></div>`);
@@ -793,7 +992,9 @@ export class Hud {
       const bar = sp.querySelector('.hp-bar') as HTMLElement;
       bar.dataset.c = f > CONDITION_YELLOW ? 'ok' : f > CONDITION_RED ? 'mid' : 'low';
       const hp = sp.querySelector('[data-k="hp"]') as HTMLElement;
-      const txt = `<b>${Math.ceil(e.hp)}</b> / ${e.maxHp}`;
+      const look = this.appear(e);
+      const max = look.masked ? (look.type as { strength?: number }).strength ?? e.maxHp : e.maxHp;
+      const txt = `<b>${look.masked ? Math.ceil(f * max) : Math.ceil(e.hp)}</b> / ${max}`;
       if (hp.innerHTML !== txt) hp.innerHTML = txt;
     }
     const rk = sp.querySelector('[data-k="rank"]') as HTMLElement | null;
@@ -803,6 +1004,8 @@ export class Hud {
     // tag
     let tag = '', tagCls = '';
     if (e.invulnerable > 0) { tag = 'Invulnerable'; tagCls = 'inv'; }
+    else if (e instanceof Unit && e.submerged) { tag = 'Submerged'; tagCls = 'acc'; }
+    else if (e instanceof Unit && e.parachute > 0) { tag = 'Parachuting'; tagCls = 'acc'; }
     else if (e instanceof Building && e.repairing) { tag = 'Repairing'; tagCls = 'ok'; }
     else if (e instanceof Building && e.bt.requiresPower && e.owner.lowPower) { tag = 'Offline'; tagCls = 'bad'; }
     else if (e instanceof Building && e.primary) { tag = 'Primary'; tagCls = 'acc'; }
@@ -847,9 +1050,9 @@ export class Hud {
     }
     if (e instanceof Building) {
       const bt = e.bt;
-      if (bt.superweapon && own) {
-        const k = bt.superweapon;
-        const full = bt.superCharge ?? 300;
+      const k = bt.superweapon ?? ((bt as { powers?: SuperKind[] }).powers ?? []).find((pk) => superBuilding(this.host.world, p, pk) === e);
+      if (k && own) {
+        const full = powerFull(this.host.world, p, k);
         const frac = Math.min(1, p.superCharge[k] / full);
         return this.xbar(SUPER_INFO[k].icon, 'Charge', frac, frac >= 1 ? 'Ready' : p.lowPower ? 'Offline' : formatTime(full - p.superCharge[k]), frac >= 1 ? 'ready' : '');
       }
@@ -873,9 +1076,10 @@ export class Hud {
   private multiView(ents: Entity[]): HTMLElement {
     const groups = new Map<string, Entity[]>();
     for (const e of ents) {
-      const l = groups.get(e.type.id) ?? [];
+      const tid = this.appear(e).type.id;
+      const l = groups.get(tid) ?? [];
       l.push(e);
-      groups.set(e.type.id, l);
+      groups.set(tid, l);
     }
     const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || b[1][0].type.cost - a[1][0].type.cost);
     const box = el('div', 'sp-multi');
@@ -905,9 +1109,10 @@ export class Hud {
     const byType = new Map<string, Entity[]>();
     let hp = 0, max = 0;
     for (const e of ents) {
-      const l = byType.get(e.type.id) ?? [];
+      const tid = this.appear(e).type.id;
+      const l = byType.get(tid) ?? [];
       l.push(e);
-      byType.set(e.type.id, l);
+      byType.set(tid, l);
       hp += Math.max(0, e.hp); max += e.maxHp;
     }
     const tot = this.selpanel.querySelector('.spm-hp i') as HTMLElement | null;
@@ -942,6 +1147,7 @@ export class Hud {
       else if (units.some((u) => u.ut.passengers)) add(ICONS.unload, 'D', 'Unload', 'Unload all passengers.');
       else if (units.some((u) => u.kind === 'aircraft')) add(ICONS.home, 'D', 'Return to base', 'Fly back to a pad to rearm.');
       add(ICONS.groundFire, 'G', 'Fire at ground', 'Force-fire at a location (click the target after).');
+      if (units.some((u) => u.ut.minelayer)) add(ICONS.mine, 'M', 'Lay mines', 'Click the ground to lay a minefield there (Ctrl + right click does the same). D drops a single mine.', 'hl');
     }
     if (blds.length === 1) {
       add(ICONS.sell, 'Z', 'Sell', 'Sell this structure for a partial refund.', 'warn');
