@@ -282,7 +282,9 @@ export class MissionRuntime {
       const x = cx + dx, y = cy + dy;
       if (!m.inBounds(x, y)) return null;
       const i = m.idx(x, y);
-      if (m.occupant[i] || m.terrain[i] === 1 || m.terrain[i] === 2) return null;
+      // shipyards / sub pens stand on water, everything else on dry, open ground
+      const wet = m.terrain[i] === 1;
+      if (m.occupant[i] || (bt.water ? !wet : wet || m.terrain[i] === 2)) return null;
       m.removeTree(i);
       if (m.ore[i]) m.setOre(i, 0);
     }
