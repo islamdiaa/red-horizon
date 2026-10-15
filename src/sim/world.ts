@@ -587,6 +587,14 @@ export class World {
         b.rallyY = cmd.y;
         break;
       }
+      case 'stance': {
+        // behaviour per stance lives in unit logic; the command just records it
+        for (const id of cmd.units) {
+          const u = this.entities.get(id);
+          if (u instanceof Unit && u.owner === p && u.alive) u.stance = cmd.stance;
+        }
+        break;
+      }
       case 'primary': {
         const b = this.entities.get(cmd.building);
         if (!(b instanceof Building) || b.owner !== p || !b.bt.factory) return;

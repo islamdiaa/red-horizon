@@ -36,7 +36,11 @@ export type Command =
   | { c: 'repair'; player: number; building: number }
   | { c: 'rally'; player: number; building: number; x: number; y: number }
   | { c: 'primary'; player: number; building: number }
-  | { c: 'superweapon'; player: number; kind: SuperKind; x: number; y: number; unit?: number };
+  | { c: 'superweapon'; player: number; kind: SuperKind; x: number; y: number; unit?: number }
+  | { c: 'stance'; player: number; units: number[]; stance: Stance };
+
+/** How a unit picks fights: chase anything seen / engage in range and return (default) / never move / never fire unprompted. */
+export type Stance = 'aggressive' | 'guard' | 'hold' | 'passive';
 
 /** Events emitted by the simulation for renderer / audio / UI. Drained every frame. */
 export type GameEvent =

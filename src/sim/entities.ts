@@ -2,6 +2,7 @@ import { BUILDINGS, UNITS, WEAPONS, type BuildingTypeDef, type TypeDef, type Uni
 import type { PathPoint } from './pathfinding';
 import type { Player } from './player';
 import type { Order } from './types';
+import type { Stance } from './types';
 
 export class WeaponSlot {
   cooldown = 0;     // seconds until ready
@@ -94,6 +95,8 @@ export class Unit extends Entity {
   speedCap = 0;
   /** Building id the unit is currently driving out of (ignored for collision). */
   exitBuilding = 0;
+  /** Engagement behaviour (see Stance). */
+  stance: Stance = 'guard';
   /** Where an idle unit returns after chasing a target. */
   guardX: number;
   guardY: number;
