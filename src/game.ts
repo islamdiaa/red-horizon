@@ -28,7 +28,7 @@ import type { AudioSystem } from './audio';
 import type { SfxKey } from './audio/types';
 import type { SuperKind } from './sim/superweapons';
 import { setupScenario } from './debug';
-import { playIntro } from './cinematic';
+import { playIntro, nukeCinematic, nukeWarning, endingCinematic } from './cinematic';
 import { getMission } from './missions';
 import { MissionRuntime, type MissionDef } from './sim/mission';
 import { recordResult } from './missions/progress';
@@ -96,6 +96,9 @@ export class Game {
   reticle: TargetReticle;
   private wxSeq: WeatherStep[] | null = null;
   private autosaveT = 120;
+  private nukeWarn: { update(s: number): void; remove(): void } | null = null;
+  private nukeWatched = new Set<number>();
+  private endCine: (() => void) | null = null;
   private ambT = 0;
   private envT = 0;
   private offHeat = 0;
@@ -460,6 +463,19 @@ export class Game {
     this.effects.shake = Math.max(0, this.effects.shake - dt * 2.5) * Math.pow(0.02, dt);
     this.gfx.cam.shakeOffset.set((Math.random() - 0.5) * shake * 0.5, (Math.random() - 0.5) * shake * 0.3, (Math.random() - 0.5) * shake * 0.5);
 
+    // incoming enemy nukes: warning banner + marked blast zone
+    if (!this.setup.demo) {
+      const incoming = world.projectiles.find((p) => p.special === 'nuke' && p.alive && p.owner !== this.local);
+      if (incoming) {
+        if (!this.nukeWarn) this.nukeWarn = nukeWarning();
+        this.nukeWarn.update((1 - incoming.t) * incoming.dur);
+        if (this.input?.mode !== 'super') this.reticle.show(incoming.tx, incoming.ty, 4.5, 0xff2010, this.time);
+      } else if (this.nukeWarn) {
+        this.nukeWarn.remove();
+        this.nukeWarn = null;
+        this.reticle.hide();
+      }
+    }
     this.gfx.render(dt, this.time);
     if (!this.setup.demo && !this.paused) this.gfx.adaptResolution(dt * 1000);
     if (this.overlay) this.overlay.draw(this.gfx.cam.camera, world, this.ents, this.local, this.selection, this.input?.hovered ?? 0, this.alpha, fdt);
@@ -496,7 +512,11 @@ export class Game {
 
     if (this.endTimer > 0) {
       this.endTimer -= dt;
-      if (this.endTimer <= 0) this.cb.onEnd(this, world.winnerTeam === this.local.team);
+      if (this.endTimer <= 0) {
+        this.endCine?.();
+        this.endCine = null;
+        this.cb.onEnd(this, world.winnerTeam === this.local.team);
+      }
     }
   }
 
@@ -582,9 +602,17 @@ export class Game {
           }
           break;
         }
-        case 'nuke':
+        case 'nuke': {
           this.audio.play('nuke_launch');
+          const proj = world.projectiles.find((p) => p.special === 'nuke' && p.alive && !this.nukeWatched.has(p.id));
+          if (proj && !demo) {
+            this.nukeWatched.add(proj.id);
+            if (proj.owner === this.local) {
+              nukeCinematic(this, { x: proj.sx, y: proj.sy }, { x: proj.tx, y: proj.ty }, proj.dur, () => proj.alive);
+            }
+          }
           break;
+        }
         case 'captured': {
           const b = world.getEntity(ev.id);
           if (b instanceof Building && fog.visibilityAt(b.x, b.y) > 0.2) {
@@ -633,7 +661,9 @@ export class Game {
             if (world.mission) this.recordMission(world.mission);
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
             this.audio.stinger(won ? 'victory' : 'defeat');
-            this.endTimer = 4;
+            this.endTimer = 4.5;
+            const sub = this.missionDef ? `Operation ${this.missionDef.codename}` : won ? 'All enemy forces destroyed' : 'Your forces have been overrun';
+            this.endCine = endingCinematic(won, sub);
             // slow-motion sweep to the final explosion
             this.speed = 0.35;
             if (this.lastDeath) this.gfx.cam.flyToPoint(this.lastDeath[0], this.lastDeath[1]);
@@ -775,6 +805,8 @@ export class Game {
     cancelAnimationFrame(this.raf);
     this.input?.dispose();
     this.missionHud?.dispose();
+    this.nukeWarn?.remove();
+    this.endCine?.();
     this.ents.dispose();
     this.effects.dispose?.();
     this.gfx.dispose();

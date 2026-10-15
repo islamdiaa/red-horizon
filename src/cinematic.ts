@@ -143,3 +143,125 @@ export function playIntro(game: Game, onDone: () => void) {
     timers.push(window.setTimeout(finish, 1800));
   })();
 }
+
+const NUKE_CSS = `
+.nuke-warn { position: fixed; top: 22vh; left: 50%; transform: translateX(calc(-50% - var(--sidebar-w, 312px) / 2)); z-index: 30; pointer-events: none; text-align: center;
+  font-family: var(--font, sans-serif); color: #fff; animation: nwIn .3s ease-out; }
+.nuke-warn .t1 { font-size: clamp(16px, 1.6vw, 22px); letter-spacing: .5em; color: #ffb0a0; }
+.nuke-warn .t2 { font-size: clamp(24px, 2.8vw, 44px); font-weight: 800; letter-spacing: .1em; white-space: nowrap; color: #ff4a3a; text-shadow: 0 0 30px rgba(255,60,40,.8); animation: nwBlink .6s steps(2) infinite; }
+.nuke-warn .t3 { font-family: var(--mono, monospace); font-size: 22px; margin-top: 6px; letter-spacing: .2em; }
+@keyframes nwIn { from { opacity: 0; transform: translateX(calc(-50% - var(--sidebar-w, 312px) / 2)) scale(1.2); } }
+@keyframes nwBlink { 50% { opacity: .55; } }
+.danger-vignette { position: fixed; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 18vw rgba(255,30,10,.55); animation: dvPulse 1s ease-in-out infinite alternate; }
+@keyframes dvPulse { from { opacity: .35; } to { opacity: 1; } }
+`;
+
+function ensureStyle(id: string, css: string) {
+  if (document.getElementById(id)) return;
+  const st = document.createElement('style');
+  st.id = id;
+  st.textContent = css;
+  document.head.appendChild(st);
+}
+
+/** Warning overlay for an incoming enemy nuke; returns an updater(secondsLeft) and a remover. */
+export function nukeWarning(): { update(seconds: number): void; remove(): void } {
+  ensureStyle('nuke-style', NUKE_CSS);
+  const v = document.createElement('div');
+  v.className = 'danger-vignette';
+  const w = document.createElement('div');
+  w.className = 'nuke-warn';
+  w.innerHTML = `<div class="t1">WARNING</div><div class="t2">NUCLEAR LAUNCH DETECTED</div><div class="t3"></div>`;
+  document.body.append(v, w);
+  const t3 = w.querySelector('.t3') as HTMLElement;
+  return {
+    update(s: number) { t3.textContent = `IMPACT IN ${Math.max(0, s).toFixed(1)}s — EVACUATE THE MARKED ZONE`; },
+    remove() { v.remove(); w.remove(); },
+  };
+}
+
+/**
+ * Cinematic for the player's own nuclear strike: letterbox, watch the launch, follow the missile,
+ * slow motion at impact. Returns a cancel function. `progress()` gives the missile's flight progress 0..1.
+ */
+export function nukeCinematic(game: Game, silo: { x: number; y: number }, target: { x: number; y: number }, flight: number, alive: () => boolean): () => void {
+  if (!document.getElementById('cine-style')) {
+    const st = document.createElement('style');
+    st.id = 'cine-style';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+  const body = document.body;
+  const bars = [document.createElement('div'), document.createElement('div')];
+  bars[0].className = 'cine-bar top';
+  bars[1].className = 'cine-bar bottom';
+  body.append(...bars);
+  requestAnimationFrame(() => body.classList.add('cine-on'));
+  const cam = game.gfx.cam;
+  const saved = { x: cam.x, y: cam.y, dist: cam.targetDist, speed: game.speed };
+  cam.zoomDamp = 0.2;
+  cam.flyToPoint(silo.x, silo.y, 0.7);
+  cam.targetDist = 18;
+  const timers: number[] = [];
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    timers.forEach(clearTimeout);
+    window.removeEventListener('keydown', skip, true);
+    body.classList.remove('cine-on');
+    timers.push(window.setTimeout(() => bars.forEach((b) => b.remove()), 1000));
+    game.speed = saved.speed;
+    cam.zoomDamp = 0.0001;
+  };
+  const skip = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); cam.flyToPoint(target.x, target.y, 0.4); finish(); };
+  window.addEventListener('keydown', skip, true);
+  // after the launch, follow the arc towards the target
+  timers.push(window.setTimeout(() => {
+    if (done) return;
+    cam.flyToPoint(target.x, target.y, Math.max(1.5, flight * 0.8));
+    cam.targetDist = 34;
+  }, 1500));
+  // slow motion through the impact
+  const watch = window.setInterval(() => {
+    if (done) { clearInterval(watch); return; }
+    if (!alive()) {
+      clearInterval(watch);
+      game.speed = 0.3;
+      cam.targetDist = 26;
+      timers.push(window.setTimeout(finish, 2600));
+    }
+  }, 50);
+  return finish;
+}
+
+const END_CSS = `
+.end-cine { position: fixed; inset: 0; z-index: 38; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; font-family: var(--font, sans-serif); }
+.end-cine .big { font-size: clamp(56px, 9vw, 140px); font-weight: 800; letter-spacing: .22em; opacity: 0; transform: scale(1.25); transition: all 1.4s cubic-bezier(.2,.8,.2,1); }
+.end-cine.win .big { background: linear-gradient(180deg, #fff, #ffe9a8 45%, #ffb43c); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 40px rgba(255,190,60,.55)); }
+.end-cine.lose .big { background: linear-gradient(180deg, #fff, #ffb0a0 45%, #ff3a2a); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 40px rgba(255,60,40,.6)); }
+.end-cine .sub { margin-top: 10px; font-size: clamp(14px, 1.3vw, 20px); letter-spacing: .5em; color: #dfe8f2; opacity: 0; transition: opacity 1.2s .6s; text-shadow: 0 2px 12px #000; }
+.end-cine.on .big { opacity: 1; transform: none; }
+.end-cine.on .sub { opacity: .9; }
+`;
+
+/** Slow-motion finale overlay: letterbox + VICTORY / DEFEAT title. Returns a remover. */
+export function endingCinematic(won: boolean, subtitle: string): () => void {
+  ensureStyle('cine-style', CSS);
+  ensureStyle('end-style', END_CSS);
+  const body = document.body;
+  const bars = [document.createElement('div'), document.createElement('div')];
+  bars[0].className = 'cine-bar top';
+  bars[1].className = 'cine-bar bottom';
+  const t = document.createElement('div');
+  t.className = 'end-cine ' + (won ? 'win' : 'lose');
+  t.innerHTML = `<div class="big">${won ? 'VICTORY' : 'DEFEAT'}</div><div class="sub">${subtitle.toUpperCase()}</div>`;
+  body.append(...bars, t);
+  body.classList.add('cine-active');
+  requestAnimationFrame(() => { body.classList.add('cine-on'); t.classList.add('on'); });
+  return () => {
+    body.classList.remove('cine-on', 'cine-active');
+    t.remove();
+    setTimeout(() => bars.forEach((b) => b.remove()), 900);
+  };
+}
