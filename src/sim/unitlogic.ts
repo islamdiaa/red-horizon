@@ -361,9 +361,16 @@ function posOk(world: World, u: Unit, x: number, y: number, dx: number, dy: numb
   return true;
 }
 
+/** Moving diagonally into a new cell needs at least one open orthogonal neighbour (no corner squeezing). */
+function cornerOk(world: World, u: Unit, nx: number, ny: number): boolean {
+  const ox = Math.floor(u.x), oy = Math.floor(u.y), cx = Math.floor(nx), cy = Math.floor(ny);
+  if (ox === cx || oy === cy) return true;
+  return cellOk(world, u, cx + 0.5, oy + 0.5) || cellOk(world, u, ox + 0.5, cy + 0.5);
+}
+
 function tryMove(world: World, u: Unit, mx: number, my: number): boolean {
   const nx = u.x + mx, ny = u.y + my;
-  if (posOk(world, u, nx, ny, mx, my)) { u.x = nx; u.y = ny; return true; }
+  if (posOk(world, u, nx, ny, mx, my) && cornerOk(world, u, nx, ny)) { u.x = nx; u.y = ny; return true; }
   if (Math.abs(mx) > 1e-4 && posOk(world, u, nx, u.y, mx, 0)) { u.x = nx; return true; }
   if (Math.abs(my) > 1e-4 && posOk(world, u, u.x, ny, 0, my)) { u.y = ny; return true; }
   return false;
@@ -478,7 +485,7 @@ export function resolveCollisions(world: World) {
 function pushUnit(world: World, u: Unit, mx: number, my: number) {
   if (u.order.type === 'harvest' && u.hstate === 'unloading') return;
   const nx = u.x + mx, ny = u.y + my;
-  if (cellOk(world, u, nx, ny)) { u.x = nx; u.y = ny; }
+  if (cellOk(world, u, nx, ny) && cornerOk(world, u, nx, ny)) { u.x = nx; u.y = ny; }
   else if (cellOk(world, u, nx, u.y)) u.x = nx;
   else if (cellOk(world, u, u.x, ny)) u.y = ny;
 }
