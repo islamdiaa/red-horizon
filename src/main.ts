@@ -18,6 +18,7 @@ import { installErrorBoundary, reportError } from './platform/errors';
 import { checkSupport, renderUnsupported } from './platform/webgl';
 import { detectQuality } from './platform/gpu';
 import { registerServiceWorker } from './platform/pwa';
+import { enterFullscreen } from './platform/fullscreen';
 import { loadSettings, saveSettings } from './ui/settings';
 import { attachPlayback } from './replay/playback'; // [D] replays
 import { resolveTestSetup } from './replay/launch';
@@ -133,6 +134,8 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => set
 
 async function startGame(setup: GameSetup) {
   if (menus.settings.skipIntro && !params.get('autostart')) setup = { ...setup, intro: false };
+  // still inside the Deploy click, so the browser allows it
+  if (menus.settings.fullscreen !== false && !params.get('autostart')) void enterFullscreen();
   menus.hide();
   setLoading(0, 'Initialising');
   await nextFrame();

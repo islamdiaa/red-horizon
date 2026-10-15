@@ -422,6 +422,9 @@ body.cur-pan #game-canvas { cursor: grabbing; }
 body.hide-fps .tb-fps { display: none; }
 .tb-fps:empty { display: none; }
 .tb-bell { position: relative; padding: 0 0.65rem; }
+.tb-fs { padding: 0 0.65rem; }
+.tb-fs svg { font-size: 1.05rem; }
+.tb-fs.on { border-color: rgba(var(--accent-rgb), 0.6); }
 .tb-bell svg { font-size: 1.15rem; }
 .tb-bell.active { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.22); }
 .tb-bell.ring svg { animation: bellRing 0.9s var(--ease); transform-origin: 50% 10%; }

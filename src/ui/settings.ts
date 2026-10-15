@@ -11,13 +11,15 @@ export interface Settings {
   reduceMotion?: boolean;
   /** Skip the cinematic fly-in at the start of each battle. */
   skipIntro?: boolean;
+  /** Go fullscreen when a battle starts (edge scrolling needs the screen edge). */
+  fullscreen?: boolean;
 }
 
 const SETTINGS_KEY = 'rh.settings';
 const listeners = new Set<(s: Settings) => void>();
 
 export function loadSettings(): Settings {
-  const def: Settings = { quality: 'high', edgeScroll: true, unitVoices: true, hints: true, showFps: true, reduceMotion: false };
+  const def: Settings = { quality: 'high', edgeScroll: true, unitVoices: true, hints: true, showFps: true, reduceMotion: false, fullscreen: true };
   try {
     return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') };
   } catch {

@@ -722,6 +722,7 @@ export class Menus {
     play.appendChild(settingRow(ICONS.mic, 'Unit voices', 'Acknowledgements when giving orders', toggle(this.settings.unitVoices, (v) => { this.settings.unitVoices = v; apply(); })));
     play.appendChild(settingRow(ICONS.bulb, 'Field manual hints', 'Contextual tips for new commanders', toggle(this.settings.hints, (v) => { this.settings.hints = v; apply(); })));
     play.appendChild(settingRow(ICONS.eye, 'Skip intro cinematic', 'Start every battle at your base', toggle(!!this.settings.skipIntro, (v) => { this.settings.skipIntro = v; apply(); })));
+    play.appendChild(settingRow(ICONS.scatter, 'Fullscreen in battle', 'Hides the browser so the map scrolls at the screen edge (Alt+Enter toggles)', toggle(this.settings.fullscreen !== false, (v) => { this.settings.fullscreen = v; apply(); })));
     const g = h('div', 'set-grid');
     g.append(gfx, aud, play);
     panel.appendChild(g);
@@ -756,7 +757,7 @@ export class Menus {
       ['Camera', ICONS.eye, [
         ['Arrows', 'Scroll (or touch the screen edge)'], ['MMB / RMB drag', 'Pan the battlefield'], ['Wheel', 'Zoom'],
         ['H / Space', 'Home base · last attack'], ['F', 'Camera follows the selection'], ['Q / , / .', 'Rotate camera · Backspace: north'],
-        ['Alt', 'Hold: show all health bars'], ['U', 'Photo mode'], ['Esc', 'Cancel · pause menu'],
+        ['Alt', 'Hold: show all health bars'], ['U', 'Photo mode'], ['Alt+Enter', 'Fullscreen on / off'], ['Esc', 'Cancel · pause menu'],
       ]],
       ['Replays', ICONS.replay, [
         ['Space', 'Pause / play'], ['[ / ]', 'Slower · faster (1× – 8×)'], ['V', 'Next player view · observer'], ['Home', 'Restart the replay'],

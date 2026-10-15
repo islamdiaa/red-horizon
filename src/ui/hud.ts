@@ -14,6 +14,7 @@ import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtm
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
 import { RANK_NAMES, factionTypes, missingRequirements, statLines, xpThresholds } from './tech';
 import { applyUiSettings } from './settings';
+import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
 
 export interface HudHost {
   world: World;
@@ -157,6 +158,13 @@ interface Card {
 type CardState = 'idle' | 'build' | 'hold' | 'nofunds' | 'queued' | 'ready' | 'busy';
 
 export class Hud {
+  private unsubFullscreen: (() => void) | null = null;
+
+  /** Detach document-level listeners (the DOM itself is cleared with the UI root). */
+  dispose() {
+    this.unsubFullscreen?.();
+    this.unsubFullscreen = null;
+  }
   readonly root: HTMLElement;
   readonly minimap: Minimap;
   private sound: UiSound;
@@ -311,6 +319,18 @@ export class Hud {
     this.fpsEl = el('div', 'tb-chip tb-fps');
     this.fpsEl.id = 'fps';
     tr.appendChild(this.fpsEl);
+    if (fullscreenSupported()) {
+      const fsBtn = el('button', 'tb-btn tb-fs', ICONS.scatter);
+      const sync = (on: boolean) => {
+        fsBtn.classList.toggle('on', on);
+        fsBtn.dataset.tip = tipHtml(on ? 'Leave fullscreen' : 'Fullscreen', on ? 'Hold <kbd>Esc</kbd> or press <kbd>Alt</kbd>+<kbd>Enter</kbd>.' : 'Edge scrolling works best fullscreen. <kbd>Alt</kbd>+<kbd>Enter</kbd>');
+        fsBtn.setAttribute('aria-label', on ? 'Leave fullscreen' : 'Fullscreen');
+      };
+      fsBtn.onclick = () => { this.sound.play('click'); void toggleFullscreen(); };
+      sync(isFullscreen());
+      this.unsubFullscreen = onFullscreenChange(sync);
+      tr.appendChild(fsBtn);
+    }
     ui.appendChild(tr);
     this.toasts = new Toasts(ui, tr, () => host.world.time, this.sound);
     this.tip.bind(tr, 'bottom');

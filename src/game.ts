@@ -984,6 +984,7 @@ export class Game {
     cancelAnimationFrame(this.raf);
     this.input?.dispose();
     this.missionHud?.dispose();
+    this.hud?.dispose();
     this.nukeWarn?.remove();
     this.endCine?.();
     this.nukeCine?.();

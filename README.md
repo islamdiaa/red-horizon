@@ -220,6 +220,7 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
 | Arrows, screen edge, middle- or right-drag | Scroll · mouse wheel: zoom |
 | Q / , / . | Rotate camera · Backspace: reset to north |
 | U | Photo mode (hide the interface) |
+| Alt+Enter | Fullscreen on / off (battles start fullscreen by default; hold Esc to leave) |
 | Hold Alt | Show all health bars |
 | Esc | Cancel / pause menu |
 | Sidebar | Left click: build (Shift ×5) / place · right click: hold / cancel · power bar: click to fire / aim |

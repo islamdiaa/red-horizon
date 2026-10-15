@@ -19,6 +19,7 @@ import { bridgeAtCell } from '../sim/bridges';
 import { disguisedAs } from '../sim/infiltration';
 import { canCarry } from '../sim/naval';
 import { T } from '../sim/map';
+import { toggleFullscreen } from '../platform/fullscreen';
 
 export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines';
 
@@ -91,6 +92,9 @@ export class InputController {
   private lastClick = { t: 0, id: 0 };
   private lastGroupTap = { t: 0, g: -1 };
   private pointerInside = false;
+  /** Edge the pointer left the window through (-1/0/1 per axis): keep scrolling that way until it comes back. */
+  private exitX = 0;
+  private exitY = 0;
   private wallStart: [number, number] | null = null;
   private canvas: HTMLCanvasElement;
   private disposers: (() => void)[] = [];
@@ -114,10 +118,16 @@ export class InputController {
     on(this.canvas, 'contextmenu', (e: Event) => e.preventDefault());
     on(this.canvas, 'wheel', (e: WheelEvent) => { e.preventDefault(); this.h.gfx.cam.zoomBy(e.deltaY * (e.deltaMode === 1 ? 30 : 1)); }, { passive: false });
     on(this.canvas, 'pointerenter', () => { this.pointerInside = true; });
-    on(document, 'pointerleave', () => { this.pointerInside = false; });
+    on(document, 'pointerleave', () => {
+      // in a browser window the pointer easily overshoots the edge; remember which way it went
+      this.pointerInside = false;
+      const zone = 64;
+      this.exitX = this.mouseX < zone ? -1 : this.mouseX > window.innerWidth - zone ? 1 : 0;
+      this.exitY = this.mouseY < zone ? -1 : this.mouseY > window.innerHeight - zone ? 1 : 0;
+    });
     on(window, 'keydown', (e: KeyboardEvent) => this.onKey(e, true));
     on(window, 'keyup', (e: KeyboardEvent) => this.onKey(e, false));
-    on(window, 'blur', () => this.keys.clear());
+    on(window, 'blur', () => { this.keys.clear(); this.exitX = this.exitY = 0; });
   }
 
   dispose() {
@@ -463,6 +473,8 @@ export class InputController {
 
   private onMove(e: PointerEvent) {
     this.hasMoved = true;
+    this.pointerInside = true;
+    this.exitX = this.exitY = 0;
     const dx = e.clientX - this.mouseX, dy = e.clientY - this.mouseY;
     this.mouseX = e.clientX;
     this.mouseY = e.clientY;
@@ -648,6 +660,12 @@ export class InputController {
     if (down) this.keys.add(k); else this.keys.delete(k);
     this.h.overlay.showAllBars = e.altKey;
     if (!down) return;
+    // Alt+Enter: the classic fullscreen toggle (works while paused too)
+    if (k === 'enter' && e.altKey) {
+      e.preventDefault();
+      void toggleFullscreen();
+      return;
+    }
     if (k === 'escape') {
       if (this.mode !== 'normal') this.setMode('normal');
       else this.h.openPauseMenu();
@@ -791,12 +809,18 @@ export class InputController {
     if (this.keys.has('arrowright')) px += 1;
     if (this.keys.has('arrowup')) py -= 1;
     if (this.keys.has('arrowdown')) py += 1;
-    if (this.edgeScroll && this.hasMoved && this.pointerInside && document.hasFocus() && !this.middleDown && !this.rightDown) {
-      const m = 4;
-      if (this.mouseX <= m) px -= 1;
-      if (this.mouseX >= window.innerWidth - m) px += 1;
-      if (this.mouseY <= m) py -= 1;
-      if (this.mouseY >= window.innerHeight - m) py += 1;
+    if (this.edgeScroll && this.hasMoved && document.hasFocus() && !this.middleDown && !this.rightDown) {
+      if (this.pointerInside) {
+        // a band rather than the last pixel row: easy to hit in a window as well as fullscreen
+        const m = 10;
+        if (this.mouseX <= m) px -= 1;
+        if (this.mouseX >= window.innerWidth - m) px += 1;
+        if (this.mouseY <= m) py -= 1;
+        if (this.mouseY >= window.innerHeight - m) py += 1;
+      } else {
+        px += this.exitX;
+        py += this.exitY;
+      }
     }
     if (this.follow) {
       // follow the selection; any manual scroll releases the camera
