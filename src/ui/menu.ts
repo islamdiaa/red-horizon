@@ -153,6 +153,11 @@ export interface MenuCallbacks {
   settingsChanged(s: Settings): void;
   /** Open the campaign / special-ops screen. */
   openCampaign?(): void;
+  /** Most recent saved game, if any. */
+  continueInfo?(): { label: string; savedAt: number } | null;
+  continueGame?(): void;
+  /** Save the running game; returns success. */
+  saveGame?(): boolean;
 }
 
 export class Menus {
@@ -235,6 +240,8 @@ export class Menus {
       b.onclick = fn;
       nav.appendChild(b);
     };
+    const cont = this.cb.continueInfo?.();
+    if (cont) navItem('▶', `Continue · ${cont.label}`, ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
     if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
     navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
     navItem('03', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
@@ -457,6 +464,11 @@ export class Menus {
     };
     const resume = () => { this.hide(); this.cb.resume(); };
     mk('Resume', ICONS.play, resume, 'primary');
+    if (this.cb.saveGame) mk('Save game', ICONS.history, () => {
+      const ok = this.cb.saveGame!();
+      const lbl = list.querySelector('.pp-btn:nth-child(2) span:nth-child(2)');
+      if (lbl) lbl.textContent = ok ? 'Game saved ✓' : 'Save failed';
+    });
     mk('Settings', ICONS.gear, () => this.showSettings(() => this.showPause(game)));
     mk('Controls', ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
     mk('Restart', ICONS.restart, () => { this.hide(); this.cb.restart(); });

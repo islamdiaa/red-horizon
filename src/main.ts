@@ -3,6 +3,7 @@ import { AudioSystem } from './audio';
 import { Game, type GameSetup } from './game';
 import { Menus, type Settings } from './ui/menu';
 import { showCampaign } from './ui/campaign';
+import { readSave, type SaveData } from './sim/save';
 import { GAME_TITLE } from './config';
 import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
@@ -36,7 +37,26 @@ const menus = new Menus(audio, {
   quit: () => { audio.stopMusic(); startDemo(); },
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
+  continueInfo: () => {
+    const s = latestSave();
+    return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
+  },
+  continueGame: () => {
+    const s = latestSave();
+    if (s?.game?.setup) void startGame({ ...s.game.setup, load: s, intro: false, quality: menus.settings.quality });
+  },
+  saveGame: () => game?.save('manual') ?? false,
 });
+
+function latestSave(): SaveData | null {
+  const a = readSave('auto'), m = readSave('manual');
+  if (!a) return m;
+  if (!m) return a;
+  return a.savedAt > m.savedAt ? a : m;
+}
+
+// keep progress when the tab is closed mid-game
+window.addEventListener('beforeunload', () => { if (game && !game.setup.demo) game.save('auto'); });
 
 /** Campaign / special operations screen. */
 function openCampaign() {

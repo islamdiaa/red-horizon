@@ -33,6 +33,7 @@ import { getMission } from './missions';
 import { MissionRuntime, type MissionDef } from './sim/mission';
 import { recordResult } from './missions/progress';
 import { MissionHud } from './ui/missionhud';
+import { SAVE_VERSION, deserializeWorld, serializeWorld, writeSave, type SaveData } from './sim/save';
 import { recalcPlayerEconomy } from './sim/production';
 
 export interface OpponentSetup {
@@ -65,6 +66,8 @@ export interface GameSetup {
   intro?: boolean;
   /** Mission id (campaign / survival / challenge); overrides map and players. */
   mission?: string;
+  /** Resume from a saved game. */
+  load?: SaveData;
 }
 
 export interface GameCallbacks {
@@ -92,6 +95,7 @@ export class Game {
   walls: WallRenderer;
   reticle: TargetReticle;
   private wxSeq: WeatherStep[] | null = null;
+  private autosaveT = 120;
   private ambT = 0;
   private envT = 0;
   private offHeat = 0;
@@ -175,12 +179,16 @@ export class Game {
       fog: setup.fog && !setup.demo, seed: setup.seed,
     });
     this.local = this.world.players[0];
+    if (setup.load) {
+      deserializeWorld(this.world, setup.load.world, null);
+    }
     if (def) {
       const rt = new MissionRuntime(this.world, def);
       this.world.mission = rt;
       def.players.forEach((ps, i) => { if (i > 0 && ps.ai) rt.setAI(i, ps.ai); });
       if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
-      def.setup(rt);
+      if (!setup.load) def.setup(rt);
+      if (setup.load) deserializeWorld(this.world, setup.load.world, rt);
       for (const p of this.world.players) { this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
     }
 
@@ -215,7 +223,9 @@ export class Game {
     const wx = setup.weather ?? 'auto';
     if (wx === 'auto') {
       this.wxSeq = randomWeatherSequence(setup.seed, climate, 7200);
-      this.gfx.weather.set(this.wxSeq[0].kind, 0);
+      const g = setup.load?.game;
+      if (g) { this.wxIdx = Math.min(this.wxSeq.length - 1, g.wxIdx ?? 0); this.wxTimer = g.wxTimer ?? 0; }
+      this.gfx.weather.set(this.wxSeq[this.wxIdx].kind, 0);
     } else {
       this.gfx.weather.set(wx as WeatherKind, 0);
     }
@@ -229,6 +239,7 @@ export class Game {
     this.lightPools = new LightPools(this.world, this.ents);
     this.gfx.scene.add(this.lightPools.mesh);
     this.hours = def?.map.hour ?? (setup.timeOfDay === 'night' ? 22.5 : setup.timeOfDay === 'dusk' ? 17.9 : 10.5);
+    if (setup.load?.game) this.hours = setup.load.game.hours ?? this.hours;
     this.gfx.setTimeOfDay(this.hours);
 
     const start = map.startPositions[0];
@@ -299,6 +310,7 @@ export class Game {
       this.demoCam.tx = map.w / 2;
       this.demoCam.ty = map.h / 2;
     }
+    if (setup.load) this.restoreView(setup.load);
     cb.onProgress?.(1, 'Ready');
   }
 
@@ -469,6 +481,11 @@ export class Game {
         this.hud.minimap.draw(this.input!.viewPolygon(), 0.1, this.time);
       }
     }
+    // autosave every two minutes of play
+    if (!this.setup.demo && !this.paused && !world.gameOver) {
+      this.autosaveT -= dt * this.speed;
+      if (this.autosaveT <= 0) { this.autosaveT = 120; this.save('auto'); }
+    }
     // audio listener & adaptive music
     this.audio.setListener(this.gfx.cam.x, this.gfx.cam.y, this.gfx.cam.viewRadius);
     this.heat = Math.max(0, this.heat - dt * 2.5);
@@ -629,6 +646,43 @@ export class Game {
       }
     }
     world.events.length = 0;
+  }
+
+  /** After loading: camera, clock, control groups, ground clutter under structures. */
+  private restoreView(save: SaveData) {
+    const g = save.game ?? {};
+    this.time = this.world.time;
+    if (g.cam) {
+      this.gfx.cam.jumpTo(g.cam.x, g.cam.y);
+      this.gfx.cam.dist = this.gfx.cam.targetDist = g.cam.dist;
+      this.gfx.cam.yaw = this.gfx.cam.targetYaw = g.cam.yaw ?? 0;
+    }
+    if (this.input && g.groups) {
+      this.input.groups = new Map(g.groups);
+      for (const [k, ids] of this.input.groups) for (const id of ids) this.overlay?.groups.set(id, k);
+    }
+    const cells: number[] = [];
+    for (const b of this.world.buildings) for (let dy = 0; dy < b.h; dy++) for (let dx = 0; dx < b.w; dx++) cells.push(this.world.map.idx(b.cx + dx, b.cy + dy));
+    this.gfx.vegetation.hideCells(cells);
+    this.selection.clear();
+    this.gfx.fog.snap(this.local);
+  }
+
+  /** Snapshot the whole game into a save slot. */
+  save(slot = 'auto'): boolean {
+    if (this.setup.demo || this.world.gameOver) return false;
+    const cam = this.gfx.cam;
+    const { load: _ignore, ...setup } = this.setup;
+    const label = this.missionDef ? `Operation ${this.missionDef.codename}` : `Skirmish · ${this.local.faction === 'allies' ? 'Allies' : 'Soviets'} vs ${this.world.players.length - 1}`;
+    const data: SaveData = {
+      version: SAVE_VERSION, savedAt: Date.now(), world: serializeWorld(this.world),
+      game: {
+        setup, label, hours: this.hours, wxIdx: this.wxIdx, wxTimer: this.wxTimer, time: this.world.time,
+        cam: { x: cam.x, y: cam.y, dist: cam.targetDist, yaw: cam.targetYaw },
+        groups: this.input ? [...this.input.groups.entries()] : [],
+      },
+    };
+    return writeSave(slot, data);
   }
 
   /** Stars: 1 for winning, +1 under par time, +1 for all optional objectives (or none existed). */
