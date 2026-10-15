@@ -14,6 +14,12 @@ export const WATER_LEVEL = -0.32;
  * Grid map. Cell (cx, cy) covers [cx, cx+1) x [cy, cy+1) in map space.
  * World space: X = map x, Z = map y, Y = height.
  */
+/** A bridge defined by the map: the water cells it spans and its orientation. */
+export interface MapBridge {
+  cells: [number, number][];
+  axis: 'x' | 'y';
+}
+
 export class GameMap {
   readonly w: number;
   readonly h: number;
@@ -45,6 +51,8 @@ export class GameMap {
   seed = 0;
   /** Visual climate (affects rendering only). */
   climate: 'temperate' | 'winter' | 'desert' = 'temperate';
+  /** Bridges laid over water by the map (cells under an intact bridge are passable to ground units). */
+  bridges: MapBridge[] = [];
 
   constructor(w: number, h: number) {
     this.w = w;

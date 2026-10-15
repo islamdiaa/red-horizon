@@ -35,7 +35,10 @@ export type ProjectileKind =
   | 'flame'       // short-range fire stream
   | 'fireball'    // flame tower fireball
   | 'melee'       // dog jaw
-  | 'heal';       // medic
+  | 'heal'        // medic
+  | 'torpedo'     // underwater, naval targets only (submarine)
+  | 'depthcharge' // lobbed into the water at submarines
+  | 'bomb';       // dropped from a bomber (parabombs)
 
 export interface WarheadDef {
   id: string;
