@@ -18,6 +18,8 @@ import { applyUiSettings, hudLayoutOf, loadSettings, onSettingsChanged, type Hud
 import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui'; // [CTRL]
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
 import { BOOT_CAMP_HUD } from '../missions/tutorial'; // [HUD] Boot Camp drill highlights
+import { GAME_SPEEDS, GAME_SPEED_LABELS } from '../config';
+import { CEASEFIRE_WARNING, ceasefireLeft } from '../sim/ceasefire';
 
 export interface HudHost {
   world: World;
@@ -220,6 +222,10 @@ export class Hud {
   private fpsEl: HTMLElement;
   private objEl: HTMLElement;
   private intelEl: HTMLElement;
+  /** Build-up time countdown: a chip in the Classic top bar, a row of the Modern objectives panel. */
+  private cfChip: HTMLElement;
+  private cfRow: HTMLElement;
+  private cfKey = '';
   private intelKey = '';
   private tabsKey = '';
   private speedBtns: HTMLButtonElement[] = [];
@@ -363,7 +369,7 @@ export class Hud {
     this.clock.dataset.tip = tipHtml('Mission time');
     const speed = el('div', 'speed-ctl tb-chip');
     this.speedEl = speed;
-    for (const [n, s, label] of [[1, 1, 'Normal'], [2, 1.5, 'Fast'], [3, 2.2, 'Fastest']] as [number, number, string][]) {
+    for (const [n, s, label] of GAME_SPEEDS.map((s, i) => [i + 1, s, GAME_SPEED_LABELS[i]] as [number, number, string])) {
       const b = el('button', '', `<span class="chev">${'<i></i>'.repeat(n)}</span>`);
       b.dataset.tip = tipHtml(`${label} speed`, '', [[`×${s}`, 'game speed']]);
       b.onclick = () => { this.sound.play('click'); host.setSpeed(s); };
@@ -373,6 +379,13 @@ export class Hud {
     }
     this.objEl = el('div', 'tb-chip tb-obj', `<span class="obj-ic">${ICONS.target}</span><span class="obj-txt"><small>Objective</small><b>Destroy all enemy forces</b></span><span class="obj-pips"></span>`);
     this.intelEl = el('div', 'tb-chip tb-intel');
+    const cfTip = tipHtml('Build-up time', 'Ceasefire: the enemy builds up its forces and only defends itself until the timer runs out; attacking it does not end the ceasefire early. Expect a big attack when it does.',
+      [['[', 'slower'], [']', `faster (up to ×${GAME_SPEEDS[GAME_SPEEDS.length - 1]})`]]);
+    this.cfChip = el('div', 'tb-chip tb-cf', `<span class="cf-ic">${ICONS.shield}</span><span class="cf-txt"></span>`);
+    this.cfRow = el('div', 'op-row cf-row', `<span class="cf-ic">${ICONS.shield}</span><span class="op-tx cf-txt"></span>`);
+    this.cfChip.dataset.tip = cfTip;
+    this.cfRow.dataset.tip = cfTip;
+    this.cfChip.style.display = this.cfRow.style.display = 'none';
     ui.appendChild(tb);
     this.tip.bind(tb, 'bottom');
     this.sound.bind(tb, 'button');
@@ -508,6 +521,7 @@ export class Hud {
       this.rbBtns.replaceChildren(...[this.fsBtn, this.toasts.bell, this.settingsBtn, this.menuBtn].filter((b): b is HTMLButtonElement => !!b));
       tr.replaceChildren(this.fpsEl, this.rbRes, this.rbTime, this.rbBtns, ...(this.logPanel ? [this.logPanel] : []));
       this.objEl.remove();
+      this.cfChip.remove();
       tb.prepend(...(mission ? [mission] : []), this.objPanel, this.intelEl);
     } else {
       sb.id = 'sidebar';
@@ -516,12 +530,12 @@ export class Hud {
       this.mmPanel.remove();
       tr.replaceChildren(this.fpsEl, ...[this.fsBtn, this.toasts.bell, this.logPanel].filter((b): b is HTMLElement => !!b));
       this.objPanel.remove();
-      tb.prepend(this.menuBtn, this.clock, this.speedEl, this.objEl, this.intelEl);
+      tb.prepend(this.menuBtn, this.clock, this.speedEl, this.objEl, this.cfChip, this.intelEl);
       if (mission) this.ui.appendChild(mission);
     }
     this.setArmed(false);
     // everything re-renders for the new arrangement on the next update
-    this.gridKey = ''; this.tabsKey = ''; this.superKey = ''; this.objKey = ''; this.objPanelKey = ''; this.tutKey = '';
+    this.gridKey = ''; this.tabsKey = ''; this.superKey = ''; this.objKey = ''; this.objPanelKey = ''; this.tutKey = ''; this.cfKey = '';
     if (this.selKey) { this.selKey = ''; this.selpanel.classList.remove('on'); }
     this.grid.scrollTop = 0; this.grid.scrollLeft = 0;
     this.slowT = 0;
@@ -657,6 +671,7 @@ export class Hud {
       this.updateObjPanel();
       this.updateTutorial();
     }
+    this.updateCeasefire();
   }
 
   // ---------------------------------------------------------------------------
@@ -1620,7 +1635,27 @@ export class Hud {
       + row(done ? 'done' : '', 'Destroy all enemy forces', foes.length ? `${alive} left` : '')
       + foes.map((o) => row(`sub ${o.defeated ? 'done' : ''}`, `<i class="op-dot" style="--c:${hexColor(o.color)}"></i>${esc(o.name)} <small>${o.faction === 'soviet' ? 'Soviet' : 'Allied'}</small>`)).join('');
     this.objPanel.dataset.tip = this.objEl.dataset.tip ?? '';
+    this.objPanel.querySelector('.op-head')!.after(this.cfRow); // (the build-up countdown leads the list)
     if (!first) replay(this.objPanel, 'flash', 1600);
+  }
+
+  /** Build-up time (sim/ceasefire.ts): "Ceasefire: 12:34" while it holds, in both layouts; gone when it ends. */
+  private updateCeasefire() {
+    const w = this.host.world;
+    const left = w.ceasefireUntil ? ceasefireLeft(w) : 0;
+    const key = !left ? 'off' : left === Infinity ? 'inf' : String(Math.ceil(left));
+    if (key === this.cfKey) return;
+    this.cfKey = key;
+    const show = key !== 'off';
+    const modern = this.layout === 'modern';
+    this.cfChip.style.display = show && !modern ? '' : 'none';
+    this.cfRow.style.display = show && modern ? '' : 'none';
+    if (!show) return;
+    const html = left === Infinity ? 'Ceasefire: <b>unlimited</b> <small>(enemy only defends)</small>' : `Ceasefire: <b>${formatTime(Math.ceil(left))}</b>`;
+    for (const e of [this.cfChip, this.cfRow]) {
+      (e.querySelector('.cf-txt') as HTMLElement).innerHTML = html;
+      e.classList.toggle('urgent', left <= CEASEFIRE_WARNING);
+    }
   }
 
   /** [HUD] Boot Camp: glow the cards / buttons the current drill asks for (missions/tutorial.ts BOOT_CAMP_HUD). */

@@ -422,6 +422,16 @@ body.cur-pan #game-canvas { cursor: grabbing; }
 .obj-pips span { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); margin-left: 0.15rem; }
 .obj-pips span b { color: var(--text); font-weight: 400; }
 .tb-obj.flash { animation: objFlash 1.5s var(--ease); }
+/* build-up time (ceasefire) countdown: Classic top-bar chip / Modern objectives row */
+.tb-cf, .cf-row { --cf: 120, 205, 255; }
+.tb-cf { gap: 0.45rem; text-transform: none; letter-spacing: 0.04em; font-size: 0.8rem; }
+.cf-ic { display: flex; flex-shrink: 0; font-size: 1rem; color: rgb(var(--cf)); filter: drop-shadow(0 0 4px rgba(var(--cf), 0.6)); }
+.cf-txt b { font-family: var(--mono); font-weight: 400; color: #fff; letter-spacing: 0.06em; }
+.cf-txt small { color: var(--muted); font-size: 0.86em; letter-spacing: 0.02em; }
+.cf-row .cf-ic { width: 0.9rem; font-size: 0.9rem; justify-content: center; }
+.tb-cf.urgent, .cf-row.urgent { --cf: 255, 178, 64; }
+.tb-cf.urgent .cf-txt b, .cf-row.urgent .cf-txt b { color: var(--gold); animation: cfPulse 1s ease-in-out infinite; }
+@keyframes cfPulse { 50% { opacity: 0.5; } }
 .tb-fps { font-family: var(--mono); font-size: max(0.68rem, 8.5px); letter-spacing: 0.02em; text-transform: none; color: var(--muted); font-weight: 400; padding: 0 0.6rem; }
 .tb-fps b { color: var(--ok); font-weight: 400; }
 .tb-fps span { color: var(--dim); }
@@ -880,6 +890,8 @@ body.hide-fps .tb-fps { display: none; }
 .mp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
 .mp-col { display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; }
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
+.field.disabled { opacity: 0.4; filter: saturate(0.3); }
+.field.disabled > :not(label) { pointer-events: none; }
 .toggle-pair { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.2rem; }
 .tp { display: flex; align-items: center; gap: 0.5rem; height: 2.15rem; padding: 0 0.4rem 0 0.6rem; border-radius: 0.5rem; background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.08em; color: var(--text-2); cursor: default; }
 .tp > svg { font-size: 0.95rem; color: var(--accent); }

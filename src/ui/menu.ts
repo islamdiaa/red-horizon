@@ -24,6 +24,7 @@ import { MAX_REPLAYS, type ReplayData } from '../replay/format';
 import { deleteReplay, exportReplay, importReplayFile, listReplays } from '../replay/store';
 import { renderReplayTree } from './replay-tree'; // [MODES] replay trees
 import { KOTH_MINUTES } from '../modes/koth'; // [MODES]
+import { CEASEFIRE_CHOICES, ceasefireLabel } from '../sim/ceasefire';
 import { loadProgress } from '../missions/progress';
 import { customMaps, isCustomMapId } from '../maps/custom'; // [EDIT] editor maps in the picker
 import { enabledModIds } from '../mods/store'; // [EDIT]
@@ -66,6 +67,8 @@ interface SkirmishPrefs {
   lockSeed?: boolean;
   /** [MODES] King of the Hill: minutes of hill time to win (0 / undefined = classic). */
   koth?: number;
+  /** Build-up time: minutes of ceasefire at the start, -1 = unlimited, 0 / undefined = off (classic modes only). */
+  ceasefire?: number;
 }
 
 function loadPrefs(): SkirmishPrefs {
@@ -75,7 +78,9 @@ function loadPrefs(): SkirmishPrefs {
     weather: 'auto', climate: 'temperate', dayCycle: true,
   };
   try {
-    return { ...def, ...JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}') };
+    const prefs: SkirmishPrefs = { ...def, ...JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}') };
+    if (!(CEASEFIRE_CHOICES as readonly number[]).includes(prefs.ceasefire ?? 0)) prefs.ceasefire = undefined;
+    return prefs;
   } catch {
     return def;
   }
@@ -480,6 +485,7 @@ export class Menus {
       bf.appendChild(field('Weather', ICONS.rain, stepper<Weather>([
         ['auto', 'Auto', ICONS.auto], ['clear', 'Clear', ICONS.clear], ['rain', 'Rain', ICONS.rain], ['storm', 'Storm', ICONS.storm],
         ['snow', 'Snow', ICONS.snow], ['fog', 'Fog', ICONS.fog], ['dust', 'Dust', ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
+      bf.appendChild(buildup); // (here, across from Mode: it keeps both columns the same height)
     };
     const cond = h('div', 'mp-col');
     cond.appendChild(h('div', 'sec-title', '<span>Conditions</span>'));
@@ -488,7 +494,16 @@ export class Menus {
     cond.appendChild(field('Start units', ICONS.vehicle, seg<'mcv' | 'light' | 'heavy'>([['mcv', 'MCV only'], ['light', 'Squad'], ['heavy', 'Company']], prefs.startUnits, (v) => { prefs.startUnits = v; })));
     // [MODES] game mode: classic, or King of the Hill (hold the centre for N minutes)
     cond.appendChild(field('Mode', ICONS.flag, stepper<string>([['0', 'Classic', ICONS.target], ...KOTH_MINUTES.map((m): Opt<string> => [String(m), `King of the Hill · ${m} min`, ICONS.flag])],
-      String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; })));
+      String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; syncBuildup(); })));
+    // build-up time: a ceasefire at the start (the AI builds and only defends until it runs out)
+    const buildup = field('Build-up time', ICONS.shield, stepper<string>(CEASEFIRE_CHOICES.map((m): Opt<string> => [String(m), m ? ceasefireLabel(m) : 'Off', m < 0 ? ICONS.shield : m ? ICONS.clock : ICONS.target]),
+      String(prefs.ceasefire ?? 0), (v) => { prefs.ceasefire = +v || undefined; }), 'f-buildup');
+    function syncBuildup() {
+      buildup.classList.toggle('disabled', !!prefs.koth);
+      buildup.title = prefs.koth ? 'Not available in King of the Hill'
+        : 'A ceasefire at the start: the enemy builds up its army and only defends until the timer runs out. Unlimited: it never strikes first.';
+    }
+    syncBuildup();
     const toggles = h('div', 'toggle-pair');
     const tp = (icon: string, label: string, v: boolean, fn: (v: boolean) => void) => {
       const t = h('label', 'tp', `${icon}<span>${label}</span>`);
@@ -519,6 +534,7 @@ export class Menus {
         weather: prefs.weather, climate: def ? def.climate : p.climate, dayCycle: prefs.dayCycle, mapId: def?.id,
         customMap: def && isCustomMapId(def.id) ? JSON.parse(JSON.stringify(def)) : undefined, // [EDIT] saves / replays carry the map
         koth: prefs.koth ? true : undefined, kothMinutes: prefs.koth || undefined, // [MODES] King of the Hill
+        ceasefire: prefs.koth ? undefined : prefs.ceasefire || undefined, // build-up time (classic skirmish only)
       };
       try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
       this.cb.start(setup);

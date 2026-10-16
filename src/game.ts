@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GAME_SPEEDS } from './config';
 import { BUILDINGS, UNITS, type Faction } from './data/rules';
 import { generateMap } from './sim/mapgen';
 import { World, type PlayerSetup } from './sim/world';
@@ -44,6 +45,7 @@ import { recordResult } from './missions/progress';
 import { MissionHud } from './ui/missionhud';
 import { SAVE_VERSION, deserializeWorld, serializeWorld, writeSave, type SaveData } from './sim/save';
 import { recalcPlayerEconomy } from './sim/production';
+import { ceasefireForSetup } from './sim/ceasefire';
 import { guardFrame } from './platform/errors';
 import { watchContextLoss, type ContextWatch } from './platform/webgl';
 import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
@@ -127,6 +129,11 @@ export interface GameSetup {
   allies?: AllySetup[];
   /** [CONQ] A Conquest battle: the run and territory it belongs to, plus the frozen battle spec its mission is built from. */
   conquest?: ConquestSetup;
+  /**
+   * Build-up time (sim/ceasefire.ts): minutes of ceasefire at the start (the AI builds and only defends),
+   * -1 = for the whole match, 0 / undefined = off. Skirmish only (ignored by missions, KOTH, challenges, Conquest).
+   */
+  ceasefire?: number;
 }
 
 export interface GameCallbacks {
@@ -261,6 +268,7 @@ export class Game {
       startUnitsPer: def ? def.players.map((_, i) => (i === 0 ? def.startUnits ?? 'none' : 'none')) : undefined,
       creditsPer: def ? def.players.map((ps, i) => (i === 0 ? def.credits : ps.credits ?? 5000)) : undefined,
       fog: setup.fog && !setup.demo, seed: setup.seed,
+      ceasefireUntil: ceasefireForSetup(setup, !!def), // build-up time (saves restore their own below)
     });
     this.local = this.world.players[0];
     attachModeRuntime(this.world, setup, !!def); // [MODES] KOTH / challenge runtime, restored by the load below
@@ -413,8 +421,13 @@ export class Game {
         issue: (c) => this.issue(c),
         message: (t, w) => this.hud?.message(t, w),
         openPauseMenu: () => this.pause(),
+        stepSpeed: (dir) => {
+          const i = GAME_SPEEDS.findIndex((s) => Math.abs(s - this.speed) < 0.01);
+          const next = GAME_SPEEDS[Math.max(0, Math.min(GAME_SPEEDS.length - 1, (i < 0 ? 0 : i) + dir))];
+          if (next !== this.speed) { this.speed = next; this.hud?.message(`Game speed ×${next}`); }
+        },
       });
-      this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost');
+      this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost' || key === 'ceasefire_warning' || key === 'ceasefire_over');
       if (!this.world.mission) this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
       if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // [AI] rival radio + habit tracking (not in replay branches / challenges)
       if (this.world.mission) {
@@ -642,13 +655,14 @@ export class Game {
       this.time += dt;
       this.acc += dt * this.speed;
       let steps = 0;
-      while (this.acc >= DT && steps < 8) {
+      // up to 12 ticks a frame: x5 (100 ticks/s) still holds down to ~9 fps before time is dropped
+      while (this.acc >= DT && steps < 12) {
         world.step();
         this.processEvents();
         this.acc -= DT;
         steps++;
       }
-      if (steps >= 8) this.acc = 0;
+      if (steps >= 12) this.acc = 0;
     }
     this.alpha = Math.min(1, this.acc / DT);
     const fdt = this.paused ? 0 : dt;
@@ -849,6 +863,7 @@ export class Game {
             this.audio.announce(ev.key);
             if (ev.key === 'nuke_ready' || ev.key === 'iron_curtain_ready' || ev.key === 'chrono_ready') this.audio.stinger('superweapon_ready');
             else if (ev.key === 'reinforcements') this.audio.stinger('reinforcements');
+            else if (ev.key === 'ceasefire_over') this.audio.stinger('enemy_spotted'); // build-up time is over
             if (ev.key === 'base_under_attack' || ev.key === 'harvester_under_attack') this.hud?.minimap.ping(this.local.lastAttackX, this.local.lastAttackY);
           }
           break;

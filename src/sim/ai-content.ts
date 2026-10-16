@@ -16,6 +16,7 @@ import { allMines, mineable } from './mines';
 import { sortieRoute } from './powers';
 import type { AIIntel } from './ai-intel';
 import { trait, type Personality } from './ai-personality';
+import { ceasefireActive } from './ceasefire';
 
 /** The parts of AIController this module uses (its members are private to TypeScript only). */
 interface AIView {
@@ -119,7 +120,8 @@ function supportPowers(v: AIView, due: (s: number) => boolean) {
   if (superReady(w, p, 'sonar') && w.units.some((u) => u.alive && u.ut.cloakable && p.isEnemy(u.owner))) {
     w.issue({ c: 'superweapon', player: p.id, kind: 'sonar', x: 0, y: 0 });
   }
-  if (!v.d.superweapons || !due(4)) return;
+  // (build-up time: reconnaissance only, no drops on the enemy)
+  if (!v.d.superweapons || !due(4) || ceasefireActive(w)) return;
   const bombs = superReady(w, p, 'parabombs'), troops = superReady(w, p, 'paratroopers');
   if (!bombs && !troops) return;
   // timed with the attack: while a wave is out (normal and up, skirmish) the drop goes to its target area.
@@ -175,9 +177,10 @@ function agents(v: AIView, due: (s: number) => boolean) {
   const mine = w.units.filter((u) => u.alive && u.owner === p && (u.ut.spy || u.ut.thief));
   const spies = mine.filter((u) => u.ut.spy), thieves = mine.filter((u) => u.ut.thief);
   const targets = enemyBuildings(v);
-  // send idle agents in
+  // send idle agents in (not during the build-up time: they wait at home)
+  const truce = ceasefireActive(w);
   for (const u of mine) {
-    if (u.order.type !== 'idle') continue;
+    if (u.order.type !== 'idle' || truce) continue;
     let best: Building | null = null, bestScore = -Infinity;
     for (const b of targets) {
       const t = apparentType(b, p);

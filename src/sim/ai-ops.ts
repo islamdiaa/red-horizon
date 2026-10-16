@@ -10,6 +10,7 @@ import { pickWeapon } from './combat';
 import { TICK_HZ } from './types';
 import { trait } from './ai-personality';
 import type { AIController } from './ai';
+import { ceasefireActive } from './ceasefire';
 
 // ---------------------------------------------------------------------------
 // Scouting
@@ -344,8 +345,8 @@ export function harass(ai: AIController) {
     }
     return;
   }
-  // a new raid?
-  if (!ai.tune.harassOn || ai.d.skill < 0.55 || pers.harass < 0.15 || w.time < 240) return;
+  // a new raid? (never during the build-up time)
+  if (!ai.tune.harassOn || ai.d.skill < 0.55 || pers.harass < 0.15 || w.time < 240 || ceasefireActive(w)) return;
   const every = (ai.tune.harassEvery * trait(pers.harass, 2.5, 0.45)) / ai.d.skill;
   if (w.tick - ai.lastRaid < every * TICK_HZ) return;
   const target = raidTarget(ai, bx, by);

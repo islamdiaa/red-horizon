@@ -21,6 +21,7 @@ import { initBridges, orderRepairBridge, type Bridge } from './bridges';
 import { aftermathDeploy, aftermathKilled, aftermathStepUnit, chronoJump } from './aftermath'; // [CONTENT]
 import { formationMove, newCtrlState, type CtrlState } from './formation'; // [CTRL]
 import { ordersCommand, ordersPreTick } from './orders'; // [CTRL]
+import { CEASEFIRE_WARNING } from './ceasefire';
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -64,6 +65,11 @@ export interface WorldOptions {
   creditsPer?: (number | undefined)[];
   fog: boolean;
   seed: number;
+  /**
+   * Skirmish build-up time (ceasefire.ts): tick at which the ceasefire ends, CEASEFIRE_UNLIMITED (-1) for the
+   * whole match, 0 / undefined = none.
+   */
+  ceasefireUntil?: number;
 }
 
 /** Spatial hash of units per map cell (rebuilt every tick). */
@@ -139,6 +145,8 @@ export class World {
   mission: MissionRuntime | null = null;
   /** [CTRL] Formations in transit (formation.ts); saved. */
   ctrl: CtrlState = newCtrlState();
+  /** Build-up time (ceasefire.ts): end tick, -1 = unlimited, 0 = none; saved. */
+  ceasefireUntil = 0;
   private nextId = 1;
   /** Projectile ids (their own namespace; renderers key effects by them). */
   nextProjectileId = 1;
@@ -159,6 +167,7 @@ export class World {
     this.pathfinder = new PathFinder(this.map);
     this.grid = new UnitGrid(this.map.w, this.map.h);
     this.fog = opts.fog;
+    this.ceasefireUntil = opts.ceasefireUntil ?? 0;
     initBridges(this);
     const cells = this.map.w * this.map.h;
     opts.players.forEach((ps, i) => {
@@ -1066,6 +1075,7 @@ export class World {
   // ---------------------------------------------------------------------------
   step() {
     this.tick++;
+    if (this.ceasefireUntil > 0) this.ceasefireNews();
     for (const c of this.commands.splice(0)) this.processCommand(c);
 
     for (const u of this.units) { u.prevX = u.x; u.prevY = u.y; u.prevHeading = u.heading; u.prevTurret = u.turret; }
@@ -1109,6 +1119,13 @@ export class World {
     if (this.tick % TICK_HZ === 0) this.checkVictory();
     if (this.cratesEnabled) this.updateCrates();
     this.mission?.tick();
+  }
+
+  /** Timed build-up: the one-minute warning and the end of the ceasefire, announced to the humans. */
+  private ceasefireNews() {
+    const left = this.ceasefireUntil - this.tick;
+    const key: AnnouncerKey | null = left === CEASEFIRE_WARNING * TICK_HZ ? 'ceasefire_warning' : left === 0 ? 'ceasefire_over' : null;
+    if (key) for (const p of this.players) if (p.isHuman && !p.defeated) this.announce(p, key, 0);
   }
 
   private stepUnit(u: Unit) {

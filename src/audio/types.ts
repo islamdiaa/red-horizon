@@ -32,7 +32,8 @@ export type AnnouncerKey =
   | 'building_infiltrated' | 'credits_stolen' | 'sub_detected' | 'bridge_destroyed' | 'bridge_repaired'
   | 'enemy_aircraft' | 'naval_unit_lost'
   | 'radar_jammed' | 'mine_detected' | 'paratroopers_inbound' | 'spy_detected' | 'mines_laid'
-  | 'mad_tank_deployed' | 'chrono_tank_charged';
+  | 'mad_tank_deployed' | 'chrono_tank_charged'
+  | 'ceasefire_warning' | 'ceasefire_over';
 
 export type VoiceKind = 'infantry' | 'vehicle' | 'dog' | 'tanya' | 'engineer' | 'medic' | 'harvester' | 'aircraft' | 'naval' | 'spy' | 'mechanic' | 'shock';
 export type ResponseKind = 'select' | 'move' | 'attack';

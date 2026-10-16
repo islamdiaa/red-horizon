@@ -57,7 +57,7 @@ export class ReplayRecorder {
 
   toData(): ReplayData {
     const g = this.game, w = g.world;
-    const { load: _l, replay: _r, quality: _q, ...setup } = g.setup;
+    const { load: _l, replay: _r, quality: _q, ...setup } = g.setup; // (incl. setup.ceasefire: playback rebuilds the build-up time from it)
     const def = setup.customMap ?? (setup.mapId ? getMapDef(setup.mapId) : undefined); // [EDIT] custom maps travel in the setup
     const code = mapCodeForSetup(setup);
     const local = g.local;

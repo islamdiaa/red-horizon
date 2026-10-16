@@ -16,6 +16,7 @@ import { updateLayMines } from './mines';
 import { updateRepairBridge } from './bridges';
 import { formationSteer } from './formation'; // [CTRL]
 import { ordersUnitStep, updateCtrlOrder } from './orders'; // [CTRL]
+import { mayAutoEngage } from './ceasefire';
 
 const LEASH = 5;
 
@@ -512,6 +513,7 @@ function crush(world: World, u: Unit) {
   world.grid.query(u.x, u.y, 0.6, (o) => {
     if (!o.alive || !o.ut.crushable || !u.owner.isEnemy(o.owner) || !crushableNow(o)) return;
     if (Math.hypot(o.x - u.x, o.y - u.y) < u.ut.radius * 0.75) {
+      if (!mayAutoEngage(world, u, o)) return; // build-up time: AI drivers don't run over infantry outside their base
       world.sfx('crush', o.x, o.y);
       world.kill(o, 'crushed', u);
     }
@@ -520,7 +522,7 @@ function crush(world: World, u: Unit) {
 
 /** Paratroopers still in the air can't be run over; enemy drivers take a disguised spy for one of their own (RA). */
 const crushableNow = (o: Unit) => o.parachute <= 0 && !(o.ut.spy && o.disguise >= 0);
-const runsOver = (a: Unit, b: Unit) => a.moving && a.ut.crusher && b.ut.crushable && a.owner.isEnemy(b.owner) && crushableNow(b);
+const runsOver = (world: World, a: Unit, b: Unit) => a.moving && a.ut.crusher && b.ut.crushable && a.owner.isEnemy(b.owner) && crushableNow(b) && mayAutoEngage(world, a, b);
 
 /** Push overlapping ground units apart. Idle units make way for moving ones. */
 export function resolveCollisions(world: World) {
@@ -534,7 +536,7 @@ export function resolveCollisions(world: World) {
       let d2 = dx * dx + dy * dy;
       if (d2 >= minD * minD) return;
       // a moving tank rolls over enemy infantry instead of shoving them aside (crush() does the rest)
-      if (runsOver(u, o) || runsOver(o, u)) return;
+      if (runsOver(world, u, o) || runsOver(world, o, u)) return;
       if (d2 < 1e-6) { dx = ((u.id * 7) % 11) / 11 - 0.5; dy = ((o.id * 5) % 13) / 13 - 0.5; d2 = dx * dx + dy * dy; }
       const d = Math.sqrt(d2);
       const overlap = minD - d;

@@ -18,6 +18,7 @@ import type { World } from './world';
 import type { AIDifficulty } from './ai';
 import type { AIIntel } from './ai-intel';
 import { trait, type Personality } from './ai-personality';
+import { ceasefireActive, hostileTo, inHomeArea } from './ceasefire';
 
 /** What the naval AI reads from its AIController (optional: missions' scripted use and tests may omit it). */
 export interface NavalAIView {
@@ -341,8 +342,10 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
   const fit = idle.filter((u) => u.healthFrac >= 0.45);
 
   // --- defend home waters: every ship not already fighting turns on intruders
-  const intruder = nearest(visibleEnemy.filter((u) => Math.hypot(u.x - bx, u.y - by) < HOME_R + 8 ||
-    (home && Math.hypot(u.x - home.x, u.y - home.y) < 12)), bx, by);
+  // (build-up time: only ships inside the base area or shooting at us count; the rest are left in peace)
+  const truce = ceasefireActive(world);
+  const intruder = nearest(visibleEnemy.filter((u) => (Math.hypot(u.x - bx, u.y - by) < HOME_R + 8 ||
+    (home && Math.hypot(u.x - home.x, u.y - home.y) < 12)) && (!truce || hostileTo(world, p, u) || inHomeArea(world, p, u.x, u.y))), bx, by);
   if (intruder) {
     const ids = ships.filter((u) => u.order.type !== 'attack' && pickWeapon(u, intruder)).map((u) => u.id);
     if (ids.length) world.issue({ c: 'move', player: p.id, units: ids, x: intruder.x, y: intruder.y, attackMove: true });

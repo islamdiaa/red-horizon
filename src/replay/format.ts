@@ -18,7 +18,11 @@ export const HASH_EVERY = 200;
 /** Replays kept in storage (oldest are pruned; [MODES] whole trees of branches are kept or pruned together). */
 export const MAX_REPLAYS = 16;
 
-/** Everything the Game constructor needs to rebuild the match (minus per-device options). */
+/**
+ * Everything the Game constructor needs to rebuild the match (minus per-device options). Includes the skirmish
+ * options that change the simulation, e.g. `ceasefire` (build-up time, sim/ceasefire.ts): replays recorded before
+ * it existed have no such field and replay without a ceasefire, as they were played.
+ */
 export type ReplaySetup = Omit<GameSetup, 'load' | 'replay' | 'quality'>;
 
 export interface ReplayPlayer {

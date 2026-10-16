@@ -14,6 +14,7 @@ import { MissionRuntime } from '../sim/mission';
 import type { Player } from '../sim/player';
 import { deserializeWorld } from '../sim/save';
 import { World, type PlayerSetup } from '../sim/world';
+import { ceasefireForSetup } from '../sim/ceasefire';
 import { applyRoster, attachModeRuntime, prepareModeSetup, startModes } from './runtime';
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d, 0xe07b2a, 0x8e4fd0, 0x2aa8a8, 0x9aa0aa];
@@ -65,6 +66,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
     startUnitsPer: def ? def.players.map((_, i) => (i === 0 ? def.startUnits ?? 'none' : 'none')) : undefined,
     creditsPer: def ? def.players.map((ps, i) => (i === 0 ? def.credits : ps.credits ?? 5000)) : undefined,
     fog: setup.fog, seed: setup.seed,
+    ceasefireUntil: ceasefireForSetup(setup, !!def),
   });
   let local = world.players[0];
   attachModeRuntime(world, setup, !!def);

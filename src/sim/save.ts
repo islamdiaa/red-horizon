@@ -92,6 +92,7 @@ export function serializeWorld(w: World): Json {
   return {
     tick: w.tick, rng: (w.rng as any).s, nextId: W.nextId, nextProjectileId: w.nextProjectileId, fog: w.fog, gameOver: w.gameOver, winnerTeam: w.winnerTeam,
     crateTimer: W.crateTimer, crates: w.crates, cratesEnabled: w.cratesEnabled,
+    ceasefireUntil: w.ceasefireUntil, // build-up time (ceasefire.ts)
     bridges: w.bridges.map((b) => ({ id: b.id, hp: b.hp, alive: b.alive })),
     ctrl: w.ctrl, // [CTRL] formations in transit
     pathQueue: W.pathQueue.map((u: Unit) => u.id),
@@ -186,6 +187,8 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   W.crateTimer = s.crateTimer;
   w.crates = s.crates;
   w.cratesEnabled = s.cratesEnabled;
+  // (saves from before the build-up option have no ceasefire)
+  w.ceasefireUntil = typeof s.ceasefireUntil === 'number' ? s.ceasefireUntil : 0;
   // bridges (the map's list comes from the regenerated map; only their state is saved)
   m.bridgeAt.fill(0);
   for (const bs of (s.bridges ?? []) as Json[]) {

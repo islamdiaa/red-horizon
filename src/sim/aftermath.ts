@@ -39,6 +39,7 @@ import { seaInfo } from './ai-naval';
 import type { Player } from './player';
 import { DT, TICK_HZ } from './types';
 import type { DeathHow, World } from './world';
+import { ceasefireActive } from './ceasefire';
 
 // ---------------------------------------------------------------------------
 // Tuning (RA values where the source / AFTRMATH.INI give them)
@@ -420,6 +421,8 @@ interface AIView {
   stage?: string;
   wave?: Set<number>;
   baseCenter(): [number, number];
+  /** Build-up time: the army is as big as it gets until the ceasefire ends (ai.ts). */
+  atBuildupCap?(): boolean;
 }
 
 /** AIController.think hook (full AI behaviour only): build the Aftermath units and use the special ones. */
@@ -431,16 +434,19 @@ export function aftermathAI(ai: unknown) {
   const w = v.world;
   let mine: Unit[] | null = null;
   const own = () => (mine ??= w.units.filter((u) => u.alive && u.owner === p));
-  if (due(5) && !w.mission && w.time > AM_AFTER) production(v, own());
+  if (due(5) && !w.mission && w.time > AM_AFTER && !v.atBuildupCap?.()) production(v, own());
   if (!due(1)) return;
   const units = own();
+  // build-up time: siege units, chrono hops and missile subs hold (escape jumps and mechanics carry on)
+  const truce = ceasefireActive(w);
   for (const u of units) {
+    if (truce && (u.ut.quake || u.ut.demolition)) continue;
     if (u.ut.quake) aiMad(v, u);
     else if (u.ut.demolition) aiDemo(v, u);
     else if (u.ut.chronoShift && due(2)) aiChrono(v, u);
     else if (u.ut.medic && u.ut.primary === 'GoodWrench' && due(3)) aiMechanic(v, u, units);
   }
-  if (due(3)) aiMissileSubs(v, units);
+  if (due(3) && !truce) aiMissileSubs(v, units);
 }
 
 function queuedCount(p: Player, type: string): number {
@@ -586,7 +592,7 @@ function aiChrono(v: AIView, u: Unit) {
     if (chronoTarget(w, p, x, y)) w.issue({ c: 'chronoJump', player: p.id, unit: u.id, x, y });
     return;
   }
-  if (!assaulting(v) || u.healthFrac < 0.6) return;
+  if (!assaulting(v) || u.healthFrac < 0.6 || ceasefireActive(w)) return;
   // a flanking hop onto a weakly defended valuable structure near the fight (not a lone dive across the map)
   let best: Building | null = null, bestScore = 0;
   for (const b of enemyStructures(v)) {

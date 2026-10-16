@@ -120,7 +120,7 @@ that matter:
 
 | Mode | |
 |---|---|
-| **Skirmish** | Up to 3 AI opponents on four difficulties, on generated or hand-made maps. Climates: temperate, winter and desert, with land or sea terrain. Optional King of the Hill. |
+| **Skirmish** | Up to 3 AI opponents on four difficulties, on generated or hand-made maps. Climates: temperate, winter and desert, with land or sea terrain. Optional King of the Hill, or a build-up time: a ceasefire of 5 to 30 minutes (or unlimited) during which the AI builds up and only defends. |
 | **Campaigns** | 7 Allied and 7 Soviet missions, each with a briefing, primary and optional objectives, radio transmissions and scripted set pieces. Each mission awards up to three stars. |
 | **Boot Camp** | An interactive tutorial in nine drills. |
 | **Special operations** | *Wolfpack* (submarines against an Arctic convoy) and *Iron Coast* (escort a cruiser). Survival in three climates, alone or with one or two AI teammates. |
@@ -252,6 +252,7 @@ statistics. The game autosaves, and you can save manually at any time.
 | Arrows, screen edge, middle/right drag · wheel | Scroll · zoom |
 | Q · , · . · Backspace | Rotate camera · reset to north |
 | F · U · hold Alt | Follow the selection · photo mode · show all health bars |
+| `[` · `]` | Game speed down · up (×1, ×2, ×3, ×5) |
 | Alt+Enter · Esc | Fullscreen on/off · cancel or pause menu |
 | Sidebar | Left click: build (Shift: ×5) or place · right click: hold / cancel · Shift+place: plan several structures |
 | Touch | Tap: select or command · drag: pan · hold then drag: box select · hold: order menu · pinch: zoom · twist: rotate |
@@ -407,6 +408,7 @@ These parameters jump straight into a situation, which is handy for development 
 | `map=<id>`, `mapcode=<code>` | A curated map, a shared generated map |
 | `replay=<id>\|latest`, `view=<n>\|obs`, `seek=<s>`, `take=<player>` | Watch a replay, take command at a moment |
 | `koth=1&kothmin=N`, `challenge=<id>` | King of the Hill, a saved challenge |
+| `ceasefire=<minutes>\|inf` | Build-up time: the AI only defends for that long (or for the whole match) |
 | `conquest=assault\|capture\|hold\|defend\|naval\|boss\|ui` | A Conquest battle type or the Conquest map |
 
 The asset preview pages are `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`

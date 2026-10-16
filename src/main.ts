@@ -348,7 +348,7 @@ if (params.get('autostart') && params.get('conquest')) {
     deployConquest(setup);
   });
 } else if (params.get('autostart')) {
-  // Testing shortcut: ?autostart=1&faction=soviet&ai=hard&size=64&fog=0&tod=dusk&units=heavy
+  // Testing shortcut: ?autostart=1&faction=soviet&ai=hard&size=64&fog=0&tod=dusk&units=heavy&ceasefire=<minutes>|inf
   // [D] plus map=<curated id> · mapcode=<code> · replay=<id>|latest (resolveTestSetup)
   void resolveTestSetup(params, {
     faction: (params.get('faction') as Faction) ?? 'allies',
@@ -358,6 +358,7 @@ if (params.get('autostart') && params.get('conquest')) {
     startUnits: (params.get('units') as any) ?? 'light', fog: params.get('fog') !== '0', timeOfDay: (params.get('tod') as TimeOfDay) ?? 'day',
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: numParam('seed', 1234, 0, 0x7fffffff) | 0,
     dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate', mission: params.get('mission') ?? undefined,
+    ceasefire: params.get('ceasefire') === 'inf' ? -1 : numParam('ceasefire', 0, 0, 600) || undefined, // build-up time
   }).then(startGame);
 } else {
   setLoading(0.5, 'Loading');

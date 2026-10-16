@@ -113,6 +113,8 @@ export function attachModeRuntime(world: World, setup: GameSetup, isMission: boo
 /** After the world (and any save) is loaded: hand the chosen player to the human and start fresh modes. Idempotent for resumed saves. */
 export function startModes(world: World, setup: GameSetup): Player {
   const local = localIndex(setup);
+  // (challenges never have the skirmish build-up time, even when their moment came from a match that had one)
+  if (setup.challenge) world.ceasefireUntil = 0;
   if (isWhatIf(setup)) {
     // players that were human in the source are now played by their AI (with that difficulty's economy)
     for (const ai of world.ais) if (ai.player.isHuman) ai.setMode(ai.difficulty);

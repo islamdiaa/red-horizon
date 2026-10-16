@@ -293,7 +293,8 @@ export function attachRivals(game: GameLike): { dispose(): void } {
   // rival opponents: setup.opponents[i] is player i + 1
   const rivals = game.setup.opponents.map((o, i) => (o.rival ? { ref: o.rival, player: w.players[i + 1] } : null)).filter((x): x is { ref: RivalRef; player: Player } => !!x && !!x.player);
   const playerName = loadProfile().name || 'Commander';
-  const hab: MatchHabits = { built: {}, infantry: 0, armour: 0, artillery: 0, air: 0, naval: 0, defenceValue: 0, structureValue: 0, rushMinute: -1, superweapons: 0, subterfuge: 0 };
+  // (with a build-up time the first strike says nothing about the player's habits: -2 = not measured)
+  const hab: MatchHabits = { built: {}, infantry: 0, armour: 0, artillery: 0, air: 0, naval: 0, defenceValue: 0, structureValue: 0, rushMinute: w.ceasefireUntil ? -2 : -1, superweapons: 0, subterfuge: 0 };
   const seenUnits = new Set<number>();
   const seenBld = new Set<number>();
   for (const u of w.units) seenUnits.add(u.id); // the starting kit is no choice
@@ -348,7 +349,7 @@ export function attachRivals(game: GameLike): { dispose(): void } {
       if (DEFENCE.has(b.bt.id) || (b.weapons.length && !b.bt.factory)) hab.defenceValue += b.bt.cost;
     }
     // first strike on an enemy structure
-    if (hab.rushMinute < 0) {
+    if (hab.rushMinute === -1) {
       for (const b of w.buildings) {
         if (!b.alive || !me.isEnemy(b.owner) || w.tick - b.lastDamagedTick > 12) continue;
         const a = w.entities.get(b.lastAttacker);

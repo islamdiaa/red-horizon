@@ -9,6 +9,7 @@ import { DT } from './types';
 import type { World } from './world';
 import { initNavalProjectile, navalImpactOk, navalReadyToFire, navalSplash, navalWeaponOk, stepTorpedo } from './naval';
 import { autoTargetable } from './stealth';
+import { ceasefireActive, mayAutoEngage } from './ceasefire';
 import { damageBridgeAt, damageBridgesInRadius } from './bridges';
 import { focusBias } from './orders'; // [CTRL]
 import { healable } from './aftermath'; // [CONTENT]
@@ -120,11 +121,13 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
   let best: Entity | null = null;
   let bestScore = Infinity;
   const owner = e.owner;
+  const truce = !owner.isHuman && ceasefireActive(world); // build-up time: the AI only engages intruders and attackers
   world.grid.query(e.x, e.y, range + 1, (u) => {
     if (!u.alive || u.hp <= 0 || !owner.isEnemy(u.owner)) return;
     const d = Math.hypot(u.x - e.x, u.y - e.y);
     if (d > range) return;
     if (!world.canSee(owner, u) || !autoTargetable(e, u)) return;
+    if (truce && !mayAutoEngage(world, e, u)) return;
     const slot = pickWeapon(e, u);
     if (!slot) return;
     let score = d;
@@ -143,6 +146,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     if (d > buildingRange) continue;
     if (!pickWeapon(e, b)) continue;
     if (!world.canSee(owner, b)) continue;
+    if (truce && !mayAutoEngage(world, e, b)) continue;
     const score = d + (b.weapons.length ? 0.5 : 4);
     if (score < bestScore) { bestScore = score; best = b; }
   }

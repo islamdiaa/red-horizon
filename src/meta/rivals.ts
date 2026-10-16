@@ -61,7 +61,7 @@ export interface MatchHabits {
   naval: number;
   defenceValue: number;
   structureValue: number;
-  /** Minutes until the player first damaged an enemy structure (-1 = never). */
+  /** Minutes until the player first damaged an enemy structure (-1 = never, -2 = not measured: build-up time). */
   rushMinute: number;
   superweapons: number;
   subterfuge: number;
@@ -468,7 +468,8 @@ function emaHabits(h: Habits, m: MatchHabits): Habits {
   return {
     games: h.games + 1, infantry: e(h.infantry, m.infantry / total), armour: e(h.armour, m.armour / total), artillery: e(h.artillery, m.artillery / total),
     air: e(h.air, m.air / total), naval: e(h.naval, m.naval / total), defence: e(h.defence, m.defenceValue / Math.max(1, m.structureValue)),
-    rushMinute: m.rushMinute >= 0 ? e(h.rushMinute, m.rushMinute) : e(h.rushMinute, Math.max(h.rushMinute, 15)),
+    // (-2: a match with a build-up time, where the first strike tells nothing; -1: the player never struck)
+    rushMinute: m.rushMinute >= 0 ? e(h.rushMinute, m.rushMinute) : m.rushMinute === -2 ? h.rushMinute : e(h.rushMinute, Math.max(h.rushMinute, 15)),
     superweapons: e(h.superweapons, m.superweapons), subterfuge: e(h.subterfuge, m.subterfuge), units,
   };
 }

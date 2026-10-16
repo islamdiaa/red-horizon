@@ -14,6 +14,7 @@ import { AIIntel } from './ai-intel';
 import { bestFitness, counterWeights } from './ai-counter';
 import { DEFAULT_TUNING, resolvePersonality, trait, type AITuning, type Personality } from './ai-personality';
 import { expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
+import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
@@ -65,6 +66,19 @@ const GOALS: Record<Faction, [string, number][]> = {
 
 /** The first attack wave commits at most this multiple of the difficulty's wave value. */
 const FIRST_WAVE_CAP = 1.3;
+
+/**
+ * Build-up time (skirmish ceasefire, ceasefire.ts). `cap`: the army value (credits) an AI grows to while the
+ * ceasefire holds; land unit production pauses there (harvesters, structures and defences go on), so an unlimited
+ * ceasefire doesn't build forever. `commit`: the share of the army (by value) the first wave after a timed
+ * ceasefire throws at the enemy; the rest stays home. `min`: the smallest army that still opens with that wave.
+ */
+export const BUILDUP: Record<AIDifficulty, { cap: number; commit: number; min: number }> = {
+  easy: { cap: 14000, commit: 0.6, min: 2400 },
+  normal: { cap: 22000, commit: 0.75, min: 3000 },
+  hard: { cap: 30000, commit: 0.85, min: 3500 },
+  brutal: { cap: 40000, commit: 0.9, min: 3500 },
+};
 
 export const DEFENSES = new Set(['gun', 'pbox', 'hbox', 'ftur', 'tsla']);
 export const AIR_DEFENSE = new Set(['agun', 'sam']);
@@ -189,6 +203,29 @@ export class AIController {
     return !this.world.mission;
   }
 
+  /** Build-up time (ceasefire.ts): no offensive action of any kind, only building and defending. */
+  get ceasefire(): boolean {
+    return ceasefireActive(this.world);
+  }
+
+  /** The first wave after a timed ceasefire: everything built up goes in at once (normal play after it). */
+  get grandWave(): boolean {
+    const end = this.world.ceasefireUntil;
+    return end > 0 && this.world.tick >= end && this.waves === 0;
+  }
+
+  /** Army value (credits) of the land army: what the build-up cap and the grand wave are measured in. */
+  armyValue(units: Unit[] = this.myUnits()): number {
+    let v = 0;
+    for (const u of units) if (u.weapons.length && !u.ut.harvester && !u.ut.deploysInto && !u.ut.medic && u.kind !== 'aircraft' && u.kind !== 'naval' && !aiManaged(u)) v += u.ut.cost;
+    return v;
+  }
+
+  /** During the ceasefire: the army has reached its build-up size for this difficulty (land production pauses). */
+  atBuildupCap(units?: Unit[]): boolean {
+    return this.ceasefire && this.armyValue(units) >= BUILDUP[this.difficulty].cap;
+  }
+
   think() {
     this.thinks++;
     const p = this.p;
@@ -206,7 +243,7 @@ export class AIController {
     this.planStructures();
     this.planUnits();
     this.repairBase();
-    aiNavalThink(this.world, this.p, this.thinks, this.difficulty, this.behaviour !== 'full', this);
+    aiNavalThink(this.world, this.p, this.thinks, this.difficulty, this.behaviour !== 'full' || this.ceasefire, this); // (ceasefire: home waters only)
     if (this.behaviour === 'defensive') { this.defendOnly(); return; }
     if (this.skirmish) {
       scouting(this);
@@ -481,6 +518,8 @@ export class AIController {
     if (p.credits < reserve && !underThreat) return;
     // an expansion MCV in the queue goes first
     if (this.expansion?.stage === 'build' && vq.items.some((i) => i.type === 'mcv')) return;
+    // build-up time: the army grows to its cap for this difficulty, then the money goes into the base
+    if (this.atBuildupCap(units)) return;
     const inf = units.filter((u) => u.kind === 'infantry').length;
     const veh = units.filter((u) => u.kind === 'vehicle' && !u.ut.harvester && !u.ut.deploysInto).length;
     const canVeh = p.has('weap');
@@ -496,7 +535,8 @@ export class AIController {
       const t = this.pick(mix);
       if (t) this.world.issue({ c: 'build', player: p.id, type: t, count: t === 'e1' ? 2 : 1 });
     }
-    if (!vq.items.length && p.credits > reserve + 500) {
+    // (build-up time: the army comes first, so a vehicle starts as soon as the reserve is covered)
+    if (!vq.items.length && p.credits > reserve + (this.ceasefire ? 0 : 500)) {
       const t = this.pick(this.mix(VEH_MIX[p.faction]));
       if (t) this.world.issue({ c: 'build', player: p.id, type: t });
     }
@@ -615,7 +655,7 @@ export class AIController {
   /** Aircraft strike harvesters, defences and soft targets when fully armed. */
   private airStrikes() {
     const w = this.world;
-    if (!this.due(TICK_HZ * 4)) return;
+    if (!this.due(TICK_HZ * 4) || this.ceasefire) return; // (build-up time: aircraft wait on their pads)
     // idle and fully armed: landed on the pad or hovering at its post
     const ready = this.myUnits().filter((u) => u.kind === 'aircraft' && u.order.type === 'idle' && u.ammo >= (u.ut.ammo ?? 1) && !u.ut.passengers);
     if (ready.length < (this.personality.air > 0.8 ? 1 : 2)) return;
@@ -659,19 +699,31 @@ export class AIController {
     }
     // (an intruder still being dealt with does not stop the rest of the war: waves keep going, as in the classic AI)
     if (threat) return false;
-    // outlying structures (expansions, forward refineries) and harvesters under attack (normal and up)
-    if (!this.tune.outlyingOn || !this.skirmish || this.d.skill < 0.5 || !this.due(TICK_HZ * 2) || w.tick - this.lastDefend < TICK_HZ * 4) return false;
+    // build-up time: with no counter-attack allowed, whoever shoots into the base from outside it gets an answer
+    // (a scout that wandered into the enemy's base and is shot at there fends for itself)
     let spot: [number, number] | null = null;
-    for (const b of w.buildings) {
-      if (!b.alive || b.owner !== p || b.bt.wall || b.bt.mine || Math.hypot(b.x - bx, b.y - by) < 11) continue;
-      for (const u of w.units) if (relevant(u) && b.distTo(u.x, u.y) < 6) { spot = [u.x, u.y]; break; }
-      if (spot) break;
+    if (this.ceasefire && this.due(TICK_HZ * 2) && w.tick - this.lastDefend >= TICK_HZ * 4) {
+      for (const u of w.units) {
+        if (!relevant(u) || Math.hypot(u.x - bx, u.y - by) >= 36) continue;
+        const v = hostileTarget(w, p, u);
+        if (v && inHomeArea(w, p, v.x, v.y)) { spot = [u.x, u.y]; break; }
+      }
     }
+    const reach = spot ? 40 : 24;
     if (!spot) {
-      for (const h of w.units) {
-        if (!h.alive || h.owner !== p || !h.ut.harvester || w.tick - h.lastDamagedTick > TICK_HZ * 3) continue;
-        const a = w.entities.get(h.lastAttacker);
-        if (a instanceof Unit && relevant(a) && Math.hypot(a.x - h.x, a.y - h.y) < 9) { spot = [a.x, a.y]; break; }
+      // outlying structures (expansions, forward refineries) and harvesters under attack (normal and up)
+      if (!this.tune.outlyingOn || !this.skirmish || this.d.skill < 0.5 || !this.due(TICK_HZ * 2) || w.tick - this.lastDefend < TICK_HZ * 4) return false;
+      for (const b of w.buildings) {
+        if (!b.alive || b.owner !== p || b.bt.wall || b.bt.mine || Math.hypot(b.x - bx, b.y - by) < 11) continue;
+        for (const u of w.units) if (relevant(u) && b.distTo(u.x, u.y) < 6) { spot = [u.x, u.y]; break; }
+        if (spot) break;
+      }
+      if (!spot) {
+        for (const h of w.units) {
+          if (!h.alive || h.owner !== p || !h.ut.harvester || w.tick - h.lastDamagedTick > TICK_HZ * 3) continue;
+          const a = w.entities.get(h.lastAttacker);
+          if (a instanceof Unit && relevant(a) && Math.hypot(a.x - h.x, a.y - h.y) < 9) { spot = [a.x, a.y]; break; }
+        }
       }
     }
     if (!spot) return false;
@@ -686,7 +738,7 @@ export class AIController {
     let v = 0;
     for (const u of free) {
       if (v >= threatValue * 1.5 * this.d.reaction + 400 && ids.length >= 2) break;
-      if (Math.hypot(u.x - sx, u.y - sy) > 24) break;
+      if (Math.hypot(u.x - sx, u.y - sy) > reach) break;
       ids.push(u.id);
       v += u.ut.cost * u.healthFrac;
     }
@@ -730,6 +782,20 @@ export class AIController {
     if (this.state === 'build') {
       const idle = this.available().filter((u) => u.order.type === 'idle' || u.order.type === 'guard');
       const value = idle.reduce((s, u) => s + u.ut.cost, 0);
+      // build-up time: no waves, the army masses at home (a bigger army spreads over a wider staging area)
+      const gather = w.ceasefireUntil ? Math.max(6, Math.sqrt(idle.length) * 1.4) : 6;
+      if (this.ceasefire) {
+        if (this.due(TICK_HZ * 6)) {
+          const stray = idle.filter((u) => Math.hypot(u.x - gx, u.y - gy) > gather).map((u) => u.id);
+          if (stray.length) w.issue({ c: 'move', player: p.id, units: stray, x: gx, y: gy });
+        }
+        return;
+      }
+      // the ceasefire is over: the army built up goes in, whatever the clock or the scouts say
+      if (this.grandWave && value >= BUILDUP[this.difficulty].min) {
+        const target = this.pickAttackTarget();
+        if (target) { this.launchWave(idle, target, bx, by); return; }
+      }
       const need = this.nextWaveValue * this.tune.waveMul * trait(pers.aggression, 1.45, 0.62);
       // (normal and up) attack early when clearly stronger than the enemy army we have seen, hold when outmatched
       const smart = this.d.skill >= 0.6 && this.skirmish;
@@ -751,7 +817,7 @@ export class AIController {
         if (target && !tooWeak) this.launchWave(idle, target, bx, by);
       } else if (this.due(TICK_HZ * 6)) {
         // gather idle units at the rally point
-        const stray = idle.filter((u) => Math.hypot(u.x - gx, u.y - gy) > 6).map((u) => u.id);
+        const stray = idle.filter((u) => Math.hypot(u.x - gx, u.y - gy) > gather).map((u) => u.id);
         if (stray.length) w.issue({ c: 'move', player: p.id, units: stray, x: gx, y: gy });
       }
       return;
@@ -819,12 +885,25 @@ export class AIController {
   /** Commit idle units to an attack: stage outside the target, optionally split off a flanking group. */
   private launchWave(idle: Unit[], target: [number, number], bx: number, by: number) {
     const w = this.world, p = this.p;
+    const grand = this.grandWave;
     this.state = 'attack';
     // the first wave commits only about 1.3x the wave value (closest to the target first);
     // the rest stays home as defence. Later waves take every idle unit.
     let wave = idle;
-    // (skirmish only: campaign missions are balanced around their scripted openings)
-    if (this.nextWaveValue <= this.d.waveValue && !w.mission) {
+    if (grand) {
+      // after the build-up: the difficulty's share of the whole army, closest to the target first
+      const total = idle.reduce((s, u) => s + u.ut.cost, 0);
+      const cap = total * BUILDUP[this.difficulty].commit;
+      const byDist = idle.slice().sort((a, b) => Math.hypot(a.x - target[0], a.y - target[1]) - Math.hypot(b.x - target[0], b.y - target[1]) || a.id - b.id);
+      wave = [];
+      let sum = 0;
+      for (const u of byDist) {
+        if (sum >= cap) break;
+        wave.push(u);
+        sum += u.ut.cost;
+      }
+    } else if (this.nextWaveValue <= this.d.waveValue && !w.mission) {
+      // (skirmish only: campaign missions are balanced around their scripted openings)
       const cap = this.d.waveValue * FIRST_WAVE_CAP;
       const byDist = idle.slice().sort((a, b) => Math.hypot(a.x - target[0], a.y - target[1]) - Math.hypot(b.x - target[0], b.y - target[1]) || a.id - b.id);
       wave = [];
@@ -971,7 +1050,9 @@ export class AIController {
     const p = this.p;
     if (!this.d.superweapons || !this.due(TICK_HZ)) return;
     const timed = this.d.skill >= 0.6 && this.skirmish && !!this.tune.swTimingOn;
-    if (superReady(w, p, 'nuke')) {
+    // build-up time: nothing is launched at the enemy (a ready nuke waits for the end of the ceasefire)
+    const truce = this.ceasefire;
+    if (superReady(w, p, 'nuke') && !truce) {
       if (this.nukeSince < 0) this.nukeSince = w.tick;
       // the densest cluster of known enemy structures (near the wave's target while one is about to go in)
       const synced = this.state === 'attack' && this.stage === 'gather';
@@ -993,7 +1074,7 @@ export class AIController {
         }
       }
     }
-    if (superReady(w, p, 'ironcurtain') && this.state === 'attack' && (!timed || this.stage === 'assault')) {
+    if (superReady(w, p, 'ironcurtain') && this.state === 'attack' && (!timed || this.stage === 'assault') && !truce) {
       const tanks = this.waveUnits().filter((u) => u.kind === 'vehicle');
       if (tanks.length >= 3) {
         // the densest knot of tanks, once it is in the fight
@@ -1022,7 +1103,7 @@ export class AIController {
         return;
       }
       const assault = this.state === 'attack' && this.stage === 'assault';
-      if (!timed || assault || w.tick - this.chronoSince > TICK_HZ * 120) {
+      if (!truce && (!timed || assault || w.tick - this.chronoSince > TICK_HZ * 120)) {
         const tank = this.available().find((u) => u.kind === 'vehicle' && u.ut.id === '2tnk' && !this.wave.has(u.id) && u.healthFrac > 0.8)
           ?? this.army().find((u) => u.kind === 'vehicle' && u.ut.id === '2tnk');
         const t = assault ? this.stageTarget : this.pickAttackTarget();

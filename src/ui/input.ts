@@ -78,6 +78,8 @@ export interface InputHost {
   message(text: string, warn?: boolean): void;
   openPauseMenu(): void;
   paused: boolean;
+  /** Step the game speed up (+1) or down (-1) through GAME_SPEEDS. */
+  stepSpeed?(dir: 1 | -1): void;
 }
 
 const _ray = new THREE.Raycaster();
@@ -1113,6 +1115,9 @@ export class InputController {
         }
         document.body.classList.toggle('photo-mode');
         this.h.gfx.setPhotoMode?.(document.body.classList.contains('photo-mode')); // [FX] depth-of-field panel
+        break;
+      case '[': case ']':
+        if (!this.spectator) this.h.stepSpeed?.(k === ']' ? 1 : -1);
         break;
       case '+': case '=':
         this.h.gfx.cam.zoomBy(-300);

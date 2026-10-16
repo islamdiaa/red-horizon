@@ -59,6 +59,8 @@ export const ANNOUNCER_TEXT: Record<AnnouncerKey, string> = {
   mines_laid: 'Mines laid.',
   mad_tank_deployed: 'M.A.D. Tank deployed.',
   chrono_tank_charged: 'Chrono tank charged.',
+  ceasefire_warning: 'Warning. Enemy forces are mobilising.',
+  ceasefire_over: 'The ceasefire is over.',
 };
 
 /** Minimum ms between two announcements of the same key. */
@@ -82,7 +84,7 @@ export const DEFAULT_THROTTLE = 4000;
 
 /** Higher priority announcements may displace lower ones from a full queue. */
 export const ANNOUNCER_PRIORITY: Partial<Record<AnnouncerKey, number>> = {
-  nuke_warning: 10, mission_accomplished: 9, mission_failed: 9, nuke_launched: 8, base_under_attack: 7,
+  nuke_warning: 10, mission_accomplished: 9, mission_failed: 9, nuke_launched: 8, ceasefire_over: 8, ceasefire_warning: 8, base_under_attack: 7,
   nuke_ready: 6, iron_curtain_ready: 6, chrono_ready: 6, harvester_under_attack: 5, structure_lost: 4,
   mission_start: 4, building_captured: 4, low_power: 3, construction_complete: 3, unit_ready: 3,
   unit_promoted: 2,
