@@ -348,6 +348,9 @@ export function setModelSnow(k: number): void {
   uRhSnow.value = Math.max(0, Math.min(1, k));
 }
 
+/** [HD] The clock and settled-snow uniforms shared by every body material (HD materials bind them too). */
+export const BODY_SHARED_UNIFORMS = { uBodyTime, uRhSnow };
+
 /** [STRUCT] Current settled-snow level (thumbnails render clean and restore it afterwards). */
 export function getModelSnow(): number {
   return uRhSnow.value;
@@ -382,6 +385,14 @@ export function setLitMaterialPatch(fn: ((m: THREE.MeshStandardMaterial) => void
   if (!fn) return;
   for (const m of bodyCache.values()) applyLitPatch(m);
   for (const m of trackMats ?? []) applyLitPatch(m);
+  for (const m of extraLit) applyLitPatch(m); // [HD]
+}
+
+/** [HD] Other lit model materials (HD models, hd.ts): patched like the body materials, now and later. */
+const extraLit = new Set<THREE.MeshStandardMaterial>();
+export function registerLitMaterial(m: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  extraLit.add(m);
+  return applyLitPatch(m);
 }
 
 function applyLitPatch(m: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {

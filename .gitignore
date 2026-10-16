@@ -28,3 +28,7 @@ coverage/
 # per-agent dev servers (copies of tools/vite.test.config.ts)
 tools/vite.*.config.ts
 !tools/vite.test.config.ts
+
+# [PIPE] Blender's Python bytecode for tools/assets/kit
+__pycache__/
+*.pyc

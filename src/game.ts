@@ -13,6 +13,8 @@ import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
 import { setModelDetail } from './render/models/builder'; // [STRUCT]
+import { hdModelsEnabled, hdReleaseAll, hdReleaseUploaded, hdRestoreTextures, hdTextures, onHdReady, setHdModels } from './render/models/hd'; // [HD] baked HD models
+import { hdModelsWanted, loadSettings } from './ui/settings'; // [HD]
 import { releaseGpuResources } from './render/gpuregistry';
 import { ShipWakes, type WakeShip } from './render/wakes';
 import { GapField, type GapSource } from './render/gapfield';
@@ -288,7 +290,7 @@ export class Game {
     this.gfx = new GameRenderer(this.canvas, map, { quality: setup.quality, timeOfDay: setup.timeOfDay, climate });
     this.contextWatch = watchContextLoss(this.canvas, {
       onLost: () => { this.pausedBeforeLoss = this.paused; this.paused = true; },
-      onRestored: () => { this.gfx.restoreAfterContextLoss(); this.paused = this.pausedBeforeLoss; this.last = performance.now(); },
+      onRestored: () => { this.gfx.restoreAfterContextLoss(); void hdRestoreTextures(); this.paused = this.pausedBeforeLoss; this.last = performance.now(); }, // [HD] re-decode the closed HD atlases
       onTimeout: () => { if (!this.setup.demo) this.save('auto'); }, // the overlay then offers a reload
     });
     this.gfx.fog.enabled = this.world.fog;
@@ -302,6 +304,7 @@ export class Game {
     this.effects.setSunDirection?.(this.gfx.sunDir);
     if (setup.quality === 'low') this.effects.setDensity?.(0.5);
     setModelDetail(setup.quality === 'low' ? 0 : setup.quality === 'medium' ? 1 : 2); // [STRUCT] model LOD reach / Low: light bodies + shader
+    setHdModels(hdModelsWanted(loadSettings(), setup.quality), setup.quality === 'high' ? 'high' : 'medium'); // [HD] memory tier; loaded on the loading screen (main.ts) and lazily per type
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
     this.ents.deckHeight = (x, y) => this.bridges.deckHeightAt(x, y);
     this.ents.weatherUniforms = this.gfx.weather.surfaceUniforms;
@@ -367,6 +370,13 @@ export class Game {
         return t.owner.includes(this.local.faction);
       });
       this.thumbs = renderThumbnails(ids, this.local.color, undefined, undefined, this.local.faction); // [STRUCT] faction dressing
+      // [HD] a type whose HD model arrives later (lazy loading) gets its portrait re-rendered
+      const own = new Set(ids);
+      const off = onHdReady((type) => {
+        if (!own.has(type)) return;
+        for (const [id, url] of renderThumbnails([type], this.local.color, undefined, undefined, this.local.faction)) this.thumbs.set(id, url);
+      });
+      this.attachments.push({ dispose: off });
       cb.onProgress?.(0.9, 'Establishing battle control');
       this.overlay = new Overlay(document.body);
       document.body.classList.toggle('faction-soviet', this.local.faction === 'soviet');
@@ -535,11 +545,36 @@ export class Game {
     try {
       const r = this.gfx.renderer;
       this.effects.prepareCompile(true); // pooled 3D effect bodies join the warm-up
+      for (const t of hdTextures()) r.initTexture(t); // [HD] upload the atlases now, not on first sight
       if (r.extensions.has('KHR_parallel_shader_compile')) void r.compileAsync(this.gfx.scene, this.gfx.cam.camera).catch(() => {});
       else r.compile(this.gfx.scene, this.gfx.cam.camera); // blocking, but on the loading screen rather than mid-battle
       this.effects.prepareCompile(false);
     } catch (e) {
       console.warn('shader precompile failed', e);
+    }
+    this.gfx.scene.remove(group);
+    for (const m of models) m.dispose();
+  }
+
+  /**
+   * [HD] Compile the HD body program and upload the HD atlases loaded after the constructor's warm-up (main.ts
+   * calls it once the battle's own types are loaded), so the first frame doesn't stall on them.
+   */
+  warmHd() {
+    if (!hdModelsEnabled()) return;
+    const group = new THREE.Group();
+    group.position.y = -60;
+    const color = new THREE.Color(this.local.color);
+    const models = listModelIds().flatMap((id) => { try { const m = createModel(id, color); return (m as { hd?: boolean }).hd ? [m] : (m.dispose(), []); } catch { return []; } });
+    for (const m of models) group.add(m.root);
+    this.gfx.scene.add(group);
+    try {
+      const r = this.gfx.renderer;
+      for (const t of hdTextures()) r.initTexture(t);
+      if (models.length) r.compile(this.gfx.scene, this.gfx.cam.camera);
+      hdReleaseUploaded(r, Infinity); // close the decoded bitmaps now that the GPU has them
+    } catch (e) {
+      console.warn('HD warm-up failed', e);
     }
     this.gfx.scene.remove(group);
     for (const m of models) m.dispose();
@@ -684,6 +719,7 @@ export class Game {
       }
     }
     this.gfx.render(dt, this.time);
+    hdReleaseUploaded(this.gfx.renderer); // [HD] upload new HD atlases and close their decoded bitmaps
     if (!this.setup.demo && !this.paused) this.gfx.adaptResolution(dt * 1000);
     if (this.overlay) this.overlay.draw(this.gfx.cam.camera, world, this.ents, this.local, this.selection, this.input?.hovered ?? 0, this.alpha, fdt);
     const rt = this.world.mission;
@@ -1053,6 +1089,7 @@ export class Game {
     this.effects.dispose?.();
     // shared/cached resources hold dispose listeners that would pin this renderer in memory forever
     releaseGpuResources();
+    hdReleaseAll(); // [HD] the next battle re-decodes from the cached GLB bytes (its own renderer, maybe another tier)
     this.gfx.dispose();
     this.gfx.renderer.forceContextLoss();
     this.overlay?.dispose();

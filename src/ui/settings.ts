@@ -15,6 +15,19 @@ export interface Settings {
   fullscreen?: boolean;
   /** [HUD] In-battle interface: 'modern' (bottom build bar, corner panels; the default) or 'classic' (right-hand sidebar). */
   hudLayout?: HudLayout;
+  /** [HD] Model detail: baked 'hd' models or the procedural 'standard' ones (unset: HD on High / Medium, Standard on Low). */
+  modelDetail?: ModelDetail;
+}
+
+/** [HD] Model detail setting. */
+export type ModelDetail = 'hd' | 'standard';
+/** [HD] The model detail in effect for a quality preset (the player's choice, else HD unless Low). */
+export const modelDetailOf = (s: Settings, quality: Quality = s.quality): ModelDetail => s.modelDetail ?? (quality === 'low' ? 'standard' : 'hd');
+/** [HD] Use the baked HD models for a match at this quality (URL ?hd=0 / ?hd=1 overrides, for tests). */
+export function hdModelsWanted(s: Settings, quality: Quality): boolean {
+  const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('hd') : null;
+  if (q === '0' || q === '1') return q === '1';
+  return modelDetailOf(s, quality) === 'hd';
 }
 
 /** [HUD] In-battle interface layout. */

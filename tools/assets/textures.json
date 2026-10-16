@@ -1,0 +1,264 @@
+{
+  "source": "Poly Haven (CC0)",
+  "textures": [
+    {
+      "id": "concrete_wall_008",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_wall_008/concrete_wall_008_diff_1k.jpg",
+          "md5": "6a0f87fbfea261d797661c47e05b25ad",
+          "size": 623051
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_wall_008/concrete_wall_008_nor_gl_1k.jpg",
+          "md5": "ea22029834a78f549981196b3263aa78",
+          "size": 511519
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_wall_008/concrete_wall_008_arm_1k.jpg",
+          "md5": "bebc69f0c73d251023abb9cb57545165",
+          "size": 667023
+        }
+      }
+    },
+    {
+      "id": "container_side",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/container_side/container_side_diff_1k.jpg",
+          "md5": "af4c3140ca86cfba8bbe4d8bf85c5064",
+          "size": 667470
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/container_side/container_side_nor_gl_1k.jpg",
+          "md5": "4162f65b9d8661fea8a57b43ce0b3963",
+          "size": 538519
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/container_side/container_side_arm_1k.jpg",
+          "md5": "5ae1b41abc50bc7e13782e13c6ce2100",
+          "size": 387982
+        }
+      }
+    },
+    {
+      "id": "corrugated_iron_02",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/corrugated_iron_02/corrugated_iron_02_diff_1k.jpg",
+          "md5": "0437ba7acc3a60e9a00245580ae7e10b",
+          "size": 568492
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/corrugated_iron_02/corrugated_iron_02_nor_gl_1k.jpg",
+          "md5": "e3a9b41f29a5dee9f0835bddb440efbd",
+          "size": 489773
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/corrugated_iron_02/corrugated_iron_02_arm_1k.jpg",
+          "md5": "58d9a11932fae9f85d4cbcde4700abb2",
+          "size": 904443
+        }
+      }
+    },
+    {
+      "id": "green_metal_rust",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/green_metal_rust/green_metal_rust_diff_1k.jpg",
+          "md5": "f69d8c507961f0629019652162090917",
+          "size": 212088
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/green_metal_rust/green_metal_rust_nor_gl_1k.jpg",
+          "md5": "a6cefc436aa41f73f15347dcf7a791d0",
+          "size": 121379
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/green_metal_rust/green_metal_rust_arm_1k.jpg",
+          "md5": "f7474f11a76b3747265873c325ecbb88",
+          "size": 108674
+        }
+      }
+    },
+    {
+      "id": "metal_plate",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/metal_plate/metal_plate_diff_1k.jpg",
+          "md5": "bd9daf4c04046ca392a38b8df955ed26",
+          "size": 692234
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/metal_plate/metal_plate_nor_gl_1k.jpg",
+          "md5": "d379e66130ad6ccff217ac9b13de935d",
+          "size": 770307
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/metal_plate/metal_plate_arm_1k.jpg",
+          "md5": "13f064ffa4863a4170d902f675eb022e",
+          "size": 1004043
+        }
+      }
+    },
+    {
+      "id": "painted_metal_shutter",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_diff_1k.jpg",
+          "md5": "b2b648a56ca737d51999525e857f499a",
+          "size": 627333
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_nor_gl_1k.jpg",
+          "md5": "a18c51114f00627f9e48254e870ceb91",
+          "size": 730726
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_arm_1k.jpg",
+          "md5": "be0154e168d571f601cff127181d5ca0",
+          "size": 606809
+        }
+      }
+    },
+    {
+      "id": "rough_concrete",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rough_concrete/rough_concrete_diff_1k.jpg",
+          "md5": "82909f2db1e0453500703ae54e806f5c",
+          "size": 1042065
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rough_concrete/rough_concrete_nor_gl_1k.jpg",
+          "md5": "61f785d44cdbf0b9f3bc68e471177358",
+          "size": 1447537
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rough_concrete/rough_concrete_arm_1k.jpg",
+          "md5": "298b19b5c072a077f4a951cd59874962",
+          "size": 900369
+        }
+      }
+    },
+    {
+      "id": "rusty_metal_02",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_02/rusty_metal_02_diff_1k.jpg",
+          "md5": "476bff9959bc727bd4b83c0a9ac4aeaa",
+          "size": 564932
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_02/rusty_metal_02_nor_gl_1k.jpg",
+          "md5": "8d6dc7e26f2708ec59e2a739711c612b",
+          "size": 403156
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_02/rusty_metal_02_arm_1k.jpg",
+          "md5": "888da78afd9bfc9fd3dafbbf2a5b8134",
+          "size": 153031
+        }
+      }
+    },
+    {
+      "id": "rusty_metal_grid",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_grid/rusty_metal_grid_diff_1k.jpg",
+          "md5": "81a9a01d878355a81cb27cb0bb60d3cc",
+          "size": 729067
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_grid/rusty_metal_grid_nor_gl_1k.jpg",
+          "md5": "ea9554e4450abd57ccd1baec8b535da0",
+          "size": 542692
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_grid/rusty_metal_grid_arm_1k.jpg",
+          "md5": "a39d0f2e986f9b0585b7589cb7259ecd",
+          "size": 568524
+        }
+      }
+    },
+    {
+      "id": "rusty_painted_metal",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_painted_metal/rusty_painted_metal_diff_1k.jpg",
+          "md5": "3846f5567b6e7985b275a6b3867a648f",
+          "size": 471866
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_painted_metal/rusty_painted_metal_nor_gl_1k.jpg",
+          "md5": "b5a2c2b08219304dcd4e0b00837f3e2d",
+          "size": 484158
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_painted_metal/rusty_painted_metal_arm_1k.jpg",
+          "md5": "fdbc2e55370ea387899e25d84c49b203",
+          "size": 372615
+        }
+      }
+    }
+  ],
+  "fonts": [
+    {
+      "id": "russoone",
+      "source": "google/fonts (SIL OFL 1.1)",
+      "commit": "8ccda7bf739842777d42661d1b384b926194e24b",
+      "files": {
+        "ttf": {
+          "file": "RussoOne-Regular.ttf",
+          "url": "https://raw.githubusercontent.com/google/fonts/8ccda7bf739842777d42661d1b384b926194e24b/ofl/russoone/RussoOne-Regular.ttf",
+          "sha256": "bc0abcc660bd8b7ad3000ecb2898a27c58a29a50f7ec81652fa12e75148d09df"
+        },
+        "licence": {
+          "file": "OFL.txt",
+          "url": "https://raw.githubusercontent.com/google/fonts/8ccda7bf739842777d42661d1b384b926194e24b/ofl/russoone/OFL.txt",
+          "sha256": "3ac1301549523d9861fedca12871f24e575fbd26d520632fc00ba849b471d275"
+        }
+      }
+    }
+  ]
+}

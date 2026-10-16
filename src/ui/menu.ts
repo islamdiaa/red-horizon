@@ -9,7 +9,7 @@ import { ICONS, alliedEmblem, medalSvg, rankBadge, sovietEmblem, type MedalTier 
 import { UiSound, bindTilt, countUp, el as h, esc, hexColor, replay as replayAnim } from './dom';
 import { Embers } from './embers';
 import { initLoadingScreen } from './loading';
-import { applyUiSettings, loadSettings, saveSettings, type Settings } from './settings';
+import { applyUiSettings, loadSettings, modelDetailOf, saveSettings, type ModelDetail, type Settings } from './settings'; // [HD] model detail
 import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
 import { showProfile } from './profile';
 import { resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // [AI] rivals
@@ -718,6 +718,7 @@ export class Menus {
     };
     const gfx = sec(ICONS.monitor, 'Graphics');
     gfx.appendChild(settingRow(ICONS.monitor, 'Quality', 'Applies to the next battle', seg<Quality>([['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], this.settings.quality, (v) => { this.settings.quality = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.monitor, 'Model detail', 'HD: baked high-detail buildings and vehicles (more memory) · Standard: lighter models', seg<ModelDetail>([['hd', 'HD'], ['standard', 'Standard']], modelDetailOf(this.settings), (v) => { this.settings.modelDetail = v; apply(); }))); // [HD]
     gfx.appendChild(settingRow(ICONS.gauge, 'Performance overlay', 'FPS and renderer stats in the top bar', toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.motion, 'Reduce motion', 'Calmer UI animations', toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.map, 'Interface layout', 'Modern: build bar at the bottom, panels in the corners · Classic: the sidebar on the right', seg<'modern' | 'classic'>([['modern', 'Modern'], ['classic', 'Classic']], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); }))); // [HUD]

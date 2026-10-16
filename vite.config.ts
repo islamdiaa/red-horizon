@@ -20,6 +20,7 @@ export default defineConfig({
       'three/examples/jsm/shaders/FXAAShader.js',
       'three/examples/jsm/environments/RoomEnvironment.js',
       'three/examples/jsm/utils/BufferGeometryUtils.js',
+      'three/examples/jsm/loaders/GLTFLoader.js', // [HD] baked models (src/render/models/hd.ts)
     ],
   },
   build: {

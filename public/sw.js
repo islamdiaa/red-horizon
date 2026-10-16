@@ -22,7 +22,7 @@ const SHELL = ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', '
   .map((p) => new URL(p, SCOPE).href);
 /** Cache of the Google Fonts era (fonts are self-hosted now); deleted on activate. */
 const LEGACY_CACHES = ['rh-fonts-v1'];
-const ASSET_RE = /\.(?:js|mjs|css|wasm|png|jpe?g|webp|avif|gif|svg|ico|json|webmanifest|woff2?|ttf|mp3|ogg|wav)$/i;
+const ASSET_RE = /\.(?:js|mjs|css|wasm|png|jpe?g|webp|avif|gif|svg|ico|json|webmanifest|woff2?|ttf|mp3|ogg|wav|glb)$/i; // [HD] glb: baked models (public/models), runtime cache-first
 
 const sameOrigin = (u) => { try { return new URL(u, SCOPE).origin === self.location.origin; } catch { return false; } };
 /** Keys are plain URLs; hosts often send `Vary: Origin` and module scripts are CORS requests, so ignore Vary. */

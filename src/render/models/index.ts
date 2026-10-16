@@ -21,6 +21,7 @@ import { NAVAL_BUILDERS } from './naval';
 import { SUPPORT_BUILDERS } from './support';
 import { AFTERMATH_BUILDERS } from './aftermath';
 import { createProjectile } from './projectiles';
+import { hdModelsEnabled, hdWrap, holdHd, preloadHdModels, requestHd } from './hd'; // [HD]
 
 export type { ModelInstance, ModelAnimState, ProjectileModelKind } from './types';
 export type { ModelFaction } from './builder';
@@ -138,7 +139,12 @@ const _white = new THREE.Color(0xffffff);
  */
 export function createModel(typeId: string, teamColor: THREE.Color, faction?: ModelFaction): ModelInstance {
   const c = teamColor ?? _white;
-  return instantiate(getTemplate(typeId, faction ?? guessFaction(c)), c, typeId);
+  const fac = faction ?? guessFaction(c);
+  const tpl = getTemplate(typeId, fac);
+  const inst = instantiate(tpl, c, typeId);
+  if (!hdModelsEnabled()) return inst; // [HD]
+  const base = ALIASES[typeId] ?? typeId;
+  return hdWrap(inst, tpl, base, fac, c.getHex(), FACTION_DRESSED.has(base)); // [HD] baked model on the procedural rig
 }
 
 /** Create a projectile model (faces +X). */
@@ -184,4 +190,29 @@ export function prewarmModels(ids: string[] = listModelIds()): void {
     getTemplate(id, 'soviet');
     if (FACTION_DRESSED.has(ALIASES[id] ?? id)) getTemplate(id, 'allies');
   }
+}
+
+/**
+ * [HD] Start loading a type's HD model as seen by an owner faction (lazy per-type loading): 'ready' = models
+ * created now are HD; 'pending' = loading (procedural meanwhile, see hdReadyVersion); 'none' = no HD model.
+ */
+export function requestHdModel(typeId: string, faction: ModelFaction): 'ready' | 'pending' | 'none' {
+  const base = ALIASES[typeId] ?? typeId;
+  return requestHd(base, faction, FACTION_DRESSED.has(base));
+}
+
+/** [HD] Load the factions' common units plus the given (type, owner faction) pairs; resolves when ready or failed. */
+export function preloadHd(factions: ModelFaction[], types: Iterable<[string, ModelFaction]> = [], onProgress?: (done: number, total: number) => void): Promise<void> {
+  const list: [string, ModelFaction, boolean][] = [];
+  for (const [t, f] of types) {
+    const base = ALIASES[t] ?? t;
+    list.push([base, f, FACTION_DRESSED.has(base)]);
+  }
+  return preloadHdModels(factions, list, onProgress);
+}
+
+/** [HD] A pending ref on a type's HD template (a view waiting to swap); release with releaseHd(key). */
+export function holdHdModel(typeId: string, faction: ModelFaction): string | null {
+  const base = ALIASES[typeId] ?? typeId;
+  return holdHd(base, faction, FACTION_DRESSED.has(base));
 }

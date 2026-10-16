@@ -8,10 +8,11 @@ Mammoth Tanks, submarines and cruisers, spies and Chronospheres, paratroopers an
 rebuilt from scratch in TypeScript and three.js, using the original game rules that EA released
 under the GPL.
 
-Every model, texture, sound effect and piece of music is generated procedurally at runtime, so the
-game ships **zero copyrighted assets**. It has 17 scripted missions, a roguelite campaign, an
-editor and modding. The whole game is about 860 KB gzipped, with nothing to install and nothing to
-sign up for.
+Every model, texture, sound effect and piece of music is generated in code: at runtime, or by
+scripts in this repository for the optional HD models. So the game ships **zero copyrighted
+assets**. It has 17 scripted missions, a roguelite campaign, an editor and modding. The game itself
+is about 850 KB gzipped; the HD models (about 21 MB, loaded only for the factions in a match) are
+optional. There is nothing to install and nothing to sign up for.
 
 | | |
 |---|---|
@@ -52,6 +53,10 @@ sign up for.
   - Branching replays you can take command of.
 - **An AI that plays fair.** It sees only what its units see, scouts and counters your army.
   There are 11 commander personalities, and persistent rivals that remember how you play.
+- **HD models.** Texture-baked models for every structure and ground vehicle, with weathered
+  steel, slogan boards, banners and lit windows. They are built by a scripted Blender asset factory
+  and stream in per faction; the lightweight procedural models stay as the fallback and the
+  distant level of detail.
 - **Make your own.** A map and mission editor working in the real 3D renderer, plus JSON rule
   mods.
 - **Plays anywhere.** Mouse and keyboard, touch, or gamepad. It installs as an offline-capable
@@ -77,7 +82,8 @@ npm run dev        # http://localhost:5173
 | `npm test` | The full test suite |
 
 Graphics quality is chosen automatically from your GPU on first launch, and you can change it in
-the settings. A discrete or recent integrated GPU is recommended for *High*.
+the settings. *Model detail* switches between the HD models (the default on High and Medium) and
+the lightweight procedural ones (the default on Low). A discrete or recent integrated GPU is recommended for *High*.
 
 ## Deploying
 
@@ -326,9 +332,10 @@ src/
   platform/     error boundary, WebGL checks, GPU quality detection, fullscreen, PWA
   game.ts       game loop
   main.ts       bootstrap
-public/         web app manifest, service worker, icons, example mods, fonts
+public/         web app manifest, service worker, icons, example mods, fonts, HD models (models/)
 tests/          node:test suite, PWA verification, memory-leak and CPU profile audits
 tools/          headless simulation, mission autopilots, self-play and screenshot tooling
+tools/assets/   the HD model factory: Blender kit, model scripts, build runner
 docker/         nginx configuration for the container image
 ```
 
@@ -359,6 +366,25 @@ node --import tsx tools/conquesttest.ts all                                # eve
 node --import tsx tools/selfplay/run.ts --mode faction --games 40          # mass AI-vs-AI self-play
 node --import tsx tools/selfplay/balance.ts                                # cost-equal unit duels
 ```
+
+### HD models (the asset factory)
+
+The HD models in `public/models/` are built from Python scripts in `tools/assets/models/` with a
+headless Blender. You only need this to change or add a model: the generated `.glb` files are
+committed, so the game builds without Blender.
+
+```bash
+tools/assets/setup-blender.sh            # pinned Blender 4.5 LTS into ~/.cache (sha256-checked)
+node tools/assets/fetch-textures.mjs     # pinned CC0 texture inputs and the decal font (hash-checked)
+node tools/assets/build.mjs weap.soviet  # build one model (or --all); updates public/models/manifest.json
+```
+
+- **How a model is made:** the kit (`tools/assets/kit/`) models hard-surface parts. It then bakes
+  ambient occlusion, edge wear, grime, decals and stencilled slogans into a compact texture atlas,
+  and exports a quantised GLB with WebP textures.
+- **No WebAssembly decoders:** the format needs none, so the Content-Security-Policy stays strict.
+- **Docs:** [`tools/assets/README.md`](tools/assets/README.md) is the full guide, and
+  [`tools/assets/STYLE.md`](tools/assets/STYLE.md) is the art direction.
 
 The browser tooling (`tools/*.mjs`, `tests/perf/`) uses Playwright with the Chromium it
 downloads (`npx playwright install chromium`).
@@ -441,10 +467,15 @@ trademarks, which is why the game has its own name; you can change it in
 
 The bundled fonts, [Rajdhani](https://fonts.google.com/specimen/Rajdhani) and
 [Share Tech Mono](https://fonts.google.com/specimen/Share+Tech+Mono), are licensed under the
-[SIL Open Font License 1.1](public/fonts/OFL.txt).
+[SIL Open Font License 1.1](public/fonts/OFL.txt). Two inputs are used only when building the HD
+models and are not distributed:
+- the CC0 textures from [Poly Haven](https://polyhaven.com/), baked into the model textures;
+- the [Russo One](https://fonts.google.com/specimen/Russo+One) font (OFL), used for the Cyrillic
+  slogans.
 
 ### Acknowledgements
 
 - Westwood Studios, for the original game.
 - Electronic Arts, for releasing its source code under the GPL.
 - [three.js](https://threejs.org/), the only runtime dependency.
+- [Blender](https://www.blender.org/), which builds the HD models, and [Poly Haven](https://polyhaven.com/), for its CC0 textures.

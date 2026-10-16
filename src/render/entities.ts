@@ -6,7 +6,8 @@ import type { Player } from '../sim/player';
 import { DT, type GameEvent } from '../sim/types';
 import type { World } from '../sim/world';
 import type { Projectile } from '../sim/combat';
-import { createModel, modelKey } from './models';
+import { createModel, holdHdModel, modelKey, requestHdModel } from './models';
+import { hdReadyVersion, hdSwapMoment, releaseHd } from './models/hd'; // [HD] lazy per-type HD loading
 import type { ModelAnimState, ModelInstance } from './models/types';
 import { bodyMaterial, BodyVariant, setLitMaterialPatch } from './models/materials';
 import type { Effects } from './effects';
@@ -59,6 +60,14 @@ interface View {
   trails: ProjectileHandle[] | null;
   /** [DEST] The destruction system took over this structure's death (fracture + collapse). */
   collapsed?: boolean;
+  /** [HD] Has been on screen at least once (a swap to HD after that must be hidden by something). */
+  hdShown?: boolean;
+  /** [HD] Its HD model has loaded: swap at the next unseen moment. */
+  hdReady?: boolean;
+  /** [HD] Pending ref on the HD template while waiting (released on swap / removal). */
+  hdHold?: string | null;
+  /** [HD] hdReadyVersion() when this view last asked for its template. */
+  hdVer?: number;
 }
 
 /** Paratroopers jump from this height above the ground (world units). */
@@ -202,6 +211,8 @@ export class EntityRenderer {
 
   private createView(e: Entity): View {
     const seenAs = e instanceof Unit ? perceived(this.world, this.local, e) : { type: e.type.id, owner: e.owner };
+    // [HD] lazy loading: the first instance of a type starts its HD load and renders procedural meanwhile
+    const hdWait = !(e instanceof Building && e.bt.wall) && requestHdModel(seenAs.type, seenAs.owner.faction) === 'pending';
     const model: ModelInstance = e instanceof Building && e.bt.wall
       ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
       : createModel(seenAs.type, this.teamColor(seenAs.owner), seenAs.owner.faction); // [STRUCT] faction dressing
@@ -241,8 +252,75 @@ export class EntityRenderer {
       if (e.buildAnim < 1) this.effects.constructionBurst(new THREE.Vector3(e.x, this.world.map.surfaceAt(e.x, e.y), e.y), Math.max(e.w, e.h));
     }
     this.views.set(e.id, v);
+    if (hdWait) { this.hdWaiting.add(v); v.hdHold = holdHdModel(seenAs.type, seenAs.owner.faction); } // [HD] the hold keeps the template from the sweep
     if (e instanceof Building && !e.bt.wall) this.destruction.prepare(modelKey(seenAs.type, seenAs.owner.faction), [e.w, e.h]); // [DEST] bake its fracture in idle time ([STRUCT] per faction dressing)
     return v;
+  }
+
+  /** [HD] Views whose type's HD model is loading (see hdSwaps). */
+  private hdWaiting = new Set<View>();
+
+  /**
+   * [HD] Swap views to their HD model once it has loaded, only when nobody can see the switch: before the view
+   * was ever on screen, while it is hidden or off-screen, during a structure's construction (the hologram and
+   * the build-up cover it), or while a unit is still inside the structure it is leaving (a factory exit).
+   * A finished, on-screen structure stays procedural (its next instance is HD); a unit waits for such a moment.
+   */
+  private hdSwaps() {
+    const ver = hdReadyVersion();
+    // at most a few swaps per frame: the first instance of a type uploads its atlases (a burst of new types
+    // uploading in one frame stalls software GL for seconds)
+    let budget = 3;
+    for (const v of this.hdWaiting) {
+      if (budget <= 0) break;
+      const e = v.ent;
+      if (v.dead || !e.alive) { this.hdDone(v); continue; }
+      if (!v.hdReady) {
+        // re-asked only when a template finished loading since this view last asked (allocation-free frames
+        // otherwise; per view, so a view that joins mid-frame never misses a load)
+        if (v.hdVer === ver) continue;
+        v.hdVer = ver;
+        const st = requestHdModel(v.ptype, this.ownerOf(v).faction);
+        if (st === 'pending') continue;
+        if (st === 'none') { this.hdDone(v); continue; }
+        v.hdReady = true;
+      }
+      // swap only unseen: never shown yet, hidden (fog) or off-screen; under construction (hologram + build-up);
+      // a unit still inside the structure it is leaving. A finished structure on screen waits for such a moment.
+      const ok = hdSwapMoment({
+        shown: !!v.hdShown, visible: v.model.root.visible, inView: v.inView,
+        constructing: e instanceof Building && e.buildAnim < 1 && e.selling < 0,
+        insideStructure: e instanceof Unit && v.hdShown && v.inView && this.insideStructure(e),
+      });
+      if (!ok) continue;
+      budget--;
+      this.recolor(v, v.ptype, this.ownerOf(v)); // (the new instance takes its live ref before the hold goes)
+      if (e instanceof Building) this.clearHolo(v); // re-created from the HD model next frame
+      if ((v.model as { hd?: boolean }).hd) this.hdDone(v);
+      else { v.hdReady = false; v.hdVer = -1; } // the template went away in between: ask again, keep waiting
+    }
+  }
+
+  /** [HD] Stop waiting: drop the view from the set and release its pending ref. */
+  private hdDone(v: View) {
+    this.hdWaiting.delete(v);
+    releaseHd(v.hdHold);
+    v.hdHold = null;
+  }
+
+  /** [HD] The player a view is drawn as owned by (a spy's disguise). */
+  private ownerOf(v: View): Player {
+    for (const p of this.world.players) if (p.id === v.powner) return p;
+    return v.ent.owner;
+  }
+
+  /** [HD] A unit still inside a structure's footprint (rolling out of a factory). */
+  private insideStructure(u: Unit): boolean {
+    for (const b of this.world.buildings) {
+      if (!b.alive || b.bt.wall) continue;
+      if (u.x >= b.cx && u.x <= b.cx + b.w && u.y >= b.cy && u.y <= b.cy + b.h) return true;
+    }
+    return false;
   }
 
   /** Change an entity's team colour (capture) or apparent type (spy disguise) by recreating its model. */
@@ -250,10 +328,14 @@ export class EntityRenderer {
     v.ptype = type;
     v.powner = owner.id;
     const pos = v.model.root.position.clone();
+    const rot = v.model.root.quaternion.clone(); // [HD] (units slerp towards their heading: keep it across swaps)
+    const vis = v.model.root.visible;
     v.model.dispose();
     v.model = createModel(type, this.teamColor(owner), owner.faction); // [STRUCT]
     if (v.ent instanceof Unit) v.baseScale = applyVisualScale(v.model, v.ent.kind, type); // [LOOK] render-only unit scale
     v.model.root.position.copy(pos);
+    v.model.root.quaternion.copy(rot); // [HD]
+    v.model.root.visible = vis; // [HD]
     this.scene.add(v.model.root);
     for (const c of v.chimneys) c.dispose();
     v.chimneys = [];
@@ -472,6 +554,7 @@ export class EntityRenderer {
       else if (mesh.geometry.getAttribute('pbr') && !m.transparent && m.name.startsWith('glow')) mesh.visible = false;
       else if (m.transparent) mesh.visible = false;
     });
+    (v.model as { hdSync?: () => void }).hdSync?.(); // [HD] the HD body follows the procedural body's charred material
   }
 
   private clearHolo(v: View) {
@@ -482,6 +565,7 @@ export class EntityRenderer {
   private removeView(id: number) {
     const v = this.views.get(id);
     if (!v) return;
+    this.hdDone(v); // [HD]
     this.destruction.forget(id); // [DEST]
     this.clearHolo(v);
     v.model.dispose();
@@ -509,6 +593,7 @@ export class EntityRenderer {
     // create views for new entities
     for (const u of world.units) if (!this.views.has(u.id)) this.createView(u);
     for (const b of world.buildings) if (!this.views.has(b.id)) this.createView(b);
+    if (this.hdWaiting.size) this.hdSwaps(); // [HD]
 
     // values() rather than entries(): no [id, view] pair allocated per view per frame
     for (const v of this.views.values()) {
@@ -550,6 +635,7 @@ export class EntityRenderer {
         if (as.type !== v.ptype || as.owner.id !== v.powner) this.recolor(v, as.type, as.owner);
       }
       v.model.root.visible = show;
+      if (show && v.inView) v.hdShown = true; // [HD]
       if (v.fogged) {
         // a ghost keeps its last-seen health, smoke and pose
         this.updateRing(v, selected.has(id) || hovered === id, selected.has(id));

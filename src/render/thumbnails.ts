@@ -4,6 +4,7 @@ import { BUILDINGS, UNITS } from '../data/rules';
 import { createModel, guessFaction, type ModelFaction } from './models';
 import { WallRenderer } from './walls';
 import { getModelSnow, setBodyTime, setModelSnow } from './models/materials';
+import { hdOffscreen } from './models/hd'; // [HD] closed HD bitmaps can't upload into this GL context
 
 interface ThumbStage { renderer: THREE.WebGLRenderer; scene: THREE.Scene; canvas: HTMLCanvasElement }
 let stage: ThumbStage | null = null;
@@ -52,6 +53,7 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
 
+  hdOffscreen(true); // [HD] closed HD bitmaps can't upload into this GL context: those types render procedural here
   for (const id of ids) {
     try {
       const m = BUILDINGS[id]?.wall
@@ -81,6 +83,7 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
       console.warn('thumbnail failed', id, e);
     }
   }
+  hdOffscreen(false); // [HD] (the loop body catches its own errors)
   setModelSnow(snow); // [STRUCT]
   scene.environment = null;
   env.dispose();

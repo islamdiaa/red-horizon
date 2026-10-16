@@ -19,7 +19,9 @@ import { checkSupport, renderUnsupported } from './platform/webgl';
 import { detectQuality } from './platform/gpu';
 import { registerServiceWorker } from './platform/pwa';
 import { enterFullscreen } from './platform/fullscreen';
-import { loadSettings, saveSettings } from './ui/settings';
+import { hdModelsWanted, loadSettings, saveSettings } from './ui/settings';
+import { hdModelsEnabled, hdStatus, prefetchHdFiles, setHdModels } from './render/models/hd'; // [HD]
+import { preloadHd as preloadHdModelsFor } from './render/models'; // [HD]
 import { attachPlayback } from './replay/playback'; // [D] replays
 import { resolveTestSetup } from './replay/launch';
 import { customMissionSetup, initEditorStore } from './editor/store'; // [EDIT]
@@ -190,6 +192,39 @@ function hideLoading() {
 }
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
+/**
+ * [HD] Load the baked HD models of the match's factions on the loading screen (both factions when they are
+ * not known up front: missions, saves, replays, random opponents). Bounded: a slow network starts the match
+ * with procedural models rather than waiting.
+ */
+async function preloadHd(setup: GameSetup): Promise<void> {
+  const on = hdModelsWanted(menus.settings, setup.quality);
+  setHdModels(on, setup.quality === 'high' ? 'high' : 'medium');
+  if (!on) return;
+  const both = !!(setup.mission || setup.load || setup.replay || setup.conquest || setup.allies?.length) || setup.opponents.some((o) => o.faction === 'random');
+  const facs = new Set<Faction>(both ? ['soviet', 'allies'] : [setup.faction, ...setup.opponents.map((o) => o.faction as Faction)]);
+  setLoading(0.02, 'Loading HD models');
+  await Promise.race([
+    preloadHdModelsFor([...facs], [], (d, n) => setLoading(0.02 + (0.06 * d) / Math.max(1, n), 'Loading HD models')),
+    new Promise<void>((r) => setTimeout(r, 20000)),
+  ]);
+}
+
+/**
+ * [HD] Everything the battle starts with (structures, start units, scenario / mission / save content) loads
+ * before the first frame, so none of it has to swap from procedural later; the rest loads lazily
+ * (EntityRenderer: structures when placed or seen, units when first produced).
+ */
+async function preloadHdWorld(g: Game): Promise<void> {
+  if (!hdModelsEnabled()) return;
+  const types: [string, Faction][] = [];
+  for (const e of [...g.world.buildings, ...g.world.units]) if (e.alive) types.push([e.type.id, e.owner.faction]);
+  setLoading(0.96, 'Loading HD models');
+  await Promise.race([preloadHdModelsFor([], types), new Promise<void>((r) => setTimeout(r, 15000))]);
+  g.warmHd();
+  prefetchHdFiles([...new Set(g.world.players.map((p) => p.faction))]); // offline: the service worker caches the rest
+}
+
 async function startGame(setup: GameSetup) {
   if (menus.settings.skipIntro && !params.get('autostart')) setup = { ...setup, intro: false };
   // [EDIT] a new match runs with the enabled mods (loads and replays keep the mods they were recorded with)
@@ -202,6 +237,7 @@ async function startGame(setup: GameSetup) {
   game?.dispose();
   game = null;
   lastSetup = setup;
+  await preloadHd(setup); // [HD] the match's factions' baked models (procedural meanwhile / on failure)
   try {
     game = new Game(setup, audio, {
       onPause: () => menus.showPause(game!),
@@ -235,6 +271,7 @@ async function startGame(setup: GameSetup) {
     exposeDebug(game);
     (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
+    await preloadHdWorld(game); // [HD]
     // [D] watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
     if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
     attachModes(game); // [MODES] KOTH HUD, branch / challenge badge, moment tracking
@@ -274,7 +311,7 @@ function applyTestParams(g: Game) {
 
 /** Test / dev hook. Only exposed in dev builds or test runs, so a quit game isn't kept alive. */
 function exposeDebug(g: Game | null) {
-  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) (window as any).__game = g;
+  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) { (window as any).__game = g; (window as any).__hdStatus = hdStatus; } // [HD] status for tests
 }
 
 function startDemo() {
