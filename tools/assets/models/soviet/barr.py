@@ -17,7 +17,7 @@ KIND = 'structure'
 
 def build(m):
     m.set_meta(footprint=(2, 2), height=1.15, radius=1.05)
-    look(edge=0.28, ao_dist=0.38)
+    look(m, ao_dist=0.38)
     P = Pal()
     r = m.root
 
@@ -38,7 +38,7 @@ def build(m):
     # banners between the portal and the windows, the board above the portal
     for s in (-1, 1):
         red_banner(m, r, (s * 0.365, top - 0.085, fz + 0.03), (0.2, 0.56))
-    roof_sign(m, r, P, (0, top + 0.05 + 0.1, fz - 0.07), (0.8, 0.2), 'СЛАВА СССР', lights=3, emblem='soviet')
+    tilt_sign(m, r, P, (0, top + 0.05 + 0.13, fz - 0.1), (0.86, 0.24), 'СЛАВА СССР', tilt=0.5, lights=3)
     rivet_row(m, r, (x0 + 0.05, top - 0.17, fz), (x1 - 0.05, top - 0.17, fz))
     neon(r, -0.76, -0.47, top, fz)
     neon(r, 0.47, 0.76, top, fz)

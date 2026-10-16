@@ -138,7 +138,7 @@ def build(m):
     door(m, r, (ax - 0.08, Y0 + 0.0, afz), (0.36, 0.31), kind='roller', hazard_frame=True)
     stencil(m, r, '01', (ax + 0.23, Y0 + 0.36, afz + 0.002), 0.08, color=0xe8b51a)
     light(r, (ax - 0.08, Y0 + 0.37, afz + 0.03), 0.014, 0xffa020, 'blink')
-    roundel(m, r, (ax - 0.02, atop + 0.002, az + 0.02), 0.4, facing='+y')
+    badge(m, r, 'eagle', (ax - 0.02, atop + 0.002, az + 0.02), 0.4, facing='+y', field='square', plate=steel(0x7d8792, panels=None), symbol_scale=0.78)
     ac_unit(r, (ax + 0.22, atop, az - 0.18), 0.09)
     roof_vent(r, (ax - 0.25, atop, az - 0.2), 0.03)
     for x in (ax - aw / 2 + 0.04, ax + aw / 2 - 0.04):

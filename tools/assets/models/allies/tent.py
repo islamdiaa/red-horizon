@@ -79,7 +79,6 @@ def build(m):
     efz = ez + ed / 2
     lit_doorway(m, r, (0, Y0, efz), (0.2, 0.28))
     lit_sign(m, r, (0, Y0 + 0.42, efz + 0.012), (0.42, 0.1), 'BARRACKS', lights=0, emblem_kind=None)
-    roundel(m, r, (0, yb + Hh * 0.82, fz + 0.002), 0.16)
     for s in (-1, 1):
         floodlight(r, (s * 0.2, Y0 + eh + 0.06, efz - 0.01), yaw=0.0, pitch=0.8, s=0.045)
         light(r, (s * 0.27, Y0 + eh + 0.06, ez - 0.03), 0.014, 0xf0f4ff, 'strobe')

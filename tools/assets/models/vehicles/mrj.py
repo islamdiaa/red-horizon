@@ -40,11 +40,12 @@ def build(m):
         f = '+z' if s > 0 else '-z'
         box(r, P.glass, (0.09, 0.046, 0.006), (0.3, 0.215, 0.151 * s))
         box(r, P.black, (0.006, 0.036, 0.026), (0.41, 0.23, 0.166 * s))
-        camo(m, r, (0.3, 0.13, 0.151 * s), (0.22, 0.07), f, seed=111 + s, n=2)
+        team_shade(m, r, (0.3, 0.17, 0.151 * s), (0.27, 0.17), f, TEAM_DARK, depth=0.012)
+        camo(m, r, (0.3, 0.13, 0.151 * s), (0.22, 0.07), f, seed=111 + s, n=2, colors=(0x6a6a6a,))
         for x in (0.27, -0.08, -0.26):
             box(r, P.dark2, (0.145, 0.012, 0.068), (x, 0.136, 0.16 * s), bevel=0.004)
         headlight(r, (0.432, 0.142, 0.105 * s), 0.016, guard=P.black)
-    emblem(m, r, 'allied_star', (0.3, 0.215, 0.152), 0.05, facing='+z')
+    emblem(m, r, 'allied_star', (0.33, 0.13, 0.152), 0.05, facing='+z')
     crew(r, P, (0.33, 0.15, -0.06), P.dark2)
     box(r, P.gun, (0.022, 0.022, 0.27), (0.442, 0.1, 0), bevel=0.004)
     grille(m, r, (0.433, 0.125, 0.0), (0.16, 0.035), facing='+x', n=3)
@@ -67,9 +68,12 @@ def build(m):
         bar(r, P.steel, (-0.356, 0.14 + k * 0.04, 0.07), (-0.356, 0.14 + k * 0.04, 0.11), 0.005)
     tail_lights(r, -0.354, 0.15, 0.12)
     hazard_stripes(m, r, (-0.354, 0.12, -0.05), (0.18, 0.025), facing='-x')
-    emblem(m, r, 'allied_star', (-0.25, 0.338, 0.0), 0.08, facing='+y')
-    deck_strips(m, r, -0.36, 0.12, 0.337, 0.16)
-    deck_strips(m, r, 0.2, 0.382, 0.258, 0.15, rear=False, width=0.012)
+    top_star(m, r, 'allies', (-0.26, 0.338, 0.0), 0.13)
+    deck_strips(m, r, -0.36, 0.12, 0.337, 0.16, width=0.016)
+    deck_strips(m, r, 0.2, 0.382, 0.258, 0.15, rear=False, width=0.014)
+    for s in (-1, 1):
+        lamp(r, (0.09, 0.338, 0.14 * s), 0.011, AMBER, 'blink', 3.2, '+y')
+        lamp(r, (-0.335, 0.338, 0.14 * s), 0.011, RED, 'steady', 3.2, '+y')
     # generator + exhaust on the back
     box(r, P.gun, (0.06, 0.07, 0.1), (-0.36, 0.16, -0.06), bevel=0.008)
     cyl(r, P.exhaust, 0.01, 0.06, (-0.36, 0.22, 0.06), seg=6)

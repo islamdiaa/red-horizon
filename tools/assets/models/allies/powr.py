@@ -1,5 +1,5 @@
 """Allied power plant (2x2): white turbine hall with the lit POWER STATION sign, an eagle banner and a roof
-roundel, the steel-clad boiler house with two white smokestacks (team bands, aviation lights; smoke0 / smoke1),
+lightning-bolt badge, the steel-clad boiler house with two white smokestacks (team bands, aviation lights; smoke0 / smoke1),
 glowing turbine vents, roof machinery (steam0 / steam1) and a fenced transformer yard.
 """
 import math
@@ -59,7 +59,7 @@ def build(m):
     pipe_run(r, pipe_m, [(ex + 0.05, Y0 + 0.5, hz - hd / 2 + 0.02), (ex + 0.05, Y0 + 0.5, fz - 0.05), (ex + 0.05, Y0 + 0.12, fz - 0.05)], 0.026)
     cyl(r, painted(0xb8241a, wear=0.5, panels=None), 0.03, 0.008, (ex + 0.08, Y0 + 0.5, hz + 0.05), (0, 0, math.pi / 2), seg=10)
     # roof: big star roundel, turbine housing with stiffeners, louvre box, AC units, relief valves, floodlights
-    roundel(m, r, (hx - 0.56, rt + 0.016, hz + 0.02), 0.42, facing='+y', plate=steel(0x7d8792, panels=None))
+    badge(m, r, 'bolt', (hx - 0.56, rt + 0.016, hz + 0.02), 0.44, facing='+y', field='diamond', plate=steel(0x7d8792, panels=None), symbol_scale=0.6)
     cyl(r, stl_lt, 0.12, 0.6, (hx + 0.02, rt + 0.018, hz - 0.06), (0, 0, math.pi / 2), seg=16)
     for dx in (-0.25, -0.08, 0.09, 0.26):
         box(r, frm, (0.016, 0.135, 0.255), (hx + 0.02 + dx, rt + 0.08, hz - 0.06))
@@ -87,7 +87,7 @@ def build(m):
         for z in (bz - bd / 2, bz + bd / 2):
             box(r, wall, (0.06, bh - 0.1, 0.06), (x, Y0 + 0.1 + (bh - 0.1) / 2, z), bevel=0.01)
     bfz = bz + bd / 2
-    roundel(m, r, (bx + 0.12, btop + 0.018, bz + 0.2), 0.3, facing='+y', plate=steel(0x7d8792, panels=None))
+    big_text(m, r, 'P1', (bx + 0.12, btop + 0.018, bz + 0.22), 0.2, plate=yellow(), color=0x24272b)
     glazing(m, r, (bx + 0.05, Y0 + 0.87, bfz + 0.004), (0.6, 0.08), 6, lit={0, 2, 3, 5}, color=WIN_WARM, emit=0.8)
     catwalk(m, r, (bx + 0.05, Y0 + 0.72, bfz + 0.05), bw - 0.14, 0.09, axis='x', rail=rail, sides=(False, True))
     ladder(r, rail, (bx + bw / 2, Y0 + 0.14, bz + 0.1), bh - 0.2, facing='+x', rung=0.07)

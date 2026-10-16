@@ -421,19 +421,89 @@ def number(s, px_h=64, color=0xe8e4da, font=None):
     return text([s], px_h=px_h, color=color, stencil=False, wear=0.2, font=font)
 
 
+TEAM_NEUTRAL = 0xdbdbdb  # sRGB of TEAM_GREY (linear 0.7): with team=1 this is exactly the clean team paint
+
+
+def team_paint(k=1.0, px=8):
+    """Solid grey that, projected with team=1, paints the team colour scaled by k (1 = the clean team paint,
+    0.6 = a dark shade for recesses and stripes, 1.3 = a light shade; the game multiplies the albedo by
+    teamColour / TEAM_GREY). m.decal(team_paint(0.6), ..., team=1)."""
+    from .materials import TEAM_GREY
+    v = max(0.0, min(1.0, TEAM_GREY * k))
+    s = v * 12.92 if v <= 0.0031308 else 1.055 * v ** (1 / 2.4) - 0.055
+    c = int(round(s * 255))
+    return solid((c << 16) | (c << 8) | c, px)
+
+
+def mullions(nx=6, ny=2, aspect=4.0, px=128, frame=0x1c1e21, t=0.09, dark=0.0, seed=1, pane=0x1b232c, dark_panes=None):
+    """Window-frame grid for glazing: opaque bars, transparent panes, some panes painted as dark (unlit)
+    glass. dark = fraction of panes dark (random by seed) or dark_panes = explicit pane indices (row-major
+    from the bottom left). Project it with emit=0.0 over lit glass (kit.shapes.glazing does): the bars and
+    the dark panes stop glowing, the other panes stay lit."""
+    import random as _r
+    key = ('mull', nx, ny, round(aspect, 2), px, frame, round(t, 3), round(dark, 2), seed, pane,
+           tuple(sorted(dark_panes)) if dark_panes is not None else None)
+    if key in _mull:
+        return _mull[key]
+    rnd = _r.Random(seed)
+    w, h = max(8, int(px * aspect)), px
+    cv = Canvas(w, h, ss=2)
+    col = lin(frame)
+    bw = h * t
+    cw, ch = (w - bw) / nx, (h - bw) / ny
+    for i in range(nx):  # (the same random panes as the original SOVB helper for the same seed)
+        for j in range(ny):
+            off = (j * nx + i) in dark_panes if dark_panes is not None else (dark > 0 and rnd.random() < dark)
+            if off:
+                cv.rect(i * cw, j * ch, (i + 1) * cw + bw, (j + 1) * ch + bw, lin(pane), height=0.45)
+    for i in range(nx + 1):
+        x = i * cw
+        cv.rect(x, 0, x + bw, h, col, height=0.7)
+    for j in range(ny + 1):
+        y = j * ch
+        cv.rect(0, y, w, y + bw, col, height=0.7)
+    img = cv.image()
+    _mull[key] = img
+    return img
+
+
+_mull = {}
+
+
 # ---------------------------------------------------------------------------------------------------------
 # Projector
 
 class Decal:
+    """A box projector (m.decal(img, ...)): `img` is projected along the decal's -Z onto every face within
+    `depth` of its plane that faces it.
+
+    at, size     centre (part frame) and (w, h) in units (a number: the width, height from the image aspect)
+    facing       '+z' / '-z' / '+x' / '-x' / '+y' / '-y', a yaw angle, or an (rx, ry, rz) Euler
+    normal, up   alternative to facing: the surface normal the decal looks along (any direction: sloped
+                 roofs, raked armour), with its top towards `up` (default +Y; see core.normal_rot)
+    rot          alternative to facing: an explicit (rx, ry, rz) Euler (three XYZ, radians)
+    roll         extra rotation (radians) in the decal plane
+    team, rough, metal, emit   channel overrides under the decal (emit=0.0 also switches a lit surface off)
+    color=False  only the height / channel overrides (rivets, seams); tint multiplies the image colour
+    """
+
     def __init__(self, model, img, at, size, facing='+z', part=None, depth=0.03, roll=0.0, opacity=1.0,
-                 team=None, rough=None, metal=None, emit=None, height=1.0, color=True, tint=None, boost=None):
+                 team=None, rough=None, metal=None, emit=None, height=1.0, color=True, tint=None, boost=None,
+                 normal=None, up=None, rot=None):
         part = part or model.root
+        if isinstance(part, str):
+            part = model.parts[part]
         self.img = img
         w, h = (size, size / img.aspect) if isinstance(size, (int, float)) else size
         if h is None:
             h = w / img.aspect
         self.w, self.h, self.depth = w, h, depth
-        rot = core.facing_rot(facing)
+        if rot is not None:
+            rot = core.facing_rot(rot)
+        elif normal is not None:
+            rot = core.normal_rot(normal, up)
+        else:
+            rot = core.facing_rot(facing)
         M = part.world() @ core.T(at, rot) @ core.T((0, 0, 0), (0, 0, roll))
         e = bpy.data.objects.new(f'DECALP_{len(model.decals)}', None)
         e.empty_display_type = 'CUBE'

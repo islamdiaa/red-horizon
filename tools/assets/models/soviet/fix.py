@@ -16,7 +16,7 @@ KIND = 'structure'
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=0.95, radius=1.55)
-    look(edge=0.28, ao_dist=0.38)
+    look(m, ao_dist=0.38)
     P = Pal()
     r = m.root
     foundation(m, r, P, 3.0, 3.0)
@@ -25,7 +25,7 @@ def build(m):
     # ---- the octagonal pad (low: drivable)
     cyl(r, P.gun, 0.67, 0.05, (0, Y0 + 0.025, 0), oc, seg=8, bevel=0.012)
     cyl(r, P.dark, 0.57, 0.008, (0, Y0 + 0.054, 0), oc, seg=8)
-    m.decal(pad_x(), at=(0, Y0 + 0.059, 0), size=(1.0, 1.0), facing='+y', part=r, depth=0.01, team=0)
+    m.decal(pad_x(), at=(0, Y0 + 0.059, 0), size=(1.0, 1.0), facing='+y', part=r, depth=0.01, team=0, emit=0.42)  # lit pad paint
     for i in range(8):
         a = (i / 8) * math.pi * 2
         x, z = math.cos(a) * 0.6, -math.sin(a) * 0.6
@@ -53,6 +53,7 @@ def build(m):
     window_row(r, (0, Y0 + 0.2, fz), 2, (0.08, 0.08), 0.06, strength=2.0)
     roof_lights(r, -1.36, wz - wd / 2 + 0.04, 1.36, fz - 0.04, top + 0.04)
     rt = top + 0.018
+    tilt_sign(m, r, P, (-0.62, rt + 0.04 + 0.13, wz + 0.12), (0.84, 0.24), 'СЛАВА ТРУДУ', tilt=0.5, lights=3)
     ac_unit(r, (-0.9, rt, wz - 0.1), 0.1, mat=P.wall_lt)
     ac_unit(r, (0.3, rt, wz - 0.12), 0.1, mat=P.wall_lt)
     roof_vent(r, (1.0, rt, wz + 0.1), 0.04)

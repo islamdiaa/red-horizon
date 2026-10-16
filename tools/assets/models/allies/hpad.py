@@ -1,6 +1,6 @@
 """Allied helipad (2x2): a raised concrete pad with a team edge band, the big white H in a yellow ring,
 hazard edges, a blinking edge-light ring ('glow:ring') and blue corner beacons, the control hut (lit windows,
-roundel, floodlight, mast), fuel tanks on a cradle and the windsock (animated part 'sock').
+PAD 2 stencil, floodlight, mast), fuel tanks on a cradle and the windsock (animated part 'sock').
 """
 import math
 import os
@@ -52,7 +52,7 @@ def build(m):
     box(r, tr, (0.38, 0.035, 0.34), (cx, Y0 + 0.31, cz), bevel=0.008)
     box(r, rf, (0.33, 0.02, 0.29), (cx, Y0 + 0.335, cz))
     glazing(m, r, (cx, Y0 + 0.2, cz + 0.154), (0.24, 0.09), 2, lit={0, 1}, color=WIN_COOL, emit=0.9)
-    roundel(m, r, (cx + 0.172, Y0 + 0.17, cz), 0.14, facing='+x', plate=wall)
+    stencil(m, r, 'PAD 2', (cx + 0.172, Y0 + 0.16, cz), 0.05, facing='+x', color=0x2a2e34, depth=0.02)
     cyl(r, dark_m(), 0.009, 0.42, (cx + 0.08, Y0 + 0.345 + 0.21, cz - 0.06), r2=0.004, seg=6)
     for k in range(3):
         bar(r, dark_m(), (cx + 0.08 - 0.04, Y0 + 0.5 + k * 0.08, cz - 0.06), (cx + 0.08 + 0.04, Y0 + 0.5 + k * 0.08, cz - 0.06), 0.005)

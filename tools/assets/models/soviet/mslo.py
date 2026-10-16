@@ -17,7 +17,7 @@ KIND = 'structure'
 
 def build(m):
     m.set_meta(footprint=(2, 1), height=0.55, radius=1.05)
-    look(edge=0.28, ao_dist=0.3)
+    look(m, ao_dist=0.3)
     P = Pal()
     r = m.root
     foundation(m, r, P, 2.0, 1.0)

@@ -1,7 +1,7 @@
 """Allied missile silo (2x1): a heavy concrete silo block with an open launch shaft, hazard edges and
 radiation plates, the sliding blast doors (animated parts doorL / doorR, team stripe, hazard chevrons), the
 white missile with a red nose and a team band (animated part 'missile', rises out of the shaft), the white
-control bunker with red-lit windows, a roundel and a mast, and red warning lamps ('glow:warn').
+control bunker with red-lit windows, LAUNCH CONTROL stencils and a mast, and red warning lamps ('glow:warn').
 The procedural m0 muzzle (shaft top) is kept.
 """
 import math
@@ -19,7 +19,6 @@ KIND = 'structure'
 
 def build(m):
     setup(m, ao_dist=0.3)
-    m.ground = False  # the missile rests below ground: no ground plane in the AO bake (it would black it out)
     m.set_meta(footprint=(2, 1), height=0.55, radius=1.05)
     r = m.root
 
@@ -42,10 +41,11 @@ def build(m):
     slab(r, conc, sx - hole, sx + hole, y0, y1, hole, sd / 2, bevel=0.01)
     # shaft lining (faces inward) + a dark bottom
     lin = tune(concrete(0x55524d, grime=0.4, streaks=0.2), ao=0.95)
+    pit = m.part('pit', at=(0, 0, 0), ground=False)  # below-ground shaft lining: baked without the ground plane
     for s in (-1, 1):
-        box(r, lin, (0.02, 0.62, 0.5), (sx + s * (hole + 0.01), y1 - 0.31, 0))
-        box(r, lin, (0.5, 0.62, 0.02), (sx, y1 - 0.31, s * (hole + 0.01)))
-    box(r, black(), (0.5, 0.01, 0.5), (sx, y1 - 0.6, 0))
+        box(pit, lin, (0.02, 0.62, 0.5), (sx + s * (hole + 0.01), y1 - 0.31, 0))
+        box(pit, lin, (0.5, 0.62, 0.02), (sx, y1 - 0.31, s * (hole + 0.01)))
+    box(pit, black(), (0.5, 0.01, 0.5), (sx, y1 - 0.6, 0))
     # top: hazard frame round the shaft, radiation plates, a team band on the block
     for s in (-1, 1):
         hazard_band(m, r, (sx, y1, s * 0.3), (0.62, 0.06), facing='+y', base=conc)
@@ -60,7 +60,7 @@ def build(m):
         sphere(r, warn, 0.02, (x, yy + 0.04, z), seg=8, rings=5)
 
     # ---- the missile (rest below the doors; rises with the door anim)
-    ms = m.part('missile', at=(-0.2, -0.41, 0))
+    ms = m.part('missile', at=(-0.2, -0.41, 0), ground=False)
     body = white(panels=(0.2, 0.12), grime=0.35, streaks=0.4, wear=0.35)
     cyl(ms, body, 0.095, 0.4, (0, 0.2, 0), seg=16)
     lathe(ms, painted(0xc8231a, panels=None, wear=0.35, grime=0.3), [(0.095, 0.0), (0.088, 0.06), (0.065, 0.12), (0.03, 0.17), (0.0, 0.18)], (0, 0.4, 0), seg=16, cap_bottom=False)
@@ -86,7 +86,7 @@ def build(m):
     top = block(m, r, bx, bz, bw, bd, bh, wall=wall, cornice=tr, roof_m=rf, cap=frm, pilasters=(bx - bw / 2 + 0.025, bx + bw / 2 - 0.025))
     bfz = bz + bd / 2
     glazing(m, r, (bx, Y0 + 0.22, bfz + 0.004), (0.26, 0.07), 2, lit={0, 1}, color=0xff4a30, emit=0.8)
-    roundel(m, r, (bx, Y0 + 0.11, bfz + 0.002), 0.11, plate=wall)
+    stencil(m, r, 'LAUNCH|CONTROL', (bx, Y0 + 0.11, bfz + 0.002), 0.07, color=0x2a2e34, depth=0.02)
     cyl(r, dark_m(), 0.008, 0.36, (bx + 0.1, top + 0.18, bz - 0.15), r2=0.004, seg=6)
     light(r, (bx + 0.1, top + 0.37, bz - 0.15), 0.011, 0xff2a1a, 'blink')
     ac_unit(r, (bx - 0.05, top, bz - 0.1), 0.08)

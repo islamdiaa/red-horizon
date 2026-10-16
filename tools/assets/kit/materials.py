@@ -48,6 +48,7 @@ class _Graph:
         self.x = 0
         self.ch = {}
         self.params = {}
+        self.explicit = set()  # weathering keys set with set_weather (model look defaults leave them alone)
 
     def node(self, kind, **props):
         n = self.nt.nodes.new(kind)
@@ -278,6 +279,7 @@ def set_weather(mat, **params):
         if k not in WEATHER_KEYS:
             raise KeyError(f'set_weather(): unknown parameter {k}; one of {WEATHER_KEYS}')
     g.params.update(params)
+    g.explicit.update(params)
     return mat
 
 
@@ -494,16 +496,22 @@ def track_material():
     return m
 
 
-def glow_material(slot='glow:blink', color=0xff3020):
-    """Separately animated emissive (the procedural 'glow:<slot>' meshes, driven by the type's anim)."""
+def glow_material(slot='glow:blink', color=0xff3020, double_sided=False):
+    """Separately animated emissive (the procedural 'glow:<slot>' meshes, driven by the type's anim). One slot
+    can hold several colours (a shipyard's red and green harbour lights): each colour is its own material here,
+    exported into the slot's one mesh as per-vertex COLOR_0, which the game's glow material uses.
+    double_sided=True also emits the back faces (thin fins, flags, rings seen from both sides)."""
     if not slot.startswith('glow:'):
         slot = 'glow:' + slot
-    m = bpy.data.materials.get(slot)
+    key = f'{slot}#{color:06x}' + ('#2s' if double_sided else '')
+    m = bpy.data.materials.get(key)
     if m is None:
-        m = bpy.data.materials.new(slot)
+        m = bpy.data.materials.new(key)
         m.use_nodes = True
         m['rh_atlas'] = False
+        m['rh_slot'] = slot
         m['rh_color'] = srgb(color)
+        m['rh_double'] = bool(double_sided)
     return m
 
 
@@ -514,11 +522,18 @@ def all_atlas_materials():
     return [m for m in _cache.values() if is_atlas(m)]
 
 
-def finalize(decals):
+def finalize(decals, look=None):
+    """look: per-model material defaults from Model.look (only 'ao' today): applied to every material that did
+    not set the key with set_weather, except glass and lamps."""
+    look = {k: v for k, v in (look or {}).items() if k in ('ao',)}
     for m in all_atlas_materials():
         g = _graphs.get(m.name)
         if g is None or 'base' not in g.ch:
             continue
+        if m.get('rh_kind') not in ('glass', 'light'):
+            for k, v in look.items():
+                if k not in g.explicit:
+                    g.params[k] = float(v)
         _finalize(g, decals)
 
 

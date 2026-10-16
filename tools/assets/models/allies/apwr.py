@@ -1,5 +1,5 @@
 """Allied advanced power plant (3x3): two white hyperbolic cooling towers (team and aviation bands, a big star
-roundel and numbers, stilted air inlets, sooty insides; smoke0 / smoke1), the reactor containment with a
+roundel or a big number, stilted air inlets, sooty insides; smoke0 / smoke1), the reactor containment with a
 panelled white dome, a team ring, pulsing coolant ports and a ring catwalk (steam1), the control hall with the
 lit REACTOR 2 sign (steam0), a glowing coolant channel, transformers and a pylon.
 """
@@ -36,7 +36,7 @@ def build(m):
 
     # ---- cooling towers
     _tower(m, r, 'smoke0', -0.74, -0.7, 1.46 - Y0 - 0.11, 0.56, '1', roundel_size=0.42)
-    _tower(m, r, 'smoke1', 0.66, -0.82, 1.22 - Y0 - 0.11, 0.48, '2', roundel_size=0.34)
+    _tower(m, r, 'smoke1', 0.66, -0.82, 1.22 - Y0 - 0.11, 0.48, '2', roundel_size=None)
 
     # ---- reactor containment (front left)
     rx, rz = -0.66, 0.62
@@ -48,7 +48,6 @@ def build(m):
     cyl(r, gun_m(), 0.11, 0.03, (rx, Y0 + 0.93, rz), seg=14, bevel=0.005)
     cyl(r, gun_m(), 0.05, 0.1, (rx, Y0 + 0.99, rz), r2=0.06, seg=10)
     light(r, (rx, Y0 + 1.045, rz), 0.018, 0xff2a1a, 'blink')
-    roundel(m, r, (rx, Y0 + 0.62, rz + 0.43), 0.24, depth=0.06)
     m.steam('steam1', (-0.51, 1.04, 0.52))
     # ring catwalk at the dome base
     cyl(r, tread(), 0.57, 0.014, (rx, Y0 + 0.47, rz), seg=28)
@@ -156,8 +155,11 @@ def _tower(m, r, name, x, z, h, rb, label, roundel_size=0.4):
     # big roundel + number on the camera face
     yr = y0 + stilt + h * 0.5
     rr = _rad_at(prof, h * 0.5)
-    roundel(m, r, (x, yr, z + rr + 0.004), roundel_size, depth=0.12)
-    stencil(m, r, label, (x + rr * 0.62, yr - 0.24, z + rr * 0.86), 0.16, color=0x2a2e34, wear=0.35, depth=0.12)
+    if roundel_size:
+        roundel(m, r, (x, yr, z + rr + 0.004), roundel_size, depth=0.12)
+        stencil(m, r, label, (x + rr * 0.62, yr - 0.24, z + rr * 0.86), 0.16, color=0x2a2e34, wear=0.35, depth=0.12)
+    else:  # the second tower: a big unit number instead of a second star (roundel variety)
+        stencil(m, r, label, (x, yr - 0.02, z + rr + 0.004), 0.36, color=0x2a2e34, wear=0.3, depth=0.12)
     # rim lights, ladder
     for a in (0.8, 2.4, 3.9, 5.5):
         light(r, (x + math.cos(a) * rt_, top + 0.025, z - math.sin(a) * rt_), 0.018, 0xff2a1a, 'blink')

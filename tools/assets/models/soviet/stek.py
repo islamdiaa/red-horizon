@@ -31,7 +31,7 @@ def slabo(p, mat, w, d, c, h, at, bevel=0.01):
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=1.8, radius=1.55)
-    look(edge=0.28, ao_dist=0.42)
+    look(m, ao_dist=0.42)
     P = Pal()
     r = m.root
     foundation(m, r, P, 3.0, 3.0)
@@ -58,7 +58,7 @@ def build(m):
     crest(m, r, (0, Y0 + 0.385, fz + 0.041), 0.24)
     for s in (-1, 1):
         red_banner(m, r, (s * 0.33, Y0 + 0.44, fz + 0.03), (0.24, 0.42))
-    roof_sign(m, r, P, (0.62, Y0 + 0.48 + 0.05 + 0.1, 0.36), (0.78, 0.2), 'НАУКА — СИЛА', lights=3)
+    tilt_sign(m, r, P, (0.62, Y0 + 0.48 + 0.05 + 0.13, 0.33), (0.84, 0.24), 'НАУКА — СИЛА', tilt=0.5, lights=3)
     for (x, z) in ((-1.3, bz - 0.77), (1.3, bz - 0.77), (-1.3, fz - 0.08), (1.3, fz - 0.08)):
         lamp(r, (x, Y0 + 0.48, z), 0.024)
 

@@ -395,11 +395,18 @@ let offscreen = false;
  */
 export function hdReleaseUploaded(renderer: THREE.WebGLRenderer, max = 2): number {
   let n = 0;
+  const aniso = hdAnisotropy(renderer);
   while (releaseQueue.length && n < max) {
     const en = releaseQueue.shift()!;
     const t = en.tpl;
     if (!t || t.released) continue;
     for (const tex of new Set([t.maps.map, t.maps.orm, t.maps.normal, t.maps.mask])) {
+      // anisotropic filtering: our camera looks at walls and roofs at grazing angles (the mask stays plain)
+      const want = tex === t.maps.mask ? 1 : aniso;
+      if (tex.anisotropy !== want) {
+        tex.anisotropy = want;
+        tex.needsUpdate = true; // (re-uploads a texture an earlier warm-up already sent with the old setting)
+      }
       renderer.initTexture(tex);
       (tex.image as ImageBitmap | null)?.close?.();
       tex.image = null;
@@ -408,6 +415,13 @@ export function hdReleaseUploaded(renderer: THREE.WebGLRenderer, max = 2): numbe
     n++;
   }
   return n;
+}
+
+/** Anisotropic filtering of HD atlases: up to 8x on High, 4x on Medium, within what the GPU offers. */
+export const HD_ANISOTROPY = { high: 8, medium: 4 } as const;
+function hdAnisotropy(renderer: THREE.WebGLRenderer): number {
+  const q = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('hdaniso')) : 0; // tests
+  return Math.max(1, Math.min(q > 0 ? q : HD_ANISOTROPY[tier], renderer.capabilities.getMaxAnisotropy()));
 }
 
 /**

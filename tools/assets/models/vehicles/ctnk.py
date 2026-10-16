@@ -16,11 +16,6 @@ KIND = 'vehicle'
 CYAN = 0x5ae0ff
 
 
-def torus(p, mat, R, t, at, seg=16, tseg=6):
-    prof = [(R + t * math.cos(2 * PI * i / tseg), t * math.sin(2 * PI * i / tseg)) for i in range(tseg + 1)]
-    lathe(p, mat, prof, at, seg=seg, cap_top=False, cap_bottom=False)
-
-
 def build(m):
     m.set_meta(height=0.48, radius=0.44, snow=0.3, keep=['fx:add:5ae0ff:0.7'])
     r = m.root
@@ -35,20 +30,20 @@ def build(m):
     hull = [(-0.412, 0.112), (0.3, 0.112), (0.442, 0.152), (0.282, 0.218), (-0.382, 0.224), (-0.422, 0.182)]
     side_prism(r, P.hull, hull, 0.36, bevel=0.017)
     slope_plate(r, P.dark2, (0.442, 0.152), (0.282, 0.218), 0.28, t=0.01, inset=0.84)
-    camo(m, r, (0.1, 0.224, 0), (0.32, 0.34), '+y', seed=81, n=3)
+    hull_shade(m, r, -0.422, 0.282, 0.221, 0.18, side_y=(0.11, 0.23), fenders=(0.82, 0.149, Z, 0.14, 0.0))
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
         fender(r, P.hull_flat, 0.82, 0.14, 0.143, Z * s, front=0.06, rear=0.05)
         box(r, P.dark2, (0.8, 0.06, 0.014), (0.0, 0.115, 0.27 * s), bevel=0.004)
-        camo(m, r, (0.0, 0.165, 0.181 * s), (0.66, 0.08), f, seed=82 + s, n=3)
+        camo(m, r, (0.0, 0.165, 0.181 * s), (0.66, 0.08), f, seed=82 + s, n=3, colors=(0x6a6a6a,))
         number(m, r, '62', (0.0, 0.118, 0.2775 * s), 0.036, f)
         emblem(m, r, 'allied_star', (-0.2, 0.17, 0.181 * s), 0.06, facing=f)
         headlight(r, (0.42, 0.168, 0.12 * s), 0.016, guard=P.black)
         marker(r, (-0.425, 0.19, 0.13 * s), 0.011)
     tow_hooks(r, P, 0.45, 0.12, 0.1, 1)
-    deck_strips(m, r, -0.382, 0.282, 0.222, 0.18)
-    fender_strips(m, r, 0.82, 0.275, 0.15)
-    emblem(m, r, 'allied_star', (0.22, 0.225, 0.1), 0.06, facing='+y')
+    deck_strips(m, r, -0.382, 0.282, 0.222, 0.18, width=0.016)
+    fender_strips(m, r, 0.82, 0.275, 0.15, width=0.014)
+    top_lamps(r, 0.26, -0.37, 0.221, 0.155)
 
     # ---- chrono emitter on the rear deck
     box(r, P.gun, (0.16, 0.05, 0.22), (-0.3, 0.248, 0), bevel=0.014)
@@ -67,10 +62,13 @@ def build(m):
 
     # ---- low turret with twin missile pods
     t = m.part('turret', at=(0.02, 0.218, 0))
-    ring = [(0.15, -0.06), (0.15, 0.06), (0.08, 0.1), (-0.12, 0.1), (-0.16, 0.06), (-0.16, -0.06), (-0.12, -0.1), (0.08, -0.1)]
-    loft(t, P.hull, [(0.0, ring), (0.04, scale_ring(ring, 1.0)), (0.072, scale_ring(ring, 0.85))], bevel=0.014)
-    outline_strips(m, t, scale_ring(ring, 0.85), 0.072, width=0.012)
-    hatch_round(t, P.dark2, 0.026, (-0.06, 0.072, 0.04))
+    ring = scale_ring([(0.15, -0.06), (0.15, 0.06), (0.08, 0.1), (-0.12, 0.1), (-0.16, 0.06), (-0.16, -0.06), (-0.12, -0.1), (0.08, -0.1)], 1.12)
+    top = scale_ring(ring, 0.85)
+    loft(t, P.hull, [(0.0, ring), (0.044, scale_ring(ring, 1.0)), (0.078, top)], bevel=0.015)
+    outline_strips(m, t, top, 0.078, width=0.014)
+    top_star(m, t, 'allies', (0.03, 0.079, -0.0), 0.075)
+    hatch_round(t, P.dark2, 0.028, (-0.08, 0.078, 0.045))
+    marker(t, (-0.12, 0.08, -0.045), 0.01, AMBER, '+y', mode='blink', strength=3.0)
     box(t, P.glass, (0.022, 0.018, 0.05), (0.122, 0.052, 0), bevel=0.004)
     whip(t, P, (-0.13, 0.072, -0.07), 0.18, pennant=True)
     red = painted(0xb02418, panels=None, wear=0.4, rust=0.05, rough=0.45)
@@ -78,12 +76,12 @@ def build(m):
         z = 0.15 * s
         box(t, P.gun, (0.05, 0.03, 0.04), (0.0, 0.03, 0.105 * s), bevel=0.005)
         pod = m.part(f'pod{i}', parent='turret', at=(0.0, 0.06, z))
-        box(pod, P.trim_flat, (0.24, 0.088, 0.088), (0, 0, 0), bevel=0.016)
+        box(pod, P.trim_flat, (0.25, 0.094, 0.094), (0, 0, 0), bevel=0.017)
         box(pod, P.dark, (0.02, 0.072, 0.072), (0.116, 0, 0), bevel=0.003)
         for dy in (-0.02, 0.02):
             for dz in (-0.02, 0.02):
                 cyl(pod, red, 0.012, 0.016, (0.128, dy, dz), ROT_X, seg=6, r2=0.005)
-        deck_strips(m, pod, -0.12, 0.12, 0.044, 0.044, width=0.01)
-        stripe(m, pod, (-0.06, 0.0445, 0), (0.05, 0.088), '+y', 0x26292e)
-        rivet_row(m, pod, (-0.1, 0.0445, -0.03 * s), (0.08, 0.0445, -0.03 * s), facing='+y', spacing=0.03, size=0.01)
+        deck_strips(m, pod, -0.125, 0.125, 0.047, 0.047, width=0.012)
+        stripe(m, pod, (-0.06, 0.0475, 0), (0.05, 0.094), '+y', 0x26292e)
+        rivet_row(m, pod, (-0.1, 0.0475, -0.03 * s), (0.08, 0.0475, -0.03 * s), facing='+y', spacing=0.03, size=0.01)
         m.muzzle(f'm{i}', (0.14, 0.06, z))

@@ -95,9 +95,35 @@ def build(m):
         s *= 0.75
         sphere(r, leaf_l if k else leaf, s, (x, yy, z), seg=7, rings=4, scale=(1.4, 0.5, 1.2), rot=(x * 3, z * 4, 0))
         sphere(r, leaf if k else leaf_l, s * 0.7, (x + s * 0.7, yy + s * 0.15, z - s * 0.5), seg=7, rings=4, scale=(1.3, 0.55, 1.2))
+    # disruptive camo blotches over the netting (crisp at the RTS zoom, still blends with grass and earth)
+    m.decal(_camo_img(), at=(0.0, 0.3, 0.0), size=(0.92, 0.92), facing='+y', depth=0.36, team=0, rough=0.95)
     # sandbags flanking the embrasure
     for (cz, yaw) in ((0.24, -0.5), (-0.24, 0.5)):
         for k in range(2):
             t_ = (k - 0.5) * 0.105
             box(r, bag, (0.1, 0.05, 0.065), (0.36 + math.cos(yaw) * t_, 0.025, cz - math.sin(yaw) * t_), (0, yaw, 0), bevel=0.015)
         box(r, bag, (0.1, 0.05, 0.065), (0.36, 0.07, cz), (0, yaw + 0.1, 0), bevel=0.015)
+
+
+def _camo_img():
+    """Three-tone disruptive camouflage blotches (dark green, brown, sand) over transparent gaps."""
+    import random as _r
+    from kit import decals as _D
+    from _allied import _imgs
+    if 'camo' in _imgs:
+        return _imgs['camo']
+    px = 256
+    cv = _D.Canvas(px, px, ss=2)
+    rnd = _r.Random(7)
+    for col, n, rad in ((0x2c3a1e, 9, 0.11), (0x6a5232, 8, 0.09), (0xa2936a, 6, 0.06)):
+        for _ in range(n):
+            cx, cy = rnd.uniform(0.08, 0.92) * px, rnd.uniform(0.08, 0.92) * px
+            pts = []
+            for i in range(12):
+                a = i / 12 * 2 * math.pi
+                rr = rad * px * rnd.uniform(0.55, 1.25)
+                pts.append((cx + math.cos(a) * rr * 1.4, cy + math.sin(a) * rr * 0.8))
+            cv.fill(cv.cover([((cx, cy), pts[i], pts[(i + 1) % 12]) for i in range(12)]), _D.lin(col), 1.0)
+    cv.roughen(0.2, seed=8)
+    _imgs['camo'] = cv.image()
+    return _imgs['camo']

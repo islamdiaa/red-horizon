@@ -66,12 +66,13 @@ def build(m):
         headlight(r, (0.46, 0.152, 0.115 * s), 0.017, guard=P.black)
     box(r, P.glass, (0.07, 0.072, 0.272), (0.422, 0.232, 0), (0, 0, 0.98))
     crew(r, P, (0.34, 0.16, -0.07), P.dark)
-    box(r, P.top, (0.16, 0.014, 0.22), (0.3, 0.289, 0), bevel=0.005)
+    box(r, P.top, (0.17, 0.014, 0.26), (0.3, 0.289, 0), bevel=0.005)
+    top_star(m, r, 'soviet', (0.31, 0.297, -0.035), 0.12)
     grille(m, r, (0.459, 0.14, 0.0), (0.2, 0.04), facing='+x', n=3)
     box(r, P.gun, (0.022, 0.024, 0.3), (0.47, 0.11, 0), bevel=0.004)
     tow_hooks(r, P, 0.48, 0.1, 0.08, 1)
     whip(r, P, (0.22, 0.282, -0.12), 0.22, pennant=True)
-    marker(r, (0.3, 0.3, 0.08), 0.011, AMBER, '+y', mode='blink', strength=2.6)
+    marker(r, (0.26, 0.297, 0.09), 0.013, AMBER, '+y', mode='blink', strength=3.4)
     # ---- flatbed with side rails, rear fenders, hazard plate, tail lights
     box(r, P.dark2, (0.6, 0.036, 0.32), (-0.17, 0.13, 0), bevel=0.008)
     for s in (-1, 1):
@@ -99,6 +100,8 @@ def build(m):
         m.decal(tre, at=at, size=(0.085, 0.085), facing=f, part=d, depth=0.03, team=0)
     for x in (-0.12, 0.12):
         box(d, strap, (0.026, 0.212, 0.216), (x, -0.012, 0), bevel=0.004)
+    for f, z in (('+z', 0.1015), ('-z', -0.1015)):
+        stencil(m, d, 'ОПАСНО', (0.13, -0.035, z), 0.022, facing=f, color=0x111111)
     box(d, P.dark, (0.06, 0.032, 0.05), (0.09, 0.1, 0.0), bevel=0.006)
     sphere(d, glow_material('glow:arm', RED), 0.016, (0.09, 0.125, 0), seg=10, rings=6)
     box(d, glow_material('glow:arm2', 0x40ff60), (0.02, 0.006, 0.012), (0.072, 0.118, 0.018))

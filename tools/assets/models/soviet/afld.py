@@ -19,7 +19,7 @@ AMBER = 0xffa020
 
 def build(m):
     m.set_meta(footprint=(3, 2), height=0.9, radius=1.4, snow=0.55)  # the strip is ploughed
-    look(edge=0.28, ao_dist=0.34)
+    look(m, ao_dist=0.34)
     P = Pal()
     r = m.root
     foundation(m, r, P, 3.0, 2.0)
@@ -27,7 +27,7 @@ def build(m):
     # ---- the strip: tarmac, markings, edge lights (chasing: glow:run0..3)
     box(r, P.tar, (2.86, 0.02, 1.1), (0, Y0 + 0.01, 0.28), bevel=0.006)
     for i in range(7):
-        stripe(m, r, (-1.2 + i * 0.4, Y0 + 0.021, 0.28), (0.22, 0.035), facing='+y', color=0xd8d4c8)
+        m.decal(solid(0xe8e4da), at=(-1.2 + i * 0.4, Y0 + 0.021, 0.28), size=(0.22, 0.04), facing='+y', part=r, depth=0.02, team=0, emit=0.4)
     for z in (-0.22, 0.78):
         stripe(m, r, (0, Y0 + 0.021, z), (2.74, 0.025), facing='+y', color=0xd8d4c8)
     for i in range(8):
@@ -44,7 +44,11 @@ def build(m):
     arch(r, P.wall_dk, hd / 2 + 0.02, hw, (hx, vy, hz), rise=0.3, seg=12, axis='x')
     for k in range(6):
         arch(r, P.frame, hd / 2 + 0.035, 0.035, (hx - 0.75 + k * 0.3, vy, hz), rise=0.315, seg=10, r_in=hd / 2 - 0.0, axis='x')
-    stripe(m, r, (hx, vy + 0.301, hz), (hw - 0.05, 0.06), facing='+y', team_k=1)
+    roof_paint(m, r, (hx, vy + 0.301, hz), (hw - 0.05, 0.06))
+    # the vault's camera-facing flank is steep (no snow): a red band and a big lit star
+    m.decal(solid(0xa31c15), at=(hx, vy + 0.12, hz + hd / 2), size=(hw - 0.1, 0.05), facing='+z', part=r, depth=0.12, team=0, emit=0.3)
+    top_star(m, r, (hx + 0.45, vy + 0.15, hz + hd / 2), 0.24, facing='+z', emit=0.4, depth=0.14)
+    top_star(m, r, (hx - 0.45, vy + 0.15, hz + hd / 2), 0.24, facing='+z', emit=0.4, depth=0.14)
     fz = hz + hd / 2
     box(r, P.void, (1.24, 0.3, 0.012), (hx, Y0 + 0.07 + 0.15, fz + 0.002))
     for i in range(6):

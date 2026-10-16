@@ -16,6 +16,7 @@ Attributes: POSITION int16 (normalised), NORMAL int8, TANGENT int8, TEXCOORD_0 u
 float (track belts), indices uint16/uint32.
 """
 import json
+import os
 import math
 import struct
 
@@ -117,7 +118,7 @@ def _mesh_data(obj, atlas=True, separate_glass=False):
         if atlas:
             name = 'glass' if (separate_glass and mat is not None and mat.get('rh_kind') == 'glass') else 'body'
         else:
-            name = mat.name if mat is not None else 'body'
+            name = (mat.get('rh_slot') or mat.name) if mat is not None else 'body'  # glow colours share their slot
         sel = tri_loops.reshape(-1, 3)[tri_mat == mi].ravel()
         d = out.setdefault(name, {'pos': [], 'nrm': [], 'tan': [], 'uv': [], 'col': []})
         d['pos'].append(co[lv[sel]])
@@ -305,12 +306,15 @@ def write(model, images, path, meta_extra=None, separate_glass=False):
     js = json.dumps(gl, separators=(',', ':')).encode()
     js += b' ' * ((-len(js)) % 4)
     total = 12 + 8 + len(js) + 8 + len(blob)
-    with open(path, 'wb') as f:
+    # atomic: tests, the dev server and the service worker never see a half-written GLB while agents rebuild
+    tmp = f'{path}.tmp-{os.getpid()}'
+    with open(tmp, 'wb') as f:
         f.write(struct.pack('<III', 0x46546C67, 2, total))
         f.write(struct.pack('<II', len(js), 0x4E4F534A))
         f.write(js)
         f.write(struct.pack('<II', len(blob), 0x004E4942))
         f.write(blob)
+    os.replace(tmp, path)
     stats['bytes'] = total
     stats['texture_bytes'] = {k: len(v) for k, v in images.items()}
     return stats

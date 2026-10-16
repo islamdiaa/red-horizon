@@ -20,7 +20,7 @@ SAMPLES = {'ao': 48, 'edge': 20, 'emit': 4, 'normal': 20}
 AO_DISTANCE = 0.32
 EDGE_RADIUS = 0.014
 CHAMFER_EDGE = 0.45  # edge-mask value of geometric chamfer faces (0.8 wore every chamfer bare: silhouette halos)
-MARGIN_PX = 2.5  # island gutter in atlas pixels (the bake extends colours into it; HD is only drawn close up)
+MARGIN_PX = 2.0  # island gutter in atlas pixels (bake._fill grows every island into it; HD is only drawn close up)
 PACK_SHAPE = 'AABB'  # 'CONCAVE' packs tighter but takes minutes on big models; 'AABB' is instant
 
 
@@ -284,6 +284,9 @@ def _route(kind):
             nt.links.new(g.bsdf.outputs[0], out.inputs['Surface'])
             continue
         nt.links.new(em.outputs[0], out.inputs['Surface'])
+        if kind == 'one':  # constant white: atlas coverage masks
+            em.inputs['Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+            continue
         if kind == 'edge':
             e = nt.nodes.get('RH_EDGE')
             if e is None:
@@ -338,16 +341,76 @@ def _route(kind):
             nt.links.new(nt.nodes['RH_' + chans].outputs[0], em.inputs['Color'])
 
 
-def _bake(objs, img, bake_type, samples, margin):
+_COVER = {}  # atlas size -> bool (H, W): texels inside any UV island (set by cover())
+_GUTTER = {}  # (atlas size, margin px) -> (gutter texel indices, index of the island texel each one copies)
+
+
+def cover(objs, size):
+    """Atlas coverage of all baked objects (a one-sample constant emission bake, no margin): the gutter fill
+    of every later bake grows the islands into exactly the uncovered texels."""
+    t = _new_img('RHTMP_cover', size)
+    _route('one')
+    sc = bpy.context.scene
+    sc.cycles.samples = 1
+    sc.render.bake.margin = 0
+    _target(t)
+    _select(objs)
+    bpy.ops.object.bake(type='EMIT', margin=0, use_clear=True)
+    _COVER[size] = px(t)[..., 0] > 0.5
+    bpy.data.images.remove(t)
+    for k in [k for k in _GUTTER if k[0] == size]:
+        del _GUTTER[k]
+    return _COVER[size]
+
+
+def _gutter(size, r):
+    """For every uncovered texel within r px of an island: the island texel it copies (grown one px per step,
+    like Blender's EXTEND margin). Computed once per atlas, reused by every bake."""
+    key = (size, r)
+    if key not in _GUTTER:
+        cov = _COVER[size]
+        H, W = cov.shape
+        src = np.where(cov, np.arange(H * W, dtype=np.int64).reshape(H, W), -1)
+        filled = cov.copy()
+        for _ in range(r):
+            grow_all = np.zeros_like(filled)
+            for ax, sh in ((0, 1), (0, -1), (1, 1), (1, -1)):
+                f = np.roll(filled, sh, ax)
+                g = f & ~filled & ~grow_all
+                src[g] = np.roll(src, sh, ax)[g]
+                grow_all |= g
+            if not grow_all.any():
+                break
+            filled |= grow_all
+        dst = np.flatnonzero(filled & ~cov)
+        _GUTTER[key] = (dst, src.ravel()[dst])
+    return _GUTTER[key]
+
+
+def _fill(a, size, r):
+    """Gutter margin like Blender's EXTEND: copy the nearest island texel into the gutter texels within r px.
+    (Blender's own bake margin is applied per object: with several atlas objects (moving parts) a later
+    object's margin overwrote the border texels of an earlier object's islands packed closer than the margin,
+    e.g. a missile island's values along a ring's UV seam.)"""
+    dst, src = _gutter(size, r)
+    flat = a.reshape(-1, a.shape[-1])
+    flat[dst] = flat[src]
+    return a
+
+
+def _bake(objs, img, bake_type, samples, margin, fill=True):
     sc = bpy.context.scene
     sc.cycles.samples = samples
-    sc.render.bake.margin = margin
+    # no Blender margin (it is per object, see _fill): bake the islands only, then fill the gutters here
+    sc.render.bake.margin = 0
     _target(img)
     _select(objs)
     kw = {}
     if bake_type == 'NORMAL':
         kw = dict(normal_space='TANGENT')
-    bpy.ops.object.bake(type=bake_type, margin=margin, use_clear=True, **kw)
+    bpy.ops.object.bake(type=bake_type, margin=0, use_clear=True, **kw)
+    if fill and margin > 0 and img.size[0] in _COVER:
+        set_px(img, _fill(px(img), img.size[0], margin))
 
 
 def _new_img(name, size):
@@ -377,12 +440,46 @@ def _blur(a, r):
     return out
 
 
-def phase1(objs, size, log=print):
+def _ao_without_ground(objs, ungrounded, ao, size, margin, log):
+    """Re-bake the AO of the parts made with m.part(..., ground=False) with the ground plane hidden (the
+    other parts still occlude them) and merge their islands (plus their gutter margins) into `ao`."""
+    gp = bpy.data.objects.get('rh_ground')
+    if gp is None or not ungrounded:
+        return
+    t = time.time()
+    gp.hide_render = True
+    try:
+        ao2 = _new_img('RHTMP_ao2', size)
+        _bake(ungrounded, ao2, 'AO', SAMPLES['ao'], margin, fill=False)
+        # the atlas coverage of those parts (a one-sample constant emission bake)
+        _route('one')
+        cov = _new_img('RHTMP_cov', size)
+        _bake(ungrounded, cov, 'EMIT', 1, 0, fill=False)
+        take = px(cov)[..., 0] > 0.5
+        _route('edge')
+    finally:
+        gp.hide_render = False
+    a, b = px(ao), px(ao2)
+    a[take] = b[take]
+    set_px(ao, a)
+    for n in ('RHTMP_ao2', 'RHTMP_cov'):
+        bpy.data.images.remove(bpy.data.images[n])
+    log(f'  bake ao without ground ({len(ungrounded)} parts, {take.mean() * 100:.1f}% of the atlas) {time.time() - t:.1f}s')
+
+
+def phase1(objs, size, log=print, ungrounded=()):
+    """ungrounded: atlas objects of parts whose AO is baked without the ground plane (m.part(..., ground=False))."""
     margin = max(4, size // 96)
     t = time.time()
+    cover(objs, size)
     ao = bpy.data.images[f'RHMASK_ao']
     _route('edge')  # (the materials read the masks: keep them out of the shader while baking into them)
-    _bake(objs, ao, 'AO', SAMPLES['ao'], margin)
+    _bake(objs, ao, 'AO', SAMPLES['ao'], margin, fill=not ungrounded)
+    if ungrounded:
+        log(f'  bake ao {time.time() - t:.1f}s')
+        _ao_without_ground(objs, list(ungrounded), ao, size, margin, log)
+        set_px(ao, _fill(px(ao), size, margin))
+        t = time.time()
     a = px(ao)
     # soften the noise a little (and keep the occlusion of thin crevices)
     v = a[..., 0]

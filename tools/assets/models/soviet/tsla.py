@@ -27,7 +27,7 @@ def ring(p, mat, R, t, at, seg=14, h=None):
 
 def build(m):
     m.set_meta(footprint=(1, 2), height=2.3, radius=0.75, keep=['fx:add:5aa2ff:0.9'])
-    look(edge=0.28, ao_dist=0.3)
+    look(m, ao_dist=0.3)
     P = Pal()
     r = m.root
     foundation(m, r, P, 1.0, 2.0)

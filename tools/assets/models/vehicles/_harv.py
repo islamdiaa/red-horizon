@@ -38,13 +38,14 @@ def build_harv(m, fac):
         box(r, P.glass, (0.145, 0.054, 0.006), (cx - 0.002, cy + 0.106, cz + s * 0.093))
         for x in (cx + 0.04, cx - 0.06):
             box(r, P.black, (0.008, 0.058, 0.008), (x, cy + 0.106, cz + s * 0.094))
-    box(r, P.dark2, (0.215, 0.016, 0.2), (cx, cy + 0.166, cz), bevel=0.005)
+    box(r, P.trim_flat, (0.215, 0.016, 0.2), (cx, cy + 0.166, cz), bevel=0.005)
+    top_star(m, r, fac, (cx + 0.015, cy + 0.175, cz - 0.02), 0.1)
     bar(r, P.black, (cx + 0.09, cy + 0.178, cz - 0.085), (cx + 0.09, cy + 0.178, cz + 0.085), 0.01)
     for z in (-0.05, 0.05):
         lamp(r, (cx + 0.095, cy + 0.19, cz + z), 0.011, HEAD, 'steady', 3.0, '+x')
     # amber beacon: housing + separately animated glow dome
-    cyl(r, P.black, 0.016, 0.012, (cx - 0.03, cy + 0.18, cz), seg=8)
-    dome(r, glow_material('glow:beacon', AMBER), 0.016, (cx - 0.03, cy + 0.186, cz), seg=8, rings=3, h=0.022)
+    cyl(r, P.black, 0.018, 0.012, (cx - 0.075, cy + 0.18, cz + 0.065), seg=8)
+    dome(r, glow_material('glow:beacon', AMBER), 0.018, (cx - 0.075, cy + 0.186, cz + 0.065), seg=8, rings=3, h=0.024)
     # mirror, cab door handle steps
     box(r, P.black, (0.004, 0.03, 0.02), (cx + 0.12, cy + 0.12, cz - 0.108))
     bar(r, P.black, (cx + 0.1, cy + 0.12, cz - 0.098), (cx + 0.12, cy + 0.12, cz - 0.108), 0.004)
@@ -92,7 +93,13 @@ def build_harv(m, fac):
 
     # ---- ore bin: floor, ribbed walls (hull paint) with faction panels, rim, ladder, hazard band
     bx, bw, bd, by, bh = -0.17, 0.55, 0.46, 0.19, 0.17
-    box(r, painted(0x6c6f72, panels=(0.1, 0.1), wear=0.5, rust=0.35, grime=0.5, rough=0.6, metal=0.5), (bw, 0.02, bd), (bx, by + 0.01, 0), bevel=0.004)
+    # bin floor: light worn steel with a few ore remnants (reads from above when the truck is empty)
+    floor = painted(0xb4b6b2, panels=(0.1, 0.1), wear=0.6, rust=0.05, grime=0.08, streaks=0.0, rough=0.5, metal=0.2, var=0.08)
+    set_weather(floor, ao=0.2)  # an open bin floor: little cavity darkening, so it reads light from above
+    box(r, floor, (bw, 0.02, bd), (bx, by + 0.01, 0), bevel=0.004)
+    rem = painted(0xc89a30, panels=None, wear=0.0, rust=0.0, grime=0.2, rough=0.35, metal=0.6, var=0.2)
+    for (ox, oz, rr) in ((-0.15, -0.12, 0.024), (-0.05, 0.1, 0.02), (0.12, -0.05, 0.022), (0.17, 0.13, 0.018), (-0.2, 0.06, 0.017), (0.03, -0.15, 0.019)):
+        sphere(r, rem, rr, (bx + ox, by + 0.022, oz), seg=5, rings=3, scale=(1.2, 0.6, 1.0))
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
         box(r, hull, (bw, bh, 0.03), (bx, by + bh / 2, (bd / 2 - 0.015) * s), bevel=0.012)
@@ -100,13 +107,13 @@ def build_harv(m, fac):
         for i in range(4):
             x = bx - bw / 2 + 0.06 + i * 0.145
             box(r, P.dark2, (0.024, bh + 0.014, 0.016), (x, by + bh / 2, (bd / 2 + 0.004) * s), bevel=0.003)
-        box(r, P.gun, (bw + 0.012, 0.016, 0.044), (bx, by + bh + 0.006, (bd / 2 - 0.015) * s), bevel=0.004)
+        box(r, P.trim_flat, (bw + 0.012, 0.016, 0.044), (bx, by + bh + 0.006, (bd / 2 - 0.015) * s), bevel=0.004)
         rivet_row(m, r, (bx - bw / 2 + 0.03, by + bh - 0.02, (bd / 2 + 0.002) * s), (bx + bw / 2 - 0.03, by + bh - 0.02, (bd / 2 + 0.002) * s), facing=f, spacing=0.04, size=0.012)
         if sov:
             emblem(m, r, 'soviet', (bx + 0.13, by + bh * 0.48, (bd / 2 + 0.008) * s), 0.075, facing=f)
         else:
             emblem(m, r, 'allied_star', (bx + 0.13, by + bh * 0.48, (bd / 2 + 0.008) * s), 0.07, facing=f)
-        number(m, r, 'ORE', (bx - 0.07, by + bh * 0.48, (bd / 2 + 0.008) * s), 0.045, f)
+        number(m, r, 'РУДА' if sov else 'ORE', (bx - 0.07, by + bh * 0.48, (bd / 2 + 0.008) * s), 0.045, f)
     box(r, hull, (0.03, bh, bd), (bx - bw / 2 + 0.015, by + bh / 2, 0), bevel=0.012)
     box(r, hull, (0.03, bh * 0.8, bd), (bx + bw / 2 - 0.015, by + bh * 0.4, 0), bevel=0.012)
     hazard_stripes(m, r, (bx - bw / 2 - 0.001, by + bh - 0.03, 0.0), (bd - 0.04, 0.035), facing='-x')
@@ -115,7 +122,15 @@ def build_harv(m, fac):
     for k in range(5):
         bar(r, P.steel, (bx - bw / 2 - 0.008, by - 0.02 + k * 0.04, -0.12), (bx - bw / 2 - 0.008, by - 0.02 + k * 0.04, -0.08), 0.005)
     tail_lights(r, -0.483, 0.215, 0.15)
-    deck_strips(m, r, bx - bw / 2, bx + bw / 2, by + bh + 0.014, 0.232)
+    if sov:
+        # light olive chassis deck and fenders, red fender fronts
+        paint(m, r, (-0.04, 0.19, 0.0), (0.86, 0.36), '+y', OLIVE_DECK, depth=0.008)
+        for s in (-1, 1):
+            paint(m, r, (-0.04, 0.164, Z * s), (0.94, 0.15), '+y', OLIVE_DECK, depth=0.008)
+        fender_caps(m, r, 0.43, 0.2, 0.164, Z, 0.15)
+    deck_strips(m, r, bx - bw / 2, bx + bw / 2, by + bh + 0.014, 0.232, width=0.014)
+    for s in (-1, 1):
+        lamp(r, (bx - bw / 2 + 0.03, by + bh + 0.014, 0.215 * s), 0.011, RED, 'steady', 3.2, '+y')
     deck_strips(m, r, cx - 0.107, cx + 0.107, cy + 0.174, 0.1, zc=cz, width=0.012)
     fender_strips(m, r, 0.94, 0.29, 0.163, x=-0.04)
 

@@ -1,6 +1,6 @@
-"""Allied service depot (3x3): the octagonal repair pad (hazard ring, star roundel, green guide lamps on
+"""Allied service depot (3x3): the octagonal repair pad (hazard ring, gear badge, green guide lamps on
 'glow:pad'), four yellow repair arms with welding tips ('glow:weld') and an overhead gantry with a hoist, the
-white workshop at the back (two roller bays, one open and lit, the SERVICE sign, roundels, banners), open tool
+white workshop at the back (two roller bays, one open and lit, the SERVICE sign, eagle banners, DEPOT 4 roof lettering), open tool
 sheds either side and floodlight poles at the front corners.
 """
 import math
@@ -39,7 +39,7 @@ def build(m):
     inner = [(x * 0.88, z * 0.88) for (x, z) in oct_]
     prism(r, tread(0x50565c), inner, 0.012, (0, Y0 + 0.064, 0), (-math.pi / 2, 0, 0))
     m.decal(_ring_img(), at=(0, Y0 + 0.071, 0), size=(1.1, 1.1), facing='+y', depth=0.03, team=0, rough=0.6)
-    roundel(m, r, (0, Y0 + 0.071, 0), 0.5, facing='+y', depth=0.03)
+    badge(m, r, 'gear', (0, Y0 + 0.071, 0), 0.5, facing='+y', field='circle', depth=0.03, symbol_scale=0.72)
     for i in range(8):
         a = i / 8 * math.pi * 2
         x, z = math.cos(a) * 0.6, math.sin(a) * 0.6
@@ -69,10 +69,10 @@ def build(m):
     lit_sign(m, r, (0, Y0 + 0.5, fz + 0.03), (0.6, 0.15), 'SERVICE', lights=2)
     glazing(m, r, (0, Y0 + 0.24, fz + 0.004), (0.36, 0.1), 3, lit={0, 2}, color=WIN_WARM, emit=0.9)
     for x in (-1.24, 1.24):
-        roundel(m, r, (x, Y0 + 0.4, fz + 0.002), 0.2, plate=wall)
+        eagle_banner(m, r, (x, top - 0.08, fz + 0.03), (0.17, 0.4))
     rivet_row(m, r, (-ww / 2 + 0.05, top - 0.09, fz + 0.001), (ww / 2 - 0.05, top - 0.09, fz + 0.001))
     # roof: roundel, AC, vents, mast
-    roundel(m, r, (-0.3, rt + 0.016, wz + 0.02), 0.48, facing='+y', plate=steel(0x7d8792, panels=None))
+    big_text(m, r, 'DEPOT 4', (-0.3, rt + 0.016, wz + 0.04), 0.18, plate=tr)
     ac_unit(r, (-0.95, rt + 0.016, wz - 0.1), 0.11)
     ac_unit(r, (0.35, rt + 0.016, wz - 0.12), 0.11)
     roof_vent(r, (0.95, rt + 0.016, wz + 0.1), 0.04)

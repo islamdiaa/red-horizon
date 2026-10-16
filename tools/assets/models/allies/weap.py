@@ -149,7 +149,7 @@ def build(m):
     box(d, yel, (dw, 0.035, 0.032), (0, -(dh - 0.01) + 0.017, 0.002), bevel=0.005)
     m.decal(haz_img(dw / 0.035), at=(0, -(dh - 0.01) + 0.017, 0.0185), size=(dw, 0.03), facing='+z', part=d, depth=0.012, team=0)
     stencil(m, d, 'B2', (0.3, -dh * 0.45, 0.0115), 0.17, color=WHITE_TXT, wear=0.35)
-    roundel(m, d, (-0.28, -dh * 0.45, 0.0115), 0.2)
+    m.decal(symbol_img('eagle'), at=(-0.28, -dh * 0.45, 0.0115), size=(0.24, 0.24), facing='+z', part=d, depth=0.012, team=0, rough=0.6)
 
     # ---- office wings: lit windows, a doorway, a small roller door
     for sx in (-1, 1):

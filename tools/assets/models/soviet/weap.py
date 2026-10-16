@@ -18,7 +18,7 @@ KIND = 'structure'
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=1.4, radius=1.55)
-    look()
+    look(m)
     P = Pal()
     r = m.root
 
@@ -66,7 +66,9 @@ def build(m):
         for k in range(4):
             z = hz - hd / 2 + 0.2 + k * (hd - 0.4) / 3
             arch(r, P.frame, 0.44, 0.04, (x, vy, z), rise=0.255, seg=10, r_in=0.405)
-        stripe(m, r, (x, vy + 0.241, hz), (0.07, hd - 0.1), facing='+y', team_k=1)
+        roof_paint(m, r, (x, vy + 0.241, hz), (0.07, hd - 0.1))
+        if i == 1:
+            top_star(m, r, (x, vy + 0.24, hz + 0.3), 0.62, emit=0.35, depth=0.2)
         box(r, glass(lit=0xffc27a, strength=0.9), (0.1, 0.008, hd - 0.5), (x - 0.18, vy + 0.18, hz), (0, 0, 0.62))
         # gable end: dark plate with a lit lunette (fan window)
         arch(r, P.frame, 0.43, 0.02, (x, vy, fz - 0.01), rise=0.245, seg=12)

@@ -1,5 +1,5 @@
 """Allied ore refinery (3x3): the white processing hall with the lit ORE PROCESSING sign, a hooded intake with
-the furnace glow ('glow:proc') over the conveyor rollers (animated parts roll0..roll4), a roof roundel and a
+the furnace glow ('glow:proc') over the conveyor rollers (animated parts roll0..roll4), ORE 1 roof lettering and a
 crusher house (steam1), two tall white ore silos with team bands and a conveyor gallery, the steel processing
 tower with furnace ports and a stack (smoke0), the control room (steam0), the dock lane with green guide lamps
 ('glow:dock') and an ore stockpile.
@@ -75,7 +75,7 @@ def build(m):
         eagle_banner(m, r, (s * 0.49, Y0 + 0.5, fz + 0.03), (0.17, 0.36))
     rivet_row(m, r, (-hw / 2 + 0.05, top - 0.1, fz + 0.001), (hw / 2 - 0.05, top - 0.1, fz + 0.001))
     # roof: roundel, crusher house (steam1), AC, vents
-    roundel(m, r, (0.27, rt + 0.016, hz + 0.33), 0.46, facing='+y', plate=steel(0x7d8792, panels=None))
+    big_text(m, r, 'ORE 1', (0.24, rt + 0.016, hz + 0.36), 0.15, plate=trim())
     box(r, stl, (0.5, 0.22, 0.44), (-0.2, rt + 0.13, hz - 0.25), bevel=0.016)
     box(r, rf, (0.54, 0.025, 0.48), (-0.2, rt + 0.25, hz - 0.25), bevel=0.006)
     grille(m, r, (-0.2, rt + 0.263, hz - 0.25), (0.3, 0.2), facing='+y')

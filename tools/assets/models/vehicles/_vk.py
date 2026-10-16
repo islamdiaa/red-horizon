@@ -15,14 +15,12 @@ Coordinates are the game's (units face +X, +Z = right side / towards the camera,
 """
 import math
 
-import bmesh
-from mathutils import Matrix, Vector
+from mathutils import Vector
 
 from kit import *  # noqa: F401,F403
 from kit import decals as D
 from kit import materials as Mt
 from kit.core import T
-from kit.shapes import _bevel_edges, _emit
 
 PI = math.pi
 ROT_Z = (PI / 2, 0, 0)       # cylinder axis (local Y) -> game Z (wheels, rollers)
@@ -47,7 +45,7 @@ class Pal:
             self.accent = painted(0xd8d4c8, panels=None, wear=0.5, rust=0.05, grime=0.3, rough=0.5, var=0.06)  # off-white
         else:
             self.hull = painted(0x76824c, panels=(0.14, 0.1), wear=wear, rust=0.14, grime=0.36, streaks=0.35, rough=0.6, metal=0.2, var=0.14)
-            self.top = painted(0x8a965e, panels=(0.14, 0.1), wear=wear, rust=0.12, grime=0.32, streaks=0.3, rough=0.58, metal=0.2, var=0.14)
+            self.top = painted(0xa9b67a, panels=(0.14, 0.1), wear=wear, rust=0.08, grime=0.22, streaks=0.2, rough=0.56, metal=0.18, var=0.1)
             self.hull_flat = painted(0x76824c, panels=None, wear=wear, rust=0.14, grime=0.36, streaks=0.35, rough=0.6, metal=0.2, var=0.14)
             self.dark = painted(0x3e4430, panels=None, wear=0.7, rust=0.22, grime=0.48, streaks=0.3, rough=0.62, metal=0.25, var=0.12)
             self.dark2 = painted(0x4b5235, panels=None, wear=0.72, rust=0.18, grime=0.45, streaks=0.3, rough=0.62, metal=0.22, var=0.12)
@@ -72,27 +70,6 @@ class Pal:
 
 # ---------------------------------------------------------------------------------------------------------
 # solids
-
-def loft(p, mat, rings, at=(0, 0, 0), rot=None, bevel=0.0):
-    """Closed solid through horizontal rings: rings = [(y, [(x, z), ...]), ...] bottom to top, same point count
-    (top-view outlines; a smaller top ring gives sloped, light-catching sides). Caps on both ends."""
-    def build(bm):
-        rs = []
-        for (y, pts) in rings:
-            rs.append([bm.verts.new((x, y, z)) for (x, z) in pts])
-        n = len(rs[0])
-        for k in range(len(rs) - 1):
-            A, B = rs[k], rs[k + 1]
-            for i in range(n):
-                j = (i + 1) % n
-                bm.faces.new((A[i], A[j], B[j], B[i]))
-        bm.faces.new(rs[0])
-        bm.faces.new(list(reversed(rs[-1])))
-        vs = [v for r in rs for v in r]
-        bmesh.ops.recalc_face_normals(bm, faces=list({f for v in vs for f in v.link_faces}))
-        return _bevel_edges(bm, vs, bevel) if bevel > 0 else vs
-    return _emit(p, mat, build, T(at, rot))
-
 
 def side_prism(p, mat, pts, width, z=0.0, bevel=0.0, at_x=0.0):
     """Side-profile [(x, y), ...] extruded across Z (hulls, cabs), centred on z."""
@@ -217,15 +194,17 @@ def lamp(p, at, r, color, mode='steady', strength=2.8, facing='+x', housing=None
     lathe(p, Mt.light(color, strength, mode), [(r, 0.0), (r * 0.78, r * 0.42), (0.0, r * 0.62)], tuple(c + hz * (r * 0.5)), seg=8, rot=rot)
 
 
-def headlight(p, at, r=0.018, facing='+x', strength=3.6, guard=None):
-    """Headlamp: dark housing + bright steady lens (emissive in the game, dims when wrecked)."""
+def headlight(p, at, r=0.018, facing='+x', strength=4.0, guard=None):
+    """Headlamp: dark housing + bright steady lens (emissive in the game, dims when wrecked). Drawn 20% larger
+    than asked: lamps must register at the default zoom."""
+    r = r * 1.2
     lamp(p, at, r, HEAD, 'steady', strength, facing)
     if guard is not None:
         x, y, z = at
         bar(p, guard, (x + r * 1.2, y + r * 1.6, z - r * 1.3), (x + r * 1.2, y + r * 1.6, z + r * 1.3), 0.004)
 
 
-def marker(p, at, r=0.011, color=RED, facing='-x', mode='steady', strength=2.8):
+def marker(p, at, r=0.011, color=RED, facing='-x', mode='steady', strength=3.2):
     lamp(p, at, r, color, mode, strength, facing)
 
 
@@ -379,27 +358,6 @@ def number(m, p, text, at, height, facing, color=0xe8e4da):
     return stencil(m, p, text, at, height, facing=facing, color=color)
 
 
-def sector(p, mat, r0, r1, x0, x1, a0, a1, seg=3, at=(0, 0, 0)):
-    """Open strip of a cylinder / cone along X (radius r0 at x0 -> r1 at x1) between angles a0..a1 around
-    the X axis (0 = +Y, increasing towards +Z): quartered rocket paint, split drums."""
-    def build(bm):
-        A, B = [], []
-        for i in range(seg + 1):
-            a = a0 + (a1 - a0) * i / seg
-            ca, sa = math.cos(a), math.sin(a)
-            A.append(bm.verts.new((x0, ca * r0, sa * r0)))
-            B.append(bm.verts.new((x1, ca * r1, sa * r1)))
-        for i in range(seg):
-            f = bm.faces.new((A[i], B[i], B[i + 1], A[i + 1]))
-            f.normal_update()
-            c = f.calc_center_median()
-            radial = Vector((0, c.y, c.z))
-            if f.normal.dot(radial) < 0:
-                f.normal_flip()
-        return A + B
-    return _emit(p, mat, build, T(at))
-
-
 EDGE_HL = 0xaeb2b6  # worn bright steel
 
 
@@ -447,3 +405,138 @@ def deck_strips(m, p, x0, x1, y, half_w, front=True, rear=True, inset=0.007, wid
 def fender_strips(m, p, L, z_outer, y_top, x=0.0, width=0.012):
     for s in (-1, 1):
         edge_strip(m, p, (x - L / 2 + 0.01, y_top, (z_outer - 0.005) * s), (x + L / 2 - 0.01, y_top, (z_outer - 0.005) * s), '+y', width)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# camera-first dressing (the RTS camera looks down ~40 degrees: tops dominate at the default zoom)
+
+TEAM_NEUTRAL = 0xdbdbdb   # decal colour that equals clean team paint (linear 0.7 = kit TEAM_GREY)
+TEAM_DARK = 0xa4a4a4      # ~0.55 x team colour: darker team shade (Allied decks / hull sides)
+TEAM_DARKER = 0x8a8a8a    # ~0.37 x team colour
+
+
+def team_shade(m, p, at, size, facing='+y', shade=TEAM_DARK, depth=0.03, roll=0.0):
+    """Repaint an area in a darker / lighter shade of the team colour (decal: grey colour x team mask)."""
+    return m.decal(D.solid(shade), at=at, size=size, facing=facing, part=p, depth=depth, roll=roll, team=1, rough=0.5)
+
+
+def disc_image(px=128, ring=None, ring_w=0.12):
+    cv = D.Canvas(px, px, ss=2)
+    c = px / 2
+    cv.circle(c, c, px * 0.48, D.lin(0xffffff))
+    if ring is not None:
+        cv.circle(c, c, px * 0.48, D.lin(ring), r_in=px * (0.48 - ring_w))
+    return cv.image()
+
+
+def team_disc(m, p, at, d, facing='+y', shade=TEAM_NEUTRAL, depth=0.03):
+    """A team-coloured disc (behind a star: the turret-top recognition mark)."""
+    return m.decal(disc_image(), at=at, size=(d, d), facing=facing, part=p, depth=depth, team=1, tint=D.lin(shade), rough=0.5)
+
+
+def top_star(m, p, fac, at, d, facing='+y', depth=0.03):
+    """Recognition mark on a top surface. Soviet: gold star on a team disc; Allied: white star roundel."""
+    if fac == 'soviet':
+        team_disc(m, p, at, d, facing, depth=depth)
+        emblem(m, p, 'soviet', at, d * 0.9, facing=facing, depth=depth)
+    else:
+        emblem(m, p, 'allied_star', at, d, facing=facing, depth=depth)
+
+
+def team_ring(m, p, pts, y, width=0.026, inset=0.016):
+    """Team-colour band just inside a top-view outline (turret-roof rim seen from above)."""
+    n = len(pts)
+    cx = sum(x for x, _ in pts) / n
+    cz = sum(z for _, z in pts) / n
+    q = []
+    for (x, z) in pts:
+        dx, dz = x - cx, z - cz
+        L = math.hypot(dx, dz) or 1.0
+        q.append((x - dx / L * inset, z - dz / L * inset))
+    from kit.core import euler3, facing_rot
+    F = euler3(facing_rot('+y'))
+    for i in range(n):
+        (x0, z0), (x1, z1) = q[i], q[(i + 1) % n]
+        a, b = Vector((x0, y, z0)), Vector((x1, y, z1))
+        d = b - a
+        lx = F.inverted() @ d
+        m.decal(D.solid(TEAM_NEUTRAL), at=tuple((a + b) / 2), size=(d.length + width * 0.8, width), facing='+y', part=p,
+                depth=0.025, roll=math.atan2(lx.y, lx.x), team=1, rough=0.5)
+
+
+def top_lamps(p, x_front, x_rear, y, z, front=AMBER, rear=RED, r=0.011):
+    """Small up-facing marker lamps at the deck corners: they read from the RTS camera (side lamps don't)."""
+    for s in (-1, 1):
+        if front is not None:
+            lamp(p, (x_front, y, z * s), r, front, 'steady', 3.2, '+y')
+        if rear is not None:
+            lamp(p, (x_rear, y, z * s), r, rear, 'steady', 3.2, '+y')
+
+
+def hull_shade(m, p, x0, x1, deck_y, half_w, side_y=None, fenders=None, shade=TEAM_DARK, deck_depth=0.012, deck=True):
+    """Darker team shade on a hull: the deck top (x0..x1, |z| <= half_w at deck_y; a thin box so stowage on top
+    keeps its own paint), optionally the sides (side_y = (y0, y1)) and fender tops (fenders = (L, y_top, Z, W, x))."""
+    if deck:
+        team_shade(m, p, ((x0 + x1) / 2, deck_y, 0.0), (x1 - x0, half_w * 2), '+y', shade, depth=deck_depth)
+    for s in (-1, 1):
+        f = '+z' if s > 0 else '-z'
+        if side_y is not None:
+            y0, y1 = side_y
+            team_shade(m, p, ((x0 + x1) / 2, (y0 + y1) / 2, half_w * s), (x1 - x0 + 0.06, y1 - y0), f, shade, depth=0.018)
+        if fenders is not None:
+            L, yt, Z, W, x = fenders
+            team_shade(m, p, (x, yt, Z * s), (L + 0.1, W), '+y', shade, depth=0.007)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Soviet camera-first dress (coordinator-approved STYLE exception: team red on up to ~35% of the hull top)
+
+OLIVE_DECK = 0x9ca86c   # light olive on decks / roofs (separates from snow AND dark ground)
+OLIVE_SIDE = 0x56603a   # darker olive on hull sides
+GOLD = 0xe8b434
+
+
+def paint(m, p, at, size, facing, color, depth=0.012, roll=0.0, rough=None):
+    """Plain colour paint (decal, team mask cleared): deck / side repaint."""
+    return m.decal(D.solid(color), at=at, size=size, facing=facing, part=p, depth=depth, roll=roll, team=0, rough=rough)
+
+
+def red(m, p, at, size, facing='+y', depth=0.012, roll=0.0):
+    """Team-red paint (bands, panels)."""
+    return team_shade(m, p, at, size, facing, TEAM_NEUTRAL, depth=depth, roll=roll)
+
+
+def sov_hull(m, p, x0, x1, deck_y, half_w, side_y=None, side_z=None, deck_col=OLIVE_DECK, side_col=OLIVE_SIDE, deck_depth=0.012):
+    """Light olive deck (x0..x1, |z| <= half_w at deck_y) over darker olive sides (side_y = (y0, y1) at |z| = side_z)."""
+    paint(m, p, ((x0 + x1) / 2, deck_y, 0.0), (x1 - x0, half_w * 2), '+y', deck_col, depth=deck_depth)
+    if side_y is not None:
+        y0, y1 = side_y
+        for s in (-1, 1):
+            paint(m, p, ((x0 + x1) / 2, (y0 + y1) / 2, (side_z or half_w) * s), (x1 - x0 + 0.08, y1 - y0), '+z' if s > 0 else '-z',
+                  side_col, depth=0.02)
+
+
+def fender_caps(m, p, x_front, L, y_top, Z, W, depth=0.03):
+    """Red front ends of the track guards (incl. the sloped lips)."""
+    for s in (-1, 1):
+        red(m, p, (x_front - L / 2 + 0.03, y_top, Z * s), (L + 0.06, W), '+y', depth=depth)
+
+
+def deck_number(m, p, text, at, h, color=GOLD, roll=-PI / 2, depth=0.012):
+    """Big painted hull number on a top deck (Cyrillic -> Russo One). roll=-pi/2: runs across the hull (+z),
+    letter tops towards the bow."""
+    img = D.text([text], px_h=96, color=color, wear=0.2)
+    return m.decal(img, at=at, size=(h * img.aspect, h), facing='+y', part=p, depth=depth, roll=roll, team=0)
+
+
+def annulus_image(r_in, px=256):
+    cv = D.Canvas(px, px, ss=2)
+    c = px / 2
+    cv.circle(c, c, px * 0.49, D.lin(0xffffff), r_in=px * 0.49 * r_in)
+    return cv.image()
+
+
+def red_ring(m, p, at, rx, rz, inner=0.7, depth=0.05):
+    """Thick team-red ring seen from above (round turret roofs): outer radii rx / rz, inner = fraction."""
+    return m.decal(annulus_image(inner), at=at, size=(rx * 2, rz * 2), facing='+y', part=p, depth=depth, team=1,
+                   tint=D.lin(TEAM_NEUTRAL), rough=0.5)

@@ -6,8 +6,7 @@ Model scripts do:
     from _sovb import *
 
 Everything here is built from the public kit API (shapes, materials, decals). Two per-model look knobs are
-set through kit module globals (no kit edits): look() raises the edge catch-light and the AO ray length,
-deep() raises how much baked AO a material takes into its albedo. Both are no-ops if the kit renames them.
+set through the kit's API: look(m) = m.tune(edge_light, ao_distance), deep(mat) = set_weather(mat, ao=).
 The point of the dressing: Soviet structures must read at the default RTS zoom (150-300 px wide), so it
 favours big, high-contrast forms: banners, slogan boards, red lamps, lit windows, bold edges, deep grime.
 """
@@ -17,32 +16,21 @@ from kit import *
 from kit import decals as _D
 from kit import materials as _Mt
 
-try:
-    from kit import bake as _Bk
-except Exception:  # pragma: no cover
-    _Bk = None
-
 Y0 = 0.05  # top of the foundation slab
 
 
 # ---------------------------------------------------------------------------------------------------------
-# look knobs
+# look knobs (the kit's official per-model / per-material API)
 
-def look(edge=0.28, ao_dist=0.42):
-    """Per-model bake look: stronger edge catch-light (crisp outlines at RTS zoom), longer AO rays (deep
-    contact shadows and crevices on 2x2 / 3x3 structures)."""
-    if hasattr(_Mt, 'EDGE_LIGHT'):
-        _Mt.EDGE_LIGHT = edge
-    if _Bk is not None and hasattr(_Bk, 'AO_DISTANCE'):
-        _Bk.AO_DISTANCE = ao_dist
+def look(m, edge=0.12, ao_dist=0.42):
+    """Per-model bake look: a modest edge catch-light (strong edge light reads as a pale halo at RTS zoom) and a
+    longer AO reach (deep contact shadows and crevices on 2x2 / 3x3 structures)."""
+    m.tune(edge_light=edge, ao_distance=ao_dist)
 
 
 def deep(mat, ao=0.8):
     """How much baked AO goes into this material's albedo (kit default 0.55)."""
-    g = getattr(_Mt, '_graphs', {}).get(mat.name)
-    if g is not None and isinstance(getattr(g, 'params', None), dict) and 'ao' in g.params:
-        g.params['ao'] = ao
-    return mat
+    return set_weather(mat, ao=ao)
 
 
 class Pal:
@@ -138,43 +126,7 @@ def roof_sign(m, p, P, at, size, lines, lights=3, emblem='soviet', depth=0.12):
 _imgs = {}
 
 
-def mullions(nx=6, ny=2, aspect=4.0, px=128, frame=0x1c1e21, t=0.09, dark=0.0, seed=1, pane=0x1b232c):
-    """Window-frame grid (opaque bars, transparent panes) for big glazing strips. dark = fraction of panes
-    painted as unlit glass (project with emit=0.0 so bars and dark panes do not glow)."""
-    key = ('mull', nx, ny, round(aspect, 2), px, round(t, 3), round(dark, 2), seed)
-    if key in _imgs:
-        return _imgs[key]
-    import random as _r
-    rnd = _r.Random(seed)
-    w, h = int(px * aspect), px
-    cv = _D.Canvas(w, h, ss=2)
-    col = _D.lin(frame)
-    bw = h * t
-    cw, ch = (w - bw) / nx, (h - bw) / ny
-    if dark > 0:
-        for i in range(nx):
-            for j in range(ny):
-                if rnd.random() < dark:
-                    cv.rect(i * cw, j * ch, (i + 1) * cw + bw, (j + 1) * ch + bw, _D.lin(pane), height=0.45)
-    for i in range(nx + 1):
-        x = i * cw
-        cv.rect(x, 0, x + bw, h, col, height=0.7)
-    for j in range(ny + 1):
-        y = j * ch
-        cv.rect(0, y, w, y + bw, col, height=0.7)
-    img = cv.image()
-    _imgs[key] = img
-    return img
-
-
-def glazing(m, p, at, size, nx, ny, facing='+z', dark=0.45, seed=1, lit=0xffb76a, strength=1.4, t=0.11, depth=0.012):
-    """Glazed strip: lit glass + a mullion / dark-pane decal (some panes lit, some dark)."""
-    w, h = size
-    box(p, glass(lit=lit, strength=strength), (w, h, 0.006), at, facing_rot(facing))
-    from kit.core import T
-    c = T(at, facing_rot(facing)) @ _v((0, 0, 0.003))
-    m.decal(mullions(nx, ny, aspect=w / h, t=t, dark=dark, seed=seed), at=tuple(c), size=(w, h), facing=facing, part=p,
-            depth=depth, emit=0.0)
+# mullions() and glazing() now come from the kit (kit.decals.mullions / kit.shapes.glazing: same signatures).
 
 
 def big_star(px=256, color=0xe8b434, ring=0x7a1410, field=0xa01812):
@@ -363,3 +315,69 @@ def neon(p, x0, x1, top, fz, color=0xff2a1a, strength=2.2, h=0.014, mode='steady
     y = top - 0.075 - 0.04
     box(p, light_mat(color, strength, mode), (x1 - x0, h, 0.008), ((x0 + x1) / 2, y, fz + 0.006))
     box(p, _Mt.metal(0x26282c), (x1 - x0 + 0.01, h + 0.008, 0.006), ((x0 + x1) / 2, y, fz + 0.002))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# top-facing dressing that survives the winter (the runtime settles snow on every non-emissive surface whose
+# normal.y > ~0.55, i.e. flatter than ~57 degrees). From the ~40 degree RTS camera a surface sloped ~60 degrees
+# toward +z is seen almost face-on and stays snow-free; lightly emissive paint stays clear of snow too.
+
+def tilt_sign(m, p, P, at, size, lines, tilt=0.5, lights=3, emblem='soviet', emit=0.5, legs=True, board=None,
+              text_color=0xf2eee4, depth=None):
+    """Rooftop billboard leaning back by `tilt` radians (top toward -z) so it faces the RTS camera: at = board
+    centre, legs down to the roof at at.y - h/2*cos(tilt) - 0.05. Lit letters (emit) read by day and night."""
+    x, y, z = at
+    w, h = size
+    board = board or P.board
+    rot = (-tilt, 0.0, 0.0)
+    from kit.core import T
+    F = T(at, rot)
+
+    def W(px, py, pz):
+        return tuple(F @ v3((px, py, pz)))
+    box(p, board, (w, h, 0.016), at, rot, bevel=0.003)
+    for (yy, hh) in ((h / 2, 0.016), (-h / 2, 0.016)):
+        box(p, P.frame, (w + 0.016, hh, 0.024), W(0, yy, 0.002), rot)
+    tw = w * (0.74 if emblem else 0.94)
+    tx = -w * 0.11 if emblem else 0.0
+    hp = h * math.cos(tilt)  # projected height on the z-facing decal plane
+    dd = depth or (h * math.sin(tilt) * 0.5 + 0.03)
+    nl = len(lines.split('|')) if isinstance(lines, str) else len(lines)
+    img = text(lines, px_h=192, aspect=tw / (hp * 0.86), color=text_color, scales=[1.45, 1.0] if nl == 2 else None)
+    m.decal(img, at=W(tx, 0, 0.009), size=(tw, hp * 0.86), facing='+z', part=p, depth=dd, team=0, emit=emit)
+    if emblem:
+        es = min(hp * 0.86, w * 0.24)
+        m.decal(_D.soviet_star(), at=W(w / 2 - w * 0.13, 0, 0.009), size=(es, es), facing='+z', part=p, depth=dd, team=0,
+                emit=emit * 0.6)
+    for i in range(lights):
+        lx = -w / 2 + w * (i + 0.5) / lights
+        bar(p, P.frame, W(lx, h / 2, 0.0), W(lx, h / 2 + 0.03, 0.05), 0.006)
+        box(p, light_mat(0xffd9a0, 2.2, 'steady'), (0.05, 0.008, 0.02), W(lx, h / 2 + 0.032, 0.055), rot)
+    if legs:
+        yb = y - h / 2 * math.cos(tilt) - 0.05
+        for sx in (-0.4, 0.4):
+            xx = x + sx * w
+            top = W(sx * w, h * 0.3, -0.008)
+            bar(p, P.frame, (xx, yb, top[2]), top, 0.022)
+            bot = W(sx * w, -h / 2, -0.008)
+            bar(p, P.frame, (xx, yb, bot[2]), bot, 0.018)
+            box(p, P.frame, (0.05, 0.02, abs(top[2] - bot[2]) + 0.06), (xx, yb + 0.01, (top[2] + bot[2]) / 2), bevel=0.003)
+
+
+def slope_panel(p, mat, at, w, length, slope=1.05, t=0.02):
+    """A plate sloping down toward +z at `slope` radians from horizontal (60 deg default): at = centre."""
+    box(p, mat, (w, t, length), at, (slope, 0.0, 0.0), bevel=0.004)
+
+
+def top_star(m, p, at, size, facing='+y', emit=0.35, depth=0.03, ring=True):
+    """Gold star (on a red disc when ring) painted on an up-facing surface, lightly emissive so the runtime snow
+    leaves it clear and it glows faintly at night."""
+    img = big_star() if ring else _D.soviet_star()
+    return m.decal(img, at=at, size=(size, size), facing=facing, part=p, depth=depth, team=0, emit=emit)
+
+
+def roof_paint(m, p, at, size, color=0xa31c15, emit=0.32, facing='+y', depth=0.02, team_k=None):
+    """A painted band / panel on a roof that stays visible through the snow (faintly emissive paint)."""
+    c = 0xdadada if team_k else color
+    return m.decal(solid(c), at=at, size=size, facing=facing, part=p, depth=depth, team=team_k if team_k else 0, rough=0.6,
+                   emit=emit)

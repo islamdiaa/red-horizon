@@ -1,6 +1,6 @@
 """Allied tech centre (2x2): a stepped white research block with a glass curtain wall (cool lab light), the set
 back laboratory floor with lit windows and the RESEARCH sign, a white observatory dome with a slit and a team
-ring, the rotating satellite dish (animated part 'dish'), an antenna array, a roof roundel, floodlights, an
+ring, the rotating satellite dish (animated part 'dish'), an antenna array, an atom badge on the roof, floodlights, an
 eagle banner and gas cylinders in the yard.
 """
 import math
@@ -50,7 +50,7 @@ def build(m):
     eagle_banner(m, r, (-0.73, top - 0.08, fz + 0.03), (0.17, 0.36))
     for x in (-bw / 2 + 0.06, bw / 2 - 0.06):
         floodlight(r, (x, top + 0.03, fz - 0.03), yaw=0.0, pitch=0.8, s=0.05)
-    roundel(m, r, (-0.5, rt + 0.016, 0.24), 0.36, facing='+y', plate=steel(0x7d8792, panels=None))
+    badge(m, r, 'atom', (-0.5, rt + 0.016, 0.24), 0.38, facing='+y', field='circle', plate=steel(0x7d8792, panels=None), symbol_scale=0.74)
     ac_unit(r, (0.52, rt + 0.016, 0.18), 0.1)
 
     # ---- upper laboratory floor (set back)
@@ -98,7 +98,6 @@ def build(m):
     # the slit: a dark band over the crown + a lit strip inside, facing the camera
     m.decal(solid(0x1b1d20), at=(ox, rt + 0.35, oz + 0.1), size=(0.08, 0.36), facing='+y', depth=0.22, team=0, rough=0.5)
     m.decal(solid(0xa6e4ff), at=(ox, rt + 0.35, oz + 0.1), size=(0.03, 0.32), facing='+y', depth=0.22, team=0, rough=0.3, emit=0.9)
-    roundel(m, r, (ox, rt + 0.2, oz + 0.262), 0.13, depth=0.04)
     strobe(r, (ox + 0.2, rt + 0.13, oz + 0.18), r=0.012)
 
     # ---- yard: gas cylinders, crates

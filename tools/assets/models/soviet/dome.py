@@ -17,7 +17,7 @@ KIND = 'structure'
 
 def build(m):
     m.set_meta(footprint=(2, 2), height=1.75, radius=1.05)
-    look(edge=0.28, ao_dist=0.36)
+    look(m, ao_dist=0.36)
     P = Pal()
     r = m.root
     foundation(m, r, P, 2.0, 2.0)
@@ -77,7 +77,7 @@ def build(m):
     cyl(r, P.trim, 0.27, 0.05, (tx, py + 0.085, tz), seg=16)
     rad_m = deep(painted(0xd8d6ce, wear=0.5, grime=0.75, rust=0.2, streaks=1.0, panels=None, rough=0.5), 0.8)
     geodesic(r, rad_m, P.wall_lt, 0.315, (tx, py + 0.33, tz), y_min=-0.2, gap=0.93)
-    m.decal(big_star(), at=(tx, py + 0.4, tz + 0.29), size=(0.2, 0.2), facing='+z', part=r, depth=0.08, team=0)
+    top_star(m, r, (tx, py + 0.4, tz + 0.29), 0.22, facing='+z', emit=0.35, depth=0.08)
     lamp(r, (tx, py + 0.64, tz), 0.022)
     for a in (0.6, 2.2, 3.8, 5.4):
         lamp(r, (tx + math.cos(a) * 0.31, py + 0.07, tz - math.sin(a) * 0.31), 0.016)

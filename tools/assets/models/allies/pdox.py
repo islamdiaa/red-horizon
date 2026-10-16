@@ -1,7 +1,7 @@
 """Allied Chronosphere (2x2): a round white platform with a steel deck, a team band and a glowing chrono
 channel ('glow:core'), four white pylons with team collars and blue emitters, the pedestal and the blue core,
 the three gyroscopic rings (animated parts ringA > ringB > ringC; the procedural halo effect is kept),
-consoles, capacitor cabinets, floodlight masts, hazard edges and a big deck roundel.
+consoles, capacitor cabinets, floodlight masts, hazard edges and an hourglass badge on the deck.
 """
 import math
 import os
@@ -41,7 +41,7 @@ def build(m):
     cyl(r, tread(0x6d7680), 0.75, 0.06, (0, Y0 + 0.13, 0), r2=0.7, seg=36, bevel=0.008)
     torus(r, tr, 0.69, 0.018, (0, Y0 + 0.16, 0), seg=36, tseg=4)
     lathe(r, core, [(0.76, 0.0), (0.8, 0.0), (0.8, 0.008), (0.76, 0.008), (0.76, 0.0)], (0, Y0 + 0.1, 0), seg=36, cap_top=False, cap_bottom=False)
-    roundel(m, r, (0, Y0 + 0.161, 0.42), 0.26, facing='+y', depth=0.03)
+    badge(m, r, 'hourglass', (0, Y0 + 0.161, 0.42), 0.28, facing='+y', field='circle', depth=0.03, symbol_scale=0.62)
     hazard_band(m, r, (0, Y0 + 0.1, 0.8), (0.42, 0.04), facing='+y', base=slab_m(0xc9c5bb))
     # ---- pedestal + pylons
     cyl(r, stl, 0.24, 0.3, (0, Y0 + 0.31, 0), r2=0.16, seg=20, bevel=0.01)

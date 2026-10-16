@@ -33,13 +33,15 @@ def build(m):
     side_prism(r, P.hull, tub, 0.262, bevel=0.014)
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
-        camo(m, r, (0.0, 0.125, 0.1315 * s), (0.5, 0.07), f, seed=51 + s, n=3)
+        team_shade(m, r, (0.0, 0.126, 0.131 * s), (0.62, 0.09), f, TEAM_DARK, depth=0.016)
+        camo(m, r, (0.0, 0.125, 0.1315 * s), (0.5, 0.07), f, seed=51 + s, n=3, colors=(0x6a6a6a,))
         number(m, r, '7', (-0.2, 0.128, 0.1315 * s), 0.035, f)
-    camo(m, r, (0.19, 0.165, 0), (0.17, 0.22), '+y', seed=53, n=2)
     for s in (-1, 1):
         edge_strip(m, r, (-0.285, 0.167, 0.124 * s), (0.05, 0.168, 0.124 * s), '+y', 0.012)
         edge_strip(m, r, (0.085, 0.171, 0.124 * s), (0.295, 0.159, 0.124 * s), '+y', 0.012)
-    emblem(m, r, 'allied_star', (0.19, 0.166, 0.0), 0.075, facing='+y')
+    top_star(m, r, 'allies', (0.19, 0.167, 0.0), 0.1)
+    for s in (-1, 1):
+        lamp(r, (-0.285, 0.168, 0.105 * s), 0.01, RED, 'steady', 3.2, '+y')
     # wheel arches
     for x in (0.175, -0.17):
         for s in (-1, 1):
@@ -62,7 +64,7 @@ def build(m):
     box(r, P.gun, (0.022, 0.022, 0.28), (0.312, 0.098, 0), bevel=0.004)
     cyl(r, P.dark, 0.015, 0.07, (0.322, 0.1, 0), ROT_Z, seg=8)
     for s in (-1, 1):
-        headlight(r, (0.302, 0.142, 0.092 * s), 0.016)
+        headlight(r, (0.302, 0.142, 0.092 * s), 0.017)
         marker(r, (-0.296, 0.14, 0.11 * s), 0.011)
     # spare wheel on the back, jerry cans, shovel, whip
     cyl(r, P.rubber, 0.052, 0.032, (-0.31, 0.16, 0), ROT_X, seg=12)

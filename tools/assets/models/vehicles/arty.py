@@ -37,13 +37,17 @@ def build(m):
     slope_plate(r, P.dark2, (0.302, 0.132), (0.242, 0.178), 0.26, t=0.008, inset=0.8)
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
-        camo(m, r, (-0.06, 0.135, 0.171 * s), (0.5, 0.08), f, seed=71 + s, n=3)
+        camo(m, r, (-0.06, 0.135, 0.171 * s), (0.5, 0.08), f, seed=71 + s, n=3, colors=(0x6a6a6a,))
         rivet_row(m, r, (-0.33, 0.165, 0.171 * s), (0.2, 0.165, 0.171 * s), facing=f, spacing=0.035, size=0.01)
         headlight(r, (0.284, 0.152, 0.1 * s), 0.015, guard=P.black)
         marker(r, (-0.376, 0.155, 0.13 * s), 0.011)
     tow_hooks(r, P, 0.31, 0.11, 0.08, 1)
-    deck_strips(m, r, -0.362, 0.242, 0.178, 0.17)
-    fender_strips(m, r, 0.66, 0.2425, 0.134, x=-0.04)
+    hull_shade(m, r, -0.372, 0.242, 0.178, 0.17, side_y=(0.1, 0.18), fenders=(0.66, 0.134, Z, 0.125, -0.04))
+    top_star(m, r, 'allies', (0.19, 0.179, -0.05), 0.075)
+    deck_strips(m, r, -0.362, 0.242, 0.178, 0.17, width=0.016)
+    fender_strips(m, r, 0.66, 0.2425, 0.134, x=-0.04, width=0.014)
+    for s in (-1, 1):
+        lamp(r, (-0.35, 0.179, 0.15 * s), 0.011, RED, 'steady', 3.2, '+y')
     hatch_round(r, P.dark2, 0.025, (0.12, 0.178, 0.07))
     # rear spades (folded up)
     for s in (-1, 1):
@@ -57,8 +61,8 @@ def build(m):
     box(h, P.black, (0.25, 0.006, 0.25), (-0.06, 0.117, 0))
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
-        box(h, P.dark2, (0.35, 0.014, 0.032), (-0.05, 0.123, 0.135 * s), bevel=0.004)
-        camo(m, h, (-0.04, 0.06, 0.1505 * s), (0.3, 0.1), f, seed=73 + s, n=2)
+        box(h, P.trim_flat, (0.35, 0.016, 0.034), (-0.05, 0.124, 0.135 * s), bevel=0.004)
+        camo(m, h, (-0.04, 0.06, 0.1505 * s), (0.3, 0.1), f, seed=73 + s, n=2, colors=(0x6a6a6a,))
         emblem(m, h, 'allied_star', (-0.07, 0.058, 0.151 * s), 0.06, facing=f)
         number(m, h, '88', (0.06, 0.06, 0.151 * s), 0.03, f)
     box(h, P.dark2, (0.014, 0.05, 0.27), (-0.229, 0.14, 0), bevel=0.003)
@@ -69,7 +73,7 @@ def build(m):
     crew(h, P, (-0.1, 0.117, -0.02), P.dark2)
     crew(h, P, (-0.19, 0.117, 0.04), P.dark2)
     whip(h, P, (-0.22, 0.117, -0.12), 0.2, pennant=True)
-    marker(h, (-0.23, 0.13, 0.12), 0.009, AMBER, '+y', mode='blink', strength=2.4)
+    marker(h, (-0.23, 0.13, 0.12), 0.012, AMBER, '+y', mode='blink', strength=3.2)
 
     # ---- elevated howitzer: mantlet, recuperators, long barrel with evacuator and a muzzle brake
     g = m.part('gun', at=(0.04, 0.27, 0), rot=(0, 0, 0.2))
@@ -77,5 +81,5 @@ def build(m):
     for z in (-0.03, 0.03):
         cyl(g, P.steel, 0.0095, 0.16, (0.08, -0.032, z), ROT_X, seg=8)
     b = m.part('b0', parent='gun', at=(0.02, 0, 0))
-    gun_barrel(b, P, 0.52, 0.0175, (0, 0, 0), brake='t', sleeve=(0.3, 0.065))
+    gun_barrel(b, P, 0.52, 0.0202, (0, 0, 0), brake='t', sleeve=(0.3, 0.07))
     m.muzzle('m0', (0.56, 0, 0), part='gun')

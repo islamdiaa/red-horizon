@@ -16,11 +16,6 @@ KIND = 'vehicle'
 TESLA = 0x8cc8ff
 
 
-def torus(p, mat, R, t, at, seg=14, tseg=6):
-    prof = [(R + t * math.cos(2 * PI * i / tseg), t * math.sin(2 * PI * i / tseg)) for i in range(tseg + 1)]
-    lathe(p, mat, prof, at, seg=seg, cap_top=False, cap_bottom=False)
-
-
 def build(m):
     m.set_meta(height=0.72, radius=0.46, snow=0.3, keep=['fx:add:5aa2ff:0.9'])
     r = m.root
@@ -40,7 +35,8 @@ def build(m):
         box(r, P.dark, (0.84, 0.018, 0.018), (0.0, 0.16, 0.289 * s), bevel=0.004)
         skirt(r, P.trim_flat, 0.82, 0.07, 0.155, 0.291 * s, panels=4, t=0.014)
         stripe(m, r, (0.0, 0.088, 0.2985 * s), (0.82, 0.012), f, 0x2a2c24)
-        number(m, r, '407', (-0.2, 0.12, 0.2985 * s), 0.04, f)
+        number(m, r, '407', (-0.27, 0.12, 0.2985 * s), 0.04, f)
+        stencil(m, r, 'ВПЕРЁД', (0.06, 0.12, 0.2985 * s), 0.036, facing=f)
         crate(r, P.dark2, (0.16, 0.04, 0.05), (-0.08, 0.26, 0.165 * s), strap=P.black)
         cyl(r, P.exhaust, 0.02, 0.06, (-0.42, 0.262, 0.13 * s), r2=0.017, seg=8)
         # capacitor housings on the glacis feeding the coil (porcelain + copper rings)
@@ -49,24 +45,34 @@ def build(m):
             cyl(r, copper, 0.026, 0.012, (x, 0.24, 0.11 * s), ROT_X, seg=10)
         headlight(r, (0.42, 0.19, 0.14 * s), 0.017, guard=P.black)
         marker(r, (-0.446, 0.21, 0.15 * s), 0.011)
-    grille(m, r, (-0.3, 0.243, 0.0), (0.16, 0.24), facing='+y', n=7)
-    deck_strips(m, r, -0.402, 0.312, 0.24, 0.19)
-    edge_strip(m, r, (0.449, 0.168, -0.17), (0.449, 0.168, 0.17), '+x', 0.012)
-    fender_strips(m, r, 0.86, 0.295, 0.167)
+    sov_hull(m, r, -0.402, 0.312, 0.239, 0.19, side_y=(0.13, 0.235), side_z=0.19)
+    for s in (-1, 1):
+        paint(m, r, (0.0, 0.167, 0.22 * s), (0.86, 0.15), '+y', OLIVE_DECK, depth=0.008)
+    fender_caps(m, r, 0.43, 0.2, 0.167, 0.22, 0.15)
+    red(m, r, (-0.36, 0.241, 0.0), (0.085, 0.38), '+y')
+    deck_number(m, r, 'Э-407', (-0.36, 0.242, 0.0), 0.065)
+    grille(m, r, (-0.25, 0.243, 0.0), (0.11, 0.24), facing='+y', n=6)
+    deck_strips(m, r, -0.402, 0.312, 0.24, 0.19, width=0.016)
+    edge_strip(m, r, (0.449, 0.168, -0.17), (0.449, 0.168, 0.17), '+x', 0.014)
+    fender_strips(m, r, 0.86, 0.295, 0.167, width=0.014)
+    top_lamps(r, 0.29, -0.375, 0.239, 0.16)
     tow_hooks(r, P, 0.46, 0.13, 0.12, 1)
     hazard_stripes(m, r, (-0.447, 0.17, 0.0), (0.26, 0.03), facing='-x')
 
     # ---- turret: squat octagonal base in olive with team appliqué, star, hatch, antenna
     t = m.part('turret', at=(-0.06, 0.238, 0))
-    ring = [(0.17, -0.07), (0.17, 0.07), (0.08, 0.15), (-0.12, 0.15), (-0.19, 0.08), (-0.19, -0.08), (-0.12, -0.15), (0.08, -0.15)]
-    loft(t, P.top, [(0.0, ring), (0.05, scale_ring(ring, 1.0)), (0.084, scale_ring(ring, 0.88))], bevel=0.016)
+    ring = scale_ring([(0.17, -0.07), (0.17, 0.07), (0.08, 0.15), (-0.12, 0.15), (-0.19, 0.08), (-0.19, -0.08), (-0.12, -0.15), (0.08, -0.15)], 1.1)
+    top = scale_ring(ring, 0.88)
+    loft(t, P.top, [(0.0, ring), (0.054, scale_ring(ring, 1.0)), (0.09, top)], bevel=0.017)
     for s in (-1, 1):
-        box(t, P.trim_flat, (0.15, 0.04, 0.014), (-0.02, 0.04, 0.151 * s), bevel=0.004)
-        box(t, P.trim_flat, (0.1, 0.04, 0.014), (0.13, 0.04, 0.115 * s), (0, s * 0.73, 0), bevel=0.004)
-    emblem(m, t, 'soviet', (0.09, 0.085, 0.085), 0.06, facing='+y')
-    outline_strips(m, t, scale_ring(ring, 0.88), 0.084)
-    hatch_round(t, P.dark2, 0.03, (-0.11, 0.084, -0.08))
-    whip(t, P, (-0.16, 0.084, 0.11), 0.2, pennant=True)
+        box(t, P.trim_flat, (0.165, 0.044, 0.014), (-0.02, 0.044, 0.166 * s), bevel=0.004)
+        box(t, P.trim_flat, (0.11, 0.044, 0.014), (0.143, 0.044, 0.127 * s), (0, s * 0.73, 0), bevel=0.004)
+    team_ring(m, t, top, 0.09, width=0.044, inset=0.026)
+    top_star(m, t, 'soviet', (0.115, 0.091, 0.0), 0.075)
+    outline_strips(m, t, top, 0.09, width=0.016)
+    hatch_round(t, P.dark2, 0.032, (-0.12, 0.09, -0.088))
+    whip(t, P, (-0.175, 0.09, 0.12), 0.2, pennant=True)
+    marker(t, (-0.17, 0.092, -0.0), 0.011, RED, '+y', mode='blink', strength=3.0)
     # coil column: insulator base, porcelain discs, copper / dark windings, toroids with glowing rims, cap, orb
     cyl(t, porcelain, 0.07, 0.03, (0, 0.099, 0), r2=0.06, seg=12, bevel=0.004)
     for i in range(3):

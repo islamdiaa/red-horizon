@@ -15,7 +15,7 @@ import math
 
 import bmesh
 import bpy
-from mathutils import Euler, Matrix, Vector
+from mathutils import Euler, Matrix, Vector  # noqa: F401
 
 # game frame -> Blender world (Y-up -> Z-up): +90 degrees around X
 TO_BLENDER = Matrix.Rotation(math.radians(90.0), 4, 'X')
@@ -49,10 +49,13 @@ def facing_rot(facing):
     """Rotation (radians, three XYZ) that turns a +Z-facing feature to face `facing`.
 
     facing: '+z' (front / south, default), '-z', '+x', '-x', '+y' (up, e.g. roof decals), '-y',
-    or a yaw angle in radians (rotation around +Y).
+    a yaw angle in radians (rotation around +Y), or any (rx, ry, rz) Euler (e.g. normal_rot(...) for a
+    sloped roof or a raked armour plate). Every kit helper with a `facing=` argument accepts all of these.
     """
     if isinstance(facing, (int, float)):
         return (0.0, float(facing), 0.0)
+    if isinstance(facing, (tuple, list)) or hasattr(facing, 'to_matrix'):
+        return (float(facing[0]), float(facing[1]), float(facing[2]))
     return {
         '+z': (0.0, 0.0, 0.0),
         '-z': (0.0, math.pi, 0.0),
@@ -63,6 +66,27 @@ def facing_rot(facing):
     }[facing]
 
 
+def normal_rot(normal, up=None):
+    """Euler (three XYZ, radians) that turns a +Z-facing feature (decal, sign, panel, quad) to face `normal`,
+    keeping its top towards `up` (default +Y; for normals near +-Y the top points north (-Z) when facing up
+    and south (+Z) when facing down, as facing='+y' / '-y'). Use as facing=normal_rot((0, 0.6, 0.8)) or
+    m.decal(..., normal=(0, 0.6, 0.8))."""
+    z = vec(normal)
+    if z.length < 1e-9:
+        raise ValueError('normal_rot(): zero normal')
+    z.normalize()
+    if up is None:
+        up = (0.0, 1.0, 0.0) if abs(z.y) < 0.999 else (0.0, 0.0, -1.0 if z.y > 0 else 1.0)
+    u = vec(up)
+    x = u.cross(z)
+    if x.length < 1e-6:
+        raise ValueError(f'normal_rot(): up {tuple(up)} is parallel to the normal {tuple(normal)}')
+    x.normalize()
+    y = z.cross(x)
+    M = Matrix((x, y, z)).transposed()  # columns = local x, y, z in the parent frame
+    return tuple(M.to_euler('ZYX')[:])
+
+
 class Part:
     """A node of the exported model: one rigid body part (the root, a turret, a barrel, a door, a dish...).
 
@@ -71,10 +95,11 @@ class Part:
     -X), 'door', 'dish', 'rotor'... (see `node tools/assets/rig.mjs <id>`).
     """
 
-    def __init__(self, model, name, parent=None, at=(0, 0, 0), rot=None, cull=True):
+    def __init__(self, model, name, parent=None, at=(0, 0, 0), rot=None, cull=True, ground=None):
         self.model = model
         self.name = name
         self.cull = cull  # hidden-face culling at the rest pose (False: keep everything, also for children)
+        self.ground = ground  # AO against the ground plane: None = as the parent (root: True), False = without
         self.parent = parent
         self.at = vec(at)
         self.rot = tuple(rot) if rot is not None else (0.0, 0.0, 0.0)
@@ -99,6 +124,15 @@ class Part:
 
     def to_model(self, p):
         return self.world() @ vec(p)
+
+    def grounded(self):
+        """True when the AO bake of this part sees the ground plane (Model.ground and no ground=False up the chain)."""
+        q = self
+        while q is not None:
+            if q.ground is not None:
+                return bool(q.ground) and self.model.ground
+            q = q.parent
+        return self.model.ground
 
     # ---- geometry plumbing (used by kit.shapes)
     def mat_index(self, mat):
@@ -163,14 +197,17 @@ class Model:
         self.tuning = {}  # m.tune(...)
 
     # ---- structure
-    def part(self, name, parent='root', at=(0, 0, 0), rot=None, cull=True):
+    def part(self, name, parent='root', at=(0, 0, 0), rot=None, cull=True, ground=None):
         """cull=False keeps every face of this part (and its children) through hidden-face culling. Parts are
-        only ever culled against their own geometry, so moving parts are safe either way."""
+        only ever culled against their own geometry, so moving parts are safe either way.
+        ground=False bakes this part's AO (and its children's, unless they say ground=True) without the ground
+        plane: parts that rest below y = 0 (a silo missile, a lowered lift) would be blacked out by it, while
+        the rest of the model keeps its contact shadows. (m.ground = False drops the plane for everything.)"""
         if name in self.parts:
             raise ValueError(f'part {name} exists')
         if isinstance(parent, str):
             parent = self.parts[parent]
-        p = Part(self, name, parent, at, rot, cull)
+        p = Part(self, name, parent, at, rot, cull, ground)
         self.parts[name] = p
         return p
 
@@ -199,17 +236,24 @@ class Model:
         self.decals.append(d)
         return d
 
-    TUNABLE = ('edge_light', 'edge_radius', 'chamfer_edge', 'ao_distance', 'dirt_h')
+    TUNABLE = ('edge_light', 'edge_radius', 'chamfer_edge', 'ao_distance', 'dirt_h', 'ao')
 
-    def tune(self, **kw):
-        """Per-model bake knobs (instead of overriding kit module globals): edge_light (catch-light on edges,
-        default 0.07), edge_radius (bevel-shader edge mask radius, 0.014), chamfer_edge (edge mask of geometric
-        chamfers, 0.45), ao_distance (baked AO reach, 0.32), dirt_h (ground dirt height: 0.2 structures, 0.07
-        units). Keep them near the defaults: strong edge light / wear reads as a pale halo at RTS zoom."""
+    def look(self, **kw):
+        """Per-model look knobs (instead of overriding kit module globals; call it anywhere in build(m)):
+            edge_light    catch-light on edges (default 0.07)
+            edge_radius   bevel-shader edge mask radius (0.014)
+            chamfer_edge  edge mask of geometric chamfers (0.45)
+            ao_distance   baked AO reach in units (0.32; ~0.42 for deeper crevices on 2x2 / 3x3 structures)
+            dirt_h        ground dirt height (0.2 structures, 0.07 units)
+            ao            how much baked AO darkens the albedo, for every material that does not set its own
+                          with set_weather(mat, ao=...) (0.55; glass and lamps keep theirs)
+        Keep them near the defaults: strong edge light / wear reads as a pale halo at RTS zoom."""
         for k in kw:
             if k not in self.TUNABLE:
-                raise KeyError(f'tune(): unknown setting {k}; one of {self.TUNABLE}')
+                raise KeyError(f'look(): unknown setting {k}; one of {self.TUNABLE}')
         self.tuning.update(kw)
+
+    tune = look  # the original name (same knobs)
 
     def set_meta(self, **kw):
         """footprint=(w, h) cells, height=selection/health-bar height, radius=selection radius, keep=[...]
@@ -224,7 +268,10 @@ class Model:
             p.obj = _bm_to_object(p.bm, f'P_{p.name}', p.mats, p.world(), coll)
             for name, bm in p.extra.items():
                 from . import materials as _m
-                p.extra_objs[name] = _bm_to_object(bm, f'X_{p.name}_{name}', [_m.by_name(name)], p.world(), coll)
+                mat = _m.by_name(name)
+                if mat.get('rh_double'):
+                    _double_side(bm)
+                p.extra_objs[name] = _bm_to_object(bm, f'X_{p.name}_{name}', [mat], p.world(), coll)
         return [p.obj for p in self.parts.values() if p.obj is not None]
 
     def atlas_objects(self):
@@ -242,6 +289,21 @@ class Model:
 SHARP_ANGLE = math.radians(32.0)
 
 
+def _double_side(bm):
+    """Append a reversed copy of every face (double-sided glow and fx meshes; the game draws them one-sided)."""
+    faces = list(bm.faces)
+    ret = bmesh.ops.duplicate(bm, geom=faces + list({e for f in faces for e in f.edges}) + list({v for f in faces for v in f.verts}))
+    dup = [g for g in ret['geom'] if isinstance(g, bmesh.types.BMFace)]
+    bmesh.ops.reverse_faces(bm, faces=dup)
+    # nudge the copies a hair along their (now flipped) normals so the two sides don't z-fight
+    for f in dup:
+        f.normal_update()
+    for v in {v for f in dup for v in f.verts}:
+        n = sum((f.normal for f in v.link_faces if f in dup), Vector())
+        if n.length > 0:
+            v.co += n.normalized() * 1e-4
+
+
 def _bm_to_object(bm, name, mats, world, coll):
     if len(bm.faces) == 0:
         return None
@@ -250,9 +312,13 @@ def _bm_to_object(bm, name, mats, world, coll):
     # smooth by angle: smooth faces, sharp edges above SHARP_ANGLE (cylinders smooth, boxes faceted)
     for f in bm.faces:
         f.smooth = True
+    sm = bm.faces.layers.float.get('rh_smooth')  # faces that stay smooth across any angle (low-poly tori)
     for e in bm.edges:
         if not e.is_manifold:
             e.smooth = e.is_boundary is False
+            continue
+        if sm is not None and all(f[sm] > 0.5 for f in e.link_faces):
+            e.smooth = True
             continue
         e.smooth = e.calc_face_angle(math.pi) < SHARP_ANGLE
     me = bpy.data.meshes.new(name)

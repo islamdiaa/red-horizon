@@ -38,7 +38,7 @@ def platform(r, P, x, z, w, d):
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=1.05, radius=1.55)
-    look(edge=0.28, ao_dist=0.4)
+    look(m, ao_dist=0.4)
     P = Pal()
     r = m.root
     bunker = deep(concrete(0x8e897f, joints=(0.6, 0.2), grime=0.9, streaks=1.0, wear=0.75), 0.85)
@@ -58,8 +58,8 @@ def build(m):
     for x in (-1.27, 0.0, 1.27):
         box(r, bunker, (0.13, 0.07, 2.6), (x, ROOF + 0.135, -0.07), bevel=0.015)
     box(r, P.trim, (2.9, 0.05, 0.06), (0, ROOF + 0.04, ZF + 0.012), bevel=0.008)
-    m.decal(big_star(), at=(0.64, ROOF + 0.101, 0.2), size=(0.95, 0.95), facing='+y', part=r, depth=0.03, team=0)
-    roof_sign(m, r, P, (0.0, ROOF + 0.17 + 0.12, ZF - 0.12), (0.9, 0.2), 'СЛАВА ФЛОТУ', lights=4)
+    top_star(m, r, (0.64, ROOF + 0.101, 0.2), 0.95, emit=0.35)
+    tilt_sign(m, r, P, (0.0, ROOF + 0.17 + 0.15, ZF - 0.16), (1.0, 0.26), 'СЛАВА ФЛОТУ', tilt=0.5, lights=4)
     for (x, z) in ((-1.4, ZF), (1.4, ZF), (-1.4, -1.46), (1.4, -1.46)):
         lamp(r, (x, ROOF + 0.1, z - 0.04 if z > 0 else z + 0.04), 0.024)
 

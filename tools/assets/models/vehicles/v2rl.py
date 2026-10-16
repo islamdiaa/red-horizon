@@ -66,9 +66,10 @@ def build(m):
     box(r, P.black, (0.008, 0.072, 0.008), (0.454, 0.236, 0), (0, 0, 0.98))
     crew(r, P, (0.37, 0.16, -0.07), P.dark)
     crew(r, P, (0.37, 0.16, 0.07), P.dark)
-    box(r, P.top, (0.16, 0.014, 0.22), (0.32, 0.292, 0), bevel=0.005)
-    cyl(r, P.black, 0.017, 0.012, (0.3, 0.3, 0.07), seg=8)
-    dome(r, glow_material('glow:beacon', AMBER), 0.017, (0.3, 0.306, 0.07), seg=8, rings=3, h=0.022)
+    box(r, P.top, (0.17, 0.014, 0.26), (0.33, 0.292, 0), bevel=0.005)
+    top_star(m, r, 'soviet', (0.345, 0.3, -0.03), 0.125)
+    cyl(r, P.black, 0.019, 0.012, (0.27, 0.3, 0.095), seg=8)
+    dome(r, glow_material('glow:beacon', AMBER), 0.019, (0.27, 0.306, 0.095), seg=8, rings=3, h=0.024)
     grille(m, r, (0.489, 0.14, 0.0), (0.2, 0.04), facing='+x', n=3)
     box(r, P.gun, (0.022, 0.024, 0.31), (0.5, 0.11, 0), bevel=0.004)
     for s in (-1, 1):
@@ -88,8 +89,18 @@ def build(m):
     crate(r, P.dark, (0.14, 0.042, 0.036), (-0.12, 0.17, -0.135), strap=P.black)
     jerry_rack(r, P, 2, 0.06, 0.148, -0.125, yaw=PI / 2)
     tail_lights(r, -0.482, 0.135, 0.13)
-    deck_strips(m, r, 0.23, 0.432, 0.285, 0.16, width=0.012)
-    deck_strips(m, r, -0.48, 0.18, 0.148, 0.16, front=False, width=0.012)
+    # Soviet dress: light olive bed, red front wheel guards and a red tail band, gold number beside the rail
+    paint(m, r, (-0.15, 0.148, 0.0), (0.66, 0.32), '+y', OLIVE_DECK, depth=0.01)
+    for s in (-1, 1):
+        red(m, r, (0.32, 0.162, 0.165 * s), (0.17, 0.08), '+y', depth=0.01)
+    red(m, r, (-0.465, 0.148, 0.0), (0.035, 0.32), '+y', depth=0.01)
+    deck_number(m, r, 'Р-12', (-0.33, 0.149, 0.097), 0.05, roll=0.0, depth=0.01)
+    deck_strips(m, r, 0.23, 0.432, 0.285, 0.16, width=0.014)
+    deck_strips(m, r, -0.48, 0.18, 0.148, 0.16, front=False, width=0.014)
+    for s in (-1, 1):
+        lamp(r, (-0.465, 0.149, 0.14 * s), 0.011, RED, 'steady', 3.2, '+y')
+    stencil(m, r, 'ЗА РОДИНУ', (-0.12, 0.13, 0.1605), 0.03, facing='+z')
+    stencil(m, r, 'ЗА РОДИНУ', (-0.12, 0.13, -0.1605), 0.03, facing='-z')
     hazard_stripes(m, r, (-0.481, 0.128, 0.0), (0.3, 0.03), facing='-x')
     for s in (-1, 1):
         box(r, P.gun, (0.032, 0.085, 0.032), (-0.44, 0.08, 0.15 * s), bevel=0.004)

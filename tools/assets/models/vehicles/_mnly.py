@@ -29,11 +29,15 @@ def build_mnly(m, fac):
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
         if not sov:
-            camo(m, r, (0.0, 0.16, 0.186 * s), (0.6, 0.09), f, seed=101 + s, n=3)
+            camo(m, r, (0.0, 0.16, 0.186 * s), (0.6, 0.09), f, seed=101 + s, n=3, colors=(0x6a6a6a,))
         crate(r, P.canvas, (0.14, 0.036, 0.05), (0.12, 0.155, 0.205 * s), bevel=0.008)
         rivet_row(m, r, (-0.34, 0.205, 0.186 * s), (0.28, 0.205, 0.186 * s), facing=f, spacing=0.035, size=0.01)
-    deck_strips(m, r, -0.372, 0.332, 0.217, 0.185)
-    fender_strips(m, r, 0.76, 0.2625, 0.141)
+    if not sov:
+        hull_shade(m, r, -0.38, 0.39, 0.217, 0.185, side_y=(0.1, 0.212), fenders=(0.76, 0.141, Z, 0.125, 0.0), deck=False)
+    top_star(m, r, fac, (0.29, 0.218, 0.0), 0.085)
+    deck_strips(m, r, -0.372, 0.332, 0.217, 0.185, width=0.016)
+    fender_strips(m, r, 0.76, 0.2625, 0.141, width=0.014)
+    top_lamps(r, 0.0, -0.355, 0.217, 0.17, front=None)
     # mine warning plate (yellow diamond with a red core) on the right side, emblem on the left
     box(r, P.yellow, (0.06, 0.06, 0.006), (0.2, 0.17, 0.188), (0, 0, PI / 4))
     box(r, painted(0xb02418, panels=None, wear=0.3, rust=0.05, rough=0.5), (0.03, 0.03, 0.006), (0.2, 0.17, 0.191), (0, 0, PI / 4))
@@ -42,7 +46,8 @@ def build_mnly(m, fac):
 
     # ---- armoured cab (front) with vision blocks and the commander's cupola
     cab = [(0.05, 0.215), (0.242, 0.215), (0.202, 0.298), (0.06, 0.303)]
-    side_prism(r, P.dark2 if not sov else P.hull_flat, cab, 0.26, bevel=0.012)
+    side_prism(r, P.top, cab, 0.26, bevel=0.013)
+    deck_strips(m, r, 0.06, 0.202, 0.3, 0.13, width=0.012)
     box(r, P.glass, (0.006, 0.022, 0.2), (0.224, 0.258, 0), (0, 0, 0.45))
     cyl(r, P.dark2, 0.032, 0.026, (0.11, 0.315, -0.06), seg=12, bevel=0.004)
     hatch_round(r, P.dark2, 0.026, (0.11, 0.328, -0.06))
@@ -62,6 +67,9 @@ def build_mnly(m, fac):
     box(r, P.dark2, (0.02, hh * 0.7, hd), (hx - hw / 2, hy + hh * 0.35, 0), bevel=0.006)
     box(r, P.black, (hw - 0.03, 0.01, hd - 0.03), (hx, hy + 0.012, 0))
     hazard_stripes(m, r, (hx - hw / 2 - 0.011, hy + 0.045, 0.0), (hd, 0.03), facing='-x')
+    deck_strips(m, r, hx - hw / 2, hx + hw / 2, hy + hh, hd / 2 + 0.01, width=0.014)
+    for s in (-1, 1):
+        stencil(m, r, 'МИНЫ' if sov else 'MINES', (hx - 0.04, hy + hh * 0.5, (hd / 2 + 0.0105) * s), 0.04, facing='+z' if s > 0 else '-z')
     mr = 0.04 if not sov else 0.03
     for i in range(3):
         for k in range(3):

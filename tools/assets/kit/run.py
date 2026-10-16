@@ -60,7 +60,7 @@ def main():
     if kind in ('vehicle', 'aircraft', 'infantry'):
         materials.DIRT_H = 0.07
     mod.build(m)
-    # per-model bake knobs (m.tune)
+    # per-model bake knobs (m.look / m.tune; 'ao' goes to materials.finalize)
     tn = m.tuning
     if 'edge_light' in tn:
         materials.EDGE_LIGHT = float(tn['edge_light'])
@@ -86,10 +86,11 @@ def main():
     log(f'unwrap {time.time() - t1:.1f}s, atlas coverage {cov * 100:.0f}%')
     t1 = time.time()
     bake.prepare_masks(m.atlas)
-    materials.finalize(m.decals)
+    materials.finalize(m.decals, look=m.tuning)
     log(f'materials {time.time() - t1:.1f}s')
     t2 = time.time()
-    bake.phase1(objs, m.atlas, log)
+    ungrounded = [p.obj for p in m.parts.values() if p.obj is not None and not p.grounded()] if m.ground else []
+    bake.phase1(objs, m.atlas, log, ungrounded=ungrounded)
     ch = bake.phase2(objs, m.atlas, log)
     log(f'bake {time.time() - t2:.1f}s')
     maps = bake.compose(ch, m.atlas)

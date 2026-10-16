@@ -283,6 +283,150 @@ def mark(m, p, img, at, size, base, roll=0.0, **kw):
     m.decal(img, at=(x, y + 0.004, z), size=size, facing='+y', part=p, depth=0.0025, roll=roll, **kw)
 
 
+# ---- badges: building-specific insignia on a team-colour field (roundel variety) --------------------------
+
+def _stroke(cv, pts, w, col, closed=False):
+    """Thick polyline (quads per segment + round joints) on a Canvas, in canvas pixels."""
+    seg = list(zip(pts, pts[1:] + (pts[:1] if closed else [])))
+    polys = []
+    for (x0, y0), (x1, y1) in seg:
+        dx, dy = x1 - x0, y1 - y0
+        L = max(1e-6, math.hypot(dx, dy))
+        nx, ny = -dy / L * w / 2, dx / L * w / 2
+        polys.append([(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)])
+    for (x, y) in pts:
+        polys.append([(x + math.cos(a) * w / 2, y + math.sin(a) * w / 2) for a in [i * math.pi / 4 for i in range(8)]])
+    cv.polys(polys, col)
+
+
+def symbol_img(kind, px=256, color=WHITE_TXT):
+    """White symbols (transparent background): 'bolt', 'atom', 'gear', 'hourglass', 'anchor', 'eagle', 'wings',
+    'radar', 'cross'."""
+    if kind == 'eagle':
+        return allied_eagle(px=px)
+
+    def mk():
+        cv = _D.Canvas(px, px, ss=2)
+        c = px / 2
+        col = _D.lin(color)
+        s = px / 100.0
+
+        def P(pts):
+            return [(x * s, y * s) for x, y in pts]
+        if kind == 'bolt':
+            cv.poly(P([(58, 94), (26, 48), (47, 48), (36, 6), (74, 56), (52, 56), (66, 94)]), col)
+        elif kind == 'atom':
+            for k in range(3):
+                a = k * math.pi / 3
+                pts = []
+                for i in range(48):
+                    t = i / 48 * 2 * math.pi
+                    ex, ey = math.cos(t) * 42, math.sin(t) * 15
+                    pts.append(((50 + ex * math.cos(a) - ey * math.sin(a)) * s, (50 + ex * math.sin(a) + ey * math.cos(a)) * s))
+                _stroke(cv, pts, 6 * s, col, closed=True)
+            cv.circle(c, c, 9 * s, col)
+        elif kind == 'gear':
+            n = 10
+            teeth = []
+            for i in range(n):
+                a0 = i / n * 2 * math.pi
+                pts = [(50 + math.cos(a0 + d) * r, 50 + math.sin(a0 + d) * r) for (d, r) in ((-0.17, 34), (-0.12, 45), (0.12, 45), (0.17, 34))]
+                teeth.append(P(pts))
+            cv.polys(teeth, col)
+            cv.circle(c, c, 36 * s, col, r_in=17 * s)
+        elif kind == 'hourglass':
+            cv.rect(24 * s, 84 * s, 76 * s, 92 * s, col)
+            cv.rect(24 * s, 8 * s, 76 * s, 16 * s, col)
+            cv.poly(P([(30, 84), (70, 84), (53, 51), (47, 51)]), col)
+            cv.poly(P([(47, 49), (53, 49), (70, 16), (30, 16)]), col)
+        elif kind == 'anchor':
+            cv.circle(c, 84 * s, 9 * s, col, r_in=5 * s)
+            cv.rect(46 * s, 22 * s, 54 * s, 76 * s, col)
+            cv.rect(30 * s, 66 * s, 70 * s, 72 * s, col)
+            arc = [((50 + math.cos(t) * 34) * s, (46 + math.sin(t) * 34) * s) for t in [math.pi + i * math.pi / 16 for i in range(17)]]
+            _stroke(cv, arc, 8 * s, col)
+            cv.poly(P([(10, 50), (24, 50), (14, 62)]), col)
+            cv.poly(P([(90, 50), (76, 50), (86, 62)]), col)
+        elif kind == 'wings':
+            right = [(52, 52), (96, 64), (92, 56), (84, 57), (80, 50), (70, 50), (62, 44)]
+            cv.polys([P(right), P([(100 - x, y) for x, y in right])], col)
+            _D._star(cv, c, 52 * s, 13 * s, col)
+        elif kind == 'radar':
+            arc = [((30 + math.cos(t) * 40) * s, (30 + math.sin(t) * 40) * s) for t in [i * math.pi / 2 / 16 for i in range(17)]]
+            _stroke(cv, arc, 7 * s, col)
+            arc2 = [((30 + math.cos(t) * 24) * s, (30 + math.sin(t) * 24) * s) for t in [i * math.pi / 2 / 16 for i in range(17)]]
+            _stroke(cv, arc2, 7 * s, col)
+            cv.circle(30 * s, 30 * s, 8 * s, col)
+            _stroke(cv, [(30 * s, 30 * s), (88 * s, 88 * s)], 6 * s, col)
+        elif kind == 'cross':
+            cv.rect(40 * s, 14 * s, 60 * s, 86 * s, col)
+            cv.rect(14 * s, 40 * s, 86 * s, 60 * s, col)
+        return cv.image()
+    return _cache(('sym', kind, color), mk)
+
+
+def field_img(shape, layer='fill', px=256, bw=0.07):
+    """Badge field layers: 'fill' = the shape in team grey (paint it with team=1), 'border' = only a white border
+    ring (team=0). Shapes: 'shield', 'square', 'diamond', 'circle'."""
+    def mk():
+        cv = _D.Canvas(px, px, ss=2)
+        s = px / 100.0
+
+        def outline(k):
+            if shape == 'shield':
+                pts = [(6, 94), (94, 94), (94, 52), (88, 30), (72, 14), (50, 4), (28, 14), (12, 30), (6, 52)]
+            elif shape == 'square':
+                pts = [(6, 6), (94, 6), (94, 94), (6, 94)]
+            elif shape == 'diamond':
+                pts = [(50, 2), (98, 50), (50, 98), (2, 50)]
+            else:
+                pts = [(50 + math.cos(t) * 48, 50 + math.sin(t) * 48) for t in [i * math.pi / 24 for i in range(48)]]
+            return [((50 + (x - 50) * (1 - k)) * s, (50 + (y - 50) * (1 - k)) * s) for x, y in pts]
+
+        def mask(pts):
+            c = (50 * s, 50 * s)
+            return cv.cover([(c, pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))])
+        outer = mask(outline(0))
+        inner = mask(outline(bw * 2))
+        if layer == 'fill':
+            cv.fill(outer, _D.lin(0xdadada), 1.0)
+        else:
+            cv.fill(outer & ~inner, _D.lin(WHITE_TXT), 1.0)
+        return cv.image()
+    return _cache(('field', shape, layer, bw), mk)
+
+
+def _plate_at(p, plate, at, size, facing, shape='square'):
+    """Thin plate under a painted emblem (relief + only the plate gets the decal's atlas boost); returns (at, depth)."""
+    F = T(at, facing_rot(facing))
+    w, h = size
+    if facing == '+y' and shape == 'circle':
+        cyl(p, plate, w * 0.5, 0.006, tuple(F @ mathutils.Vector((0, 0, 0.003))), seg=20)
+    else:
+        box(p, plate, (w * 0.96, h * 0.96, 0.006), tuple(F @ mathutils.Vector((0, 0, 0.003))), facing_rot(facing))
+    return tuple(F @ mathutils.Vector((0, 0, 0.006))), 0.0035
+
+
+def badge(m, p, symbol, at, size, facing='+z', field='shield', depth=0.03, plate=None, symbol_scale=0.62, roll=0.0):
+    """Unit / building insignia: a team-colour field (shield, square, diamond, circle) with a white border and a
+    white symbol (see symbol_img). The Allied alternative to the star roundel."""
+    if plate is not None:
+        at, depth = _plate_at(p, plate, at, (size, size), facing, 'circle' if field == 'circle' else 'square')
+    m.decal(field_img(field, 'fill'), at=at, size=(size, size), facing=facing, part=p, depth=depth, team=1, rough=0.55, roll=roll)
+    m.decal(field_img(field, 'border'), at=at, size=(size, size), facing=facing, part=p, depth=depth, team=0, rough=0.55, roll=roll)
+    ss = size * symbol_scale
+    m.decal(symbol_img(symbol), at=at, size=(ss, ss), facing=facing, part=p, depth=depth, team=0, rough=0.55, roll=roll)
+
+
+def big_text(m, p, text, at, height, facing='+y', color=WHITE_TXT, plate=None, width=None, roll=0.0, depth=0.03, wear=0.3):
+    """Large stencilled lettering (roof numbers, DOCK 3, MOTOR POOL...) on a surface; plate = thin base plate."""
+    img = _D.text([text] if '|' not in text else text.split('|'), px_h=128, color=color, wear=wear)
+    w = width or height * img.aspect
+    if plate is not None:
+        at, depth = _plate_at(p, plate, at, (w * 1.08, height * 1.25), facing)
+    m.decal(img, at=at, size=(w, height), facing=facing, part=p, depth=depth, team=0, roll=roll)
+
+
 def floodlight(p, at, yaw=0.0, pitch=0.55, s=0.05, strength=3.2, mount=None):
     """Chunky floodlight: bracket + housing + bright lens. at = mount point; the lamp faces yaw (0 = +Z)
     tilted down by pitch."""
@@ -488,4 +632,26 @@ def lathe_in(p, mat, profile, at=(0, 0, 0), seg=16):
         vs = [v for ring in rings for v in ring]
         _S._round_uv(bm, vs)
         return vs
+    return _S._emit(p, mat, build, T(at))
+
+
+def geodome(p, mat, r, at=(0, 0, 0), subdiv=2, cut=-0.3, faceted=True):
+    """Geodesic radome: an icosphere (faces below cut*r dropped) with every facet split apart, so each panel is
+    flat-shaded and the baked edge mask draws crisp panel seams along every facet edge."""
+    import bmesh
+    from kit import shapes as _S
+
+    def build(bm):
+        res = bmesh.ops.create_icosphere(bm, subdivisions=subdiv, radius=r)
+        vs = res['verts']
+        faces = list({f for v in vs for f in v.link_faces})
+        # create_icosphere is Z-up: turn it so the kit's +Y is up (the cut is along +Y)
+        bmesh.ops.rotate(bm, verts=vs, cent=(0, 0, 0), matrix=mathutils.Matrix.Rotation(math.radians(-90), 3, 'X'))
+        dead = [f for f in faces if f.calc_center_median().y < cut * r]
+        keep = [f for f in faces if f not in set(dead)]
+        bmesh.ops.delete(bm, geom=dead, context='FACES')
+        if faceted:
+            edges = list({e for f in keep for e in f.edges})
+            bmesh.ops.split_edges(bm, edges=edges)
+        return list({v for f in keep if f.is_valid for v in f.verts})
     return _S._emit(p, mat, build, T(at))

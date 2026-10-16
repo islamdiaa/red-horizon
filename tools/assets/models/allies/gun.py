@@ -34,7 +34,8 @@ def build(m):
 
     box(r, slab_m(0x8d887f), (0.96, Y0, 0.96), (0, Y0 / 2, 0), bevel=0.014)
     prism(r, conc, octp(0.42), 0.18, (0, Y0 + 0.09, 0), (-math.pi / 2, 0, 0), bevel=0.03)
-    prism(r, gun_m(0x4a5058), octp(0.34), 0.05, (0, Y0 + 0.205, 0), (-math.pi / 2, 0, 0), bevel=0.01)
+    prism(r, gun_m(0x4a5058), octp(0.36), 0.05, (0, Y0 + 0.205, 0), (-math.pi / 2, 0, 0), bevel=0.01)
+    m.decal(_octring_img(), at=(0, Y0 + 0.23, 0), size=(0.74, 0.74), facing='+y', depth=0.012, team=0, rough=0.6)
     hazard_band(m, r, (0, Y0 + 0.1, 0.389), (0.3, 0.04))
     cyl(r, dark_m(), 0.22, 0.03, (0, Y0 + 0.245, 0), r2=0.21, seg=20)
     for i in range(8):
@@ -49,20 +50,41 @@ def build(m):
 
     # ---- turret (rotates about y; barrel along +x)
     t = m.part('turret', at=(0, 0.31, 0))
-    body = [(0.2, -0.1), (0.2, 0.1), (0.08, 0.2), (-0.16, 0.2), (-0.24, 0.12), (-0.24, -0.12), (-0.16, -0.2), (0.08, -0.2)]
-    prism(t, armour, body, 0.13, (0, 0.065, 0), (-math.pi / 2, 0, 0), bevel=0.022)
-    prism(t, tr, [(x * 1.03, z * 1.03) for (x, z) in body], 0.03, (0, 0.085, 0), (-math.pi / 2, 0, 0), bevel=0.004)
-    top_ = [(0.1, -0.12), (0.1, 0.12), (-0.14, 0.13), (-0.18, 0.08), (-0.18, -0.08), (-0.14, -0.13)]
-    prism(t, armour_d, top_, 0.035, (0, 0.145, 0), (-math.pi / 2, 0, 0), bevel=0.01)
-    box(t, gm, (0.08, 0.09, 0.13), (0.21, 0.065, 0), bevel=0.016)
-    cyl(t, dark_m(), 0.038, 0.016, (-0.08, 0.17, 0.06), seg=12, bevel=0.004)
-    box(t, dark_m(), (0.035, 0.025, 0.055), (0.05, 0.168, -0.08), bevel=0.004)
-    box(t, glass(0x2b4762), (0.004, 0.014, 0.045), (0.068, 0.168, -0.08))
-    roundel(m, t, (-0.06, 0.1635, -0.035), 0.075, facing='+y', depth=0.02)
-    for s in (-1, 1):
-        roundel(m, t, (-0.05, 0.07, s * 0.2), 0.07, facing='+z' if s > 0 else '-z', depth=0.03)
-    light(t, (-0.2, 0.16, 0.08), 0.01, 0xff2a1a, 'blink')
+    k = 1.18  # exaggerated turret: reads at the default zoom, still inside the footprint
+    body = [(0.2 * k, -0.1 * k), (0.2 * k, 0.1 * k), (0.08 * k, 0.2 * k), (-0.16 * k, 0.2 * k), (-0.24 * k, 0.12 * k), (-0.24 * k, -0.12 * k),
+            (-0.16 * k, -0.2 * k), (0.08 * k, -0.2 * k)]
+    prism(t, armour, body, 0.14, (0, 0.07, 0), (-math.pi / 2, 0, 0), bevel=0.024)
+    prism(t, tr, [(x * 1.035, z * 1.035) for (x, z) in body], 0.04, (0, 0.085, 0), (-math.pi / 2, 0, 0), bevel=0.005)
+    top_ = [(0.12, -0.15), (0.12, 0.15), (-0.17, 0.16), (-0.22, 0.1), (-0.22, -0.1), (-0.17, -0.16)]
+    prism(t, steel(0xb4bdc6, panels=(0.1, 0.1), wear=0.6), top_, 0.035, (0, 0.155, 0), (-math.pi / 2, 0, 0), bevel=0.012)
+    box(t, gm, (0.09, 0.1, 0.15), (0.235, 0.07, 0), bevel=0.018)
+    cyl(t, dark_m(), 0.045, 0.018, (-0.12, 0.181, 0.075), seg=12, bevel=0.004)
+    box(t, dark_m(), (0.04, 0.028, 0.06), (0.06, 0.18, -0.1), bevel=0.004)
+    box(t, glass(0x2b4762), (0.004, 0.016, 0.05), (0.081, 0.18, -0.1))
+    roundel(m, t, (-0.04, 0.1725, 0.0), 0.15, facing='+y', depth=0.02)
+    light(t, (-0.22, 0.18, -0.1), 0.012, 0xff2a1a, 'blink')
     b = m.part('b0', parent='turret', at=(0.23, 0.065, 0))
-    barrel(b, gm, 0.38, 0.02)
-    cyl(b, armour_d, 0.032, 0.06, (0.06, 0, 0), (0, 0, -math.pi / 2), seg=10)
+    barrel(b, gm, 0.38, 0.027)
+    cyl(b, armour_d, 0.04, 0.07, (0.07, 0, 0), (0, 0, -math.pi / 2), seg=12, bevel=0.004)
+    cyl(b, tr, 0.03, 0.03, (0.2, 0, 0), (0, 0, -math.pi / 2), seg=12, caps=False)
     m.muzzle('m0', (0.62, 0.065, 0), part='turret')
+
+
+def _octring_img():
+    """Yellow / black hazard segments round the turret ring (transparent elsewhere)."""
+    from kit import decals as _D
+    from _allied import _imgs
+    if 'octring' in _imgs:
+        return _imgs['octring']
+    px = 256
+    cv = _D.Canvas(px, px, ss=2)
+    c = px / 2
+    n = 16
+    for kk in range(n):
+        a0, a1 = 2 * math.pi * kk / n, 2 * math.pi * (kk + 1) / n
+        pts = [(c + math.cos(a0 + (a1 - a0) * j / 3) * px * 0.49, c + math.sin(a0 + (a1 - a0) * j / 3) * px * 0.49) for j in range(4)]
+        pts += [(c + math.cos(a1 - (a1 - a0) * j / 3 + 0.12) * px * 0.41, c + math.sin(a1 - (a1 - a0) * j / 3 + 0.12) * px * 0.41) for j in range(4)]
+        cv.fill(cv.cover([(pts[0], pts[i], pts[i + 1]) for i in range(1, len(pts) - 1)]), _D.lin(HAZ_Y if kk % 2 == 0 else 0x18181a), 1.0)
+    cv.roughen(0.25, seed=17)
+    _imgs['octring'] = cv.image()
+    return _imgs['octring']

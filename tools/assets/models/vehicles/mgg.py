@@ -29,7 +29,7 @@ def build(m):
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
         fender(r, P.hull_flat, 0.74, 0.12, 0.13, Z * s, front=0.05, rear=0.04)
-        camo(m, r, (-0.03, 0.17, 0.186 * s), (0.58, 0.11), f, seed=111 + s, n=3)
+        camo(m, r, (-0.03, 0.17, 0.186 * s), (0.58, 0.11), f, seed=111 + s, n=3, colors=(0x6a6a6a,))
         number(m, r, '9', (0.2, 0.17, 0.1865 * s), 0.045, f)
         headlight(r, (0.362, 0.172, 0.13 * s), 0.016, guard=P.black)
         marker(r, (-0.366, 0.205, 0.15 * s), 0.011)
@@ -38,10 +38,12 @@ def build(m):
         for i in range(5):
             box(r, P.gun, (0.008, 0.062, 0.078), (-0.18 + i * 0.04, 0.272, 0.13 * s))
         cyl_between(r, copper, (0.0, 0.29, 0.13 * s), (0.07, 0.3, 0.04 * s), 0.009, 6)
-        marker(r, (-0.2, 0.31, 0.13 * s), 0.01, AMBER, '+y', mode='pulse', strength=2.6)
-    emblem(m, r, 'allied_star', (0.2, 0.24, 0.0), 0.07, facing='+y')
-    deck_strips(m, r, -0.358, 0.302, 0.238, 0.185)
-    fender_strips(m, r, 0.74, 0.255, 0.136)
+        marker(r, (-0.2, 0.31, 0.13 * s), 0.012, AMBER, '+y', mode='pulse', strength=3.2)
+    hull_shade(m, r, -0.37, 0.39, 0.238, 0.185, side_y=(0.1, 0.232), fenders=(0.74, 0.136, Z, 0.12, 0.0), deck=False)
+    top_star(m, r, 'allies', (0.235, 0.239, 0.0), 0.1)
+    deck_strips(m, r, -0.358, 0.302, 0.238, 0.185, width=0.016)
+    fender_strips(m, r, 0.74, 0.255, 0.136, width=0.014)
+    top_lamps(r, 0.28, -0.34, 0.238, 0.165, front=None)
     vent(m, r, (-0.27, 0.239, 0.0), (0.12, 0.12), facing='+y', slats=5, thick=0.008)
     tow_hooks(r, P, 0.38, 0.11, 0.1, 1)
     whip(r, P, (-0.33, 0.238, 0.16), 0.2, pennant=True)

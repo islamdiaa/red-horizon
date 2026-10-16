@@ -120,22 +120,52 @@ node tools/assets/build.mjs --all                # everything except models/test
 ### Structure (`kit.core`)
 | call | |
 |---|---|
-| `m.root`, `m.part(name, parent='root', at, rot)` | parts = rigid nodes; geometry is added in the part's frame |
+| `m.root`, `m.part(name, parent='root', at, rot, cull=True, ground=None)` | parts = rigid nodes; geometry is added in the part's frame (`cull`, `ground`: see the bake) |
 | `m.point / muzzle / smoke / steam / sparks` | named empties (see Conventions) |
-| `m.decal(img, at, size, facing, part, depth, team, rough, metal, emit, height, boost)` | projected decal |
+| `m.decal(img, at, size, facing, part, depth, roll, team, rough, metal, emit, height, tint, boost, normal, up, rot)` | projected decal |
+| `m.look(edge_light=, edge_radius=, chamfer_edge=, ao_distance=, dirt_h=, ao=)` | per-model look knobs (`m.tune` is the same call) |
 | `m.set_meta(...)` | glTF extras + manifest |
-| `T(at, rot, scale)`, `facing_rot(facing)` | matrices for your own math |
+| `T(at, rot, scale)`, `facing_rot(facing)`, `normal_rot(normal, up)` | matrices / Eulers for your own math |
+
+**Orientation.** Every `facing=` argument (decals and all the helpers below) takes `'+z'` (front, default), `'-z'`,
+`'+x'`, `'-x'`, `'+y'` (up: roofs), `'-y'`, a yaw angle in radians, or any `(rx, ry, rz)` Euler, e.g.
+`normal_rot((0, 0.6, 0.8))` for a sloped roof or a raked armour plate (`normal_rot(n, up)` turns +Z to `n` with the
+feature's top towards `up`, default +Y; for normals near +-Y the top points north / south like `'+y'` / `'-y'`).
+`m.decal` also takes `normal=(x, y, z)` (+ optional `up=`) or `rot=(rx, ry, rz)` directly; `roll` still turns the
+image in its plane. A non-procedural part name (e.g. `m.part('pit', ground=False)`) is a static node that stays
+with its parent in the game: use it to group static geometry that needs its own `cull` / `ground` setting.
+
+**Look knobs** (`m.look`, call it anywhere in `build`): `edge_light` (edge catch-light, 0.07), `edge_radius`
+(bevel-shader edge mask radius, 0.014), `chamfer_edge` (edge mask on geometric chamfers, 0.45), `ao_distance`
+(AO reach in units, 0.32; ~0.42 for deeper crevices on 2x2 / 3x3 structures), `dirt_h` (ground dirt height,
+0.2 structures / 0.07 units), `ao` (how much baked AO darkens the albedo for every material that does not set its
+own with `set_weather(mat, ao=)`, 0.55; glass and lamps keep theirs). Keep edge light and wear modest: they read
+as pale halos at RTS zoom.
 
 ### Shapes (`kit.shapes`; `p` = a part, `m` = the model for decal-using helpers)
 - Primitives: `box(p, mat, (w,h,d), at, rot, bevel)`, `slab(p, mat, x0,x1, y0,y1, z0,z1)`,
   `cyl(p, mat, r, h, at, rot, r2, seg, caps, bevel)` (axis Y), `cyl_between(p, mat, a, b, r)`, `bar(p, mat, a, b, w)`,
-  `sphere`, `dome`, `lathe(p, mat, [(r, y)...], at, seg, scale)`, `prism(p, mat, [(x, y)...], depth, at)` (profile in
-  XY extruded along Z), `quad`.
+  `sphere`, `dome`, `lathe(p, mat, [(r, y)...], at, seg, rot, scale, cap_top, cap_bottom, inward=False, double=False)`,
+  `prism(p, mat, [(x, y)...], depth, at)` (profile in XY extruded along Z), `quad`, and:
+  - `lathe_in(p, mat, [(r, y)...], at, seg, rot, cap_bottom=False, cap_top=False)`: faces look at the axis (the inside
+    of a cooling tower, tank or silo seen over its rim; `cap_bottom` = an upward floor). `lathe(..., double=True)`
+    keeps both sides of a thin open shell (the inner side gets its own atlas space).
+  - `torus(p, mat, R, t, at, seg=16, tseg=8, rot=None, smooth=True)`: ring around local Y (tyres, collars, coils,
+    hatch rims); `smooth` shades the tube round even with 6-8 sides. Pass `rot=` by keyword.
+  - `sector(p, mat, r0, r1, x0, x1, a0, a1, seg=3, at, rot, caps=False)`: part of a cylinder / cone surface along
+    local X (radius r0 at x0 to r1 at x1) between angles a0..a1 around X (0 = +Y, increasing towards +Z): quartered
+    rocket paint, split drums, fairings; `caps=True` closes it into a solid pie wedge. `rot=(0, 0, pi/2)` stands it on Y.
+  - `loft(p, mat, [(y, [(x, z), ...]), ...], at, rot, bevel)`: closed solid through horizontal top-view rings, bottom
+    to top, same point count and order in every ring; a smaller top ring gives sloped, light-catching sides
+    (turrets, hulls, hip roofs, plinths).
 - Hard-surface detail: `panel` (raised plate), `rivet_row(m, p, a, b, facing)` (decal), `vent(m, p, at, (w,h), facing)`,
   `grille(...)`, `junction_box(p, at, size, facing, conduit)`, `light(p, at, r, color, mode)` (lamp + emissive lens).
 - Industrial: `pipe(p, mat, a, b, r)`, `pipe_run(p, mat, [pts], r)`, `downpipe(p, mat, at, y0, y1, facing)`,
   `ladder(p, mat, at, h, facing, cage)`, `railing(p, mat, a, b, h)`, `rail_rect(...)`, `catwalk(m, p, at, length, width, axis)`.
 - Buildings: `window(p, at, (w,h), facing, lit)`, `window_row(p, at, n, size, gap, dark=(i...))`,
+  `glazing(m, p, at, (w,h), nx, ny=1, facing, dark=0.45 | dark_panes={i...}, seed, lit, strength, t, frame, pane)`
+  (a glazed band / curtain wall: ONE lit glass quad + a mullion decal projected with `emit=0.0`, so the bars and
+  the dark panes don't glow; any number of panes for two triangles; `at` = the glass centre, its face 0.003 out),
   `door(m, p, at, (w,h), facing, kind='roller'|'double'|'hatch', hazard_frame)`, `ac_unit`, `roof_vent`, `roof_clutter`,
   `chimney(m, p, at, h, r, r_top, mat, bands, band_mat, lights, smoke, ladder_side)`, `antenna`, `dish`.
 - Faction dressing: `banner(m, p, at, (w,h), facing, emblem='soviet'|'allied'|'allied_star', color='team'|hex)`,
@@ -149,15 +179,26 @@ node tools/assets/build.mjs --all                # everything except models/test
 `team(...)` (team-colour paint), `concrete(color, joints=(w,h), soot=)`, `metal(color)` (bare / gun steel),
 `rusty(color, amount)`, `corrugated(color, along, pitch)`, `tread()`, `rubber()`, `cloth(color | team=True)`,
 `glass(color, lit=0xRRGGBB)`, `light_mat(color, strength, mode)` (`'steady'|'blink'|'pulse'|'flicker'|'strobe'`,
-animated in the game), `flat(color)`, `track_material()`, `glow_material('glow:<slot>', color)`.
+animated in the game), `flat(color)`, `track_material()`,
+`glow_material('glow:<slot>', color, double_sided=False)` (separately animated emissive meshes; one slot can hold
+several colours, e.g. a shipyard's red and green harbour lights: one call per colour, exported into the slot's one
+mesh as vertex colours; `double_sided=True` also lights the back faces of thin fins, flags and rings).
 Equal arguments return the same material. Weathering is automatic (see below); the amounts are per material,
 and `set_weather(mat, wear=, grime=, rust=, streaks=, ao=, soot=, bevel=)` adjusts one afterwards.
-Per-model bake knobs: `m.tune(edge_light=, edge_radius=, chamfer_edge=, ao_distance=, dirt_h=)` (use these
-instead of overriding kit module globals; keep edge light and wear modest: they read as pale halos).
+Per-model knobs: `m.look(...)` (above; use it instead of overriding kit module globals).
 
 ### Decal images (`kit.decals`)
 `soviet_star()`, `allied_eagle()`, `allied_star()`, `text(lines, color, field, stencil)` (Rajdhani Bold),
-`hazard()`, `rivets(n)`, `vent()`, `grille()`, `panel_outline()`, `solid(color)`. Project with `m.decal(...)`.
+`hazard()`, `rivets(n)`, `vent()`, `grille()`, `panel_outline()`, `solid(color)`,
+`mullions(nx, ny, aspect, px, frame, t, dark, seed, pane, dark_panes)` (window-frame grid with dark panes; project
+with `emit=0.0` over lit glass, as `glazing` does), `team_paint(k)`. Project with `m.decal(...)`.
+
+**Team shades** (the grey-decal trick): a decal with `team=1` repaints its area as team paint, and the game
+multiplies the baked albedo by `teamColour / TEAM_GREY` (TEAM_GREY = linear 0.7 = sRGB `0xdbdbdb`). So the grey
+you project sets the shade: `m.decal(team_paint(0.6), ..., team=1)` paints a dark team shade (recess bands,
+stripes, shadowed trims), `team_paint(1.0)` (= `solid(0xdbdbdb)`) the clean team colour, `team_paint(1.3)` a light
+one. Any grey `solid(...)` works the same; a coloured image with `team=1` tints the team colour.
+`team=0` does the opposite: it masks the team colour off under a decal (white text on a team-coloured banner).
 Decals cost no triangles; text and emblems get extra atlas density automatically (`boost`). Text with
 non-Latin characters (Cyrillic slogans) uses Russo One automatically; `font='rajdhani'|'russo'|<path>` on
 `text` / `stencil` / `sign` overrides. A decal is wired into every material whose faces overlap its box; one
@@ -170,9 +211,16 @@ that touches nothing prints `[kit] WARNING: decal ... touches no faces` (check p
    `m.part(..., cull=False)` keeps every face of a part and its children.
 2. One atlas (`atlas`) for every part: round primitives bring their own cylindrical / planar UVs, the rest is
    smart-projected; islands are equalised in texel density, decal-covered islands get 1.8x, downward-facing
-   ones 0.4x, then AABB-packed with a 2.5 px gutter (the run logs the atlas coverage; ~50% is normal).
+   ones 0.4x, then AABB-packed with a 2 px gutter (the run logs the atlas coverage; 55-75% is normal). Round
+   surfaces are cut into quarter-turn strips so they pack tightly. Every bake fills the gutters itself (the
+   islands grow into them like Blender's EXTEND margin, but for all parts at once: Blender's own margin is per
+   object and used to paint a moving part's colours over the border of a neighbouring root island).
 3. Phase 1 masks: **AO** with a ground plane (contact shadows) and **edge** curvature (bevel shader + the chamfers
-   `box(bevel=)` makes).
+   `box(bevel=)` makes). `m.ground = False` drops the plane for the whole model; `m.part(..., ground=False)` bakes
+   just that part (and its children, unless they say `ground=True`) without it: a silo missile resting below
+   y = 0 would otherwise be blacked out, while the silo keeps its contact shadows (the other parts still occlude
+   it). Note the plane also covers holes in a ground slab: below-ground lining that should get light through an
+   opening goes in a `ground=False` part too.
 4. Smart materials read the masks and add: edge wear (bare steel / scuffed concrete), cavity grime, ground dirt,
    rust (Poly Haven rust spots), rain / soot streaks, soot bands, baked AO; decals are applied before weathering.
 5. Phase 2: base colour, (roughness, metalness, team), (emit, emit mode), tangent-space normal (bevel shader +

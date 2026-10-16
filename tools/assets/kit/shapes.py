@@ -63,8 +63,12 @@ def _round_uv(bm, verts):
             angs = [math.atan2(-lp.vert.co.z, lp.vert.co.x) for lp in f.loops]
             if max(angs) - min(angs) > math.pi:
                 angs = [a + 2 * math.pi if a < 0 else a for a in angs]
+            # quarter-turn islands: a whole-turn strip of a wide, short ring (a dome base, a collar) is so long
+            # that packing has to shrink every island to fit it; four shorter strips pack tightly
+            k = math.floor((sum(angs) / len(angs) + math.pi) / (math.pi / 2))
+            a0 = k * (math.pi / 2) - math.pi
             for lp, a in zip(f.loops, angs):
-                lp[uvl].uv = (a * rr, lp.vert.co.y)
+                lp[uvl].uv = ((a - a0) * rr, lp.vert.co.y)
         f[pre] = 1.0
 
 
@@ -170,8 +174,12 @@ def sphere(p, mat, r, at=(0, 0, 0), seg=12, rings=8, scale=None, rot=None):
     return _emit(p, mat, build, T(at, rot, scale))
 
 
-def lathe(p, mat, profile, at=(0, 0, 0), seg=16, rot=None, scale=None, cap_top=True, cap_bottom=True):
-    """Surface of revolution around local Y: profile = [(radius, y), ...] bottom to top."""
+def lathe(p, mat, profile, at=(0, 0, 0), seg=16, rot=None, scale=None, cap_top=True, cap_bottom=True, inward=False,
+          double=False):
+    """Surface of revolution around local Y: profile = [(radius, y), ...] bottom to top.
+    inward=True turns every face towards the inside (the inner wall of a cooling tower, tank or stack seen over
+    its rim; caps then face into the solid: a floor and a ceiling). double=True keeps both sides (thin open
+    shells seen from inside and outside; the inner side gets its own atlas space)."""
     def build(bm):
         rings = []
         for (r, y) in profile:
@@ -192,10 +200,127 @@ def lathe(p, mat, profile, at=(0, 0, 0), seg=16, rot=None, scale=None, cap_top=T
             bm.faces.new(rings[-1])
         bmesh.ops.remove_doubles(bm, verts=vs, dist=1e-6)
         vs = [v for v in vs if v.is_valid]
-        bmesh.ops.recalc_face_normals(bm, faces=list({f for v in vs for f in v.link_faces}))
+        faces = list({f for v in vs for f in v.link_faces})
+        bmesh.ops.recalc_face_normals(bm, faces=faces)
+        if inward or double:
+            # recalc_face_normals points a connected surface outwards (also open ones): flip for the inside
+            if double:
+                ret = bmesh.ops.duplicate(bm, geom=faces + list({e for f in faces for e in f.edges}) + vs)
+                inner = [g for g in ret['geom'] if isinstance(g, bmesh.types.BMFace)]
+                ivs = [g for g in ret['geom'] if isinstance(g, bmesh.types.BMVert)]
+                bmesh.ops.reverse_faces(bm, faces=inner)
+                for f in inner:
+                    f.normal_update()
+                for v in ivs:  # a hair inwards (no z-fighting, separate atlas islands)
+                    n = sum((f.normal for f in v.link_faces), Vector())
+                    if n.length > 0:
+                        v.co += n.normalized() * 1e-4
+                vs = vs + ivs
+            else:
+                bmesh.ops.reverse_faces(bm, faces=faces)
         _round_uv(bm, vs)
         return vs
     return _emit(p, mat, build, T(at, rot, scale))
+
+
+def lathe_in(p, mat, profile, at=(0, 0, 0), seg=16, rot=None, cap_bottom=False, cap_top=False):
+    """Inward-facing surface of revolution (faces look at the axis): the inside of cooling towers, tanks and
+    stacks seen over their rim. profile = [(radius, y), ...] bottom to top. cap_bottom=True adds an upward
+    floor disc. (= lathe(..., inward=True), without caps by default.)"""
+    return lathe(p, mat, profile, at, seg, rot, cap_top=cap_top, cap_bottom=cap_bottom, inward=True)
+
+
+def torus(p, mat, R, t, at=(0, 0, 0), seg=16, tseg=8, rot=None, smooth=True):
+    """Ring around local Y (tyres, collars, coils, chrono rings, hatch rims): major radius R (axis to tube
+    centre), tube radius t. smooth=True shades the tube round even with few sides (tseg 6-8)."""
+    from .materials import ATLAS_UV
+
+    def build(bm):
+        uvl = bm.loops.layers.uv.get(ATLAS_UV) or bm.loops.layers.uv.new(ATLAS_UV)
+        pre = bm.faces.layers.float.get('rh_preuv') or bm.faces.layers.float.new('rh_preuv')
+        sm = bm.faces.layers.float.get('rh_smooth') or bm.faces.layers.float.new('rh_smooth')
+        V = []
+        for i in range(seg + 1):
+            a = 2 * math.pi * i / seg
+            col = []
+            for j in range(tseg + 1):
+                b = 2 * math.pi * j / tseg
+                rr = R + t * math.cos(b)
+                col.append(bm.verts.new((math.cos(a) * rr, t * math.sin(b), -math.sin(a) * rr)))
+            V.append(col)
+        idx = {V[i][j]: (i, j) for i in range(seg + 1) for j in range(tseg + 1)}
+        for i in range(seg):
+            # quarter-turn islands (as _round_uv): a whole-turn strip packs badly
+            a0 = math.floor((i + 0.5) * 4 / seg) * (math.pi / 2)
+            for j in range(tseg):
+                f = bm.faces.new((V[i][j], V[i + 1][j], V[i + 1][j + 1], V[i][j + 1]))
+                f.normal_update()
+                c = f.calc_center_median()
+                am = 2 * math.pi * (i + 0.5) / seg
+                tube = Vector((math.cos(am) * R, 0.0, -math.sin(am) * R))
+                if f.normal.dot(c - tube) < 0:
+                    f.normal_flip()
+                for lp in f.loops:
+                    ii, jj = idx[lp.vert]
+                    lp[uvl].uv = ((2 * math.pi * ii / seg - a0) * R, 2 * math.pi * jj / tseg * t)
+                f[pre] = 1.0
+                f[sm] = 1.0 if smooth else 0.0
+        vs = [v for col in V for v in col]
+        bmesh.ops.remove_doubles(bm, verts=vs, dist=1e-7)
+        return [v for v in vs if v.is_valid]
+    return _emit(p, mat, build, T(at, rot))
+
+
+def sector(p, mat, r0, r1, x0, x1, a0, a1, seg=3, at=(0, 0, 0), rot=None, caps=False):
+    """Part of a cylinder / cone surface along local X (radius r0 at x0 -> r1 at x1) between the angles a0..a1
+    around the X axis (0 = +Y, increasing towards +Z): quartered rocket paint, split drums, half-shells,
+    fairings. caps=True closes it into a solid wedge (pie-slice ends and the two radial faces)."""
+    def build(bm):
+        A, B = [], []
+        for i in range(seg + 1):
+            a = a0 + (a1 - a0) * i / seg
+            ca, sa = math.cos(a), math.sin(a)
+            A.append(bm.verts.new((x0, ca * r0, sa * r0)))
+            B.append(bm.verts.new((x1, ca * r1, sa * r1)))
+        vs = A + B
+        faces = [bm.faces.new((A[i], B[i], B[i + 1], A[i + 1])) for i in range(seg)]
+        if caps:
+            c0, c1 = bm.verts.new((x0, 0, 0)), bm.verts.new((x1, 0, 0))
+            vs += [c0, c1]
+            faces += [bm.faces.new([c0] + A), bm.faces.new([c1] + B),
+                      bm.faces.new((c0, c1, B[0], A[0])), bm.faces.new((c0, A[-1], B[-1], c1))]
+            bmesh.ops.recalc_face_normals(bm, faces=faces)
+        else:
+            for f in faces:
+                f.normal_update()
+                c = f.calc_center_median()
+                if f.normal.dot(Vector((0, c.y, c.z))) < 0:
+                    f.normal_flip()
+        return vs
+    return _emit(p, mat, build, T(at, rot))
+
+
+def loft(p, mat, rings, at=(0, 0, 0), rot=None, bevel=0.0):
+    """Closed solid through horizontal rings: rings = [(y, [(x, z), ...]), ...] bottom to top, every ring with
+    the same number of points in the same order (top-view outlines). A smaller top ring gives sloped,
+    light-catching sides (turrets, hull decks, roofs, plinths). Caps on both ends; bevel = chamfer size."""
+    n = len(rings[0][1])
+    if any(len(pts) != n for _, pts in rings):
+        raise ValueError('loft(): every ring needs the same number of points')
+
+    def build(bm):
+        rs = [[bm.verts.new((x, y, z)) for (x, z) in pts] for (y, pts) in rings]
+        for k in range(len(rs) - 1):
+            A, B = rs[k], rs[k + 1]
+            for i in range(n):
+                j = (i + 1) % n
+                bm.faces.new((A[i], A[j], B[j], B[i]))
+        bm.faces.new(rs[0])
+        bm.faces.new(list(reversed(rs[-1])))
+        vs = [v for r in rs for v in r]
+        bmesh.ops.recalc_face_normals(bm, faces=list({f for v in vs for f in v.link_faces}))
+        return _bevel_edges(bm, vs, bevel) if bevel > 0 else vs
+    return _emit(p, mat, build, T(at, rot))
 
 
 def dome(p, mat, r, at=(0, 0, 0), seg=16, rings=5, h=None):
@@ -326,6 +451,22 @@ def window_row(p, at, n, size, gap, facing='+z', lit=0xffc27a, dark=(), **kw):
     for i in range(n):
         x = -total / 2 + w / 2 + i * (w + gap)
         window(p, _xf(F, (x, 0, 0)), size, facing, None if i in dark else lit, **kw)
+
+
+def glazing(m, p, at, size, nx, ny=1, facing='+z', dark=0.45, seed=1, lit=0xffb76a, strength=1.4, t=0.11, depth=0.012,
+            frame=0x1c1e21, pane=0x1b232c, dark_panes=None):
+    """Glazed band / curtain wall: one lit glass plate with a mullion decal over it (kit.decals.mullions,
+    projected with emit=0.0): the bars and the dark panes do not glow, the other panes do (and go dark when
+    the building loses power). nx x ny panes; dark = fraction of dark panes (random by seed) or dark_panes =
+    explicit indices (row-major from the bottom left); t = bar thickness as a fraction of the height. at =
+    centre of the glass (its front face is 0.003 out along `facing`), size = (w, h). Two triangles plus the
+    decal, however many panes."""
+    w, h = size
+    c = _xf(_frame(at, facing), (0, 0, 0.003))
+    # a single quad (a thin box's lit side faces would outline the band: the decal only covers what faces it)
+    quad(p, Mt.glass(lit=lit, strength=strength), (w, h), c, facing=facing)
+    img = D.mullions(nx, ny, aspect=w / h, t=t, dark=dark, seed=seed, frame=frame, pane=pane, dark_panes=dark_panes)
+    return m.decal(img, at=c, size=(w, h), facing=facing, part=p, depth=depth, emit=0.0)
 
 
 def door(m, p, at, size, facing='+z', kind='roller', mat=None, frame=None, hazard_frame=False):

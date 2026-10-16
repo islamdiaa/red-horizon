@@ -28,24 +28,26 @@ def build(m):
     side_prism(r, P.hull, hull, 0.37, bevel=0.018)
     for s in (-1, 1):
         f = '+z' if s > 0 else '-z'
-        camo(m, r, (-0.03, 0.2, 0.186 * s), (0.62, 0.13), f, seed=61 + s, n=4)
+        camo(m, r, (-0.03, 0.2, 0.186 * s), (0.62, 0.13), f, seed=61 + s, n=4, colors=(0x6a6a6a,))
         emblem(m, r, 'allied_star', (-0.17, 0.2, 0.1865 * s), 0.065, facing=f)
         number(m, r, '33', (0.12, 0.2, 0.1865 * s), 0.04, f)
         rivet_row(m, r, (-0.33, 0.255, 0.186 * s), (0.24, 0.255, 0.186 * s), facing=f, spacing=0.035, size=0.011)
         # side stowage: long bin and a tarp roll
         crate(r, P.dark2, (0.16, 0.04, 0.032), (-0.12, 0.205, 0.202 * s), strap=P.black, bevel=0.005)
-    camo(m, r, (-0.05, 0.271, 0.0), (0.56, 0.34), '+y', seed=63, n=5)
-    deck_strips(m, r, -0.358, 0.272, 0.27, 0.185)
-    edge_strip(m, r, (0.377, 0.153, -0.17), (0.377, 0.153, 0.17), '+x', 0.012)
-    fender_strips(m, r, 0.72, 0.2625, 0.134)
+    # bright team roof over darker team sides (the roof is what the camera sees)
+    hull_shade(m, r, -0.37, 0.39, 0.27, 0.185, side_y=(0.1, 0.262), fenders=(0.72, 0.134, Z, 0.125, 0.0), deck=False)
+    deck_strips(m, r, -0.358, 0.272, 0.27, 0.185, width=0.016)
+    edge_strip(m, r, (0.377, 0.153, -0.17), (0.377, 0.153, 0.17), '+x', 0.014)
+    fender_strips(m, r, 0.72, 0.2625, 0.134, width=0.014)
+    top_lamps(r, 0.25, -0.34, 0.27, 0.165, front=None)
     # glacis trim vane, driver's hatch, engine grille, cargo hatch with a star
     box(r, P.dark2, (0.014, 0.1, 0.31), (0.338, 0.205, 0), (0, 0, 0.83), bevel=0.004)
     for z in (-0.12, 0.12):
         bar(r, P.black, (0.315, 0.235, z), (0.36, 0.21, z), 0.008)
     hatch_round(r, P.dark2, 0.034, (0.08, 0.27, 0.09))
     grille(m, r, (0.17, 0.271, 0.1), (0.08, 0.12), facing='+y', n=4)
-    box(r, P.dark2, (0.23, 0.014, 0.21), (-0.17, 0.276, 0), bevel=0.006)
-    emblem(m, r, 'allied_star', (-0.17, 0.284, 0.0), 0.11, facing='+y')
+    box(r, P.dark2, (0.25, 0.014, 0.23), (-0.17, 0.276, 0), bevel=0.006)
+    emblem(m, r, 'allied_star', (-0.17, 0.284, 0.0), 0.15, facing='+y')
     bedroll(r, P, 0.18, 0.02, (-0.17, 0.297, -0.135), axis='x', mat=P.tan)
     # rear: ramp door, tail lights, jerry cans, tow hooks
     box(r, P.dark2, (0.014, 0.155, 0.3), (-0.362, 0.178, 0), bevel=0.004)
@@ -54,7 +56,7 @@ def build(m):
     tail_lights(r, -0.37, 0.235, 0.15)
     for s in (-1, 1):
         headlight(r, (0.358, 0.19, 0.13 * s), 0.017, guard=P.black)
-        marker(r, (0.27, 0.272, 0.17 * s), 0.008, AMBER, '+y', strength=2.4)
+        marker(r, (0.262, 0.272, 0.165 * s), 0.011, AMBER, '+y', strength=3.2)
     tow_hooks(r, P, 0.38, 0.11, 0.1, 1)
     whip(r, P, (-0.33, 0.27, 0.16), 0.24, pennant=True)
     whip(r, P, (-0.33, 0.27, -0.16), 0.18)
@@ -71,6 +73,6 @@ def build(m):
     box(g, P.canvas, (0.045, 0.05, 0.065), (-0.035, 0.05, 0), bevel=0.008)
     sphere(g, P.dark2, 0.022, (-0.03, 0.095, 0), seg=8, rings=5)
     b = m.part('b0', parent='mg', at=(0.05, 0.045, 0))
-    cyl(b, P.black, 0.006, 0.13, (0.065, 0, 0), ROT_X, seg=6)
-    cyl(b, P.black, 0.0095, 0.05, (0.03, 0, 0), ROT_X, seg=8)
+    cyl(b, P.black, 0.0075, 0.13, (0.065, 0, 0), ROT_X, seg=6)
+    cyl(b, P.black, 0.011, 0.05, (0.03, 0, 0), ROT_X, seg=8)
     m.muzzle('m0', (0.18, 0.045, 0), part='mg')

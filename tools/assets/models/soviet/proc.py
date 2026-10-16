@@ -44,7 +44,7 @@ def silo(m, r, P, x, z, rad, h, seg=16, label='РУДА'):
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=1.45, radius=1.55)
-    look()
+    look(m)
     P = Pal()
     r = m.root
 
@@ -93,7 +93,8 @@ def build(m):
     grille(m, r, (-0.2, rt + 0.12, hz - 0.25 + 0.22), (0.3, 0.14))
     cyl(r, P.steel, 0.035, 0.06, (-0.2, rt + 0.29, hz - 0.25), seg=8)
     m.steam('steam1', (-0.2, 1.345, -0.91))
-    ac_unit(r, (0.32, rt, hz + 0.35), 0.1, mat=P.wall_lt)
+    ac_unit(r, (0.4, rt, hz + 0.45), 0.1, mat=P.wall_lt)
+    top_star(m, r, (-0.1, rt + 0.001, hz + 0.32), 0.62, emit=0.35)
     roof_vent(r, (0.36, rt, hz - 0.45), 0.04)
     roof_vent(r, (0.2, rt, hz - 0.1), 0.035)
 

@@ -19,7 +19,7 @@ RED = 0xff2018
 
 def build(m):
     m.set_meta(footprint=(2, 2), height=1.3, radius=1.05, keep=['fx:add:ff2018:1.0'])
-    look(edge=0.28, ao_dist=0.36)
+    look(m, ao_dist=0.36)
     P = Pal()
     r = m.root
     foundation(m, r, P, 2.0, 2.0)

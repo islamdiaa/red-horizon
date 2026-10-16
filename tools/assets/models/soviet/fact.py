@@ -17,7 +17,7 @@ KIND = 'structure'
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=1.7, radius=1.55)
-    look()
+    look(m)
     P = Pal()
     r = m.root
 
@@ -101,6 +101,7 @@ def build(m):
         for sz in (-1, 1):
             box(r, P.frame, (0.035, 0.2, 0.035), (tx + sx * (tw / 2 + 0.012), cy + 0.155, tz + sz * (tw / 2 + 0.012)))
     box(r, P.roof, (tw + 0.18, 0.05, tw + 0.18), (tx, cy + 0.275, tz), bevel=0.012)
+    top_star(m, r, (tx, cy + 0.301, tz + 0.04), 0.5, emit=0.35)
     box(r, P.trim, (tw + 0.19, 0.035, tw + 0.19), (tx, cy + 0.255, tz), bevel=0.008)
     stencil(m, r, 'ШТАБ', (tx, cy + 0.03, tz + tw / 2 + 0.061), 0.04, color=0xe8b434)
     rtop = cy + 0.3
@@ -111,8 +112,8 @@ def build(m):
         y = rtop + 0.08 + k * 0.13
         bar(r, P.red, (tx + 0.13, y, tz - 0.16), (tx + 0.23, y, tz - 0.16), 0.012)
     lamp(r, (tx + 0.18, rtop + 0.44, tz - 0.16), 0.022)
-    dish(r, (tx - 0.13, rtop, tz - 0.08), 0.12, mat=P.white, yaw=-2.2, pitch=0.6)
-    ac_unit(r, (tx - 0.12, rtop, tz + 0.2), 0.09, mat=P.wall_lt)
+    dish(r, (tx - 0.2, rtop, tz - 0.24), 0.1, mat=P.white, yaw=-2.2, pitch=0.6)
+    ac_unit(r, (tx + 0.27, rtop, tz + 0.1), 0.07, mat=P.wall_lt, rot=math.pi / 2)
 
     # ---- vehicle bay annex (right front) with a roller door
     ax, az, aw, ad, ah = 1.0, 0.06, 0.68, 0.62, 0.5

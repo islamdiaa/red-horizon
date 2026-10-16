@@ -18,9 +18,11 @@ CYAN = 0x4ad8ff
 
 
 def tower(m, r, P, name, x, z, h, rb, label):
-    """Hyperboloid cooling tower on a ring of legs, open top with a sooty throat; smoke point on top."""
-    conc = deep(concrete(0x9a958b, grime=0.85, streaks=1.0, wear=0.6, joints=(0.3, 0.12), soot=(Y0 + h * 0.82, Y0 + h)), 0.85)
-    rw, rt = rb * 0.58, rb * 0.66
+    """Hyperboloid cooling tower on a ring of legs. Its open top reads from the RTS camera: a pale concrete lip,
+    red / white bands right under it, red crown lamps and a bright steam-filled throat (lightly emissive, so it
+    glows warm at night and stays clear of the runtime snow); smoke point on top."""
+    conc = deep(concrete(0x9a958b, grime=0.8, streaks=1.0, wear=0.6, joints=(0.3, 0.12), soot=(Y0 + 0.1 + h * 0.97, Y0 + 0.1 + h * 1.02)), 0.75)
+    rw, rt = rb * 0.58, rb * 0.68
     prof = [(rb, 0.0), (rb * 0.86, h * 0.18), (rb * 0.7, h * 0.42), (rw, h * 0.7), (rb * 0.6, h * 0.86), (rt, h)]
     seg = 22
     # leg ring (dark gap under the shell reads as the X-legs)
@@ -31,26 +33,28 @@ def tower(m, r, P, name, x, z, h, rb, label):
         cx, cz = x + math.cos(a) * (rb - 0.015), z - math.sin(a) * (rb - 0.015)
         box(r, P.conc, (0.03, 0.08, 0.03), (cx, Y0 + 0.06, cz), (0, a, 0))
     lathe(r, conc, prof, (x, Y0 + 0.1, z), seg=seg, cap_top=False, cap_bottom=False)
-    # inner throat (dark, sooty) + a lit cooling-water glow deep inside
-    lathe(r, P.dark, [(rt - 0.012, h), (rw - 0.02, h * 0.72), (rw * 0.9, h * 0.5)], (x, Y0 + 0.1, z), seg=seg, cap_top=True, cap_bottom=False)
-    cyl(r, light_mat(0xffa04a, 0.8, 'pulse'), rw * 0.88, 0.004, (x, Y0 + 0.1 + h * 0.5 + 0.004, z), seg=seg)  # warm haze deep in the throat
-    # red bands near the top, rim
     top_y = Y0 + 0.1 + h
-    for (y0f, y1f) in ((0.74, 0.79), (0.84, 0.89)):
-        ra = rw + (rb * 0.6 - rw) * ((y0f - 0.7) / 0.16)
-        rbb = rw + (rb * 0.6 - rw) * ((y1f - 0.7) / 0.16)
-        cyl(r, P.band, ra + 0.01, h * (y1f - y0f), (x, Y0 + 0.1 + h * (y0f + y1f) / 2, z), r2=rbb + 0.012, seg=seg, caps=False)
-    cyl(r, P.dark, rt + 0.012, 0.025, (x, top_y - 0.01, z), r2=rt + 0.012, seg=seg, caps=False)
-    for k in range(4):
-        a = k * math.pi / 2 + math.pi / 4
-        lamp(r, (x + math.cos(a) * (rt + 0.01), top_y + 0.0, z - math.sin(a) * (rt + 0.01)), 0.022)
+    # dark sooty inner wall (reads as the open crater), the steam surface deep inside (lit from below)
+    inner = deep(concrete(0x4e4b46, grime=0.9, streaks=0.4, wear=0.2), 0.9)
+    lathe_in(r, inner, [(rw * 1.0, h * 0.72), (rt - 0.03, h * 0.93), (rt - 0.016, h)], (x, Y0 + 0.1, z), seg=seg)
+    cyl(r, light_mat(0xd6dbe0, 0.26, 'steady'), rw * 1.01, 0.006, (x, Y0 + 0.1 + h * 0.72, z), seg=seg)
+    # thick pale lip, red / white bands right under it (the flare faces out: no snow), crown lamps
+    lathe(r, P.conc_lt, [(rt + 0.004, h - 0.012), (rt + 0.02, h - 0.004), (rt + 0.014, h + 0.012), (rt - 0.018, h + 0.012), (rt - 0.016, h)],
+          (x, Y0 + 0.1, z), seg=seg, cap_top=False, cap_bottom=False, double=True)
+    for (y0f, y1f, mat) in ((0.86, 0.9, P.band), (0.9, 0.935, P.white), (0.935, 0.975, P.band)):
+        ra = rb * 0.6 + (rt - rb * 0.6) * ((y0f - 0.86) / 0.14)
+        rbb = rb * 0.6 + (rt - rb * 0.6) * ((y1f - 0.86) / 0.14)
+        cyl(r, mat, ra + 0.008, h * (y1f - y0f), (x, Y0 + 0.1 + h * (y0f + y1f) / 2, z), r2=rbb + 0.008, seg=seg, caps=False)
+    for k in range(6):
+        a = k * math.pi / 3 + math.pi / 6
+        lamp(r, (x + math.cos(a) * (rt + 0.012), top_y + 0.01, z - math.sin(a) * (rt + 0.012)), 0.026)
     stencil(m, r, label, (x, Y0 + 0.1 + h * 0.45, z + rb * 0.78 + 0.01), 0.2, depth=0.06)
     m.smoke(name, (x, top_y + 0.02, z))
 
 
 def build(m):
     m.set_meta(footprint=(3, 3), height=1.6, radius=1.55)
-    look(edge=0.28, ao_dist=0.42)
+    look(m, ao_dist=0.42)
     P = Pal()
     r = m.root
     foundation(m, r, P, 3.0, 3.0)
@@ -67,7 +71,7 @@ def build(m):
     cyl(r, P.trim, 0.475, 0.045, (rx, Y0 + 0.44, rz), seg=24, caps=False)
     cyl(r, P.gun, 0.06, 0.1, (rx, Y0 + 0.95, rz), r2=0.05, seg=10)
     lamp(r, (rx, Y0 + 1.0, rz), 0.024)
-    m.decal(big_star(), at=(rx, Y0 + 0.66, rz + 0.36), size=(0.24, 0.24), facing='+z', part=r, depth=0.12, team=0)
+    top_star(m, r, (rx, Y0 + 0.64, rz + 0.37), 0.3, facing='+z', emit=0.35, depth=0.14)
     # ring catwalk around the dome base
     cyl(r, P.grate, 0.56, 0.012, (rx, Y0 + 0.47, rz), seg=24)
     for k in range(16):

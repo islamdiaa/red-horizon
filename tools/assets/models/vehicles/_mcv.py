@@ -63,9 +63,21 @@ def build_mcv(m, fac):
         box(r, P.gun, (0.12, 0.09, 0.008), (-0.26, 0.28, 0.252 * s), bevel=0.003)
         vent(m, r, (0.0, 0.27, 0.251 * s), (0.09, 0.06), facing=f, slats=4, thick=0.006)
         number(m, r, 'MCV' if not sov else '07', (0.17, 0.3, 0.2515 * s), 0.04, f, color=0x30302c)
-    deck_strips(m, r, -0.515, 0.285, 0.433, 0.23)
-    deck_strips(m, r, 0.34, 0.5, 0.339, 0.23, rear=False)
-    fender_strips(m, r, 1.04, 0.31, 0.164)
+        stencil(m, r, 'СТРОЙКА' if sov else 'ENGINEERS', (0.08, 0.36, 0.2585 * s), 0.034, facing=f)
+    # team outline round the roof (reads from the camera), bright worn edges, up-facing lamps
+    if sov:
+        paint(m, r, (-0.115, 0.433, 0.0), (0.8, 0.46), '+y', OLIVE_DECK, depth=0.012)
+        paint(m, r, (0.42, 0.337, 0.0), (0.18, 0.46), '+y', OLIVE_DECK, depth=0.014)
+        for s in (-1, 1):
+            paint(m, r, (0.0, 0.164, Z * s), (1.04, 0.15), '+y', OLIVE_DECK, depth=0.008)
+        fender_caps(m, r, 0.52, 0.2, 0.164, Z, 0.15)
+        deck_number(m, r, 'К-07', (0.41, 0.338, 0.0), 0.065, depth=0.014)
+    team_ring(m, r, [(0.285, -0.23), (0.285, 0.23), (-0.515, 0.23), (-0.515, -0.23)], 0.433, width=0.05, inset=0.04)
+    deck_strips(m, r, -0.515, 0.285, 0.433, 0.23, width=0.016)
+    deck_strips(m, r, 0.34, 0.5, 0.339, 0.23, rear=False, width=0.016)
+    fender_strips(m, r, 1.04, 0.31, 0.164, width=0.014)
+    for s in (-1, 1):
+        lamp(r, (-0.49, 0.434, 0.205 * s), 0.012, RED, 'steady', 3.2, '+y')
     # ---- roof: folded crane boom, structure frames, generator, emblem
     box(r, crane, (0.66, 0.048, 0.064), (-0.12, 0.457, -0.13), bevel=0.01)
     for i in range(3):
@@ -80,7 +92,7 @@ def build_mcv(m, fac):
         box(r, P.gun, (0.32, 0.018, 0.022), (-0.28, 0.49, z), bevel=0.004)
     box(r, P.dark2, (0.16, 0.07, 0.16), (0.03, 0.468, 0.12), bevel=0.014)
     grille(m, r, (0.03, 0.504, 0.12), (0.12, 0.12), facing='+y', n=5)
-    emblem(m, r, 'soviet' if sov else 'allied_star', (0.15, 0.434, -0.02), 0.08, facing='+y')
+    top_star(m, r, fac, (0.15, 0.434, -0.0), 0.12)
     for s in (-1, 1):
         emblem(m, r, 'soviet' if sov else 'allied_star', (-0.43, 0.29, 0.2515 * s), 0.09, facing='+z' if s > 0 else '-z')
     whip(r, P, (-0.5, 0.433, 0.2), 0.26, pennant=True)

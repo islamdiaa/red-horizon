@@ -1,7 +1,7 @@
 """Allied gap generator (1x2): on the back cell an octagonal generator base and a tapered lattice tower
 (team hoops) with a glowing conduit ('glow:gapc') up to the emitter cage, the purple orb ('glow:gap') and two
 rotating rings (parts tower > ringA / ringB; the procedural haze effect is kept); on the front cell the white
-transformer annex with cooling fins, insulators, a roof roundel and a floodlight.
+transformer annex with cooling fins, insulators, GAP 1 roof lettering and a floodlight.
 """
 import math
 import os
@@ -47,7 +47,6 @@ def build(m):
     light(t, (0, Y0 + 0.155, 0.31), 0.011, 0xffd9a0, 'steady', facing='+z')
     for s in (-1, 1):
         grille(m, t, (0.302 * s, Y0 + 0.1, 0), (0.1, 0.08), facing='+x' if s > 0 else '-x')
-    roundel(m, t, (0.0, Y0 + 0.115, 0.302), 0.07)
     ty, th, b0, b1 = Y0 + 0.23, 0.78, 0.17, 0.07
     for (sx, sz) in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         cyl_between(t, lat, (b0 * sx, ty, b0 * sz), (b1 * sx, ty + th, b1 * sz), 0.014, seg=6)
@@ -90,7 +89,7 @@ def build(m):
     box(r, black(), (0.16, 0.14, 0.01), (0.12, Y0 + 0.07, afz + 0.03))
     box(r, light_mat(WIN_WARM, 0.9, 'steady'), (0.1, 0.08, 0.004), (0.12, Y0 + 0.06, afz + 0.034))
     hazard_band(m, r, (-0.08, Y0 + 0.17, afz + 0.03), (0.4, 0.03))
-    roundel(m, r, (ax - 0.1, Y0 + ah + 0.042, az + 0.02), 0.26, facing='+y', plate=steel(0x7d8792, panels=None))
+    big_text(m, r, 'GAP 1', (ax - 0.08, Y0 + ah + 0.042, az + 0.04), 0.11, plate=yellow(), color=0x24272b)
     for x in (0.1, 0.22):
         cyl(r, flat(0xd6d2c8, 0.4), 0.022, 0.07, (x, Y0 + ah + 0.07, az - 0.12), r2=0.018, seg=8)
         cyl(r, metal(0xb87333, rough=0.35), 0.008, 0.03, (x, Y0 + ah + 0.12, az - 0.12), seg=6)

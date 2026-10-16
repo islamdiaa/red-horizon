@@ -16,8 +16,8 @@ KIND = 'structure'
 
 
 def build(m):
-    m.set_meta(footprint=(2, 2), height=0.5, radius=1.05, snow=0.35)  # the pad is kept clear for the rotors
-    look(edge=0.28, ao_dist=0.3)
+    m.set_meta(footprint=(2, 2), height=0.5, radius=1.05, snow=0.6)  # the pad is swept for the rotors
+    look(m, ao_dist=0.3)
     P = Pal()
     r = m.root
     foundation(m, r, P, 2.0, 2.0)
@@ -29,23 +29,33 @@ def build(m):
     pad = deep(concrete(0x5a5853, grime=0.7, streaks=0.2, wear=0.4, joints=(0.4, 0.4), tex='rough_concrete'), 0.75)
     box(r, pad, (1.56, 0.012, 1.56), (px, Y0 + ph + 0.006, pz))
     ty = Y0 + ph + 0.0125
-    m.decal(pad_marks(), at=(px, ty, pz), size=(1.5, 1.5), facing='+y', part=r, depth=0.01, team=0)
+    m.decal(pad_marks(), at=(px, ty, pz), size=(1.5, 1.5), facing='+y', part=r, depth=0.01, team=0, emit=0.42)  # lit paint: clear of snow
     for s in (-1, 1):
         hazard_stripes(m, r, (px, ty, pz + 0.74 * s), (1.5, 0.06), facing='+y')
-    for i in range(8):
-        a = (i / 8) * math.pi * 2
-        x, z = px + math.cos(a) * 0.7, pz - math.sin(a) * 0.7
-        box(r, P.dark, (0.03, 0.012, 0.03), (x, ty + 0.006, z))
-        sphere(r, glow_material('glow:ring', 0xfff2d6), 0.013, (x, ty + 0.016, z), seg=6, rings=4)
+    for i in range(12):
+        a = (i / 12) * math.pi * 2
+        x, z = px + math.cos(a) * 0.72, pz - math.sin(a) * 0.72
+        box(r, P.dark, (0.04, 0.014, 0.04), (x, ty + 0.007, z))
+        sphere(r, glow_material('glow:ring', 0xfff2d6), 0.021, (x, ty + 0.022, z), seg=6, rings=4)
     for (x, z) in ((-0.8, -0.72), (0.72, -0.72), (-0.8, 0.8), (0.72, 0.8)):
-        cyl(r, P.dark, 0.028, 0.04, (x, ty + 0.02, z), r2=0.024, seg=8)
-        lamp(r, (x, ty + 0.04, z), 0.02)
+        cyl(r, P.dark, 0.03, 0.05, (x, ty + 0.025, z), r2=0.026, seg=8)
+        lamp(r, (x, ty + 0.05, z), 0.026)
+    # floodlight masts at the two front corners (bright heads aimed at the pad)
+    for s in (-1, 1):
+        fx, fzz = px + s * 0.86, 0.93
+        bar(r, P.dark, (fx, Y0, fzz), (fx, Y0 + 0.62, fzz), 0.026)
+        for k in range(3):
+            bar(r, P.red if k % 2 == 0 else P.white, (fx, Y0 + 0.1 + k * 0.17, fzz), (fx, Y0 + 0.19 + k * 0.17, fzz), 0.03)
+        box(r, P.dark, (0.12, 0.05, 0.05), (fx - s * 0.02, Y0 + 0.64, fzz - 0.02), (0.5, -s * 0.6, 0), bevel=0.006)
+        box(r, light_mat(0xfff2d6, 3.2, 'steady'), (0.1, 0.035, 0.006), (fx - s * 0.03, Y0 + 0.63, fzz - 0.045), (0.5, -s * 0.6, 0))
+        lamp(r, (fx, Y0 + 0.67, fzz + 0.01), 0.018)
 
     # ---- control hut (back right)
     cx, cz = 0.78, -0.76
     top, fz = hall(r, P, cx, cz, 0.36, 0.32, 0.32, wall=P.wall, parapet=0.03, plinth=0.08)
     window_row(r, (cx, Y0 + 0.2, fz), 2, (0.08, 0.08), 0.05, dark=(0,), strength=2.0)
     stencil(m, r, 'H-1', (cx, Y0 + 0.08, fz + 0.002), 0.035, color=0xf2b916)
+    roof_paint(m, r, (cx, top + 0.019, cz), (0.3, 0.26))
     antenna(r, (cx + 0.08, top + 0.018, cz - 0.06), 0.42, light_color=None)
     lamp(r, (cx + 0.08, top + 0.44, cz - 0.06), 0.017)
     box(r, P.dark, (0.05, 0.035, 0.03), (cx - 0.12, top + 0.03, fz - 0.02), (0.3, -0.6, 0), bevel=0.004)
@@ -76,13 +86,13 @@ def pad_marks():
     S = 512
     cv = D.Canvas(S, S, ss=2)
     c = S / 2
-    cv.circle(c, c, S * 0.43, D.lin(0xe0b024), r_in=S * 0.39)
+    cv.circle(c, c, S * 0.44, D.lin(0xe0b024), r_in=S * 0.375)
     wh = D.lin(0xe8e4da)
     cv.rect(c - S * 0.16, c - S * 0.17, c - S * 0.1, c + S * 0.17, wh)
     cv.rect(c + S * 0.1, c - S * 0.17, c + S * 0.16, c + S * 0.17, wh)
     cv.rect(c - S * 0.1, c - S * 0.03, c + S * 0.1, c + S * 0.03, wh)
-    pts = D.star_points(c, S * 0.2, S * 0.07)
-    tris = [((c, S * 0.2), pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
+    pts = D.star_points(c, S * 0.19, S * 0.09)
+    tris = [((c, S * 0.19), pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
     cv.fill(cv.cover(tris), D.lin(0xb31e17), 1.0, None)
     cv.roughen(0.25, seed=9)
     img = cv.image()

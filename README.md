@@ -11,7 +11,7 @@ under the GPL.
 Every model, texture, sound effect and piece of music is generated in code: at runtime, or by
 scripts in this repository for the optional HD models. So the game ships **zero copyrighted
 assets**. It has 17 scripted missions, a roguelite campaign, an editor and modding. The game itself
-is about 850 KB gzipped; the HD models (about 21 MB, loaded only for the factions in a match) are
+is about 850 KB gzipped; the HD models (about 23 MB, loaded only for the factions in a match) are
 optional. There is nothing to install and nothing to sign up for.
 
 | | |
