@@ -135,6 +135,21 @@ if (scenario === 'editor') {
   await shot('mission');
   await page.keyboard.press('Control+s');
   await wait(800);
+} else if (scenario === 'rebuild3d') {
+  // paint in the 3D view: the renderer must rebuild its map layers in place (no new canvas / WebGL context)
+  await openEditor();
+  await page.getByText('3D', { exact: true }).first().click();
+  await page.waitForFunction(() => !document.querySelector('.ed-busy.on') && document.querySelector('.ed-3d'), null, { timeout: 180000 });
+  await wait(3000);
+  const canvasBefore = await page.evaluate(() => document.querySelectorAll('canvas.ed-3d').length);
+  const marker = await page.evaluate(() => { const c = document.querySelector('canvas.ed-3d'); c.dataset.mark = 'first'; return true; });
+  await tool('Water');
+  await drag([[600, 420], [760, 470], [900, 520]]);
+  await page.waitForFunction(() => !document.querySelector('.ed-busy.on'), null, { timeout: 180000 });
+  await wait(4000);
+  const after = await page.evaluate(() => ({ canvases: document.querySelectorAll('canvas.ed-3d').length, same: document.querySelector('canvas.ed-3d')?.dataset.mark === 'first', status: document.querySelector('.ed-status')?.textContent }));
+  log(`canvases before ${canvasBefore}, after ${after.canvases}, same canvas (in-place rebuild): ${after.same && marker}; status: ${after.status}`);
+  await shot('rebuild3d');
 } else if (scenario === 'mods') {
   await page.getByText('Mods', { exact: false }).last().click();
   await page.waitForSelector('.mods', { timeout: 20000 });

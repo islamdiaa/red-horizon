@@ -22,13 +22,10 @@ import { enterFullscreen } from './platform/fullscreen';
 import { loadSettings, saveSettings } from './ui/settings';
 import { attachPlayback } from './replay/playback'; // [D] replays
 import { resolveTestSetup } from './replay/launch';
-import { openEditor } from './editor'; // [EDIT] map & mission editor
 import { customMissionSetup, initEditorStore } from './editor/store'; // [EDIT]
 import { activeModSet, showModBadge, showMods } from './mods'; // [EDIT] mods
 import { attachModes, modesOnEnd, offerMoments, setModeHost } from './modes/ui'; // [MODES] KOTH, challenges, branches, co-op
-import { showConquest, showConquestAfterBattle } from './ui/conquest'; // [CONQ] Conquest roguelite campaign
 import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conquest'; // [CONQ]
-import { demoState, midCampaignRun, runWithBattle } from './conquest/testing'; // [CONQ] test URL hooks
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -129,12 +126,13 @@ function openEditorScreen() {
   menus.hide();
   hideLoading();
   audio.stopMusic();
-  openEditor({
+  // the editor is loaded on demand (its own chunk): most players never open it
+  void import('./editor').then(({ openEditor }) => openEditor({
     quality: menus.settings.quality,
     play: (k) => audio.play(k),
     onExit: () => startDemo(),
     onPlaytest: (setup) => { returnToEditor = true; void startGame(setup); },
-  });
+  })).catch((e) => reportError(e));
 }
 
 /** Campaign / special operations screen. */
@@ -144,13 +142,14 @@ function openCampaign() {
 
 /** [CONQ] Conquest: the roguelite campaign across Europe (src/ui/conquest.ts). */
 function openConquest(demo?: string) {
-  showConquest({
+  // the strategic map screens load on demand (their own chunk)
+  void import('./ui/conquest').then(({ showConquest }) => showConquest({
     play: (k) => audio.play(k),
     onBack: () => menus.showMain(),
     onDeploy: (c) => deployConquest(c),
     onResume: (save) => { if (save.game?.setup) void startGame({ ...save.game.setup, load: save, intro: false, quality: menus.settings.quality }); },
     demo,
-  });
+  })).catch((e) => reportError(e));
 }
 
 /** [CONQ] Start a conquest battle (the mission is built from the frozen battle spec). */
@@ -206,11 +205,12 @@ async function startGame(setup: GameSetup) {
         g.paused = true;
         if (modesOnEnd(g, won)) return; // [MODES] challenge result screen · mode medals
         if (g.setup.conquest) { // [CONQ] the result goes back to the campaign: battle report, then the strategic map
-          showConquestAfterBattle(g.world, g.setup.conquest, {
+          const conquest = g.setup.conquest;
+          void import('./ui/conquest').then(({ showConquestAfterBattle }) => showConquestAfterBattle(g.world, conquest, {
             play: (k) => audio.play(k),
             onContinue: () => { audio.stopMusic(); startDemo(); menus.hide(); openConquest(); },
             onMenu: () => { audio.stopMusic(); startDemo(); },
-          });
+          })).catch((e) => reportError(e));
           return;
         }
         const def = g.missionDef, res = g.missionResult;
@@ -300,9 +300,11 @@ function startDemo() {
 
 if (params.get('autostart') && params.get('conquest')) {
   // [CONQ] ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
-  const { run, setup } = runWithBattle(+(params.get('seed') ?? 7), (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
-  saveRun(run);
-  deployConquest(setup);
+  void import('./conquest/testing').then(({ runWithBattle }) => {
+    const { run, setup } = runWithBattle(+(params.get('seed') ?? 7), (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
+    saveRun(run);
+    deployConquest(setup);
+  });
 } else if (params.get('autostart')) {
   // Testing shortcut: ?autostart=1&faction=soviet&ai=hard&size=64&fog=0&tod=dusk&units=heavy
   // [D] plus map=<curated id> · mapcode=<code> · replay=<id>|latest (resolveTestSetup)
@@ -324,8 +326,9 @@ if (params.get('autostart') && params.get('conquest')) {
 // [CONQ] ?conquest=ui|fresh|mid[&seed=N&faction=soviet&cqdemo=new|select|preview|research|army|perks|perk|event|report|summary|threat] opens the campaign screen
 if (params.get('conquest') && !params.get('autostart')) {
   const t0 = performance.now();
-  const wait = () => {
+  const wait = async () => {
     if (!game && performance.now() - t0 < 4000) { setTimeout(wait, 100); return; }
+    const { demoState, midCampaignRun } = await import('./conquest/testing');
     const seed = +(params.get('seed') ?? 1953), fac = (params.get('faction') as Faction) ?? 'allies', demo = params.get('cqdemo') ?? undefined;
     const mode = params.get('conquest');
     if (mode === 'mid' || mode === 'fresh') {
