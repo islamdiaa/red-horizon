@@ -7,3 +7,20 @@ screenshots/
 
 # local headless-Chromium system libraries (extracted .debs; machine-specific)
 tools/nsslibs/
+
+# never commit secrets or local tool state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.vercel/
+.claude/
+.vscode/
+.idea/
+coverage/
+*.cpuprofile
+*.heapsnapshot

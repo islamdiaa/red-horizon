@@ -5,6 +5,7 @@
  */
 import { MAX_REPLAYS, isReplayData, type ReplayData } from './format';
 import { pruneTrees } from './branch'; // [MODES] branches are pruned with their tree
+import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
 
 const DB = 'rh-replays';
 const STORE = 'replays';
@@ -139,9 +140,9 @@ export async function importReplayFile(file: File): Promise<ReplayData> {
   if (file.size > 20 * 1024 * 1024) throw new Error('File too large for a replay');
   let data: unknown;
   try {
-    data = JSON.parse(await file.text());
-  } catch {
-    throw new Error('Not a replay file (invalid JSON)');
+    data = parseUntrustedJson(await file.text(), { maxChars: 20 << 20, maxString: 20 << 20 });
+  } catch (e) {
+    throw new Error(e instanceof UntrustedInputError ? e.message : 'Not a replay file (invalid JSON)');
   }
   if (!isReplayData(data)) throw new Error('Not a Red Horizon replay, or from an unsupported version');
   await saveReplay(data);

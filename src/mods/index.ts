@@ -11,7 +11,7 @@ import type { ModSet } from './format';
 export { showMods } from './ui';
 export { activeModSet } from './store';
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 // cloned variants render with their base type's model
 onTypesChanged((added, removed) => {

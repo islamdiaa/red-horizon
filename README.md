@@ -1,362 +1,450 @@
 # Red Horizon
 
-A modern, browser-based real-time strategy game that faithfully recreates the gameplay of
-the 1996 classic *Command & Conquer: Red Alert* — Allies vs. Soviets, base building, ore
-harvesting, power, tech trees, Tesla Coils, Mammoth Tanks, naval warfare, spies, Chronospheres and nukes — rebuilt
-from scratch for the web with real-time 3D graphics, post-processing, a GPU particle system,
-procedural audio and an adaptive soundtrack.
+**A real-time strategy game for the browser that recreates the gameplay of the 1996 classic
+*Command & Conquer: Red Alert* in modern real-time 3D.**
 
-Everything (models, textures, sound effects, music) is generated procedurally at runtime, so the
-game ships **zero copyrighted assets**. The whole game, 17 scripted missions included, is about 650 KB gzipped: the game
-itself is about 425 KB, and three.js about 200 KB in a separately cached chunk.
+Allies against Soviets. Base building, ore harvesting, power grids and tech trees. Tesla Coils and
+Mammoth Tanks, submarines and cruisers, spies and Chronospheres, paratroopers and nukes. It is
+rebuilt from scratch in TypeScript and three.js, using the original game rules that EA released
+under the GPL.
+
+Every model, texture, sound effect and piece of music is generated procedurally at runtime, so the
+game ships **zero copyrighted assets**. It has 17 scripted missions, a roguelite campaign, an
+editor and modding. The whole game is about 860 KB gzipped, with nothing to install and nothing to
+sign up for.
 
 | | |
 |---|---|
 | ![Main menu](docs/menu.jpg) | ![Thunderstorm battle at dusk](docs/battle.jpg) |
-| ![Allied base, golden hour](docs/base.jpg) | ![Winter night](docs/winter.jpg) |
+| ![Allied base at golden hour](docs/base.jpg) | ![Winter night](docs/winter.jpg) |
 | ![Snowfall](docs/snow.jpg) | ![Desert climate](docs/desert.jpg) |
 | ![Soviet armour close-up](docs/closeup.jpg) | ![Nuclear strike](docs/nuke.jpg) |
 
-## Running it
+## Contents
+
+- [Highlights](#highlights)
+- [Getting started](#getting-started)
+- [Deploying](#deploying)
+- [Game modes](#game-modes)
+- [Features](#features)
+- [Controls](#controls)
+- [Faithful to Red Alert](#faithful-to-red-alert)
+- [Maps, missions and mods](#maps-missions-and-mods)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Security and privacy](#security-and-privacy)
+- [Contributing](#contributing)
+- [License and legal](#license-and-legal)
+
+## Highlights
+
+- **The Red Alert gameplay you remember.** The rules come from the original `RULES.INI`, and
+  damage uses the original formula. The full roster is here: 43 unit types and 38 structures,
+  including the expansion-pack units.
+- **A world that looks like 2026.** Dynamic lights, GPU particles and volumetric fog. Water with
+  reflections and a rolling ocean swell. A day and night cycle with weather: storms, snow that
+  settles, sandstorms. Buildings crumble under rigid-body physics.
+- **Lots to play.**
+  - Two 7-mission campaigns and Boot Camp.
+  - Naval and survival operations.
+  - Conquest, a roguelite campaign across Europe.
+  - A Daily Challenge, King of the Hill and co-op survival.
+  - Branching replays you can take command of.
+- **An AI that plays fair.** It sees only what its units see, scouts and counters your army.
+  There are 11 commander personalities, and persistent rivals that remember how you play.
+- **Make your own.** A map and mission editor working in the real 3D renderer, plus JSON rule
+  mods.
+- **Plays anywhere.** Mouse and keyboard, touch, or gamepad. It installs as an offline-capable
+  app.
+
+## Getting started
+
+You need [Node.js](https://nodejs.org/) 20.19 or newer (22 LTS recommended) and a browser with
+WebGL 2 (any current Chrome, Edge, Firefox or Safari).
 
 ```bash
-npm install
+git clone https://github.com/islamdiaa/red-horizon.git
+cd red-horizon
+npm ci
 npm run dev        # http://localhost:5173
-npm run build      # production build in dist/ (static files, host anywhere)
-npm run preview    # serve the production build
 ```
 
-Requires a WebGL2-capable browser (any current Chrome, Edge, Firefox or Safari). A discrete or
-modern integrated GPU is recommended for the *High* graphics setting.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server with hot reload |
+| `npm run build` | Type-check, then production build into `dist/` (static files) |
+| `npm run preview` | Serve the production build locally |
+| `npm test` | The full test suite |
 
-## Where the gameplay comes from
+Graphics quality is chosen automatically from your GPU on first launch, and you can change it in
+the settings. A discrete or recent integrated GPU is recommended for *High*.
 
-There was nothing to decompile: in 2025 EA released the original Red Alert source code under
-GPL v3 ([electronicarts/CnC_Red_Alert](https://github.com/electronicarts/CnC_Red_Alert)). This
-project is a clean-room TypeScript engine that uses that release as a reference:
+## Deploying
 
-- `src/data/rules.ts` — unit/structure/weapon/warhead stats from the original `RULES.INI`
-  (field names and units match what `WEAPON.CPP`, `WARHEAD.CPP` and `TECHNO.CPP` read).
-- `src/sim/combat.ts` — damage uses the original `Modify_Damage` formula from `COMBAT.CPP`
-  (warhead-vs-armour multipliers, distance falloff, min/max damage).
-- Tick rate, ROF, speed (MPH → leptons) and range conversions follow `DEFINES.H`.
+The production build is a folder of static files. Host `dist/` anywhere that serves static files.
 
-Global pacing knobs (movement speed, build speed) live at the bottom of `rules.ts`.
+### Docker
 
-### Legal note
+The repository includes a multi-stage `Dockerfile` that builds the game and serves it with an
+unprivileged nginx, including caching rules and security headers.
 
-The GPL release grants **no rights to EA trademarks** ("Command & Conquer", "Red Alert", …) and
-forbids distributing modifications under those names, so this remake is called *Red Horizon*
-(change it in `src/config.ts`). It contains no EA art, audio or video. If you redistribute it,
-keep it under GPL v3 (it is derived from studying GPL code) and don't present it as an EA product.
+```bash
+docker compose up -d --build     # http://localhost:8091
+```
+
+To run it without Compose:
+
+```bash
+docker build -t red-horizon .
+docker run -d --name red-horizon -p 8091:8080 --read-only --tmpfs /tmp red-horizon
+```
+
+### Vercel, Netlify, GitHub Pages, S3…
+
+Use build command `npm run build` and output directory `dist`. On Vercel, import the repository
+and it is detected as a Vite project. The included `vercel.json` adds the same security headers and
+cache rules as the nginx configuration.
+
+For other hosts, apply the headers from [`docker/nginx.conf`](docker/nginx.conf) yourself. The ones
+that matter:
+- serve `/assets/*` as immutable;
+- serve `index.html` and `sw.js` with `no-cache`, so that updates reach players.
+
+## Game modes
+
+| Mode | |
+|---|---|
+| **Skirmish** | Up to 3 AI opponents on four difficulties, on generated or hand-made maps. Climates: temperate, winter and desert, with land or sea terrain. Optional King of the Hill. |
+| **Campaigns** | 7 Allied and 7 Soviet missions, each with a briefing, primary and optional objectives, radio transmissions and scripted set pieces. Each mission awards up to three stars. |
+| **Boot Camp** | An interactive tutorial in nine drills. |
+| **Special operations** | *Wolfpack* (submarines against an Arctic convoy) and *Iron Coast* (escort a cruiser). Survival in three climates, alone or with one or two AI teammates. |
+| **Conquest** | A seeded roguelite campaign across a map of Europe. Every territory is a real battle of one of six types: assault, capture, hold, defence, naval blockade or the boss battle for the capital. Your veterans, research, perks and doctrines carry over between battles. |
+| **Daily Challenge** | One seeded battle per day for everyone, with modifiers such as *Night Ops* or *Tesla Doctrine*. Includes a score and a streak counter. |
+| **Challenges** | Turn any moment of a replay into a "can you win from here?" challenge file and share it. |
+| **Replays** | Every skirmish is recorded. Watch it from any player's view at 1–8× speed. You can rewind, take command of any side at any moment and play on: each takeover becomes a branch on the replay's timeline. |
+
+Progression runs across all modes: XP, 15 ranks per faction, 52 medals (some hidden) and lifetime
+statistics. The game autosaves, and you can save manually at any time.
 
 ## Features
 
-- **Factions**: Allies and Soviets with their classic rosters — infantry (rifle, grenadier,
-  rocket, flamethrower, engineer, medic, Tanya, attack dogs), vehicles (light/medium/heavy/
-  Mammoth tanks, Ranger, APC, artillery, V2, ore truck, MCV), aircraft (Longbow, Hind, MiG, Yak)
-  and ~25 structures including Tesla Coils, SAM sites and three superweapons.
-- **Economy**: ore & gem fields that regrow, harvesters docking at refineries, silo storage,
-  power grid (low power slows production and shuts down Tesla Coils / radar / superweapons).
-- **Classic mechanics**: MCV deployment, adjacency building placement, sell/repair, primary
-  factories, rally points, engineers capturing damaged buildings, Tanya's C4, crushing infantry,
-  APC transport, service depot repairs, aircraft rearming on pads, fog of war & shroud, radar.
-- **AI** with four difficulty levels: build orders, base layout, harvester management, staged
-  attack waves, base defence, air strikes, superweapon use. Up to 3 AI opponents.
-- **Visuals**: procedural terrain with splat shading, cloud shadows and bump detail; animated
-  water with shore foam and sun glints; wind-swept forests and grass; glinting ore and glowing
-  gem crystals; PBR models with team colours and emissive lights; GPU particles (fireballs,
-  smoke plumes, debris, tesla lightning, flame streams, missile trails, a full mushroom-cloud
-  nuke); shadows, bloom, colour grading, SMAA; day / dusk / night lighting with floodlit bases.
-- **Audio**: synthesized weapons/explosions, adaptive procedural music that intensifies with
-  combat, a speech-synthesized battlefield announcer and unit acknowledgements.
-- **UI**: sidebar with build queues and live 3D-rendered portraits, radar minimap,
-  context-sensitive cursors, control groups, multi-select panel, tooltips with stats.
+<details open>
+<summary><b>Armies and mechanics</b></summary>
 
-### Atmosphere & "magic" (round 2)
-
-- **Cinematic intro** per match: letterboxed operation briefing while the camera sweeps down from a
-  satellite recon view onto your base (any key skips).
-- **Real-time day/night cycle** (a day passes in ~18 minutes): the sun travels east to west, dawn,
-  golden hour and moonlit nights; base floodlights and headlights switch on after dark.
-- **Dynamic weather**: rain, thunderstorms with branching lightning and distance-delayed thunder,
-  snowfall that settles on terrain, roofs, trees and rocks, drifting fog banks and desert
-  sandstorms. Wet ground darkens and turns glossy. *Auto* weather follows the climate.
-- **Climates**: temperate, winter (snowfields, snow-laden pines, cracked frozen lakes) and desert.
-- **A world beyond the map**: forested foothills and snow-capped mountains with distance haze.
-- **Rendering**: ambient occlusion (GTAO), tilt-shift miniature lens, holographic construction,
-  tread marks, burning/smouldering wrecks, rubble, bird flocks by day and fireflies at night.
-- **Living soundscape**: birdsong, crickets, wind, rain, water, forest ambience, off-screen battle
-  rumble, environment reverb, and musical stingers for key moments.
-- **Gameplay**: unit veterancy (Veteran / Elite with chevrons), focus-fire targeting, walls
-  (sandbags, barbed wire, concrete — drag to build), superweapon target reticles, order/waypoint lines.
-- **UI overhaul**: animated build cards with tilt and progress rings, toast notifications with an
-  event log, control-group bar, rich selection panel, redesigned menus, loading tips and end screen.
-
-### Campaigns, progression & production polish (round 3)
-
-- **Two campaigns, 14 scripted missions.** The Allied campaign: *Grey Dawn*, *Last Train from Kassel*,
-  *Kestrel's Nest*, *Through the Looking Glass*, *Dry Season*, *Midnight Launch*, *Dawnbreak*.
-  The Soviet campaign: *First Snow*, *Bridgehead*, *Thunderhead*, *Iron Road*, *Stolen Fire*,
-  *The Iron Curtain*, *Red Horizon*. Missions have briefings, primary and optional objectives,
-  radio transmissions with character portraits, countdowns, reinforcements, scripted set pieces and
-  tech restrictions. Each earns up to three stars: one for winning, one for beating par time, one for
-  completing every optional objective. A debrief screen follows each mission.
-- **Special operations.** Survival in three climates (*Last Stand*, *Frozen Front*, *Burning Sands*):
-  escalating waves, armour columns, air raids, boss waves, supply drops and a score multiplier.
-- **Daily Challenge.** One seeded battle per UTC day with 2–3 of 16 modifiers (Night Ops, Mother Lode,
-  Glass Cannons, Tesla Doctrine, Radar Blackout…), a daily score, personal bests and a streak counter.
-- **Commander profile.** XP for everything you do, 15 ranks per faction with insignia (Private to
-  Field Marshal / Marshal of the Soviet Union), 40 medals including hidden ones, and lifetime stats.
-- **Save & load.** The whole simulation is serialised and restores deterministically. Autosave runs
-  every 2 minutes and when the tab closes, manual save is in the pause menu, and *Continue* is on the
-  main menu.
-- **Superweapon drama.** Your nuke launch is a cinematic that follows the missile. An incoming
-  enemy nuke triggers a red alert with an impact countdown and a marked blast zone you can evacuate.
-  Matches end on a slow-motion, letterboxed finale.
-- **Production hardening.**
-  - Installable PWA that plays offline (service worker, manifest, icons).
-  - Updates are applied only between matches.
-  - Crash boundary with an error report and a "return to menu" recovery.
-  - WebGL 2 support check and recovery from a lost GPU context.
-  - Graphics quality is picked automatically from the GPU on first launch.
-  - Shaders compile on the loading screen instead of stalling the first battle.
-  - Memory-leak fixes, so playing many matches in a row stays flat.
-- **Fog of war "ghosts".** Enemy structures under fog show as you last saw them: new ones stay hidden and
-  destroyed ones linger until you scout again. The radar works the same way.
-- **Clearer feedback.**
-  - "Cannot build here" now says why (terrain, blocked, too far from base, blocked exit, no yard).
-  - The top bar shows the current mission objective.
-  - Planted C4 shows a countdown.
-  - New field-report hints for full ore storage and missing base defences.
-  - A *Skip intro* setting.
-- **Gameplay fixes from the test suite and a QA pass:**
-  - **AI:** every AI opponent runs its periodic tasks (before, only the first one did), and AIs launch helicopter strikes.
-  - **Units and pathing:**
-    - Service depots actually repair.
-    - Tanks crush infantry.
-    - Helicopters fully rearm before taking off, and stay home on *Return to base*.
-    - Units no longer give up on valid detours, and long detours work on 128×128 maps.
-    - Harvesters queue at a busy refinery instead of jamming it.
-  - **Tanya and engineers:**
-    - Tanya's C4 detonates even if she dies.
-    - Engineers repair damaged friendly buildings instead of being wasted.
-  - **Superweapons:** no charge is wasted on empty or off-map targets.
-  - **Building and economy:**
-    - Walls can't creep a base across the map.
-    - Dragging a wall line moves your units out of the way.
-    - The "+$" income pop-up shows only what was really credited.
-    - Losing a tech building only cancels what depended on it.
-    - Prerequisites unlock when construction finishes.
-    - Selling refunds a flat 50%, as in RA, so repairing first never pays.
-  - **Combat:** the first-created side no longer wins exact ties.
-  - **Maps:** 3-player maps are fair and 2-player maps exactly symmetric.
-  - **Pacing:** AI attacks start later on every difficulty, and the first skirmish wave is capped, so new commanders get time to build.
-- **Balance touches** for the worst outliers in cost-equal tests:
-  - Flame Tower range 4 → 5.
-  - Field Medic $800 → $500.
-  - Attack Dog health 12 → 25, and faster.
-  - Turret health 400 → 500.
-
-### Red Alert complete: navy, espionage, support powers, maps and replays (round 4)
-
-- **Naval warfare.**
-  - Shipyard and Sub Pen (built on water).
-  - Gunboat, Destroyer (missiles that also hit aircraft, depth charges, sonar) and Cruiser (8-inch guns that out-range everything on shore).
-  - Transport (LST): carries five tanks or infantry and lands them on a beach.
-  - Submarine: invisible while submerged, surfaces to fire torpedoes, and is found by sonar or a spy's sonar pulse.
-  - Ships have their own water pathfinding and fight under RA's targeting rules: torpedoes only hit ships, depth charges hunt submarines.
-  - The *Sea* terrain option generates a central sea with a bay at every base. The AI builds and fights a fleet when the map calls for one.
-- **The rest of the RA roster.**
-  - Spy: disguised as an enemy rifleman. Infiltrating structures gives intel (credits, power, radar picture, production) or a sonar pulse; only dogs see through the disguise.
-  - Thief: steals half of the enemy's credits.
-  - Minelayer with anti-tank and anti-personnel mines.
-  - Gap Generator (tower and mobile) that re-shrouds your base.
-  - Mobile Radar Jammer, Chinook transport helicopter, camouflaged pillbox and decoy structures.
-- **Support powers.** GPS satellite, sonar pulse, spy plane, paratroopers and parabombs. The planes fly in from the map edge, so anti-aircraft defences can shoot them down.
-- **Bridges.** Destructible and repairable bridges over rivers: explosives drop them, engineers rebuild them.
-- **Unit stances.** Aggressive, guard, hold position and hold fire (F1–F4).
-- **Curated maps and map codes.**
-  - Nine hand-designed, symmetric maps: river crossings, archipelagos, an inland sea for four players, a canyon and frozen lakes.
-  - A map picker with previews.
-  - Shareable map codes that reproduce any generated map.
-- **Replays.**
-  - Every skirmish is recorded as its command stream plus periodic state hashes.
-  - Watch it back with pause, 1–8× speed, seeking, any player's view or an observer view, and live sync checking. Export and import replay files.
-- **Boot Camp.** An interactive tutorial in nine drills, from moving a squad to leading an assault, with beacons on the ground and the radar.
-- **Naval special operations.**
-  - *Wolfpack*: Soviet submarines against an Arctic convoy.
-  - *Iron Coast*: escort an Allied cruiser to shell a coastal fortress through submarine packs and MiG raids.
-- **New medals and sound.**
-  - Medals: Admiral of the Fleet, Silent Service, Spymaster, Grand Larceny, Airborne, Minefield and a hidden one.
-  - Sound: 12 new synthesised effects (torpedoes, sonar, bomber flybys, bridge collapses and more), 18 new announcer lines, and naval and spy voices.
-- **Faster engine.**
-  - A battle at High quality needs 128 draw calls instead of 293, and 367k triangles instead of 826k.
-  - Shaders all compile during loading, so nothing stutters mid-battle.
-  - In the CPU profile, main-thread time per frame drops from about 49 ms to about 11 ms.
-  - Forests are instanced and culled, with simpler versions at a distance.
-  - The shadow camera is fitted to the view, and the post-processing chain is merged into fewer passes.
-- **New graphics.**
-  - Water with refraction, screen-space reflections, caustics, sun and moon glitter, shore foam, waves on the beach and ripples.
-  - Terrain relief detail, light shafts at dawn and dusk, low mist in valleys, and colour grading per climate.
-
-### Smarter AI, Conquest, editor, new modes and destruction (round 5)
-
-- **An AI that plays fair and smart.** The AI no longer sees through the fog. It scouts with a fast unit, remembers
-  what it has seen, and builds to counter the army it has spotted. It raids harvesters and outlying refineries, flanks
-  and feints on Hard and Brutal, falls back to regroup, and sends damaged vehicles for repair. It expands to new ore
-  fields and times superweapons with its assaults.
-- **11 commander personalities** (Armour Rusher, Tesla Turtle, Naval Raider, Air Marshal, Saboteur, Siege Master,
-  Guerrilla, Iron Fist, Human Wave, Tycoon and the Balanced Professor) shape each AI's build order, army and timing.
-- **Rivals.** Pick "Rival" as an opponent to face a persistent nemesis commander.
-  - Each rival remembers your record against them and how you play, and brings a counter-plan.
-  - They taunt you over the radio, are promoted when they win, and can die and come back scarred.
-- **Self-play tuning.** Headless AI-vs-AI batches tune the AI and the balance in `tools/selfplay/`: faction balance,
-  a difficulty ladder, a personality round-robin, cost-equal duels and an optimizer. The Mammoth Tank now costs
-  $1900, up from $1700.
-- **Expansion-pack units.**
-  - Soviet: Tesla Tank, M.A.D. Tank (seismic pulses wreck vehicles and buildings), Demolition Truck,
-    Shock Trooper and Missile Submarine.
-  - Allied: Chrono Tank (chronoshifts itself), Mechanic and Phase Transport (cloaks while it isn't firing).
-- **Conquest.** A roguelite campaign across a strategic map of Europe, generated from a seed:
-  - Attack territories, defend against declared counterattacks, and fight a real battle generated for each one:
-    assault, capture, hold, defence, naval blockade, and a boss battle for the enemy capital.
-  - Veterans carry over between battles. A war chest, research (18 projects), 25 perks, doctrines and random events
-    shape each run.
-  - Renown and titles carry over between runs.
-- **Map and mission editor.**
-  - Paint terrain, height, forests, ore and gems, bridges and start positions, with symmetry helpers, in 2D or in
-    the real 3D renderer, with undo/redo.
-  - Fairness and reachability checks, and playtesting with one click.
-  - A mission layer with pre-placed forces, objectives and triggers.
-  - Custom maps appear in the skirmish picker, and custom missions under Campaign → Special.
-- **Mods.** JSON overrides of units, weapons and warheads, validated with clear errors, with clones for new variants.
-  Saves and replays record the active mods. Two example mods are included: Tank Rush and Glass Cannon.
-- **Rewind and take command.** In any replay, pause and take command of any side to play on from that exact moment
-  as a branching timeline. Branches show as a tree in the Replays screen.
-- **Challenges.** Turn any replay moment into a "Can you win from here?" challenge file.
-  - Goals: win, survive, destroy, protect or hold.
-  - Scores, stars and personal bests.
-  - The game also suggests dramatic moments from your matches as challenges.
-- **King of the Hill** as a skirmish mode, and **co-op Survival** with one or two AI teammates.
+- **Factions.** Allies and Soviets with their classic rosters:
+  - infantry, from riflemen to Tanya, spies, thieves and attack dogs;
+  - tanks, artillery, V2 rockets and minelayers;
+  - aircraft: Longbow, Hind, MiG, Yak and Chinook;
+  - a full navy: gunboat, destroyer, cruiser, transport, submarine and missile submarine;
+  - the expansion units: Tesla Tank, M.A.D. Tank, Chrono Tank, Demolition Truck, Shock Trooper,
+    Mechanic and Phase Transport.
+- **Economy.**
+  - Ore and gem fields regrow, and harvesters queue at refineries.
+  - Silos store credits.
+  - The power grid matters: on low power, production slows and defences go dark.
+- **Classic mechanics.**
+  - MCV deployment, adjacency placement, selling and repairing, primary factories and rally
+    points.
+  - Engineers capture buildings and rebuild bridges. Tanya plants C4, and tanks crush infantry.
+  - Transports carry troops, and aircraft rearm on pads.
+  - Fog of war and shroud, with "ghosts" of enemy buildings as you last saw them.
+- **Espionage and support powers.**
+  - Spy infiltration grants intel. Gap generators re-shroud your base, and radar jammers blind the
+    enemy.
+  - Camouflaged pillboxes and decoy buildings.
+  - GPS satellite, sonar pulse, spy plane, paratroopers and parabombs.
+  - Iron Curtain, Chronosphere and nuclear missile, each with a cinematic.
 - **Command and control.**
-  - Formations: auto, line, box and wedge.
-  - Patrol (P), and escort or guard (C, or right-click a friendly unit).
-  - Rally new units to a unit.
-  - Build plans: Shift-place several structures and the yard builds them in order.
+  - Formations (line, box, wedge), patrol, escort and guard.
+  - Stances: aggressive, guard, hold position and hold fire.
+  - Queued waypoints, and build plans that the construction yard places in order.
   - Units spread their focus fire and pull back from enemies they out-range.
-  - Camera bookmarks (F6–F9).
-- **Touch and gamepad.** Full tablet controls with a radial order menu, and full gamepad play in battle and in the
-  menus.
-- **Destruction and physics.**
-  - Buildings crack, burn and then collapse into pieces under rigid-body physics before settling into rubble.
-  - Vehicles shed their turret and debris, aircraft crash, and infantry ragdoll differently for each death type.
-  - Craters persist, tread ruts form in snow and sand, and damage stages show while a building is still alive.
-  - Models gain more close-up detail, lighter versions at a distance, and livelier infantry and building
-    animations.
-- **Next-generation effects on WebGL2:**
-  - dynamic lights from muzzle flashes, explosions and fires;
-  - GPU-simulated particles;
-  - volumetric fog and cloud shadows;
-  - rolling ocean swell;
-  - depth of field and motion blur in cinematics.
+  - Camera bookmarks, and veterancy with chevrons.
+
+</details>
+
+<details>
+<summary><b>AI</b></summary>
+
+- The AI plays under the same fog of war as you do. It scouts, remembers what it has seen and
+  builds to counter your army.
+- It raids harvesters, flanks and feints, falls back to regroup and repairs damaged vehicles.
+- It expands to new ore fields and times its superweapons with its assaults.
+- There are 11 commander personalities, such as Armour Rusher, Tesla Turtle, Naval Raider,
+  Saboteur and Tycoon. Each changes the build order, army and timing.
+- **Rivals.** Persistent nemesis commanders who remember your record against them and how you play.
+  They bring a counter-plan, taunt you over the radio and get promoted when they win.
+- The AI and the balance are tuned with mass headless self-play (`tools/selfplay/`).
+
+</details>
+
+<details>
+<summary><b>Graphics</b></summary>
+
+- **Rendering.** WebGL 2 through three.js: physically based materials with team colours, shadows
+  fitted to the view, ambient occlusion, bloom, colour grading and SMAA.
+- **Lights and particles.** Many dynamic lights from muzzle flashes, explosions and fires. A GPU
+  particle system for fireballs, smoke, tesla lightning, flame streams and a full mushroom cloud.
+- **Water.** Refraction, screen-space reflections, caustics, shore foam, beach waves and a rolling
+  ocean swell that ships ride.
+- **Day and weather.** A real-time day and night cycle, with floodlit bases and headlights after
+  dark. Rain, thunderstorms, snow that settles on everything, fog banks and sandstorms.
+- **Destruction.** Buildings crack, burn and collapse into rubble under rigid-body physics.
+  Vehicles shed their turrets, and infantry ragdoll. Craters persist, and tread ruts form in snow
+  and sand.
+- **Cinematics.** Mission intros, the nuke-cam, slow-motion finales, depth of field and motion
+  blur, and a photo mode.
+- **Performance.**
+  - Instanced, level-of-detail forests and merged post-processing passes.
+  - Shaders compile on the loading screen, so battles never stutter.
+  - A large battle at High quality takes about 130 draw calls.
+
+</details>
+
+<details>
+<summary><b>Audio</b></summary>
+
+- Every weapon, explosion and vehicle sound is synthesised in real time with the Web Audio API.
+- The procedural soundtrack follows the intensity of the battle.
+- A speech-synthesised battlefield announcer, and unit acknowledgements.
+- A living soundscape: birdsong, wind, rain, distant battle rumble and environment reverb.
+
+</details>
+
+<details>
+<summary><b>Platform</b></summary>
+
+- **Installable.** An offline-capable PWA, with updates applied only between matches.
+- **Input.** Full touch controls with a radial order menu, and full gamepad play in battles and in
+  the menus.
+- **Fullscreen.** Battles start fullscreen, and edge scrolling works on every screen edge.
+- **Resilience.**
+  - A crash boundary with an error report and recovery to the menu.
+  - Recovery from a lost GPU context.
+  - A WebGL 2 capability check before the game starts.
+
+</details>
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Left click / drag | Select / box select (double-click or Ctrl+click: all of a type on screen, Shift adds; double-click a structure: all of that structure; Shift+drag adds, Ctrl+drag removes) |
-| E · W · Ctrl+A | All combat units on the map · all of the selected type(s) on screen · all own units on screen |
-| I · Shift+I | Select and centre the next idle unit · the next idle harvester |
-| Right click | Move · attack · harvest · enter (context sensitive) · on a friendly unit: escort it · factory selected: set rally point, or on a unit: new units join it |
+| Left click / drag | Select / box select (double-click or Ctrl+click: all of a type on screen; Shift adds; Ctrl+drag removes) |
+| Right click | Context command: move, attack, harvest, enter, or escort a friendly unit. With a factory selected, sets the rally point |
 | Shift + right click | Queue waypoints |
-| Ctrl + right click | Force fire (ground or friendly) · Alt + right click: force move |
-| A / S / X / G / D | Attack-move · Stop · Scatter · Fire at ground · Deploy / unload / return |
-| F1 / F2 / F3 / F4 | Stance of the selected units: aggressive · guard · hold position · hold fire |
-| P | Patrol: click the far end of the route (Shift-click adds waypoints); with a factory selected: primary factory |
-| C | Guard: click a unit to escort (follow and defend) or a structure to defend |
-| L | Formation of the selected group: auto · line · box · wedge (Shift+L: back; also in the selection panel) |
-| D | Chrono Tank: click where to chronoshift · M.A.D. tank: deploy · demolition truck: detonate |
-| M | Lay mines with the selected minelayers (or Ctrl + right click the spot) · engineers: right click a destroyed bridge to rebuild it |
-| Z / R / P | Sell · Repair · Primary factory |
-| Ctrl+1–9 / Shift+1–9 / 1–9 | Assign / add the selection to / recall a control group (double-tap: centre on it) |
-| F6–F9 · Ctrl or Shift+F6–F9 | Jump to / save a camera bookmark |
-| H / Space | Jump to base · jump to last attack |
-| F | Camera follows the selection (scroll to release) |
-| Arrows, screen edge, middle- or right-drag | Scroll · mouse wheel: zoom |
-| Q / , / . | Rotate camera · Backspace: reset to north |
-| U | Photo mode (hide the interface) |
-| Alt+Enter | Fullscreen on / off (battles start fullscreen by default; hold Esc to leave) |
-| Hold Alt | Show all health bars |
-| Esc | Cancel / pause menu |
-| Sidebar | Left click: build (Shift ×5) / place · right click: hold / cancel · power bar: click to fire / aim |
-| Build plan | Shift+click when placing: place, then plan more of the same · click a structure while the yard is busy (or Shift+click it): plan it. Planned structures show as numbered ghosts; the yard builds and places them in order as soon as each is affordable |
-| Touch (tablets) | Tap: select / command · double tap: all of a type · drag: pan · hold then drag: box select · hold: order menu · two fingers: pan, pinch zoom, twist rotate · toolbar: Box, Add, Attack, Force, Guard, Patrol, Stop, All · hold a sidebar card: hold / cancel |
-| Gamepad | Left stick: cursor · right stick: camera · LT/RT: zoom · A: select (hold: box) · X: command · B: cancel · Y: deploy · View: order menu · LB/RB: idle unit / next group (held: Shift / Ctrl) · D-pad: sidebar (A build, X cancel, LB/RB tabs) · L3: all on screen · R3: base · Start: pause; menus: D-pad / stick, A, B |
-| Replays | Space: pause / play · [ / ]: slower / faster (1×–8×) · V: next player view / observer · Home: restart |
+| Ctrl + right click · Alt + right click | Force fire · force move |
+| A · S · X · G · D | Attack-move · stop · scatter · fire at ground · deploy / unload / special ability |
+| F1–F4 | Stance: aggressive · guard · hold position · hold fire |
+| P · C · L | Patrol · guard / escort · cycle formation (with a factory selected, P makes it the primary factory) |
+| M | Lay mines with the selected minelayers |
+| E · W · Ctrl+A | All combat units · all of the selected type(s) on screen · everything on screen |
+| I · Shift+I | Next idle unit · next idle harvester |
+| Z · R | Sell · repair |
+| Ctrl+1–9 · Shift+1–9 · 1–9 | Assign · add to · recall a control group (double-tap to centre on it) |
+| F6–F9 · Ctrl+F6–F9 | Jump to · save a camera bookmark |
+| H · Space | Jump to base · jump to last attack |
+| Arrows, screen edge, middle/right drag · wheel | Scroll · zoom |
+| Q · , · . · Backspace | Rotate camera · reset to north |
+| F · U · hold Alt | Follow the selection · photo mode · show all health bars |
+| Alt+Enter · Esc | Fullscreen on/off · cancel or pause menu |
+| Sidebar | Left click: build (Shift: ×5) or place · right click: hold / cancel · Shift+place: plan several structures |
+| Touch | Tap: select or command · drag: pan · hold then drag: box select · hold: order menu · pinch: zoom · twist: rotate |
+| Gamepad | Left stick: cursor · right stick: camera · A: select · X: command · B: cancel · Y: deploy · View: order menu · Start: pause |
+| Replays | Space: pause · `[` `]`: speed · V: switch view · Home: restart |
 
-## Project layout
+## Faithful to Red Alert
+
+There was nothing to decompile. In 2025 EA released the original Red Alert source code under the
+GPL v3 ([electronicarts/CnC_Red_Alert](https://github.com/electronicarts/CnC_Red_Alert)). Red
+Horizon is a clean-room TypeScript engine that uses that release as its rules reference:
+
+- [`src/data/rules.ts`](src/data/rules.ts): unit, structure, weapon and warhead statistics from the
+  original `RULES.INI`. Field names and units match what `WEAPON.CPP`, `WARHEAD.CPP` and
+  `TECHNO.CPP` read.
+- [`src/sim/combat.ts`](src/sim/combat.ts): damage uses the original `Modify_Damage` formula from
+  `COMBAT.CPP` (warhead-against-armour multipliers, distance falloff, minimum and maximum damage).
+- Tick rate, rate of fire, speed (MPH to leptons) and range conversions follow `DEFINES.H`.
+
+Global pacing settings (movement and build speed) live at the bottom of `rules.ts`. A few values
+deliberately differ from the original. Each change fixes an outlier found in cost-equal simulation
+tests:
+
+| Change | Original | Red Horizon |
+|---|---|---|
+| Flame Tower range | 4 | 5 |
+| Field Medic cost | $800 | $500 |
+| Attack Dog health | 12 | 25, and slightly faster |
+| Turret health | 400 | 500 |
+| Mammoth Tank cost | $1700 | $1900 |
+
+## Maps, missions and mods
+
+- **Curated maps.** Nine hand-designed, symmetric maps for 2–4 players, among them *Bridgewater*,
+  *Archipelago*, *Inland Sea*, *Frozen Lakes* and *Red Canyon*. Generated maps have shareable map
+  codes that reproduce them exactly.
+- **Editor.** Open it from the main menu.
+  - Paint terrain, height, forests, ore, gems, bridges and start positions, with symmetry helpers
+    and undo/redo, in 2D or in the live 3D view.
+  - It checks fairness and reachability, and runs a playtest in one click.
+  - The mission layer adds pre-placed forces, objectives and triggers.
+  - Maps and missions export as `.rhmap.json`. Custom maps appear in the skirmish map picker, and
+    custom missions under *Campaign → Special*.
+- **Mods.** A mod is a `.rhmod.json` file that overrides unit, weapon and warhead values or clones
+  them into new variants.
+  - Mods are validated with clear error messages and enabled from the *Mods* screen.
+  - Saves and replays record the active mods, so they always play back identically.
+  - Two examples are included in [`public/mods/`](public/mods/): *Tank Rush* and *Glass Cannon*.
+
+## Architecture
+
+The game is split into a deterministic simulation and a renderer that only observes it:
+
+- **Simulation** (`src/sim/`): a fixed 20 Hz, seeded, fully deterministic simulation that never
+  reads rendering state, wall-clock time or `Math.random()`. Determinism is what makes saves,
+  replays, rewinding, challenges and headless testing possible: the same seed and command
+  stream always produce the same game, which the replays verify with periodic state hashes.
+- **Rendering** (`src/render/`): three.js on WebGL 2. It interpolates between simulation ticks and
+  turns entity state into procedural models, effects, lights and sound.
+- **No runtime dependencies** besides three.js. Code is split so that three.js, the editor and the
+  Conquest UI load as separate chunks.
 
 ```
 src/
-  data/rules.ts        game data (from the original RULES.INI)
-  sim/                 deterministic fixed-tick simulation (20 Hz)
-    world.ts           entity management, commands, visibility, victory
-    map.ts mapgen.ts   grid map and symmetric procedural map generator
-    pathfinding.ts     A* with string-pulling
-    unitlogic.ts       orders, movement, collisions, crushing, engineers…
-    combat.ts          weapons, projectiles, RA damage model
-    harvest.ts production.ts aircraft.ts superweapons.ts ai.ts
-    naval.ts ai-naval.ts infiltration.ts mines.ts stealth.ts powers.ts bridges.ts stance.ts   (round-4 content)
-    orders.ts formation.ts   formations, patrol, escort/guard, rally to a unit, build plans, focus fire, kiting
-  render/              three.js renderer (interpolates between sim ticks)
-    renderer.ts        scene, lights, post-processing chain
-    terrain.ts water.ts vegetation.ts ore.ts fog.ts lightpools.ts
-    entities.ts        sim entity -> 3D model sync, death/wreck/smoke visuals
-    models/            procedural unit & structure models
-    effects/           GPU particle & effects system
-  audio/               procedural SFX, adaptive music, announcer
-  ui/                  HUD, minimap, input (+ touch.ts, gamepad.ts, orderui.ts), menus, campaign, profile, challenges
-  missions/            campaign missions, Boot Camp, naval & special operations, daily challenge, progress
-  maps/                curated skirmish maps (symmetric feature format), previews, map codes
-  replay/              match recording, storage (IndexedDB) and playback
-  meta/                XP, ranks, medals, daily challenge records, toasts
-  platform/            error boundary, WebGL checks, GPU quality detection, PWA
-  game.ts main.ts      game loop and bootstrap
-public/                web app manifest, service worker, icons
-tests/                 node:test suite, PWA verification, leak & profile audits
-tools/                 headless simulation / mission tests & screenshot tooling
+  data/         game rules (from the original RULES.INI)
+  sim/          deterministic simulation: world, map generation, pathfinding, combat, economy,
+                production, aircraft, naval, espionage, support powers, superweapons, AI, orders
+  render/       three.js renderer: terrain, water, weather, fog of war, models, effects, destruction
+  audio/        procedural sound effects, adaptive music, announcer
+  ui/           HUD, sidebar, minimap, input (mouse, touch, gamepad), menus and screens
+  missions/     campaigns, Boot Camp, special operations, Daily Challenge
+  maps/         curated maps, map codes, previews, custom maps
+  editor/       map and mission editor
+  mods/         mod format, validation and rule overrides
+  modes/        challenges, King of the Hill, co-op
+  replay/       recording, storage (IndexedDB), playback and branching
+  meta/         XP, ranks, medals, rivals
+  platform/     error boundary, WebGL checks, GPU quality detection, fullscreen, PWA
+  game.ts       game loop
+  main.ts       bootstrap
+public/         web app manifest, service worker, icons, example mods, fonts
+tests/          node:test suite, PWA verification, memory-leak and CPU profile audits
+tools/          headless simulation, mission autopilots, self-play and screenshot tooling
+docker/         nginx configuration for the container image
 ```
 
-## Development tools
+## Development
 
 ```bash
-npm test                 # 504 unit / integration / soak / regression tests (node:test)
+npm test                  # unit, integration, regression and AI-vs-AI soak tests (node:test)
 npm run typecheck
-npm run verify:pwa       # production build + manifest, service worker and offline checks
-npm run audit:leaks      # play 5 matches in a browser and compare heap / GPU resources
-npm run audit:profile    # CPU profile of a 30 s battle, resolved to source lines
-node --import tsx tools/simtest.ts <seed> <minutes> <mapSize> <players>   # headless AI-vs-AI
-node --import tsx tools/campaigntest.ts <mission-id|allies|soviet|all> [minutes]   # headless mission runs with autopilots
-node tools/focus-shot.mjs <url> <out.png> "<js returning [x, y, dist]>"           # browser screenshot aimed at something in the game
-node --import tsx tools/savetest.ts                                          # save/load determinism
-node --import tsx tools/conquesttest.ts all [seed] [faction]                 # every Conquest battle type with autopilots
-node --import tsx tools/selfplay/run.ts --mode faction --games 40           # mass AI-vs-AI self-play (modes: faction, legacy, personalities, gauntlet, diff)
-node --import tsx tools/selfplay/balance.ts                                  # cost-equal unit duels (regenerates the AI matchup table with --emit)
-node --import tsx tools/metatest.ts                                          # progression & medals
+npm run verify:pwa        # production build + manifest, service worker and offline checks
+npm run audit:leaks       # plays 5 matches in a browser and compares heap and GPU resources
+npm run audit:profile     # CPU profile of a 30 s battle, resolved to source lines
 ```
 
-The test suite covers the RA damage formula, pathfinding, map generation fairness, economy,
-production, placement, power, combat, special abilities, the AI, save determinism, platform
-helpers, and six 15-minute AI-vs-AI soak games with invariant checks.
+The test suite covers:
+- the Red Alert damage formula, pathfinding and map-generation fairness;
+- the economy, production, placement, power and combat;
+- special abilities, the AI, and save and replay determinism;
+- security hardening of the file importers;
+- six 15-minute AI-vs-AI soak games with invariant checks.
 
-Testing URL parameters: `?autostart=1&scenario=battle&charge=1&fog=0&tod=night&size=64`
-(`scenario=base|battle`, `ff=<seconds>` fast-forward, `cam=x,y,dist`, `units=mcv|light|heavy`,
-`hour=0..24`, `cycle=1`, `wx=rain|storm|snow|fog|dust`, `climate=winter|desert`, `intro=1`,
-`selfplay=hard` lets an AI play your side, `mission=<id>` starts a mission, e.g. `bootcamp`, `allied-01`, `wolfpack`, `survival`, `daily`,
-`map=<id>` a curated map, `mapcode=<code>` a shared generated map, `replay=<id>|latest[&view=<n>|obs]` a replay
-(`&seek=<s>&take=<player>` takes command there), `koth=1&kothmin=N` King of the Hill, `challenge=<id>` a challenge,
-`mission=survival&allies=hard,normal` co-op survival, `conquest=assault|capture|hold|defend|naval|boss` a Conquest battle,
-`conquest=ui` the Conquest map).
-Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
-`/preview-weather.html`.
+Headless tools (no browser needed):
+
+```bash
+node --import tsx tools/simtest.ts <seed> <minutes> <mapSize> <players>   # AI-vs-AI match
+node --import tsx tools/savetest.ts                                        # save/load determinism
+node --import tsx tools/campaigntest.ts <mission-id|allies|soviet|all>     # missions with autopilots
+node --import tsx tools/conquesttest.ts all                                # every Conquest battle type
+node --import tsx tools/selfplay/run.ts --mode faction --games 40          # mass AI-vs-AI self-play
+node --import tsx tools/selfplay/balance.ts                                # cost-equal unit duels
+```
+
+The browser tooling (`tools/*.mjs`, `tests/perf/`) uses Playwright with the Chromium it
+downloads (`npx playwright install chromium`).
+
+<details>
+<summary><b>URL parameters for testing</b></summary>
+
+These parameters jump straight into a situation, which is handy for development and screenshots:
+
+| Parameter | Effect |
+|---|---|
+| `?autostart=1` | Skip the menus and start a skirmish |
+| `size=64`, `climate=winter\|desert`, `fog=0` | Map size, climate, fog of war off |
+| `scenario=base\|battle`, `units=mcv\|light\|heavy`, `charge=1` | Prebuilt base or battle, starting units, superweapons charged |
+| `tod=night`, `hour=0..24`, `cycle=1`, `wx=rain\|storm\|snow\|fog\|dust` | Time of day, day cycle, weather |
+| `cam=x,y,dist`, `ff=<seconds>`, `intro=0\|1` | Camera position, fast-forward, intro cinematic |
+| `selfplay=hard` | An AI plays your side |
+| `mission=<id>` | A mission, e.g. `bootcamp`, `allied-01`, `soviet-04`, `wolfpack`, `survival`, `daily` |
+| `mission=survival&allies=hard,normal` | Co-op survival with AI teammates |
+| `map=<id>`, `mapcode=<code>` | A curated map, a shared generated map |
+| `replay=<id>\|latest`, `view=<n>\|obs`, `seek=<s>`, `take=<player>` | Watch a replay, take command at a moment |
+| `koth=1&kothmin=N`, `challenge=<id>` | King of the Hill, a saved challenge |
+| `conquest=assault\|capture\|hold\|defend\|naval\|boss\|ui` | A Conquest battle type or the Conquest map |
+
+The asset preview pages are `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`
+and `/preview-weather.html`.
+
+</details>
+
+## Security and privacy
+
+- **No server, no accounts, no tracking.** The game is a static site that makes no requests to
+  third-party hosts: no analytics, no ads, no cookies, no external fonts or scripts.
+- **Local data only.** Settings, saves, replays, maps, mods and profile data stay in your browser
+  (localStorage and IndexedDB).
+- **Untrusted files.** Imported maps, missions, mods, challenges, replays and saves are treated as
+  untrusted:
+  - they are schema-validated with size limits;
+  - they are protected against prototype pollution;
+  - they are never interpreted as HTML;
+  - no code is ever evaluated from data.
+- **Security headers.** The shipped nginx and Vercel configurations send a strict
+  Content-Security-Policy: same-origin only, no inline or `eval`'d script, and no framing. They
+  also send `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and
+  `Cross-Origin-Opener-Policy`.
+- **Hardened container.** The Docker image serves the game with nginx as a non-root user, and the
+  Compose file runs it with a read-only filesystem, no Linux capabilities and no privilege
+  escalation.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Issues and pull requests are welcome. Before you open a pull request:
+
+```bash
+npm run typecheck && npm test && node --import tsx tools/savetest.ts
+```
+
+Guidelines:
+- **Keep the simulation deterministic.** Use the world's seeded random number generator, never
+  `Math.random()`, `Date` or rendering state in `src/sim/`. The save test must report
+  `DETERMINISTIC ✓`.
+- **Stay faithful to Red Alert.** Gameplay changes should match the original game, or come with
+  simulation evidence when they deliberately deviate.
+- **No copyrighted assets.** Everything is generated in code. Please don't add EA art, audio,
+  names or trademarks.
+- **Add a test** for bug fixes and new mechanics in `tests/`.
+
+## License and legal
+
+Red Horizon is free software under the [GNU General Public License v3.0 or later](LICENSE.md).
+It is derived from studying EA's GPL v3 release of the Red Alert source code, so redistributions
+must stay under the GPL.
+
+*Command & Conquer* and *Red Alert* are trademarks of Electronic Arts Inc. This project is **not
+affiliated with or endorsed by Electronic Arts**. The GPL release grants no rights to EA
+trademarks, which is why the game has its own name; you can change it in
+[`src/config.ts`](src/config.ts). The game contains no EA art, audio, video or other assets.
+
+The bundled fonts, [Rajdhani](https://fonts.google.com/specimen/Rajdhani) and
+[Share Tech Mono](https://fonts.google.com/specimen/Share+Tech+Mono), are licensed under the
+[SIL Open Font License 1.1](public/fonts/OFL.txt).
+
+### Acknowledgements
+
+- Westwood Studios, for the original game.
+- Electronic Arts, for releasing its source code under the GPL.
+- [three.js](https://threejs.org/), the only runtime dependency.

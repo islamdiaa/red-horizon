@@ -1,6 +1,7 @@
 import type { MissionEvent, MissionRuntime, Objective, Portrait } from '../sim/mission';
 import { formatTime } from '../core/util';
 import { castPortrait } from './campaign';
+import { esc } from './dom';
 
 const CSS = `
 .mh-obj { position: absolute; top: calc(var(--rem, 1px) * 0 + 58px); left: 12px; width: 330px; z-index: 6; pointer-events: none;
@@ -100,7 +101,7 @@ export class MissionHud {
         break;
       case 'score':
         this.scoreEl.classList.add('on');
-        this.scoreEl.innerHTML = `${Math.round(ev.value).toLocaleString('en-US')}<small>${ev.label.toUpperCase()}</small>`;
+        this.scoreEl.innerHTML = `${Math.round(ev.value).toLocaleString('en-US')}<small>${esc(ev.label.toUpperCase())}</small>`;
         break;
     }
   }
@@ -109,7 +110,7 @@ export class MissionHud {
     const list = this.runtime.objectives;
     if (!list.length) { this.obj.style.opacity = '0'; return; }
     this.obj.style.opacity = '1';
-    const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${o.text}</span>${o.progress ? `<span class="pg">${o.progress}</span>` : ''}</div>`;
+    const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${esc(o.text)}</span>${o.progress ? `<span class="pg">${esc(String(o.progress))}</span>` : ''}</div>`;
     const prim = list.filter((o) => o.primary), sec = list.filter((o) => !o.primary);
     this.obj.innerHTML = `<h5>OBJECTIVES</h5>${prim.map(row).join('')}${sec.length ? `<h5 style="margin-top:8px">OPTIONAL</h5>${sec.map(row).join('')}` : ''}`;
   }
@@ -122,7 +123,7 @@ export class MissionHud {
       this.full = m.text;
       this.typing = 0;
       this.hideT = 2.8 + m.text.length * 0.045;
-      this.tx.innerHTML = `<div class="pt">${castPortrait(m.speaker, m.portrait)}</div><div style="flex:1"><div class="sp">${m.speaker.toUpperCase()}</div><div class="tt"></div><div class="wave">${'<i></i>'.repeat(12)}</div></div>`;
+      this.tx.innerHTML = `<div class="pt">${castPortrait(m.speaker, m.portrait)}</div><div style="flex:1"><div class="sp">${esc(m.speaker.toUpperCase())}</div><div class="tt"></div><div class="wave">${'<i></i>'.repeat(12)}</div></div>`;
       this.tx.querySelectorAll<HTMLElement>('.wave i').forEach((i, k) => { i.style.animationDelay = `${(k * 0.07) % 0.5}s`; });
       this.textEl = this.tx.querySelector('.tt');
       this.tx.classList.add('on');
@@ -147,7 +148,7 @@ export class MissionHud {
     if (this.timerLabel && t !== null) {
       this.timer.classList.add('on');
       this.timer.classList.toggle('urgent', t < 30);
-      this.timer.innerHTML = `<div class="lb">${this.timerLabel.toUpperCase()}</div><div class="tm">${formatTime(Math.ceil(t))}</div>`;
+      this.timer.innerHTML = `<div class="lb">${esc(this.timerLabel.toUpperCase())}</div><div class="tm">${formatTime(Math.ceil(t))}</div>`;
     } else {
       this.timer.classList.remove('on');
     }

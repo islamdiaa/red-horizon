@@ -12,6 +12,7 @@ import type { MapDef } from '../maps/format';
 import type { MissionDef } from '../sim/mission';
 import { AI_MODES, PORTRAITS, customMissionDef, type CustomMissionSetup, type MissionSpec } from './mission';
 import type { EditorDoc } from './doc';
+import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
 
 const DB = 'rh-editor';
 const STORE = 'docs';
@@ -187,7 +188,9 @@ export function fileName(doc: EditorDoc): string {
  */
 export function parseRhMap(text: string): { doc: EditorDoc | null; errors: string[] } {
   let data: unknown;
-  try { data = JSON.parse(text); } catch { return { doc: null, errors: ['Not a map file (invalid JSON).'] }; }
+  try { data = parseUntrustedJson(text, { maxChars: 4 << 20 }); } catch (e) {
+    return { doc: null, errors: [e instanceof UntrustedInputError ? e.message : 'Not a map file (invalid JSON).'] };
+  }
   const o = data as Partial<RhMapFile> & Record<string, unknown>;
   if (!o || typeof o !== 'object') return { doc: null, errors: ['Not a map file.'] };
   let mapPart: unknown = o;

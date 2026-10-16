@@ -75,13 +75,13 @@ try {
     for (const k of keys) out[k] = (await (await caches.open(k)).keys()).map((r) => new URL(r.url).pathname);
     return out;
   });
-  // the Google Fonts cache (rh-fonts-*) is deliberately shared across builds
   const names = Object.keys(cached).filter((k) => k.startsWith('red-horizon-'));
   ok(names.length === 1 && names[0].startsWith('red-horizon-index-'), `one versioned cache: ${Object.keys(cached).join(', ')}`);
   const entries = cached[names[0]] ?? [];
   ok(entries.some((p) => /\/assets\/index-.*\.js$/.test(p)) && entries.some((p) => /\/assets\/index-.*\.css$/.test(p)), 'entry JS + CSS precached');
   ok(entries.some((p) => /ambworker-.*\.js$/.test(p)), 'worker chunk referenced from the bundle precached');
   ok(entries.includes('/') || entries.includes('/index.html'), 'app shell precached');
+  ok(entries.some((p) => p.endsWith('/fonts/rajdhani-600.woff2')) && entries.some((p) => p.endsWith('/fonts/share-tech-mono-400.woff2')), 'self-hosted fonts precached');
   console.log(`      ${entries.length} cached entries`);
 
   // offline boot

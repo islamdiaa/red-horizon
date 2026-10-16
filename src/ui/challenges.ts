@@ -175,7 +175,7 @@ const CSS = `
 .chl-sbtn kbd { font-family: var(--mono, monospace); font-size: .65rem; padding: .1rem .3rem; border-radius: .25rem; border: 1px solid rgba(255,255,255,.2); color: var(--muted, #7d8c9d); letter-spacing: 0; }
 `;
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const pad = (n: number) => String(n).padStart(2, '0');
 function hms(ms: number): string {

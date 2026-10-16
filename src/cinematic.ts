@@ -1,4 +1,5 @@
 import type { Game } from './game';
+import { esc } from './ui/dom';
 
 const OPERATIONS = ['IRON DAWN', 'RED TEMPEST', 'NORTHERN WRATH', 'STEEL CURTAIN', 'SILENT THUNDER', 'BROKEN ARROW', 'CRIMSON TIDE', 'GLASS HAMMER', 'WINTER SUN', 'LONG SHADOW'];
 const SECTORS = ['Carpathian Front', 'Baltic Coast', 'Danube Valley', 'Bavarian Highlands', 'Vistula Basin', 'Black Forest', 'Thuringian Gap', 'Silesian Plains', 'Alpine Pass', 'Pomeranian Lakes'];
@@ -84,7 +85,7 @@ export function playIntro(game: Game, onDone: () => void) {
   const faction = game.local.faction === 'allies' ? 'Allied Expeditionary Force' : 'Red Army Group "Vostok"';
   const h = Math.floor(game.hours), m = Math.floor((game.hours % 1) * 60);
   const clock = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  const text = mk('cine-text', `<div class="op">OPERATION <b>${op}</b></div><div class="rule"></div><div class="line" data-l="1"></div><div class="line" data-l="2"></div>`);
+  const text = mk('cine-text', `<div class="op">OPERATION <b>${esc(op)}</b></div><div class="rule"></div><div class="line" data-l="1"></div><div class="line" data-l="2"></div>`);
   mk('cine-skip', 'PRESS ANY KEY TO SKIP');
   body.classList.add('cine-active');
 
@@ -288,7 +289,7 @@ export function endingCinematic(won: boolean, subtitle: string, gfx?: LensHost):
   bars[1].className = 'cine-bar bottom';
   const t = document.createElement('div');
   t.className = 'end-cine ' + (won ? 'win' : 'lose');
-  t.innerHTML = `<div class="big">${won ? 'VICTORY' : 'DEFEAT'}</div><div class="sub">${subtitle.toUpperCase()}</div>`;
+  t.innerHTML = `<div class="big">${won ? 'VICTORY' : 'DEFEAT'}</div><div class="sub">${esc(subtitle.toUpperCase())}</div>`;
   body.append(...bars, t);
   body.classList.add('cine-active');
   requestAnimationFrame(() => { body.classList.add('cine-on'); t.classList.add('on'); });

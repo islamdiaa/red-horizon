@@ -102,7 +102,7 @@ function injectCss() {
   document.head.appendChild(st);
 }
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 // ---------------------------------------------------------------------------
 // Procedural portrait (bust style of the campaign cast, src/ui/campaign.ts)

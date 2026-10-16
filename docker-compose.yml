@@ -4,5 +4,13 @@ services:
     image: red-horizon:latest
     container_name: red-horizon
     ports:
-      - "8091:80"
+      - "8091:8080"
     restart: unless-stopped
+    # a static site needs no privileges: read-only filesystem, no capabilities, no privilege escalation
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

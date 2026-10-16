@@ -39,6 +39,11 @@ try {
   if (!new URLSearchParams(location.search).get('autostart') && !JSON.parse(localStorage.getItem('rh.settings') ?? '{}').quality) saveSettings({ ...loadSettings(), quality: await detectQuality() });
 } catch { /* keep defaults */ }
 const params = new URLSearchParams(location.search);
+/** Numeric test parameter, clamped: a shared link must not be able to freeze the tab (?ff=1e9, ?size=1e5). */
+const numParam = (name: string, def: number, lo: number, hi: number): number => {
+  const v = Number(params.get(name) ?? def);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
 const audio = new AudioSystem();
 let game: Game | null = null;
 let lastSetup: GameSetup | null = null;
@@ -246,22 +251,22 @@ function applyTestParams(g: Game) {
   const sc = params.get('scenario');
   if (sc) g.applyScenario(sc);
   if (params.get('charge')) chargeArmies(g.world);
-  const ff = +(params.get('ff') ?? 0);
+  const ff = numParam('ff', 0, 0, 1800);
   if (ff > 0) g.fastForward(ff);
   const cam = params.get('cam');
   if (cam) {
     const [x, y, d] = cam.split(',').map(Number);
-    g.gfx.cam.jumpTo(x, y);
-    if (d) g.gfx.cam.dist = g.gfx.cam.targetDist = d;
+    if (Number.isFinite(x) && Number.isFinite(y)) g.gfx.cam.jumpTo(x, y);
+    if (d && Number.isFinite(d)) g.gfx.cam.dist = g.gfx.cam.targetDist = Math.min(200, Math.max(2, d));
   } else if (sc === 'battle') {
     const m = g.world.map;
     g.gfx.cam.jumpTo(m.w / 2, m.h / 2 + 2);
   }
-  if (params.get('hour')) g.hours = +params.get('hour')!;
+  if (params.get('hour')) g.hours = numParam('hour', 12, 0, 24);
   const sp = params.get('selfplay');
   if (sp) g.world.ais.push(new AIController(g.world, g.local, sp as AIDifficulty));
   if (sc || params.get('charge') || sp) { g.recorder?.discard(); g.recorder = null; } // [D] edited worlds can't be replayed
-  if (params.get('speed')) g.speed = +params.get('speed')!;
+  if (params.get('speed')) g.speed = numParam('speed', 1, 0.1, 16);
   if (params.get('sel') === 'army') {
     for (const u of g.world.units) if (u.alive && u.owner === g.local && u.weapons.length) g.selection.add(u.id);
   }
@@ -301,7 +306,7 @@ function startDemo() {
 if (params.get('autostart') && params.get('conquest')) {
   // [CONQ] ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
   void import('./conquest/testing').then(({ runWithBattle }) => {
-    const { run, setup } = runWithBattle(+(params.get('seed') ?? 7), (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
+    const { run, setup } = runWithBattle(numParam('seed', 7, 0, 0x7fffffff) | 0, (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
     saveRun(run);
     deployConquest(setup);
   });
@@ -312,9 +317,9 @@ if (params.get('autostart') && params.get('conquest')) {
     faction: (params.get('faction') as Faction) ?? 'allies',
     color: params.get('faction') === 'soviet' ? 0xd23a2c : 0x3d7be0,
     opponents: [{ faction: (params.get('enemy') as Faction) ?? (params.get('faction') === 'soviet' ? 'allies' : 'soviet'), difficulty: (params.get('ai') as AIDifficulty) ?? 'normal' }],
-    mapSize: +(params.get('size') ?? 96), water: 0.5, trees: 0.5, ore: 0.6, credits: +(params.get('credits') ?? 10000),
+    mapSize: Math.round(numParam('size', 96, 32, 192) / 16) * 16, water: 0.5, trees: 0.5, ore: 0.6, credits: numParam('credits', 10000, 0, 1e6),
     startUnits: (params.get('units') as any) ?? 'light', fog: params.get('fog') !== '0', timeOfDay: (params.get('tod') as TimeOfDay) ?? 'day',
-    quality: (params.get('q') as any) ?? menus.settings.quality, seed: +(params.get('seed') ?? 1234),
+    quality: (params.get('q') as any) ?? menus.settings.quality, seed: numParam('seed', 1234, 0, 0x7fffffff) | 0,
     dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate', mission: params.get('mission') ?? undefined,
   }).then(startGame);
 } else {
@@ -329,10 +334,10 @@ if (params.get('conquest') && !params.get('autostart')) {
   const wait = async () => {
     if (!game && performance.now() - t0 < 4000) { setTimeout(wait, 100); return; }
     const { demoState, midCampaignRun } = await import('./conquest/testing');
-    const seed = +(params.get('seed') ?? 1953), fac = (params.get('faction') as Faction) ?? 'allies', demo = params.get('cqdemo') ?? undefined;
+    const seed = numParam('seed', 1953, 0, 0x7fffffff) | 0, fac = (params.get('faction') as Faction) ?? 'allies', demo = params.get('cqdemo') ?? undefined;
     const mode = params.get('conquest');
     if (mode === 'mid' || mode === 'fresh') {
-      const run = midCampaignRun(seed, fac, mode === 'mid' ? +(params.get('turns') ?? 6) : 0);
+      const run = midCampaignRun(seed, fac, mode === 'mid' ? numParam('turns', 6, 0, 40) : 0);
       if (demo) demoState(run, demo);
       saveRun(run);
     } else if (demo && loadRun()) {

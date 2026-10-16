@@ -27,6 +27,10 @@ const LIVE: Tables = {
 };
 
 const clone = <T>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
+/** Own-property lookup: ids and field names come from mod files, and `"__proto__"` / `"constructor"` must
+ *  never resolve to something inherited (patching that would pollute every object). */
+const own = <V>(o: Record<string, V>, k: string): V | undefined => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined);
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 // =====================================================================================================
 // Field schema (from the rule interfaces in rules.ts)
@@ -159,7 +163,8 @@ const TABLE_LABEL: Record<TableName, string> = { units: 'unit', buildings: 'stru
 
 /** Field spec, falling back to the type of the value other entries already have (fields added later). */
 function fieldSpec(tables: Tables, table: TableName, field: string): FieldSpec | null {
-  const s = SCHEMA[table][field];
+  if (RESERVED_KEYS.has(field)) return null;
+  const s = own(SCHEMA[table] as Record<string, FieldSpec>, field);
   if (s) return s;
   for (const e of Object.values(tables[table])) {
     const v = e[field];
@@ -264,7 +269,7 @@ function checkValue(tables: Tables, spec: FieldSpec, v: unknown, sfx: Set<string
     case 'ref': {
       if (v === null && spec.nullable) return { ok: true, v: undefined };
       if (typeof v !== 'string') return { ok: false, msg: `expected a ${TABLE_LABEL[spec.table]} id, got ${show(v)}` };
-      if (!tables[spec.table][v]) return { ok: false, msg: `unknown ${TABLE_LABEL[spec.table]} "${v}"${suggest(v, Object.keys(tables[spec.table]))}` };
+      if (!own(tables[spec.table], v)) return { ok: false, msg: `unknown ${TABLE_LABEL[spec.table]} "${v}"${suggest(v, Object.keys(tables[spec.table]))}` };
       return { ok: true, v };
     }
     case 'refs': {
@@ -273,7 +278,7 @@ function checkValue(tables: Tables, spec: FieldSpec, v: unknown, sfx: Set<string
       for (const x of v) {
         if (typeof x !== 'string') return { ok: false, msg: `expected ids (strings), got ${show(x)}` };
         for (const part of spec.alt ? x.split('|') : [x]) {
-          if (!pool[part]) return { ok: false, msg: `unknown ${spec.table === 'types' ? 'type' : TABLE_LABEL[spec.table as TableName]} "${part}"${suggest(part, Object.keys(pool))}` };
+          if (!own(pool, part)) return { ok: false, msg: `unknown ${spec.table === 'types' ? 'type' : TABLE_LABEL[spec.table as TableName]} "${part}"${suggest(part, Object.keys(pool))}` };
         }
       }
       return { ok: true, v: [...v] };
@@ -342,10 +347,11 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
         empty = false;
         const at = `${table}.${id}`;
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) { err(at, 'must be an object of field -> value'); continue; }
-        let entry = tables[table][id];
+        if (RESERVED_KEYS.has(id)) { err(at, 'reserved id'); continue; }
+        let entry = own(tables[table], id);
         const isNew = !entry;
         if (patch.clone !== undefined) {
-          if (typeof patch.clone !== 'string' || !tables[table][patch.clone]) {
+          if (typeof patch.clone !== 'string' || !own(tables[table], patch.clone)) {
             err(`${at}.clone`, `unknown ${TABLE_LABEL[table]} "${String(patch.clone)}" to copy${typeof patch.clone === 'string' ? suggest(patch.clone, Object.keys(tables[table])) : ''}`);
             continue;
           }
@@ -377,6 +383,7 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
           added.push({ table, id, base: rootOf(table, id, bases), mod: mod.name });
           if (!fields.some(([f]) => f === 'name') && typeof entry.name === 'string') entry.name = `${entry.name} (${mod.name})`;
         }
+        if (!entry) continue;
         for (const [field, v] of fields) {
           const from = entry[field];
           if (v === undefined) delete entry[field]; else entry[field] = clone(v);
@@ -405,7 +412,7 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
       if (r.ids !== undefined && (!Array.isArray(r.ids) || !r.ids.every((x) => typeof x === 'string'))) { err(`${at}.ids`, 'expected an array of ids'); bad = true; }
       if (r.where !== undefined && (typeof r.where !== 'object' || r.where === null || Array.isArray(r.where))) { err(`${at}.where`, 'expected { "field": value, ... }'); bad = true; }
       if (bad || errors.length > e0) continue;
-      for (const id of r.ids ?? []) if (!tables[r.table][id]) warn(`${at}.ids`, `no ${TABLE_LABEL[r.table]} "${id}" in this build (skipped)${suggest(id, Object.keys(tables[r.table]))}`);
+      for (const id of r.ids ?? []) if (!own(tables[r.table], id)) warn(`${at}.ids`, `no ${TABLE_LABEL[r.table]} "${id}" in this build (skipped)${suggest(id, Object.keys(tables[r.table]))}`);
       let n = 0;
       for (const [id, entry] of Object.entries(tables[r.table])) {
         if (r.ids && !r.ids.includes(id)) continue;

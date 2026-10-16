@@ -555,7 +555,7 @@ export class Menus {
     const p = normaliseParams({ size: prefs.mapSize, players: 1 + prefs.opponents.length, water: prefs.water, trees: prefs.trees, ore: prefs.ore, climate: prefs.climate, seed: prefs.seed! });
     const card = (id: string | null, name: string, meta: string, desc: string, tags: string[], thumb: () => string) => {
       const c = h('button', 'mpk-card' + ((prefs.mapId ?? null) === id ? ' on' : ''), `<div class="mpk-thumb"><img alt=""></div>
-        <div class="mpk-info"><b>${esc(name)}</b><span class="mpk-meta">${meta}</span><p>${esc(desc)}</p><span class="mpk-tags">${tags.map((t) => `<i>${esc(t)}</i>`).join('')}</span></div>`);
+        <div class="mpk-info"><b>${esc(name)}</b><span class="mpk-meta">${esc(meta)}</span><p>${esc(desc)}</p><span class="mpk-tags">${tags.map((t) => `<i>${esc(t)}</i>`).join('')}</span></div>`);
       const img = c.querySelector('img') as HTMLImageElement;
       // previews are built lazily, a few per frame, so the picker opens instantly
       queue.push(() => { img.src = thumb(); c.classList.add('ready'); });

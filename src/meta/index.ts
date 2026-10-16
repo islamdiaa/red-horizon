@@ -790,7 +790,7 @@ export function rankBadge(p: Profile = loadProfile()): string {
     document.head.appendChild(st);
   }
   const rp = rankProgress(p.xp, p.faction);
-  const name = p.name.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  const name = p.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
   const nextTxt = rp.next ? `${p.xp.toLocaleString('en-US')} / ${rp.next.xp.toLocaleString('en-US')} XP` : `${p.xp.toLocaleString('en-US')} XP · max rank`;
   return `<span class="rh-cmdr" title="Commander profile">${insigniaSvg(rp.index, p.faction)}<span class="rh-cmdr-t"><small>${rp.name}</small><b>${name}</b>`
     + `<span class="rh-cmdr-bar"><i style="width:${(rp.frac * 100).toFixed(1)}%"></i></span><span class="rh-cmdr-x">${nextTxt}</span></span></span>`;

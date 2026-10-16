@@ -126,7 +126,7 @@ function ensureCss() {
   st.textContent = CSS;
   document.head.appendChild(st);
 }
-const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const queue: ToastInfo[] = [];
 let showing = false;

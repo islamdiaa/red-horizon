@@ -2,7 +2,7 @@
  *
  * Registered only in production builds by src/platform/pwa.ts as `sw.js?v=<build id>`.
  *  - One versioned cache per build ("red-horizon-<build id>"); older caches are deleted on activate.
- *  - install: precaches the app shell (index.html, manifest, icons) plus every same-origin asset
+ *  - install: precaches the app shell (index.html, manifest, icons, fonts) plus every same-origin asset
  *    index.html references, and the assets those JS/CSS bundles reference (worker chunks), so the
  *    game works offline right after the first visit.
  *  - fetch: same-origin GET only, cache-first. Page navigations are cache-first too, but revalidate
@@ -17,12 +17,11 @@ const PREFIX = 'red-horizon-';
 const CACHE = PREFIX + VERSION;
 const SCOPE = self.registration.scope; // ends with '/'
 const INDEX = new URL('index.html', SCOPE).href;
-const SHELL = ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/icon.svg']
+const FONTS = ['rajdhani-500', 'rajdhani-600', 'rajdhani-700', 'share-tech-mono-400'].map((f) => `fonts/${f}.woff2`);
+const SHELL = ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/icon.svg', ...FONTS]
   .map((p) => new URL(p, SCOPE).href);
-/** Google Fonts live in their own long-lived cache (not per build): the CSS is revalidated, font files are immutable. */
-const FONT_CACHE = 'rh-fonts-v1';
-const FONT_CSS_HOST = 'fonts.googleapis.com';
-const FONT_FILE_HOST = 'fonts.gstatic.com';
+/** Cache of the Google Fonts era (fonts are self-hosted now); deleted on activate. */
+const LEGACY_CACHES = ['rh-fonts-v1'];
 const ASSET_RE = /\.(?:js|mjs|css|wasm|png|jpe?g|webp|avif|gif|svg|ico|json|webmanifest|woff2?|ttf|mp3|ogg|wav)$/i;
 
 const sameOrigin = (u) => { try { return new URL(u, SCOPE).origin === self.location.origin; } catch { return false; } };
@@ -88,7 +87,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => (k.startsWith(PREFIX) && k !== CACHE) || LEGACY_CACHES.includes(k)).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -109,26 +108,6 @@ async function cacheFirst(request) {
   const res = await fetch(request);
   if (cacheable(res)) cache.put(request, res.clone()).catch(() => {});
   return res;
-}
-
-/** Google Fonts: cache-first so the UI keeps its typography offline; the stylesheet refreshes in the background. */
-async function fonts(event) {
-  const req = event.request;
-  const cache = await caches.open(FONT_CACHE);
-  const hit = await cache.match(req, MATCH);
-  const refresh = () => fetch(req).then((res) => {
-    if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone()).catch(() => {});
-    return res;
-  });
-  if (hit) {
-    if (new URL(req.url).hostname === FONT_CSS_HOST) event.waitUntil(refresh().catch(() => {}));
-    return hit;
-  }
-  try {
-    return await refresh();
-  } catch {
-    return new Response('', { status: 504, statusText: 'offline' });
-  }
 }
 
 /** Navigations: serve the cached page instantly, refresh it (and its assets) in the background. */
@@ -157,10 +136,7 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) {
-    if (url.hostname === FONT_CSS_HOST || url.hostname === FONT_FILE_HOST) event.respondWith(fonts(event));
-    return; // anything else cross-origin goes straight to the network
-  }
+  if (url.origin !== self.location.origin) return; // the game makes no cross-origin requests; never intercept them
   if (url.pathname.endsWith('/sw.js') || req.headers.has('range')) return;
   if (req.mode === 'navigate') {
     event.respondWith(navigate(event));

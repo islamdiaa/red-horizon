@@ -6,8 +6,9 @@ import { BUILDINGS, UNITS } from '../data/rules';
 import { checkMods, formatModValue, pristineTables, type ModReport } from './engine';
 import { MOD_FORMAT, MOD_VERSION, modSetHash, type ModFile, type TableName } from './format';
 import { activeModSet, enabledModIds, installMod, installedMods, moveMod, removeMod, setModEnabled } from './store';
+import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const CSS = `
 .mods { position: fixed; inset: 0; z-index: 22; display: grid; grid-template-columns: minmax(360px, 1fr) minmax(380px, 1.1fr); grid-template-rows: auto 1fr; gap: 16px; padding: 3.2vh 2.6vw;
@@ -123,7 +124,9 @@ function download(name: string, text: string) {
 export async function readModFile(file: File): Promise<ModFile> {
   if (file.size > 2 * 1024 * 1024) throw new Error('File too large for a mod (2 MB max).');
   let data: unknown;
-  try { data = JSON.parse(await file.text()); } catch { throw new Error('Not a mod file (invalid JSON).'); }
+  try { data = parseUntrustedJson(await file.text(), { maxChars: 2 << 20 }); } catch (e) {
+    throw new Error(e instanceof UntrustedInputError ? e.message : 'Not a mod file (invalid JSON).');
+  }
   const r = checkMods([data as ModFile]);
   if (!r.ok) throw new Error(r.errors.slice(0, 6).map((e) => `${e.path || 'mod'}: ${e.message}`).join('\n'));
   return data as ModFile;

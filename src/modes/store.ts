@@ -7,6 +7,7 @@
  */
 import { BUILTINS, BUILTIN_LIST } from './builtins';
 import type { ChallengeDef, ChallengeResult } from './types';
+import { gunzipBounded, parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
 
 const DB = 'rh-challenges';
 const STORE = 'challenges';
@@ -174,12 +175,16 @@ export async function encodeChallengeFile(c: ChallengeDef, compress = true): Pro
 /** Read a challenge file's text (throws a user-facing message on a bad file). */
 export async function decodeChallengeFile(text: string): Promise<ChallengeDef> {
   let doc: { rhchallenge?: number; encoding?: string; data?: string; challenge?: unknown };
-  try { doc = JSON.parse(text); } catch { throw new Error('Not a challenge file (invalid JSON)'); }
+  try { doc = parseUntrustedJson(text, { maxChars: 30 << 20, maxString: 30 << 20 }) as typeof doc; } catch (e) {
+    throw new Error(e instanceof UntrustedInputError ? e.message : 'Not a challenge file (invalid JSON)');
+  }
   let c: unknown = doc;
   if (doc && doc.rhchallenge === 1) {
     if (doc.encoding === 'gzip+base64' && typeof doc.data === 'string') {
       if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot read compressed challenge files');
-      try { c = JSON.parse(new TextDecoder().decode(await pipe(fromBase64(doc.data), new DecompressionStream('gzip')))); } catch { throw new Error('The challenge file is damaged'); }
+      try { c = parseUntrustedJson(await gunzipBounded(fromBase64(doc.data), 64 << 20), { maxChars: 64 << 20, maxString: 64 << 20 }); } catch (e) {
+        throw new Error(e instanceof UntrustedInputError ? e.message : 'The challenge file is damaged');
+      }
     } else c = doc.challenge;
   }
   if (!isChallengeDef(c)) throw new Error('Not a Red Horizon challenge, or from an unsupported version');
