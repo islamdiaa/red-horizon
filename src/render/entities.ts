@@ -17,6 +17,7 @@ import { Water } from './water';
 import { cloakHidden, contentAnim, perceived } from './contentview';
 import { PARACHUTE_SECONDS } from '../sim/powers';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
+import { Destruction } from './destruction'; // [DEST]
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -55,6 +56,8 @@ interface View {
   powner: number;
   /** Contrails behind support planes (Badger, U2), one per exhaust point. */
   trails: ProjectileHandle[] | null;
+  /** [DEST] The destruction system took over this structure's death (fracture + collapse). */
+  collapsed?: boolean;
 }
 
 /** Paratroopers jump from this height above the ground (world units). */
@@ -67,6 +70,8 @@ interface ProjView {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** Reused sea-surface sample for ships. */
+const _swell = { y: 0, nx: 0, ny: 1, nz: 0 };
 const _v = new THREE.Vector3();
 const _e = new THREE.Vector3();
 const _from = new THREE.Vector3();
@@ -136,6 +141,8 @@ export class EntityRenderer {
   }
   /** Vehicles whose wrecks linger. */
   private wreckTime = 22;
+  /** [DEST] Structure collapse, wreck / debris physics, ragdolls, craters, damage stages. */
+  readonly destruction: Destruction;
 
   constructor(
     private scene: THREE.Scene,
@@ -181,6 +188,7 @@ export class EntityRenderer {
     sg.setAttribute('skinWeight', new THREE.Float32BufferAttribute(new Float32Array(n * 4).fill(0.25), 4));
     warm.add(new THREE.SkinnedMesh(sg, this.holoMatSk));
     scene.add(warm);
+    this.destruction = new Destruction(scene, effects, world.map); // [DEST]
   }
 
   private warm = new THREE.Group();
@@ -231,6 +239,7 @@ export class EntityRenderer {
       if (e.buildAnim < 1) this.effects.constructionBurst(new THREE.Vector3(e.x, this.world.map.surfaceAt(e.x, e.y), e.y), Math.max(e.w, e.h));
     }
     this.views.set(e.id, v);
+    if (e instanceof Building && !e.bt.wall) this.destruction.prepare(seenAs.type, [e.w, e.h]); // [DEST] bake its fracture in idle time
     return v;
   }
 
@@ -319,14 +328,21 @@ export class EntityRenderer {
         if (e instanceof Building && e.bt.wall) {
           this.effects.explosion(p.clone().setY(p.y + 0.3), 'small', 1.2);
         } else if (e instanceof Building) {
+          this.destruction.crater(p.x, p.z, Math.max(e.w, e.h) * 0.55, 0.05); // [DEST] before the scorch so it lies in the crater
           this.effects.explosion(p.clone().setY(p.y + 0.3), 'building', Math.max(e.w, e.h));
           this.effects.scorch(p, Math.max(e.w, e.h) * 1.1);
+          // [DEST] the structure breaks apart into physics-driven chunks
+          if (e.buildAnim >= 1 && e.selling < 0) v.collapsed = this.destruction.collapse(e.id, v.ptype, this.teamColor(e.owner).getHex(), v.model, [e.w, e.h]);
         } else if (e.kind === 'vehicle' || e.kind === 'aircraft') {
+          const u = e as Unit;
+          this.destruction.onImpact(p.x, p.z, p.y, 'large', 1); // [DEST] crater under the wreck
           this.effects.explosion(p.clone().setY(p.y + 0.25), 'large', e.type.id === '4tnk' || e.type.id === 'harv' || e.type.id === 'mcv' ? 1.3 : 1);
           this.effects.scorch(p, 1.1);
           this.charWreck(v);
           v.fire = this.effects.createEmitter('fire', p.clone().setY(p.y + 0.3));
           v.fire.setIntensity(0.7);
+          // [DEST] the wreck bounces and settles, the turret may pop off, parts fly
+          this.destruction.vehicleDeath(e.id, v.model, this.teamColor(e.owner).getHex(), ev.how, !!u.ut.tracked, e.kind === 'vehicle' && !u.ut.tracked, e.kind === 'aircraft' ? u.altitude : 0);
         } else {
           if (ev.how === 'crushed') {
             this.effects.bloodSplat(p);
@@ -337,6 +353,7 @@ export class EntityRenderer {
             this.effects.bloodSplat(p);
           }
           v.anim.deathKind = ev.how;
+          if (e.kind === 'infantry') this.destruction.infantryDeath(e.id, v.model, ev.how); // [DEST] ragdoll
         }
         break;
       }
@@ -359,6 +376,7 @@ export class EntityRenderer {
       case 'impact': {
         _v.set(ev.x, ev.z, ev.y);
         if (this.fog.visibilityAt(ev.x, ev.y) < 0.2 && ev.kind !== 'nuke') return;
+        this.destruction.onImpact(ev.x, ev.y, ev.z, ev.kind, ev.scale); // [DEST] crater first, so the scorch lies in it
         this.effects.explosion(_v.clone(), ev.kind, ev.scale);
         if (ev.kind === 'medium' || ev.kind === 'large' || ev.kind === 'huge') {
           const g = this.world.map.heightAt(ev.x, ev.y);
@@ -370,10 +388,15 @@ export class EntityRenderer {
         if (this.fog.visibilityAt(ev.x, ev.y) > 0.3) this.effects.oreSparkle(new THREE.Vector3(ev.x, this.world.map.heightAt(ev.x, ev.y) + 0.15, ev.y), ev.gems);
         break;
       case 'teleport': {
+        // [DEST] a chrono tank's own jump gets the rift between both ends
+        if (this.views.get(ev.id)?.ent.type.id === 'ctnk') { this.destruction.chronoJump(ev.fromX, ev.fromY, ev.x, ev.y); break; }
         this.effects.chronoFlash(new THREE.Vector3(ev.fromX, this.world.map.surfaceAt(ev.fromX, ev.fromY), ev.fromY));
         this.effects.chronoFlash(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y), ev.y));
         break;
       }
+      case 'quake': // [DEST] M.A.D. tank seismic pulse
+        if (this.fog.visibilityAt(ev.x, ev.y) > 0.2) this.destruction.madPulse(ev.x, ev.y, ev.radius);
+        break;
       case 'ironcurtain':
         this.effects.ironCurtainPulse(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y) + 0.3, ev.y), 2);
         break;
@@ -413,7 +436,8 @@ export class EntityRenderer {
         else this.effects.muzzleFlash(from, dir, 1);
         break;
       case 'heal':
-        this.effects.healPulse(to);
+        // [DEST] the mechanic's wrench throws welding sparks
+        if (w.warhead !== 'Mechanical' || !this.destruction.repair(to.x, to.y, to.z)) this.effects.healPulse(to);
         break;
       case 'melee':
         break;
@@ -455,6 +479,7 @@ export class EntityRenderer {
   private removeView(id: number) {
     const v = this.views.get(id);
     if (!v) return;
+    this.destruction.forget(id); // [DEST]
     this.clearHolo(v);
     v.model.dispose();
     v.smoke?.dispose();
@@ -543,6 +568,7 @@ export class EntityRenderer {
     }
 
     this.updateProjectiles(alpha);
+    this.destruction.update(dt, time); // [DEST]
     this.bracketMat.uniforms.uTime.value = time;
     this.primed = true;
   }
@@ -671,6 +697,7 @@ export class EntityRenderer {
       for (const c of v.chimneys) c.setIntensity(on);
     }
     this.damageEmitters(v, b.healthFrac, root.visible && b.buildAnim >= 1, _e.set(b.x, g + v.model.height * 0.8, b.y), 1 + Math.max(b.w, b.h) * 0.3);
+    if (!b.bt.wall) this.destruction.buildingDamage(b.id, v.ptype, [b.w, b.h], b.x, g, b.y, b.healthFrac, root.visible && b.buildAnim >= 1 && b.selling < 0, v.model, anim); // [DEST] roof fires / smoke, steam vents
   }
 
   private damageEmitters(v: View, hf: number, visible: boolean, pos: THREE.Vector3, size: number) {
@@ -705,11 +732,18 @@ export class EntityRenderer {
       _q.setFromUnitVectors(UP, _n);
       v.quat.copy(_q).multiply(_qy);
       root.quaternion.slerp(v.quat, Math.min(1, dt * 10));
+    } else if (u.kind === 'naval' && Water.current) {
+      // ride the sea swell: lift with the surface and lean with its slope (the model adds its own bob and roll)
+      const s = Water.current.surfaceOffset(x, y, undefined, _swell);
+      _n.set(s.nx, s.ny, s.nz);
+      _q.setFromUnitVectors(UP, _n);
+      v.quat.copy(_q).multiply(_qy);
+      root.quaternion.slerp(v.quat, Math.min(1, dt * 4));
     } else {
       root.quaternion.copy(_qy);
     }
     const alt = u.kind === 'aircraft' ? u.altitude : u.parachute > 0 ? (u.parachute / PARACHUTE_SECONDS) * DROP_HEIGHT : 0;
-    root.position.set(x, g + alt, y);
+    root.position.set(x, g + alt + (u.kind === 'naval' && Water.current ? _swell.y : 0), y);
     if (u.ut.supportPlane && root.visible) this.updateTrails(v);
     if (v.model.turret) v.model.turret.rotation.y = -(turret - heading);
     anim.moving = u.moving;
@@ -750,6 +784,7 @@ export class EntityRenderer {
     const e = v.ent;
     const root = v.model.root;
     if (e instanceof Building) {
+      if (v.collapsed) return false; // [DEST] the fracture took the model's place
       if (v.deathHow === 'sold') {
         // shrink back into the ground
         const s = Math.max(0, 1 - v.deathT / 0.5);
@@ -766,7 +801,7 @@ export class EntityRenderer {
     if (e.kind === 'infantry') {
       v.anim.dying = Math.min(1, v.deathT / 0.9);
       v.anim.time += dt;
-      if (v.deathHow !== 'crushed') v.model.update(v.anim);
+      if (v.deathHow !== 'crushed' && !this.destruction.hasRagdoll(e.id)) v.model.update(v.anim); // [DEST] ragdolls pose the bones themselves
       if (v.deathT > 4) root.position.y -= dt * 0.15;
       return v.deathT < 6;
     }
@@ -883,6 +918,7 @@ export class EntityRenderer {
   }
 
   dispose() {
+    this.destruction.dispose(); // [DEST]
     this.warm.removeFromParent();
     if (this.scene.userData.preRender === this.preRender) delete this.scene.userData.preRender;
     for (const id of [...this.views.keys()]) this.removeView(id);

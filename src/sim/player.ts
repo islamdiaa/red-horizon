@@ -1,6 +1,6 @@
 import { BUILDINGS, UNITS, getType, isBuildingType, type Faction, type TypeDef } from '../data/rules';
 import type { AnnouncerKey } from '../audio/types';
-import type { QueueKind } from './types';
+import type { PlanItem, QueueKind } from './types';
 import type { SuperKind } from './superweapons';
 
 export interface QueueItem {
@@ -117,6 +117,8 @@ export class Player {
   /** Naval yards (shipyard / sub pen) destroyed so far and the tick of the last loss (naval AI pacing). */
   yardsLost = 0;
   yardLostTick = -1e9;
+  /** [CTRL] Planned build order (orders.ts): built and placed in order by the Construction Yard. */
+  buildPlan: (PlanItem & { started?: boolean; placing?: number; wait?: number })[] = [];
 
   constructor(opts: { id: number; name: string; faction: Faction; color: number; team: number; isHuman: boolean; cash: number; mapCells: number }) {
     this.id = opts.id;

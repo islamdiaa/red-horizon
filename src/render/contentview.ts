@@ -33,6 +33,10 @@ export function contentAnim(e: Entity, viewer: Player, anim: ModelAnimState) {
   if (e instanceof Unit) {
     if (e.ut.cloakable) anim.submerged = e.submerged && e.surfacing <= 0 ? 1 : 0;
     anim.parachute = e.parachute > 0 ? 1 : 0;
+    // Aftermath: M.A.D. tank rig / ram, chrono tank emitter recharge, demolition truck arming light
+    if (e.ut.quake) { anim.deployed = e.madStage > 0 ? 1 : 0; anim.charge = e.madCharge; }
+    else if (e.ut.chronoShift) anim.charge = 1 - e.chronoCooldown / e.ut.chronoShift;
+    else if (e.ut.demolition) anim.charge = e.armed ? 0.75 : 0;
     if (e.ut.gapRadius || e.ut.jamRadius) anim.deployed = e.moving ? 0.3 : 1;
     else if (e.ut.id === 'lst') anim.deployed = e.ramp;
     else if (e.ut.id === 'tran') anim.deployed = (e.altitude ?? 1) < 0.05 && e.passengers.length < (e.ut.passengers ?? 0) ? 1 : 0;

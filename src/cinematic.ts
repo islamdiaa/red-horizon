@@ -21,6 +21,24 @@ body.cine-active #ui > * { pointer-events: none !important; }
 #ui, .overlay-canvas { transition: opacity 0.8s ease-out; }
 `;
 
+/** [FX] Ease the cinematic lens (depth of field 0..1, camera motion blur 0..1) to new values. */
+interface LensHost { cinematicDof: number; cinematicBlur: number }
+const lensAnims = new WeakMap<LensHost, number>();
+function lensTo(gfx: LensHost, dof: number, blur: number, seconds: number) {
+  const prev = lensAnims.get(gfx);
+  if (prev) cancelAnimationFrame(prev);
+  const d0 = gfx.cinematicDof, b0 = gfx.cinematicBlur, t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / Math.max(1, seconds * 1000));
+    const e = k * k * (3 - 2 * k);
+    gfx.cinematicDof = d0 + (dof - d0) * e;
+    gfx.cinematicBlur = b0 + (blur - b0) * e;
+    if (k < 1) lensAnims.set(gfx, requestAnimationFrame(step));
+    else lensAnims.delete(gfx);
+  };
+  step();
+}
+
 function typeInto(el: HTMLElement, text: string, cps: number, cancelled: () => boolean): Promise<void> {
   return new Promise((resolve) => {
     let i = 0;
@@ -101,6 +119,7 @@ export function playIntro(game: Game, onDone: () => void) {
     body.classList.remove('cine-on');
     body.classList.remove('cine-active');
     fade.style.opacity = '0';
+    lensTo(game.gfx, 0, 0, 1.4);
     timers.push(window.setTimeout(() => els.forEach((e) => e.remove()), 1200));
     game.resume();
     const t0 = performance.now();
@@ -133,6 +152,8 @@ export function playIntro(game: Game, onDone: () => void) {
     cam.targetYaw = 0;
     cam.flyToPoint(start.x, start.y + 1, 4.2);
     cam.targetDist = 22;
+    // [FX] lens: shallow focus on the base below, motion blur through the dive
+    lensTo(game.gfx, 0.55, 0.7, 1.0);
   }, 600));
   const l1 = text.querySelector('[data-l="1"]') as HTMLElement;
   const l2 = text.querySelector('[data-l="2"]') as HTMLElement;
@@ -202,6 +223,7 @@ export function nukeCinematic(game: Game, silo: { x: number; y: number }, target
   cam.zoomDamp = 0.2;
   cam.flyToPoint(silo.x, silo.y, 0.7);
   cam.targetDist = 18;
+  lensTo(game.gfx, 0.45, 0.6, 0.6); // [FX] cinematic lens while following the missile
   const timers: number[] = [];
   let done = false;
   // satellite uplink: the strike is watched through a partly lifted fog of war (shroud would show only black)
@@ -223,6 +245,7 @@ export function nukeCinematic(game: Game, silo: { x: number; y: number }, target
     game.speed = saved.speed;
     cam.zoomDamp = 0.0001;
     fogTarget = 1;
+    lensTo(game.gfx, 0, 0, 1.0);
   };
   const skip = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); cam.flyToPoint(target.x, target.y, 0.4); finish(); };
   window.addEventListener('keydown', skip, true);
@@ -256,7 +279,7 @@ const END_CSS = `
 `;
 
 /** Slow-motion finale overlay: letterbox + VICTORY / DEFEAT title. Returns a remover. */
-export function endingCinematic(won: boolean, subtitle: string): () => void {
+export function endingCinematic(won: boolean, subtitle: string, gfx?: LensHost): () => void {
   ensureStyle('cine-style', CSS);
   ensureStyle('end-style', END_CSS);
   const body = document.body;
@@ -269,7 +292,9 @@ export function endingCinematic(won: boolean, subtitle: string): () => void {
   body.append(...bars, t);
   body.classList.add('cine-active');
   requestAnimationFrame(() => { body.classList.add('cine-on'); t.classList.add('on'); });
+  if (gfx) lensTo(gfx, 0.65, 0.25, 2.0); // [FX] slow-motion finale through a shallow lens
   return () => {
+    if (gfx) lensTo(gfx, 0, 0, 0.8);
     body.classList.remove('cine-on', 'cine-active');
     t.remove();
     setTimeout(() => bars.forEach((b) => b.remove()), 900);

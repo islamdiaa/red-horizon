@@ -324,3 +324,15 @@ export class AmbientMotes {
     }
   }
 }
+
+/** Mechanic's wrench at work on a vehicle: welding sparks, a white-blue arc flash and a puff of smoke. */
+export function repairSparks(ctx: FxContext, x: number, y: number, z: number): void {
+  flash(ctx, x, y + 0.08, z, 0.35, 2.4, 0, 0.08, 0.7, 0.85, 1.4);
+  sparks(ctx, x, y + 0.08, z, count(ctx, 9, 4), 1.8, 0, { up: 0.8, life: 0.45, size: 0.02, gravity: -5, r: 1, g: 0.8, b: 0.45 });
+  sparks(ctx, x, y + 0.08, z, 3, 1.2, 0.12, { up: 0.6, life: 0.35, size: 0.016, gravity: -5, r: 0.8, g: 0.9, b: 1.3 });
+  const s = ctx.main.begin();
+  s.at(x, y + 0.1, z).vel(spread(0.05), range(0.15, 0.3), spread(0.05)).motion(range(0.8, 1.2), 0, 0.5)
+    .size(0.06, 0.22, 1.5).spin(rnd() * TAU, spread(0.5)).color(1, 1, 1, 0.35).look(F.SMOKE_A, R.SMOKE, M.LIT).fade(0.1, 0.5);
+  s.wind = 0.6;
+  ctx.main.emit(s);
+}

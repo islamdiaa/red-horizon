@@ -3,14 +3,28 @@ import { GameMap, WATER_LEVEL } from '../sim/map';
 import { hash2 } from '../core/rng';
 import { getDummyShadowTexture, getNoiseTexture, TNOISE_GLSL } from './terrain';
 import type { Weather } from './weather';
+import { RippleSim } from './watersim';
 
 /**
- * World Y of every water surface. Identical to the simulation's WATER_LEVEL (-0.32). The surface mesh is
- * perfectly flat (the waves are in the shading only), so ships placed at this height float exactly on it.
+ * World Y of every water surface. Identical to the simulation's WATER_LEVEL (-0.32). The mean surface stays
+ * there (gameplay height never changes); on open sea the rendered surface rolls with Gerstner waves around it
+ * (see Water.surfaceOffset for pitching ships with the swell).
  */
 export const WATER_SURFACE_Y = WATER_LEVEL;
 
 const MAX_RIPPLES = 24;
+/** Gerstner wave trains (open sea). */
+const NWAVES = 5;
+
+/** Wave surface sample (see Water.surfaceOffset). */
+export interface WaterSurfaceSample {
+  /** Height offset from WATER_SURFACE_Y (world units). */
+  y: number;
+  /** Surface normal. */
+  nx: number;
+  ny: number;
+  nz: number;
+}
 
 /** Tileable wave normal map (256²): derivatives of a sum of travelling-wave-like sines plus fine noise. */
 function makeWaveNormals(): THREE.DataTexture {
@@ -63,7 +77,10 @@ function makeWaveNormals(): THREE.DataTexture {
 }
 
 /**
- * Water: an opaque, flat surface at WATER_SURFACE_Y drawn last among the opaque objects. Right before it
+ * Water: an opaque surface at WATER_SURFACE_Y drawn last among the opaque objects. On open sea (medium / high)
+ * it is a vertex grid rolling with Gerstner swell (foam on the breaking crests, faded out towards every shore and
+ * on small lakes; `surfaceOffset` gives ships the same motion), and on high an interactive heightfield
+ * (watersim.ts) carries ship wakes and shell rings. Right before it
  * draws, the opaque scene colour and depth are copied (one GPU blit), so the shader can:
  *   - refract and tint what lies under the surface by the real thickness of water along the view ray
  *     (clear turquoise shallows, deep blue-green depths), with animated caustics on the bottom;
@@ -90,6 +107,19 @@ export class Water {
   private heightTex: THREE.DataTexture;
   private normalTex: THREE.DataTexture;
   private hasWater: boolean;
+  /** Open-sea factor per height texel (0 near shore / on lakes .. 1 open sea) and its texture. */
+  private sea: Float32Array;
+  private seaW: number;
+  private seaH: number;
+  private seaTex: THREE.DataTexture;
+  /** Gerstner waves on this map (medium / high, open water). */
+  readonly waves: boolean;
+  private waveA: THREE.Vector4[] = [];
+  private waveB: THREE.Vector4[] = [];
+  private waveAmp = 0.7;
+  private nWaves = NWAVES;
+  /** Interactive heightfield ripples (high). */
+  private ripples3: RippleSim | null = null;
 
   constructor(map: GameMap, heightAt: (x: number, y: number) => number, sunDir: THREE.Vector3, frozen = false, quality: 'low' | 'medium' | 'high' = 'high') {
     // height texture (one texel per 0.5 cell) used for shoreline foam and the low-quality depth tint
@@ -111,14 +141,35 @@ export class Water {
     tex.needsUpdate = true;
     this.heightTex = tex;
     this.normalTex = makeWaveNormals();
+    // [FX] open-sea mask: distance to the nearest shore, damped on small bodies (lakes stay calm)
+    this.seaW = tw;
+    this.seaH = th;
+    this.sea = buildSeaMask(data, tw, th, res);
+    const seaBytes = new Uint8Array(tw * th);
+    for (let i = 0; i < tw * th; i++) seaBytes[i] = Math.round(this.sea[i] * 255);
+    this.seaTex = new THREE.DataTexture(seaBytes, tw, th, THREE.RedFormat, THREE.UnsignedByteType);
+    this.seaTex.magFilter = this.seaTex.minFilter = THREE.LinearFilter;
+    this.seaTex.generateMipmaps = false;
+    this.seaTex.needsUpdate = true;
 
     this.hasWater = maxX >= minX;
+    this.nWaves = quality === 'high' ? NWAVES : 3;
     if (!this.hasWater) { minX = 0; maxX = 1; minY = 0; maxY = 1; }
     minX = Math.max(0, minX - 1); minY = Math.max(0, minY - 1);
     maxX = Math.min(map.w, maxX + 1); maxY = Math.min(map.h, maxY + 1);
-    const geo = new THREE.PlaneGeometry(maxX - minX, maxY - minY, 1, 1);
+    // waves need vertices: a grid on medium / high where there is open sea, one quad otherwise
+    let seaMax = 0;
+    for (let i = 0; i < this.sea.length; i++) seaMax = Math.max(seaMax, this.sea[i]);
+    this.waves = quality !== 'low' && !frozen && this.hasWater && seaMax > 0.05;
+    const cell = quality === 'high' ? 0.5 : 1;
+    const segX = this.waves ? Math.max(1, Math.ceil((maxX - minX) / cell)) : 1;
+    const segY = this.waves ? Math.max(1, Math.ceil((maxY - minY) / cell)) : 1;
+    const geo = new THREE.PlaneGeometry(maxX - minX, maxY - minY, segX, segY);
     geo.rotateX(-Math.PI / 2);
     geo.translate((minX + maxX) / 2, WATER_LEVEL, (minY + maxY) / 2);
+    for (let i = 0; i < NWAVES; i++) { this.waveA.push(new THREE.Vector4()); this.waveB.push(new THREE.Vector4()); }
+    this.buildWaves(0.6, 0.2);
+    if (this.waves && quality === 'high') this.ripples3 = new RippleSim(256, 48);
 
     for (let i = 0; i < MAX_RIPPLES; i++) this.ripples.push(new THREE.Vector4(0, 0, -100, 0));
 
@@ -129,6 +180,8 @@ export class Water {
     if (quality !== 'low') defines.SHADOWS = '';
     if (frozen) defines.ICE = '';
     if (quality === 'low') defines.LOW = '';
+    if (this.waves) { defines.WAVES = ''; defines.NWAVES = String(quality === 'high' ? NWAVES : 3); }
+    if (this.ripples3) defines.RIPPLE_SIM = '';
     if (refract) {
       this.copy = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter });
       this.copy.depthTexture = new THREE.DepthTexture(1, 1);
@@ -168,12 +221,58 @@ export class Water {
         uNight: { value: 0 },
         uOvercast: { value: 0 },
         uRipples: { value: this.ripples },
+        tSea: { value: this.seaTex },
+        uWaveA: { value: this.waveA },
+        uWaveB: { value: this.waveB },
+        uWaveAmp: { value: 0.7 },
+        tRipple: { value: null },
+        uRippleXf: { value: new THREE.Vector4(0, 0, 1, 0) },
       },
       vertexShader: /* glsl */ `
+        uniform float uTime, uWaveAmp;
+        uniform vec2 uMapSize;
         varying vec3 vWPos;
         varying vec3 vVPos;
+        varying vec3 vGN;
+        varying float vCrest;
+        varying float vSea;
+        varying float vWaveH;
+        #ifdef WAVES
+          uniform sampler2D tSea;
+          uniform vec4 uWaveA[NWAVES];
+          uniform vec4 uWaveB[NWAVES];
+        #endif
         void main() {
           vec4 wp = modelMatrix * vec4(position, 1.0);
+          vGN = vec3(0.0, 1.0, 0.0);
+          vCrest = 1.0;
+          vSea = 0.0;
+          vWaveH = 0.0;
+          #ifdef WAVES
+          {
+            // Gerstner swell, faded out towards every shore (and on small lakes)
+            float sea = texture2D(tSea, wp.xz / uMapSize).r;
+            vSea = sea;
+            float amp = sea * uWaveAmp;
+            vec3 d = vec3(0.0);
+            vec3 n = vec3(0.0, 1.0, 0.0);
+            float jac = 1.0;
+            for (int i = 0; i < NWAVES; i++) {
+              vec4 a = uWaveA[i], b = uWaveB[i];
+              float th = a.z * dot(a.xy, wp.xz) - b.x * uTime + b.y;
+              float A = a.w * amp, s = sin(th), c = cos(th);
+              d.xz += b.z * A * a.xy * c;
+              d.y += A * s;
+              n.xz -= a.xy * (a.z * A * c);
+              n.y -= b.z * a.z * A * s;
+              jac -= b.z * a.z * A * s;
+            }
+            wp.xyz += d;
+            vGN = normalize(n);
+            vCrest = jac;
+            vWaveH = d.y;
+          }
+          #endif
           vWPos = wp.xyz;
           vec4 vp = viewMatrix * wp;
           vVPos = vp.xyz;
@@ -187,6 +286,14 @@ export class Water {
         uniform float uWaterLevel, uChop, uRain, uNight, uShadowOn, uOvercast;
         uniform vec4 uRipples[${MAX_RIPPLES}];
         uniform mat4 uViewInv, uProj;
+        varying vec3 vGN;
+        varying float vCrest;
+        varying float vSea;
+        varying float vWaveH;
+        #ifdef RIPPLE_SIM
+          uniform sampler2D tRipple;
+          uniform vec4 uRippleXf;
+        #endif
         #ifdef SHADOWS
           uniform sampler2DShadow tShadow;
           uniform mat4 uShadowMatrix;
@@ -274,10 +381,26 @@ export class Water {
           #else
             vec2 n2 = texture2D(tNormal, p * 0.29 * mat2(0.8, -0.6, 0.6, 0.8) - wdir.yx * uTime * 0.05).rg * 2.0 - 1.0;
             vec2 slope = (n1 * 0.55 + n2 * 0.45) * (0.16 + uChop * 0.2) * fade;
-            slope += ripples(p) * 0.35;
+            #ifdef RIPPLE_SIM
+              // interactive surface (ship wakes, shell rings) from the heightfield simulation
+              vec2 rpUv = (p - uRippleXf.xy) * uRippleXf.z;
+              float rpK = uRippleXf.w * step(0.0, rpUv.x) * step(0.0, rpUv.y) * step(rpUv.x, 1.0) * step(rpUv.y, 1.0);
+              float rpT = 1.0 / 256.0;
+              float rp0 = texture2D(tRipple, rpUv).r;
+              vec2 rpG = vec2(texture2D(tRipple, rpUv + vec2(rpT, 0.0)).r - rp0, texture2D(tRipple, rpUv + vec2(0.0, rpT)).r - rp0);
+              slope += rpG * 1.3 * rpK;
+              float rippleFoam = smoothstep(0.2, 0.6, abs(rp0)) * rpK;
+            #else
+              slope += ripples(p) * 0.35;
+              float rippleFoam = 0.0;
+            #endif
             if (uRain > 0.01) slope += rainRipples(p) * 0.22 * uRain;
           #endif
-          vec3 N = normalize(vec3(-slope.x, 1.0, -slope.y));
+          #ifdef LOW
+            float rippleFoam = 0.0;
+          #endif
+          // swell normal (Gerstner) tilted by the detail waves
+          vec3 N = normalize(vGN + vec3(-slope.x, 0.0, -slope.y));
 
           // ---- lighting terms
           float NdotV = max(dot(N, V), 0.0);
@@ -380,7 +503,7 @@ export class Water {
             col = mix(body, refl, rk);
             // foam where anything cuts the surface (shore, hulls, rocks): vertical gap from the depth buffer
             vec3 behindW = (uViewInv * vec4(behind, 1.0)).xyz;
-            float gap = max(uWaterLevel - behindW.y, 0.0);
+            float gap = max(vWPos.y - behindW.y, 0.0);
             foamMask = smoothstep(0.035, 0.0, min(gap, max(depthV, 0.0)));
           #else
             if (depthV < -0.02) discard;
@@ -392,6 +515,8 @@ export class Water {
             foamMask = smoothstep(0.035, 0.0, depthV);
           #endif
           col += spec;
+          // light through the thin crests of the swell (turquoise), deeper troughs
+          col += uShallow * light * clamp(vWaveH * 2.6, -0.4, 1.0) * 0.8;
 
           // ---- foam: waves lapping up the beach (bands travelling shorewards), the waterline, whitecaps
           float shoreD = max(depthV, 0.0);
@@ -401,9 +526,14 @@ export class Water {
           // whitecaps: small streaks on the sharpest crests of the finer wave layer, only in strong wind
           float crest = texture2D(tNormal, p * 0.29 * mat2(0.8, -0.6, 0.6, 0.8) - wdir.yx * uTime * 0.05).b;
           float streak = smoothstep(0.55, 0.85, tn_noise(p * vec2(6.0, 1.5) + wdir * uTime * 0.4));
-          float whitecap = smoothstep(0.9, 0.99, crest) * smoothstep(0.55, 1.0, uChop) * streak * 0.6;
+          // (the crest mask saturates on the tallest crests: a wide ramp plus fine froth noise keeps the caps from
+          // reading as flat, hard-edged polygons)
+          float froth = smoothstep(0.35, 0.75, tn_noise(p * 14.0 + wdir * uTime * 0.6) * 0.65 + tn_noise(p * 27.0 - wdir * uTime * 0.9) * 0.35);
+          float whitecap = smoothstep(0.72, 1.0, crest) * smoothstep(0.55, 1.0, uChop) * streak * froth * 0.5 * (0.3 + 0.7 * smoothstep(0.2, 0.8, tn_noise(p * 4.3 - wdir * uTime * 0.3)));
           float lace = smoothstep(0.25, 0.7, tn_noise(p * 9.0 + vec2(uTime * 0.2, 0.0)) * 0.6 + breakup * 0.6);
-          float foam = clamp(foamMask * (0.25 + 0.6 * lace) + band * lace * 0.45 + whitecap * 0.7, 0.0, 0.92);
+          // breaking crests of the swell (Gerstner compression) and churned water in wakes
+          float crestFoam = smoothstep(0.9, 0.6, vCrest) * smoothstep(0.35, 1.0, uChop) * (0.35 + 0.65 * tn_fbm(p * 1.7 + wdir * uTime * 0.5)) * lace;
+          float foam = clamp(foamMask * (0.25 + 0.6 * lace) + band * lace * 0.45 + whitecap * 0.7 + crestFoam * 0.55 + rippleFoam * lace * 0.45, 0.0, 0.92);
           vec3 foamCol = vec3(0.82, 0.86, 0.88) * mix(light, vec3(dot(light, vec3(0.33))), 0.5) * 0.9;
           col = mix(col, foamCol, foam);
 
@@ -459,6 +589,88 @@ export class Water {
     this.material.uniforms.uRes.value.set(w, h);
   }
 
+  /** Fixed wave trains (directions around the prevailing wind): changing them later would slide the crests. */
+  private buildWaves(wx: number, wz: number) {
+    const base = Math.atan2(wz, wx);
+    const spec: [number, number, number, number][] = [
+      // wavelength, angle offset, Gerstner steepness, slope (k * amplitude) at scale 1
+      [18, 0.3, 0.3, 0.035], [9.5, -0.45, 0.5, 0.05], [5.6, 0.8, 0.6, 0.09], [3.5, -1.1, 0.65, 0.08], [2.2, 0.25, 0.7, 0.07],
+    ];
+    for (let i = 0; i < NWAVES; i++) {
+      const [L, off, Q, slope] = spec[i];
+      const k = (Math.PI * 2) / L;
+      const a = base + off;
+      this.waveA[i].set(Math.cos(a), Math.sin(a), k, i < this.nWaves ? slope / k : 0);
+      this.waveB[i].set(Math.sqrt(9.8 * k) * 0.42, hash2(i, 7, 13) * Math.PI * 2, Q, 0);
+    }
+  }
+
+  /** Open-sea factor at world (x, z) (0 near shore and on small lakes, 1 out at sea). */
+  seaFactor(x: number, z: number): number {
+    const fx = Math.max(0, Math.min(this.seaW - 1.001, x * 2)), fz = Math.max(0, Math.min(this.seaH - 1.001, z * 2));
+    const i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
+    const S = this.sea, w = this.seaW, k = j * w + i;
+    return (S[k] * (1 - tx) + S[k + 1] * tx) * (1 - tz) + (S[k + w] * (1 - tx) + S[k + w + 1] * tx) * tz;
+  }
+
+  /**
+   * The rolling surface at world (x, z) (default: now): height offset from WATER_SURFACE_Y and normal, so
+   * ships can pitch and roll with the swell. Calm (0, up) on lakes, near shores, on low quality and on ice.
+   * Gameplay heights never change. Pass `out` to avoid an allocation.
+   */
+  surfaceOffset(x: number, z: number, time = this.time, out: WaterSurfaceSample = { y: 0, nx: 0, ny: 1, nz: 0 }): WaterSurfaceSample {
+    out.y = 0; out.nx = 0; out.ny = 1; out.nz = 0;
+    if (!this.waves) return out;
+    const amp = this.seaFactor(x, z) * this.waveAmp;
+    if (amp <= 1e-4) return out;
+    let y = 0, nx = 0, ny = 1, nz = 0;
+    for (let i = 0; i < this.nWaves; i++) {
+      const a = this.waveA[i], b = this.waveB[i];
+      const th = a.z * (a.x * x + a.y * z) - b.x * time + b.y;
+      const A = a.w * amp, s = Math.sin(th), c = Math.cos(th);
+      y += A * s;
+      nx -= a.x * a.z * A * c;
+      nz -= a.y * a.z * A * c;
+      ny -= b.z * a.z * A * s;
+    }
+    const l = Math.hypot(nx, ny, nz) || 1;
+    out.y = y; out.nx = nx / l; out.ny = ny / l; out.nz = nz / l;
+    return out;
+  }
+
+  /**
+   * Moving ships push the interactive surface at their bows every frame (wakes). Call once per frame with
+   * the visible ships (map coordinates, heading in radians, speed 0..1, size ~ hull length).
+   */
+  driveShips(ships: readonly { x: number; y: number; heading: number; speed: number; size: number }[]) {
+    const sim = this.ripples3;
+    if (!sim) return;
+    for (const sh of ships) {
+      if (sh.speed <= 0.02) continue;
+      const r = sh.size * 0.45;
+      sim.drop(sh.x + Math.cos(sh.heading) * r, sh.y + Math.sin(sh.heading) * r, -0.02 * sh.speed, 0.16 + 0.12 * sh.size);
+    }
+  }
+
+  /** Step the interactive ripples around the camera (once per rendered frame). Returns its draw calls. */
+  simulate(renderer: THREE.WebGLRenderer, cx: number, cz: number, dt: number): number {
+    const sim = this.ripples3;
+    if (!sim || !this.mesh.visible) return 0;
+    sim.update(renderer, cx, cz, dt);
+    const u = this.material.uniforms;
+    u.tRipple.value = sim.texture;
+    u.uRippleXf.value.set(sim.origin.x, sim.origin.y, 1 / sim.size, sim.active ? 1 : 0);
+    return sim.calls;
+  }
+
+  /** Shader warm-up for the ripple simulation program. */
+  warmUp(renderer: THREE.WebGLRenderer) {
+    if (this.ripples3) {
+      this.ripples3.warmUp(renderer);
+      this.material.uniforms.tRipple.value = this.ripples3.texture;
+    }
+  }
+
   /**
    * Per-frame light: sun (or moon at night) direction / colour / intensity, sky and haze colours, and the
    * weather (wind chop, rain ripples, storm whitecaps).
@@ -475,6 +687,10 @@ export class Water {
       u.uWind.value.copy(wx.wind);
       const wind = Math.hypot(wx.wind.x, wx.wind.y);
       u.uChop.value = Math.min(1, 0.15 + wind * 0.09 + wx.levels.storm * 0.4);
+      // swell height follows the weather (eased: no sudden jumps)
+      const target = 0.55 + 0.65 * u.uChop.value;
+      this.waveAmp += (target - this.waveAmp) * 0.02;
+      u.uWaveAmp.value = this.waveAmp;
       u.uRain.value = Math.max(wx.levels.rain, wx.levels.storm);
       u.uOvercast.value = wx.overcast;
     }
@@ -499,6 +715,8 @@ export class Water {
     const r = this.ripples[this.nextRipple];
     r.set(x, z, this.time, Math.min(2.5, strength));
     this.nextRipple = (this.nextRipple + 1) % MAX_RIPPLES;
+    // the interactive surface gets a real disturbance (high)
+    this.ripples3?.drop(x, z, 0.3 * Math.min(2.5, strength), 0.2 + 0.12 * Math.min(2.5, strength));
   }
 
   /** Is (x, z) over water (ground below the surface)? */
@@ -514,7 +732,79 @@ export class Water {
     this.copy?.dispose();
     this.heightTex.dispose();
     this.normalTex.dispose();
+    this.seaTex.dispose();
+    this.ripples3?.dispose();
     this.material.dispose();
     this.mesh.geometry.dispose();
   }
+}
+
+/**
+ * Open-sea factor per height texel: distance to the nearest dry texel (multi-source BFS, in cells) mapped to
+ * 0..1, damped on small water bodies so lakes stay calm while seas roll.
+ */
+function buildSeaMask(h: Float32Array, w: number, hgt: number, res: number): Float32Array {
+  const n = w * hgt;
+  const wet = new Uint8Array(n);
+  for (let i = 0; i < n; i++) wet[i] = h[i] < WATER_LEVEL - 0.02 ? 1 : 0;
+  // connected water bodies and their areas (texels)
+  const comp = new Int32Array(n).fill(-1);
+  const area: number[] = [];
+  const stack: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!wet[i] || comp[i] >= 0) continue;
+    const id = area.length;
+    let a = 0;
+    comp[i] = id;
+    stack.push(i);
+    while (stack.length) {
+      const k = stack.pop()!;
+      a++;
+      const x = k % w, y = (k / w) | 0;
+      if (x > 0 && wet[k - 1] && comp[k - 1] < 0) { comp[k - 1] = id; stack.push(k - 1); }
+      if (x < w - 1 && wet[k + 1] && comp[k + 1] < 0) { comp[k + 1] = id; stack.push(k + 1); }
+      if (y > 0 && wet[k - w] && comp[k - w] < 0) { comp[k - w] = id; stack.push(k - w); }
+      if (y < hgt - 1 && wet[k + w] && comp[k + w] < 0) { comp[k + w] = id; stack.push(k + w); }
+    }
+    area.push(a);
+  }
+  // distance to land (texels), 4-neighbour BFS from every dry texel
+  const dist = new Float32Array(n).fill(1e9);
+  const q = new Int32Array(n);
+  let qh = 0, qt = 0;
+  for (let i = 0; i < n; i++) if (!wet[i]) { dist[i] = 0; q[qt++] = i; }
+  while (qh < qt) {
+    const k = q[qh++];
+    const x = k % w, y = (k / w) | 0, d = dist[k] + 1;
+    if (x > 0 && dist[k - 1] > d) { dist[k - 1] = d; q[qt++] = k - 1; }
+    if (x < w - 1 && dist[k + 1] > d) { dist[k + 1] = d; q[qt++] = k + 1; }
+    if (y > 0 && dist[k - w] > d) { dist[k - w] = d; q[qt++] = k - w; }
+    if (y < hgt - 1 && dist[k + w] > d) { dist[k + w] = d; q[qt++] = k + w; }
+  }
+  const out = new Float32Array(n);
+  const sm = (e0: number, e1: number, x: number) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i < n; i++) {
+    if (!wet[i]) continue;
+    const cells = dist[i] / res;
+    // bodies under ~150 cells are lakes: a gentle ripple at most
+    const body = sm(150, 600, area[comp[i]] / (res * res));
+    out[i] = sm(1.2, 7, cells) * (0.25 + 0.75 * body);
+  }
+  // soften the BFS diamond pattern
+  const tmp = new Float32Array(n);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) {
+      const k = y * w + x;
+      let s = 0, c = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= hgt) continue;
+        s += out[yy * w + xx];
+        c++;
+      }
+      tmp[k] = wet[k] ? s / c : 0;
+    }
+    out.set(tmp);
+  }
+  return out;
 }

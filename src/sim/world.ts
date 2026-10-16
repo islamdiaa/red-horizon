@@ -10,6 +10,7 @@ import { pickWeapon, updateBuildingWeapons, updateProjectiles, updateUnitWeapons
 import { engineerCanEnter, pathRemaining, resolveCollisions, unitSpeed, updateUnit } from './unitlogic';
 import { updateProduction, recalcPlayerEconomy } from './production';
 import { AIController, type AIDifficulty } from './ai';
+import type { Personality } from './ai-personality'; // [AI]
 import { updateSuperweapons, fireSuperweapon } from './superweapons';
 import type { MissionRuntime } from './mission';
 import { navalDeploy, navalLaunchOk, placeNaval, sonarPulse, updateNaval } from './naval';
@@ -17,6 +18,9 @@ import { contentPostMove, contentPreTick, contentStepUnit, contentVisibility } f
 import { canInfiltrate } from './infiltration';
 import { deployMinelayer, orderMinefield } from './mines';
 import { initBridges, orderRepairBridge, type Bridge } from './bridges';
+import { aftermathDeploy, aftermathKilled, aftermathStepUnit, chronoJump } from './aftermath'; // [CONTENT]
+import { formationMove, newCtrlState, type CtrlState } from './formation'; // [CTRL]
+import { ordersCommand, ordersPreTick } from './orders'; // [CTRL]
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -45,6 +49,8 @@ export interface PlayerSetup {
   team: number;
   isHuman: boolean;
   ai?: AIDifficulty;
+  /** [AI] Commander personality of an AI player (id or full trait object, ai-personality.ts); default = balanced. */
+  personality?: string | Personality;
 }
 
 export interface WorldOptions {
@@ -131,6 +137,8 @@ export class World {
   winnerTeam = -1;
   /** Scripted mission driving this world (campaign / survival / challenges). */
   mission: MissionRuntime | null = null;
+  /** [CTRL] Formations in transit (formation.ts); saved. */
+  ctrl: CtrlState = newCtrlState();
   private nextId = 1;
   /** Projectile ids (their own namespace; renderers key effects by them). */
   nextProjectileId = 1;
@@ -156,7 +164,7 @@ export class World {
     opts.players.forEach((ps, i) => {
       const p = new Player({ id: i, name: ps.name, faction: ps.faction, color: ps.color, team: ps.team, isHuman: ps.isHuman, cash: opts.creditsPer?.[i] ?? opts.credits, mapCells: cells });
       this.players.push(p);
-      if (ps.ai) this.ais.push(new AIController(this, p, ps.ai));
+      if (ps.ai) this.ais.push(new AIController(this, p, ps.ai, ps.personality)); // [AI] personality
     });
     this.setupStart(opts.startUnits, opts.startUnitsPer);
     for (const p of this.players) {
@@ -329,6 +337,7 @@ export class World {
         owner.stats.unitsLost++;
       }
       e.passengers.length = 0;
+      if (e.ut.demolition) aftermathKilled(this, e, how); // [CONTENT] a demolition truck goes off
     }
   }
 
@@ -425,6 +434,7 @@ export class World {
       case 'move': {
         const units = this.ownedUnits(cmd.player, cmd.units);
         if (!units.length) return;
+        if (formationMove(this, units, cmd)) break; // [CTRL] group moves in formation
         const dests = this.formation(units, cmd.x, cmd.y);
         // mixed groups travel together at the pace of their slowest member
         const ground = units.filter((u) => u.kind !== 'aircraft' && u.kind !== 'naval');
@@ -479,6 +489,7 @@ export class World {
         break;
       case 'deploy':
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
+          if (aftermathDeploy(this, u)) continue; // [CONTENT] M.A.D. charge, demolition truck, chrono tank
           if (u.kind === 'naval') navalDeploy(this, u);
           else if (u.ut.passengers && u.kind !== 'aircraft') this.unload(u);
           else if (u.ut.minelayer) deployMinelayer(this, u);
@@ -616,6 +627,7 @@ export class World {
         if (!(b instanceof Building) || b.owner !== p || !b.bt.factory) return;
         b.rallyX = cmd.x;
         b.rallyY = cmd.y;
+        b.rallyUnit = 0; // [CTRL]
         break;
       }
       case 'stance': {
@@ -642,6 +654,12 @@ export class World {
         break;
       case 'repairBridge':
         orderRepairBridge(this, this.ownedUnits(cmd.player, cmd.units), cmd.bridge);
+        break;
+      case 'chronoJump': // [CONTENT] aftermath.ts
+        chronoJump(this, p, cmd.unit, cmd.x, cmd.y);
+        break;
+      case 'patrol': case 'guard': case 'formation': case 'rallyUnit': case 'queuePlan': // [CTRL] orders.ts
+        ordersCommand(this, cmd);
         break;
     }
   }
@@ -1062,6 +1080,7 @@ export class World {
       updateSuperweapons(this, p);
     }
     contentPreTick(this);
+    ordersPreTick(this); // [CTRL] formations, build plans
     this.deferDeaths = true;
     for (const b of this.buildings) if (b.alive) this.updateBuilding(b);
     this.processPaths();
@@ -1095,6 +1114,7 @@ export class World {
   private stepUnit(u: Unit) {
     if (!u.alive) return;
     if (contentStepUnit(this, u)) return;
+    if (aftermathStepUnit(this, u)) return; // [CONTENT]
     updateUnit(this, u);
     if (u.alive) updateUnitWeapons(this, u);
   }

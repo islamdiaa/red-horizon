@@ -172,6 +172,95 @@ export function getDetailTexture(): THREE.DataTexture {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Damage / weathering texture (R cracks, G missing-panel mask, B grime streaks, A dust mottling)
+// ---------------------------------------------------------------------------------------------
+
+let damageTex: THREE.DataTexture | null = null;
+
+/**
+ * Tileable 256² damage map sampled by every body material (box-projected UVs, so walls get vertical
+ * streaks): R = branching crack network, G = blotchy "missing panel" mask (the shader cuts holes with an
+ * ember rim at a threshold), B = rain / soot streaks running down walls, A = dust mottling for top faces.
+ */
+export function getDamageTexture(): THREE.DataTexture {
+  if (damageTex) return damageTex;
+  const S = 256;
+  const data = new Uint8Array(S * S * 4);
+  const crack = new Float32Array(S * S);
+  let rs = 987654;
+  const rnd = () => {
+    rs = (Math.imul(rs, 1103515245) + 12345) | 0;
+    return ((rs >>> 8) & 0xffff) / 65535;
+  };
+  const stamp = (x: number, y: number, w: number) => {
+    const r = Math.ceil(w + 1);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const d = Math.hypot(dx, dy);
+        const v = Math.max(0, 1 - Math.max(0, d - w * 0.5) / 0.9);
+        if (v <= 0) continue;
+        const ix = (((Math.round(x) + dx) % S) + S) % S;
+        const iy = (((Math.round(y) + dy) % S) + S) % S;
+        const k = iy * S + ix;
+        if (v > crack[k]) crack[k] = v;
+      }
+    }
+  };
+  const walk = (x: number, y: number, a: number, len: number, w: number, depth: number) => {
+    for (let i = 0; i < len; i++) {
+      a += (rnd() - 0.5) * 0.55;
+      x += Math.cos(a);
+      y += Math.sin(a);
+      stamp(x, y, w * (1 - (i / len) * 0.6));
+      if (depth < 2 && rnd() < 0.045) walk(x, y, a + (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.6), len * 0.45, w * 0.7, depth + 1);
+    }
+  };
+  for (let c = 0; c < 11; c++) walk(rnd() * S, rnd() * S, rnd() * Math.PI * 2, 30 + rnd() * 70, 0.5 + rnd() * 0.6, 0);
+  // missing panels: a few panel-shaped rectangles with ragged edges
+  const rects: number[][] = [];
+  for (let i = 0; i < 6; i++) {
+    const w = 14 + rnd() * 24;
+    const h = 10 + rnd() * 18;
+    rects.push([rnd() * S, rnd() * S, w, h]);
+  }
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const u = x / S;
+      const v = y / S;
+      const i = (y * S + x) * 4;
+      // G: panel loss mask (0.5 = intact, > 0.665 hole, 0.6 .. 0.665 burnt rim)
+      let g = 0.5 + Math.max(0, fbm(u, v, 5, 4, 201) - 0.68) * 1.2;
+      for (const [rx, ry, rw, rh] of rects) {
+        const dx = Math.min(Math.abs(x - rx), S - Math.abs(x - rx));
+        const dy = Math.min(Math.abs(y - ry), S - Math.abs(y - ry));
+        const edge = Math.max(dx - rw / 2, dy - rh / 2);
+        const jag = (vnoise(u, v, 32, 207) - 0.5) * 7;
+        const k = clamp01(1 - (edge + jag) / 6);
+        g = Math.max(g, 0.5 + 0.32 * k);
+      }
+      // B: streaks (vertical in box-projected wall UVs: u along the wall, v up)
+      const streak = clamp01((vnoise(u, v * 0.12, 48, 211) - 0.45) * 2.4) * (0.55 + 0.45 * fbm(u, v, 3, 2, 213));
+      // A: dust mottling
+      const dust = clamp01((fbm(u, v, 6, 3, 217) - 0.35) * 1.8);
+      data[i] = Math.round(clamp01(crack[y * S + x]) * 255);
+      data[i + 1] = Math.round(clamp01(g) * 255);
+      data[i + 2] = Math.round(streak * 255);
+      data[i + 3] = Math.round(dust * 255);
+    }
+  }
+  const tex = new THREE.DataTexture(data, S, S, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = 4;
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  damageTex = tex;
+  return tex;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Track tread texture (one link per tile along U)
 // ---------------------------------------------------------------------------------------------
 
@@ -236,6 +325,16 @@ function getTreadTexture(): THREE.CanvasTexture {
 export const BodyVariant = { Normal: 0, Damaged: 1, Wrecked: 2, Charred: 3, Electro: 4 } as const;
 
 const VARIANT_SCORCH = [0, 0.38, 0.62, 1.0, 0.0];
+/** Ember glow in cracks and panel holes per variant (burning wrecks glow, charred ones smoulder). */
+const VARIANT_EMBER = [0, 0.15, 1.0, 0.45, 0.0];
+
+/** Clock shared by every body material (ember flicker). Advance it with setBodyTime(). */
+const uBodyTime = { value: 0 };
+
+/** Advance the shared body-material clock (seconds); the destruction system calls it each frame. */
+export function setBodyTime(t: number): void {
+  uBodyTime.value = t;
+}
 
 const bodyCache = new Map<number, THREE.MeshStandardMaterial>();
 
@@ -290,44 +389,92 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
   const uniforms = {
     uTeam: { value: conditionTeamColor(teamHex) },
     uScorch: { value: VARIANT_SCORCH[variant] ?? 0 },
+    uEmber: { value: VARIANT_EMBER[variant] ?? 0 },
     uFlash: { value: variant === BodyVariant.Electro ? new THREE.Color(0.9, 1.4, 3.2) : new THREE.Color(0, 0, 0) },
     uEmissive: { value: powered && variant < BodyVariant.Charred ? BODY_EMISSIVE_ON : BODY_EMISSIVE_OFF },
+    uDmg: { value: getDamageTexture() },
+    uBodyTime,
   };
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTeam = uniforms.uTeam;
-    shader.uniforms.uScorch = uniforms.uScorch;
-    shader.uniforms.uFlash = uniforms.uFlash;
-    shader.uniforms.uEmissive = uniforms.uEmissive;
+    Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 pbr;\nvarying vec4 vPbr;')
-      .replace('#include <color_vertex>', '#include <color_vertex>\nvPbr = pbr;');
+      .replace('#include <common>', '#include <common>\nattribute vec4 pbr;\nvarying vec4 vPbr;\nvarying vec3 vRhN;')
+      .replace('#include <color_vertex>', '#include <color_vertex>\nvPbr = pbr;')
+      // model-space normal after skinning: "up" for top-face dust (models stand upright)
+      .replace('#include <defaultnormal_vertex>', '#include <defaultnormal_vertex>\nvRhN = objectNormal;');
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform vec3 uTeam;\nuniform float uScorch;\nuniform vec3 uFlash;\nuniform float uEmissive;\nvarying vec4 vPbr;',
+        `#include <common>
+uniform vec3 uTeam;
+uniform float uScorch;
+uniform float uEmber;
+uniform vec3 uFlash;
+uniform float uEmissive;
+uniform sampler2D uDmg;
+uniform float uBodyTime;
+varying vec4 vPbr;
+varying vec3 vRhN;`,
       )
       .replace(
         '#include <map_fragment>',
         `vec4 dTex = texture2D( map, vMapUv );
+vec4 dmgT = texture2D( uDmg, vMapUv * 0.43 );
 float dSel = vPbr.w;
 float emisK = dSel > 3.5 ? dSel - 4.0 : 0.0;
+float surfK = emisK > 0.0 ? 0.0 : 1.0;
 float detail = dSel < 0.5 ? dTex.r : ( dSel < 1.5 ? dTex.g : ( dSel < 2.5 ? dTex.b : 0.87 ) );
 detail *= 1.15;
 diffuseColor.rgb *= mix( vec3( 1.0 ), uTeam, vPbr.z ) * detail * ( emisK > 0.0 ? 0.3 : 1.0 );
+// weathering: soot / rain streaks down walls, dust settled on top faces
+float rhUp = clamp( normalize( vRhN ).y, 0.0, 1.0 );
+diffuseColor.rgb *= 1.0 - 0.17 * dmgT.b * ( 1.0 - rhUp ) * surfK;
+diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.16, 0.13, 0.09 ), rhUp * rhUp * dmgT.a * 0.24 * surfK * step( dSel, 2.5 ) );
 float scorch = smoothstep( 1.0 - uScorch, 1.25 - uScorch, dTex.a ) * min( uScorch * 1.6, 1.0 );
-diffuseColor.rgb *= 1.0 - 0.86 * scorch;`,
+diffuseColor.rgb *= 1.0 - 0.86 * scorch;
+// damage stages: cracks from 'damaged' on, burnt-through missing panels with glowing rims when 'wrecked'
+float rhCrack = smoothstep( 0.42, 0.9, dmgT.r ) * smoothstep( 0.25, 0.4, uScorch ) * surfK;
+float rhHoleK = smoothstep( 0.5, 0.62, uScorch ) * surfK;
+float rhHole = smoothstep( 0.665, 0.7, dmgT.g ) * rhHoleK;
+float rhRim = clamp( smoothstep( 0.6, 0.665, dmgT.g ) * rhHoleK - rhHole, 0.0, 1.0 );
+diffuseColor.rgb *= 1.0 - 0.82 * rhCrack;
+diffuseColor.rgb = mix( diffuseColor.rgb * ( 1.0 - 0.65 * rhRim ), vec3( 0.012, 0.01, 0.009 ), rhHole );`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
-        'float roughnessFactor = clamp( vPbr.y * ( 1.45 - 0.45 * detail ) + scorch * 0.35, 0.04, 1.0 );',
+        // the commented include is a hook: chained patches (weather gloss / snow cover) insert their code after it
+        `float roughnessFactor = clamp( vPbr.y * ( 1.45 - 0.45 * detail ) + scorch * 0.35 + dmgT.b * 0.08 * ( 1.0 - rhUp ) + rhHole + rhCrack * 0.3, 0.04, 1.0 );
+// #include <roughnessmap_fragment>`,
       )
-      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.x * ( 1.0 - scorch * 0.8 );')
+      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.x * ( 1.0 - scorch * 0.8 ) * ( 1.0 - rhHole );')
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+{
+  // panel seams, rivets, concrete joints and cracks as a screen-space-derivative bump of the detail map;
+  // fades out where the map is minified (far away) so it never shimmers
+  vec2 rhDu = dFdx( vMapUv ), rhDv = dFdy( vMapUv );
+  float rhTexel = max( dot( rhDu, rhDu ), dot( rhDv, rhDv ) ) * 65536.0;
+  float rhFade = ( 1.0 - smoothstep( 1.0, 9.0, rhTexel ) ) * surfK;
+  float rhH = ( detail - rhCrack * 0.6 - rhHole * 0.4 ) * 0.0035 * rhFade;
+  vec2 dHdxy = vec2( dFdx( rhH ), dFdy( rhH ) );
+  vec3 rhSx = dFdx( -vViewPosition ), rhSy = dFdy( -vViewPosition );
+  vec3 rhR1 = cross( rhSy, normal ), rhR2 = cross( normal, rhSx );
+  float rhDet = dot( rhSx, rhR1 ) * faceDirection;
+  normal = normalize( abs( rhDet ) * normal - sign( rhDet ) * ( dHdxy.x * rhR1 + dHdxy.y * rhR2 ) );
+}`,
+      )
       .replace(
         '#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uFlash + vColor.rgb * emisK * uEmissive * ( 1.0 - scorch );',
+        `#include <emissivemap_fragment>
+totalEmissiveRadiance += uFlash + vColor.rgb * emisK * uEmissive * ( 1.0 - scorch );
+if ( uEmber > 0.0 ) {
+  float rhFl = 0.55 + 0.45 * sin( uBodyTime * 6.3 + dmgT.a * 31.0 + dTex.a * 17.0 );
+  totalEmissiveRadiance += vec3( 1.7, 0.42, 0.08 ) * ( rhRim * rhRim * 0.9 + rhCrack * 0.15 * rhHoleK ) * rhFl * uEmber;
+}`,
       );
   };
-  mat.customProgramCacheKey = () => 'rh-body-v3';
+  mat.customProgramCacheKey = () => 'rh-body-v4';
   mat.name = `body-${teamHex.toString(16)}-${variant}${powered ? '' : '-off'}`;
   return mat;
 }
@@ -346,6 +493,22 @@ export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Norm
     bodyCache.set(key, m);
   }
   return m;
+}
+
+let debrisMat: THREE.MeshStandardMaterial | null = null;
+
+/**
+ * Body material for instanced debris (wheels, plates, track runs): the 'wrecked' look with per-instance
+ * colour tint. Its own material object, since three re-resolves a program whenever one material alternates
+ * between instanced and plain meshes.
+ */
+export function debrisMaterial(): THREE.MeshStandardMaterial {
+  if (!debrisMat) {
+    debrisMat = applyLitPatch(makeBodyMaterial(0xffffff, BodyVariant.Wrecked, false));
+    debrisMat.name = 'body-debris';
+    bodyCache.set(-1, debrisMat);
+  }
+  return debrisMat;
 }
 
 const depthMats: Record<string, THREE.MeshDepthMaterial> = {};

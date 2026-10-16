@@ -9,6 +9,7 @@ import { F, R } from './textures';
 import { M } from './particles';
 import { rnd, range, spread } from './rand';
 import { smokeFrame, sparks, flash } from './blocks';
+import { gpuFire, gpuSmoke } from './gpufx';
 
 const TAU = Math.PI * 2;
 
@@ -23,6 +24,8 @@ export class Emitter implements EmitterHandle {
   private a2 = rnd();
   private a3 = rnd();
   private next = range(0.1, 0.6);
+  /** GPU particle rate accumulators. */
+  private gacc = new Float32Array(2);
 
   constructor(readonly kind: EmitterKind, pos: THREE.Vector3) {
     this.x = pos.x;
@@ -56,6 +59,7 @@ export class Emitter implements EmitterHandle {
           this.a0 -= 1;
           this.smokePuff(ctx, R.SMOKE_DARK, 0.3 * sz, 1.6 * sz, range(3.4, 4.6), 0.7, 0.6, 0.12);
         }
+        if (ctx.gpu) gpuSmoke(ctx.gpu, this.x, this.y, this.z, I, sz, this.gacc, dt);
         break;
       }
       case 'fire': {
@@ -105,6 +109,12 @@ export class Emitter implements EmitterHandle {
           g.push = 0.6;
           ctx.glow.emit(g);
         }
+        // [FX] GPU embers and a turbulent smoke column; the fire lights its surroundings
+        if (ctx.gpu) gpuFire(ctx.gpu, this.x, this.y, this.z, I, sz, this.gacc, dt);
+        if (ctx.dyn) {
+          const k = Math.min(I, 2);
+          ctx.dyn.add(this.x, this.y + 0.45 * sz, this.z, 0xff7a2e, 2.4 * k, 3.4 + 1.3 * k, 0, { flicker: 0.4, priority: 0.8 });
+        }
         break;
       }
       case 'chimney': {
@@ -136,6 +146,7 @@ export class Emitter implements EmitterHandle {
             ? { life: 0.45, size: 0.025, ramp: R.TESLA, up: 0.6 }
             : { life: 0.6, size: 0.028, up: 0.6 });
           flash(ctx, this.x, this.y, this.z, 0.3, 3, 0, 0.06, blue ? 0.6 : 1, blue ? 0.8 : 0.8, blue ? 1.4 : 0.5);
+          ctx.dyn?.add(this.x, this.y + 0.1, this.z, blue ? 0x88aaff : 0xffb060, 1.6, 2.6, 0.14, { flicker: 0.3 });
         }
         break;
       }

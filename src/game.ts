@@ -45,7 +45,17 @@ import { watchContextLoss, type ContextWatch } from './platform/webgl';
 import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
 import { loadCuratedMap } from './maps'; // [D] curated skirmish maps
 import { ReplayRecorder } from './replay/recorder'; // [D] replays
+import { buildMap, type MapDef } from './maps'; // [EDIT] custom maps from the editor
+import { customMissionDef, type CustomMissionSetup } from './editor/mission'; // [EDIT] custom missions
+import { applyModSet } from './mods/engine'; // [EDIT] mods
+import type { ModSet } from './mods/format'; // [EDIT]
 import type { PlaybackOptions } from './replay/format';
+import type { Personality } from './sim/ai-personality'; // [AI]
+import type { RivalRef } from './meta/rivals'; // [AI]
+import { attachRivals } from './ui/rivals'; // [AI] rivals radio
+import { applyRoster, attachModeRuntime, isWhatIf, prepareModeSetup, startModes } from './modes/runtime'; // [MODES]
+import type { AllySetup, BranchInfo, ChallengeDef } from './modes/types'; // [MODES]
+import { conquestMission, type ConquestSetup } from './conquest/battle'; // [CONQ] conquest battles
 
 /** Hull lengths (cells) for wake sizes. */
 const SHIP_LENGTH: Record<string, number> = { pt: 0.9, dd: 1.5, ca: 2.35, lst: 1.4, ss: 1.3 };
@@ -57,6 +67,10 @@ meta.onUnlock = (a) => showAchievementToast(a);
 export interface OpponentSetup {
   faction: Faction | 'random';
   difficulty: AIDifficulty;
+  /** [AI] Commander personality (id or full trait object, src/sim/ai-personality.ts); default = balanced. */
+  personality?: string | Personality;
+  /** [AI] A persistent rival (src/meta/rivals.ts): name, portrait and the counter-plan chosen before the match. */
+  rival?: RivalRef;
 }
 
 export interface GameSetup {
@@ -90,6 +104,23 @@ export interface GameSetup {
   mapId?: string;
   /** [D] Watch a recorded match (src/replay): the human player's orders come from the recording. */
   replay?: PlaybackOptions;
+  /** [EDIT] Custom map content (editor): built instead of a curated / generated map; saves and replays carry it. */
+  customMap?: MapDef;
+  /** [EDIT] Custom mission content (editor) for `mission` = its id; the map comes from `customMap`. */
+  customMission?: CustomMissionSetup;
+  /** [EDIT] Mods (content + hash) applied to the rules before the World exists; recorded in saves and replays. */
+  mods?: ModSet;
+  /** [MODES] Rewind & take command: a live game from a replay moment (src/modes, src/replay/branch.ts). */
+  branch?: BranchInfo;
+  /** [MODES] A challenge attempt: start state, side, goal, time limit (src/modes/challenge.ts). */
+  challenge?: ChallengeDef;
+  /** [MODES] King of the Hill skirmish (src/modes/koth.ts); kothMinutes = hold time to win (default 5). */
+  koth?: boolean;
+  kothMinutes?: number;
+  /** [MODES] AI teammates for co-op survival (same team, own bases). */
+  allies?: AllySetup[];
+  /** [CONQ] A Conquest battle: the run and territory it belongs to, plus the frozen battle spec its mission is built from. */
+  conquest?: ConquestSetup;
 }
 
 export interface GameCallbacks {
@@ -174,7 +205,9 @@ export class Game {
 
   constructor(readonly setup: GameSetup, readonly audio: AudioSystem, private cb: GameCallbacks) {
     cb.onProgress?.(0.05, 'Generating battlefield');
-    const def = setup.mission ? getMission(setup.mission) ?? null : null;
+    setup = (this as { setup: GameSetup }).setup = prepareModeSetup(setup); // [MODES] branch / challenge moment as the load · co-op allies
+    applyModSet(setup.mods); // [EDIT] the match's mods (none: base rules), before anything reads the rules
+    const def = setup.conquest ? conquestMission(setup.conquest) /* [CONQ] */ : setup.mission ? (setup.customMission && setup.customMap ? customMissionDef(setup.customMission, setup.customMap) : getMission(setup.mission)) ?? null : null; // [EDIT] custom missions
     this.missionDef = def;
     if (def) {
       // missions define the battlefield themselves
@@ -185,10 +218,11 @@ export class Game {
       (this as { setup: GameSetup }).setup = setup;
     }
     const nPlayers = def ? def.map.players : 1 + setup.opponents.length;
-    const curated = !def && setup.mapId ? loadCuratedMap(setup.mapId) : null; // [D] curated skirmish map
+    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) /* [CONQ] */ : null; // [D] curated skirmish map · [EDIT] custom map
     const climate = curated?.climate ?? (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
     const map = curated ?? generateMap({
       size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
+      rocks: def?.map.rocks, // [CONQ] mountain battlefields
       // deserts are dry, except that a sea map (water >= 0.9) becomes a desert coastline
       water: climate === 'desert' && setup.water < 0.9 ? Math.min(setup.water, 0.2) : setup.water,
       trees: climate === 'desert' ? setup.trees * 0.35 : climate === 'winter' ? Math.min(1, setup.trees * 1.2) : setup.trees,
@@ -201,15 +235,17 @@ export class Game {
       const color = TEAM_COLORS.find((c) => !usedColors.has(c))!;
       usedColors.add(color);
       const faction = o.faction === 'random' ? rngFaction(i + 1) : o.faction;
-      players.push({ name: AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: i + 1, isHuman: false, ai: o.difficulty });
+      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // [AI] rivals / personalities
     });
     if (def) {
       players.length = 0;
       def.players.forEach((ps, i) => players.push({
         name: ps.name, faction: ps.faction, color: ps.color ?? TEAM_COLORS[i], team: ps.team ?? i, isHuman: i === 0,
         ai: i === 0 ? undefined : ps.ai === 'passive' || ps.ai === 'defensive' || !ps.ai ? 'normal' : ps.ai,
+        personality: i === 0 ? undefined : ps.personality, // [CONQ] commander personalities in missions
       }));
     }
+    if (!def) applyRoster(players, setup); // [MODES] branch / challenge: the chosen player is human, the rest AI
     // shuffle start positions so the player isn't always bottom-left
     if (!setup.demo && !def && (setup.seed & 2)) map.startPositions.reverse();
     this.world = new World({
@@ -219,9 +255,11 @@ export class Game {
       fog: setup.fog && !setup.demo, seed: setup.seed,
     });
     this.local = this.world.players[0];
+    attachModeRuntime(this.world, setup, !!def); // [MODES] KOTH / challenge runtime, restored by the load below
     if (setup.load) {
-      deserializeWorld(this.world, setup.load.world, null);
+      deserializeWorld(this.world, setup.load.world, this.world.mission); // [MODES] mode runtimes restore with the world (missions attach theirs below)
     }
+    if (!def) this.local = startModes(this.world, setup); // [MODES] hand the chosen player over, start fresh modes
     if (!def && !setup.demo && !setup.replay) this.recorder = new ReplayRecorder(this, setup.load?.game?.replay); // [D] replays
     if (def) {
       const rt = new MissionRuntime(this.world, def);
@@ -265,6 +303,10 @@ export class Game {
     this.crates = new CrateRenderer(this.world, this.gfx.fog);
     this.tracks = new TrackMarks(this.world, this.gfx.fog);
     this.gfx.scene.add(this.tracks.mesh);
+    // persistent craters, debris on the rendered ground, tread ruts (snow ruts after fresh snowfall)
+    this.ents.destruction.setTerrain(this.gfx.terrain);
+    this.tracks.setTerrain(this.gfx.terrain);
+    this.tracks.setWeather(this.gfx.weather.surfaceUniforms);
     this.rubble = new Rubble(map);
     this.gfx.scene.add(this.rubble.mesh);
     this.life = new AmbientLife(map, (x, y) => this.gfx.terrain.renderHeight(x, y));
@@ -333,10 +375,7 @@ export class Game {
           const ids = (this.input?.groups.get(g) ?? []).filter((id) => this.world.getEntity(id)?.alive);
           if (!ids.length) return;
           this.input?.select(ids);
-          if (jump) {
-            const u = this.world.getEntity(ids[0])!;
-            this.gfx.cam.flyToPoint(u.x, u.y);
-          }
+          if (jump) this.input?.centreOn(ids); // the group's middle, not just its first member
         },
         stats: () => `${this.gfx.stats.calls} calls · ${(this.gfx.stats.tris / 1000).toFixed(0)}k tris`,
       });
@@ -353,6 +392,7 @@ export class Game {
       });
       this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost');
       if (!this.world.mission) this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
+      if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // [AI] rival radio + habit tracking (not in replay branches / challenges)
       if (this.world.mission) {
         this.missionHud = new MissionHud(this.world.mission, (k) => this.audio.play(k));
       }
@@ -370,7 +410,7 @@ export class Game {
       this.demoCam.ty = map.h / 2;
     }
     if (setup.load) this.restoreView(setup.load);
-    if (!setup.demo && !setup.replay) {
+    if (!setup.demo && !setup.replay && !isWhatIf(setup)) { // [MODES] branches / challenges are "what if" games: no progression
       meta.onGameStart({
         mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
         difficulties: this.missionDef ? undefined : setup.opponents.map((o) => o.difficulty),
@@ -451,6 +491,7 @@ export class Game {
     }
     this.wakeShips.length = n;
     this.wakes.update(this.wakeShips, fdt);
+    if (fdt > 0) this.gfx.water.driveShips(this.wakeShips); // [FX] bows push the interactive water surface
     let g = 0;
     const put = (x: number, y: number, r: number) => {
       const s = this.gapSources[g] ?? (this.gapSources[g] = { x: 0, y: 0, radius: 1 });
@@ -826,7 +867,7 @@ export class Game {
         case 'gameover':
           if (!demo) {
             const won = world.winnerTeam === this.local.team;
-            if (world.mission) this.recordMission(world.mission);
+            if (world.mission && this.missionDef) this.recordMission(world.mission); // [MODES] KOTH / challenge runtimes keep no campaign record
             const summary = meta.onGameEnd({
               won, time: world.time, mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
               stars: this.missionResult?.stars, score: world.mission?.score, stats: this.local.stats, weather: this.gfx.weather.kind, world,
@@ -835,8 +876,8 @@ export class Game {
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
             this.audio.stinger(won ? 'victory' : 'defeat');
             this.endTimer = 4.5;
-            const sub = this.missionDef ? `Operation ${this.missionDef.codename}` : won ? 'All enemy forces destroyed' : 'Your forces have been overrun';
-            this.endCine = endingCinematic(won, sub);
+            const sub = this.missionDef ? `Operation ${this.missionDef.codename}` : world.mission?.endReason ?? (won ? 'All enemy forces destroyed' : 'Your forces have been overrun'); // [MODES] KOTH / challenge reason
+            this.endCine = endingCinematic(won, sub, this.gfx); // [FX] lens
             // slow-motion sweep to the final explosion
             this.speed = 0.35;
             if (this.lastDeath) this.gfx.cam.flyToPoint(this.lastDeath[0], this.lastDeath[1]);
@@ -886,6 +927,7 @@ export class Game {
         replay: this.recorder?.snapshot(), // [D] the replay continues after loading
       },
     };
+    if (this.setup.conquest && slot === 'auto') writeSave('conquest', data); // [CONQ] the run can always resume its battle
     return writeSave(slot, data);
   }
 

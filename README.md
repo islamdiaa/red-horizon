@@ -200,21 +200,87 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
   - Water with refraction, screen-space reflections, caustics, sun and moon glitter, shore foam, waves on the beach and ripples.
   - Terrain relief detail, light shafts at dawn and dusk, low mist in valleys, and colour grading per climate.
 
+### Smarter AI, Conquest, editor, new modes and destruction (round 5)
+
+- **An AI that plays fair and smart.** The AI no longer sees through the fog. It scouts with a fast unit, remembers
+  what it has seen, and builds to counter the army it has spotted. It raids harvesters and outlying refineries, flanks
+  and feints on Hard and Brutal, falls back to regroup, and sends damaged vehicles for repair. It expands to new ore
+  fields and times superweapons with its assaults.
+- **11 commander personalities** (Armour Rusher, Tesla Turtle, Naval Raider, Air Marshal, Saboteur, Siege Master,
+  Guerrilla, Iron Fist, Human Wave, Tycoon and the Balanced Professor) shape each AI's build order, army and timing.
+- **Rivals.** Pick "Rival" as an opponent to face a persistent nemesis commander.
+  - Each rival remembers your record against them and how you play, and brings a counter-plan.
+  - They taunt you over the radio, are promoted when they win, and can die and come back scarred.
+- **Self-play tuning.** Headless AI-vs-AI batches tune the AI and the balance in `tools/selfplay/`: faction balance,
+  a difficulty ladder, a personality round-robin, cost-equal duels and an optimizer. The Mammoth Tank now costs
+  $1900, up from $1700.
+- **Expansion-pack units.**
+  - Soviet: Tesla Tank, M.A.D. Tank (seismic pulses wreck vehicles and buildings), Demolition Truck,
+    Shock Trooper and Missile Submarine.
+  - Allied: Chrono Tank (chronoshifts itself), Mechanic and Phase Transport (cloaks while it isn't firing).
+- **Conquest.** A roguelite campaign across a strategic map of Europe, generated from a seed:
+  - Attack territories, defend against declared counterattacks, and fight a real battle generated for each one:
+    assault, capture, hold, defence, naval blockade, and a boss battle for the enemy capital.
+  - Veterans carry over between battles. A war chest, research (18 projects), 25 perks, doctrines and random events
+    shape each run.
+  - Renown and titles carry over between runs.
+- **Map and mission editor.**
+  - Paint terrain, height, forests, ore and gems, bridges and start positions, with symmetry helpers, in 2D or in
+    the real 3D renderer, with undo/redo.
+  - Fairness and reachability checks, and playtesting with one click.
+  - A mission layer with pre-placed forces, objectives and triggers.
+  - Custom maps appear in the skirmish picker, and custom missions under Campaign → Special.
+- **Mods.** JSON overrides of units, weapons and warheads, validated with clear errors, with clones for new variants.
+  Saves and replays record the active mods. Two example mods are included: Tank Rush and Glass Cannon.
+- **Rewind and take command.** In any replay, pause and take command of any side to play on from that exact moment
+  as a branching timeline. Branches show as a tree in the Replays screen.
+- **Challenges.** Turn any replay moment into a "Can you win from here?" challenge file.
+  - Goals: win, survive, destroy, protect or hold.
+  - Scores, stars and personal bests.
+  - The game also suggests dramatic moments from your matches as challenges.
+- **King of the Hill** as a skirmish mode, and **co-op Survival** with one or two AI teammates.
+- **Command and control.**
+  - Formations: auto, line, box and wedge.
+  - Patrol (P), and escort or guard (C, or right-click a friendly unit).
+  - Rally new units to a unit.
+  - Build plans: Shift-place several structures and the yard builds them in order.
+  - Units spread their focus fire and pull back from enemies they out-range.
+  - Camera bookmarks (F6–F9).
+- **Touch and gamepad.** Full tablet controls with a radial order menu, and full gamepad play in battle and in the
+  menus.
+- **Destruction and physics.**
+  - Buildings crack, burn and then collapse into pieces under rigid-body physics before settling into rubble.
+  - Vehicles shed their turret and debris, aircraft crash, and infantry ragdoll differently for each death type.
+  - Craters persist, tread ruts form in snow and sand, and damage stages show while a building is still alive.
+  - Models gain more close-up detail, lighter versions at a distance, and livelier infantry and building
+    animations.
+- **Next-generation effects on WebGL2:**
+  - dynamic lights from muzzle flashes, explosions and fires;
+  - GPU-simulated particles;
+  - volumetric fog and cloud shadows;
+  - rolling ocean swell;
+  - depth of field and motion blur in cinematics.
+
 ## Controls
 
 | Input | Action |
 |---|---|
-| Left click / drag | Select / box select (double-click or Ctrl+click: all of a type on screen) |
+| Left click / drag | Select / box select (double-click or Ctrl+click: all of a type on screen, Shift adds; double-click a structure: all of that structure; Shift+drag adds, Ctrl+drag removes) |
 | E · W · Ctrl+A | All combat units on the map · all of the selected type(s) on screen · all own units on screen |
 | I · Shift+I | Select and centre the next idle unit · the next idle harvester |
-| Right click | Move · attack · harvest · enter (context sensitive) · set rally point (factory selected) |
+| Right click | Move · attack · harvest · enter (context sensitive) · on a friendly unit: escort it · factory selected: set rally point, or on a unit: new units join it |
 | Shift + right click | Queue waypoints |
 | Ctrl + right click | Force fire (ground or friendly) · Alt + right click: force move |
 | A / S / X / G / D | Attack-move · Stop · Scatter · Fire at ground · Deploy / unload / return |
 | F1 / F2 / F3 / F4 | Stance of the selected units: aggressive · guard · hold position · hold fire |
+| P | Patrol: click the far end of the route (Shift-click adds waypoints); with a factory selected: primary factory |
+| C | Guard: click a unit to escort (follow and defend) or a structure to defend |
+| L | Formation of the selected group: auto · line · box · wedge (Shift+L: back; also in the selection panel) |
+| D | Chrono Tank: click where to chronoshift · M.A.D. tank: deploy · demolition truck: detonate |
 | M | Lay mines with the selected minelayers (or Ctrl + right click the spot) · engineers: right click a destroyed bridge to rebuild it |
 | Z / R / P | Sell · Repair · Primary factory |
-| Ctrl+1–9 / 1–9 | Assign / recall control group (double-tap to jump) |
+| Ctrl+1–9 / Shift+1–9 / 1–9 | Assign / add the selection to / recall a control group (double-tap: centre on it) |
+| F6–F9 · Ctrl or Shift+F6–F9 | Jump to / save a camera bookmark |
 | H / Space | Jump to base · jump to last attack |
 | F | Camera follows the selection (scroll to release) |
 | Arrows, screen edge, middle- or right-drag | Scroll · mouse wheel: zoom |
@@ -224,6 +290,9 @@ keep it under GPL v3 (it is derived from studying GPL code) and don't present it
 | Hold Alt | Show all health bars |
 | Esc | Cancel / pause menu |
 | Sidebar | Left click: build (Shift ×5) / place · right click: hold / cancel · power bar: click to fire / aim |
+| Build plan | Shift+click when placing: place, then plan more of the same · click a structure while the yard is busy (or Shift+click it): plan it. Planned structures show as numbered ghosts; the yard builds and places them in order as soon as each is affordable |
+| Touch (tablets) | Tap: select / command · double tap: all of a type · drag: pan · hold then drag: box select · hold: order menu · two fingers: pan, pinch zoom, twist rotate · toolbar: Box, Add, Attack, Force, Guard, Patrol, Stop, All · hold a sidebar card: hold / cancel |
+| Gamepad | Left stick: cursor · right stick: camera · LT/RT: zoom · A: select (hold: box) · X: command · B: cancel · Y: deploy · View: order menu · LB/RB: idle unit / next group (held: Shift / Ctrl) · D-pad: sidebar (A build, X cancel, LB/RB tabs) · L3: all on screen · R3: base · Start: pause; menus: D-pad / stick, A, B |
 | Replays | Space: pause / play · [ / ]: slower / faster (1×–8×) · V: next player view / observer · Home: restart |
 
 ## Project layout
@@ -239,6 +308,7 @@ src/
     combat.ts          weapons, projectiles, RA damage model
     harvest.ts production.ts aircraft.ts superweapons.ts ai.ts
     naval.ts ai-naval.ts infiltration.ts mines.ts stealth.ts powers.ts bridges.ts stance.ts   (round-4 content)
+    orders.ts formation.ts   formations, patrol, escort/guard, rally to a unit, build plans, focus fire, kiting
   render/              three.js renderer (interpolates between sim ticks)
     renderer.ts        scene, lights, post-processing chain
     terrain.ts water.ts vegetation.ts ore.ts fog.ts lightpools.ts
@@ -246,7 +316,7 @@ src/
     models/            procedural unit & structure models
     effects/           GPU particle & effects system
   audio/               procedural SFX, adaptive music, announcer
-  ui/                  HUD, minimap, input, menus, campaign, profile, challenges
+  ui/                  HUD, minimap, input (+ touch.ts, gamepad.ts, orderui.ts), menus, campaign, profile, challenges
   missions/            campaign missions, Boot Camp, naval & special operations, daily challenge, progress
   maps/                curated skirmish maps (symmetric feature format), previews, map codes
   replay/              match recording, storage (IndexedDB) and playback
@@ -261,7 +331,7 @@ tools/                 headless simulation / mission tests & screenshot tooling
 ## Development tools
 
 ```bash
-npm test                 # 356 unit / integration / soak / regression tests (node:test)
+npm test                 # 504 unit / integration / soak / regression tests (node:test)
 npm run typecheck
 npm run verify:pwa       # production build + manifest, service worker and offline checks
 npm run audit:leaks      # play 5 matches in a browser and compare heap / GPU resources
@@ -270,6 +340,9 @@ node --import tsx tools/simtest.ts <seed> <minutes> <mapSize> <players>   # head
 node --import tsx tools/campaigntest.ts <mission-id|allies|soviet|all> [minutes]   # headless mission runs with autopilots
 node tools/focus-shot.mjs <url> <out.png> "<js returning [x, y, dist]>"           # browser screenshot aimed at something in the game
 node --import tsx tools/savetest.ts                                          # save/load determinism
+node --import tsx tools/conquesttest.ts all [seed] [faction]                 # every Conquest battle type with autopilots
+node --import tsx tools/selfplay/run.ts --mode faction --games 40           # mass AI-vs-AI self-play (modes: faction, legacy, personalities, gauntlet, diff)
+node --import tsx tools/selfplay/balance.ts                                  # cost-equal unit duels (regenerates the AI matchup table with --emit)
 node --import tsx tools/metatest.ts                                          # progression & medals
 ```
 
@@ -281,6 +354,9 @@ Testing URL parameters: `?autostart=1&scenario=battle&charge=1&fog=0&tod=night&s
 (`scenario=base|battle`, `ff=<seconds>` fast-forward, `cam=x,y,dist`, `units=mcv|light|heavy`,
 `hour=0..24`, `cycle=1`, `wx=rain|storm|snow|fog|dust`, `climate=winter|desert`, `intro=1`,
 `selfplay=hard` lets an AI play your side, `mission=<id>` starts a mission, e.g. `bootcamp`, `allied-01`, `wolfpack`, `survival`, `daily`,
-`map=<id>` a curated map, `mapcode=<code>` a shared generated map, `replay=<id>|latest[&view=<n>|obs]` a replay).
+`map=<id>` a curated map, `mapcode=<code>` a shared generated map, `replay=<id>|latest[&view=<n>|obs]` a replay
+(`&seek=<s>&take=<player>` takes command there), `koth=1&kothmin=N` King of the Hill, `challenge=<id>` a challenge,
+`mission=survival&allies=hard,normal` co-op survival, `conquest=assault|capture|hold|defend|naval|boss` a Conquest battle,
+`conquest=ui` the Conquest map).
 Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
 `/preview-weather.html`.

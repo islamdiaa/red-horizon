@@ -58,7 +58,7 @@ export class ReplayRecorder {
   toData(): ReplayData {
     const g = this.game, w = g.world;
     const { load: _l, replay: _r, quality: _q, ...setup } = g.setup;
-    const def = setup.mapId ? getMapDef(setup.mapId) : undefined;
+    const def = setup.customMap ?? (setup.mapId ? getMapDef(setup.mapId) : undefined); // [EDIT] custom maps travel in the setup
     const code = mapCodeForSetup(setup);
     const local = g.local;
     return {
@@ -77,7 +77,7 @@ export class ReplayRecorder {
     this.done = true;
     this.unhook();
     const w = this.game.world;
-    if (!w.gameOver && w.tick < MIN_TICKS) return;
+    if (!w.gameOver && w.tick - (this.game.setup.branch?.tick ?? 0) < MIN_TICKS) return; // [MODES] a branch counts from its start
     const data = this.toData();
     saveReplay(data).then(() => this.onSaved?.(data)).catch((e) => console.warn('replay not saved', e));
   }

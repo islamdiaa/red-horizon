@@ -203,6 +203,21 @@ export class Weather {
     this.findLights();
   }
 
+  /** The map changed (map editor): re-sample the ground height for splashes, ripples and fog banks. */
+  setTerrain(getHeight: (x: number, z: number) => number, mapW: number, mapH: number): void {
+    const old = this.hf;
+    this.getHeight = getHeight;
+    this.mapW = mapW;
+    this.mapH = mapH;
+    this.hf = buildHeightField(getHeight, mapW, mapH);
+    for (const m of [this.splash.mesh, this.puffs.mesh]) {
+      const u = (m.material as THREE.ShaderMaterial).uniforms;
+      if (u?.uHeight) u.uHeight.value = this.hf.texture;
+      if (u?.uHX) u.uHX.value = this.hf.xform;
+    }
+    old.texture.dispose();
+  }
+
   /** Target weather kind (the one being faded to). */
   get kind(): WeatherKind {
     return this.target;

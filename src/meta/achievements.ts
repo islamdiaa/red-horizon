@@ -69,6 +69,12 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'giant-slayer', title: 'Giant Slayer', desc: 'Destroy {n} Survival boss waves.', picto: 'sword', category: 'challenge', counter: 'bosses', tiers: [1, 5, 20] },
   { id: 'daily-orders', title: 'Daily Orders', desc: 'Win {n} Daily Challenges.', picto: 'calendar', category: 'challenge', counter: 'dailyWins', tiers: [1, 7, 30] },
   { id: 'dedication', title: 'Dedication', desc: 'Play the Daily Challenge {n} days in a row.', picto: 'streak', category: 'challenge', counter: 'streak', tiers: [3, 7, 30] },
+  // [MODES] scenario challenges, King of the Hill, co-op survival, branching replays
+  { id: 'challenger', title: 'Challenger', desc: 'Complete {n} scenario challenges.', picto: 'target', category: 'challenge', counter: 'challenges', tiers: [1, 10, 25] },
+  { id: 'textbook', title: 'By the Book', desc: 'Earn three stars on a scenario challenge.', picto: 'stars3', category: 'challenge', rarity: 'rare' },
+  { id: 'king-of-the-hill', title: 'King of the Hill', desc: 'Win a King of the Hill skirmish.', picto: 'flag', category: 'challenge', rarity: 'rare' },
+  { id: 'brothers-in-arms', title: 'Brothers in Arms', desc: 'Survive {n} waves of co-op Survival alongside AI allies.', picto: 'helmet', category: 'challenge', counter: 'coopWave', tiers: [10] },
+  { id: 'alternate-history', title: 'Alternate History', desc: 'Take command from a replay and win the battle.', picto: 'history', category: 'secret', rarity: 'epic', hidden: true },
   // ---- secret
   { id: 'phoenix', title: 'Phoenix', desc: 'Win a battle after losing your Construction Yard.', picto: 'phoenix', category: 'secret', rarity: 'epic', hidden: true },
   { id: 'who-let-the-dogs-out', title: 'Who Let the Dogs Out', desc: 'Attack dogs maul {n} enemy infantry.', picto: 'paw', category: 'secret', rarity: 'rare', counter: 'dogs', tiers: [25], hidden: true },
@@ -81,7 +87,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 export const ACH_BY_ID: Record<string, AchievementDef> = Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a]));
 
 /** Counters that keep a best value instead of a running total. */
-export const MAX_COUNTERS = new Set(['wall', 'bestWave', 'bestSurvival', 'streak', 'climates']);
+export const MAX_COUNTERS = new Set(['wall', 'bestWave', 'bestSurvival', 'streak', 'climates', 'coopWave']); // [MODES] coopWave
 
 /** Achievements that depend on each counter (for O(1) checks). */
 export const BY_COUNTER: Record<string, AchievementDef[]> = {};

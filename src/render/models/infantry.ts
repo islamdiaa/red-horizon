@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { NB, makeTemplate, type Ctx, type Mat, type ModelTemplate, type V3 } from './builder';
-import { M, G, lathe, shade } from './parts';
+import { M, G, lathe, pipe, shade } from './parts';
 import type { ModelAnimState } from './types';
 import { BodyVariant } from './materials';
 import { approach, dtOf } from './anim';
@@ -14,7 +14,7 @@ const SHOULDER_Y = 0.105; // relative to torso
 const SHOULDER_Z = 0.07;
 const LEG_Z = 0.034;
 
-type Headgear = 'helmet' | 'hardhat' | 'medic' | 'tanya' | 'ushanka' | 'fedora' | 'beanie';
+type Headgear = 'helmet' | 'hardhat' | 'medic' | 'tanya' | 'ushanka' | 'fedora' | 'beanie' | 'gasmask' | 'cap';
 
 interface SoldierSpec {
   uniform: Mat;
@@ -27,7 +27,7 @@ interface SoldierSpec {
   armR: [number, number];
   build?: (torso: NB, armL: NB, armR: NB) => void;
   /** Custom fire pose */
-  fire?: 'rifle' | 'throw' | 'rocket' | 'flame' | 'pistols' | 'heal' | 'none';
+  fire?: 'rifle' | 'throw' | 'rocket' | 'flame' | 'pistols' | 'heal' | 'wrench' | 'none';
   /** Long coat skirt hanging from the waist (spy trench coat). */
   coat?: Mat;
 }
@@ -123,6 +123,20 @@ function headgear(t: NB, kind: Headgear, headY: number): void {
       t.add(lathe([[0.04, 0.0], [0.039, 0.03], [0.03, 0.045], [0.0, 0.04]], 8), FELT, { p: [0, hy + 0.026, 0] });
       t.cyl(M.team, 0.0405, 0.0405, 0.01, 0, hy + 0.033, 0, { seg: 8, open: true });
       break;
+    case 'gasmask':
+      // steel helmet, goggles and a respirator snout (shock troopers)
+      t.add(lathe([[0.0, 0.052], [0.042, 0.036], [0.056, -0.006]], 6), M.teamDark, { p: [0, hy + 0.012, 0], r: [0, Math.PI / 6, 0] });
+      t.box(M.darker, 0.02, 0.03, 0.074, 0.03, hy + 0.0, 0, { b: 0 });
+      for (const z of [-0.016, 0.016]) t.cyl(M.glassBlue, 0.011, 0.011, 0.008, 0.041, hy + 0.008, z, { r: [0, 0, Math.PI / 2], seg: 6 });
+      t.cyl(M.dark, 0.013, 0.017, 0.03, 0.05, hy - 0.022, 0, { r: [0, 0, Math.PI / 2 + 0.4], seg: 6 });
+      break;
+    case 'cap':
+      // field cap with a stiff peak and goggles pushed up
+      t.add(lathe([[0.0, 0.04], [0.036, 0.036], [0.044, 0.004]], 7), M.teamClothDark, { p: [0, hy + 0.016, 0] });
+      t.box(M.teamClothDark, 0.04, 0.005, 0.07, 0.044, hy + 0.02, 0, { b: 0, r: [0, 0, -0.15] });
+      t.box(M.dark, 0.012, 0.01, 0.07, 0.025, hy + 0.045, 0, { b: 0 });
+      for (const z of [-0.016, 0.016]) t.cyl(M.glassBlue, 0.009, 0.009, 0.008, 0.03, hy + 0.047, z, { r: [0, 0, Math.PI / 2], seg: 6 });
+      break;
     case 'beanie':
       t.add(lathe([[0.0, 0.05], [0.032, 0.042], [0.045, 0.012], [0.046, -0.004]], 6), KNIT, { p: [-0.003, hy + 0.008, 0] });
       t.cyl(KNIT, 0.047, 0.047, 0.012, -0.003, hy + 0.006, 0, { seg: 6 });
@@ -201,18 +215,40 @@ function animSoldier(c: Ctx, s: ModelAnimState, spec: SoldierSpec, fire: NonNull
 
   if (paraPose(c, s)) return;
 
-  // walk cycle
+  // walk cycle: legs swing, the stepping leg lifts, hips sway and the shoulders counter-rotate
   const dt = dtOf(s);
+  if (c.v.seed === undefined) c.v.seed = Math.random() * 10;
   const walkAmt = (c.v.walk = (c.v.walk ?? 0) + ((s.moving ? 1 : 0) - (c.v.walk ?? 0)) * Math.min(1, dt * 10));
   c.v.ph = (c.v.ph ?? 0) + dt * (7 + 4 * s.speed) * (s.moving ? 1 : 0);
   const ph = c.v.ph;
   const swing = Math.sin(ph) * 0.65 * walkAmt;
   legL.rotation.z = swing;
   legR.rotation.z = -swing;
-  const breathe = Math.sin(t * 2.4) * 0.004;
+  legL.position.y = HIP_Y + Math.max(0, Math.sin(ph)) * 0.01 * walkAmt;
+  legR.position.y = HIP_Y + Math.max(0, -Math.sin(ph)) * 0.01 * walkAmt;
+  const breathe = Math.sin(t * 2.4 + c.v.seed) * 0.004;
   torso.position.y = HIP_Y + Math.abs(Math.cos(ph)) * 0.012 * walkAmt + breathe;
+  torso.position.z = Math.sin(ph) * 0.006 * walkAmt;
   torso.rotation.z = -0.1 * walkAmt; // lean forward
+  torso.rotation.x = Math.sin(ph) * 0.05 * walkAmt;
   torso.position.x = 0;
+  // idle fidgets: look around, shift weight, check the weapon (per-soldier timing)
+  let look = 0;
+  let shift = 0;
+  let check = 0;
+  if (!s.moving && s.firing <= 0) {
+    const tt = t + c.v.seed * 3.7;
+    const cyc = 5 + (c.v.seed % 3);
+    const k = tt % cyc;
+    const which = Math.floor(tt / cyc + c.v.seed) % 3;
+    const env = k < 1.6 ? Math.sin((k / 1.6) * Math.PI) : 0;
+    if (which === 0) look = env * (Math.sin(Math.floor(tt / cyc) * 2.3) > 0 ? 0.45 : -0.45);
+    else if (which === 1) shift = env;
+    else check = env;
+  }
+  torso.rotation.y = look * (1 - walkAmt);
+  torso.rotation.x += shift * 0.06;
+  torso.position.z += shift * 0.006;
 
   // arms rest pose
   let lz = spec.armL[0];
@@ -226,14 +262,28 @@ function animSoldier(c: Ctx, s: ModelAnimState, spec: SoldierSpec, fire: NonNull
     lz += Math.sin(ph) * 0.06 * walkAmt;
     rz += Math.sin(ph) * 0.06 * walkAmt;
   }
+  // checking the weapon: hands come up a little
+  lz += check * 0.25;
+  rz += check * 0.18;
   const f = s.firing;
   if (f > 0) {
     switch (fire) {
       case 'rifle':
       case 'flame':
-        torso.position.x = -0.014 * f;
-        torso.rotation.z += 0.08 * f;
+        // recoil: the shoulder takes the kick, the muzzle climbs
+        torso.position.x = -0.016 * f;
+        torso.rotation.z += 0.1 * f;
+        lz += 0.18 * f;
+        rz += 0.12 * f;
         break;
+      case 'wrench': {
+        // hammering away at the vehicle
+        const k = 1 - f;
+        rz = 0.6 + Math.sin(k * Math.PI) * 1.5;
+        rx = 0.1;
+        torso.rotation.z += 0.12 * Math.sin(k * Math.PI);
+        break;
+      }
       case 'rocket':
         torso.position.x = -0.02 * f;
         torso.rotation.z += 0.12 * f;
@@ -270,6 +320,8 @@ function animSoldier(c: Ctx, s: ModelAnimState, spec: SoldierSpec, fire: NonNull
   armR.rotation.set(rx, 0, rz);
   const flame = c.glows.get('glow:pilot');
   if (flame) c.setGlow('glow:pilot', 0.6 + f * 1.4);
+  // shock trooper: the backpack coil hums and flares when firing
+  if (c.glows.has('glow:pack')) c.setGlow('glow:pack', (0.55 + 0.25 * Math.sin(t * 9 + c.v.seed) * Math.sin(t * 5.3)) + f * 1.6);
 }
 
 /**
@@ -319,8 +371,8 @@ function paraPose(c: Ctx, s: ModelAnimState): boolean {
     c.n.armR.rotation.set(-0.3, 0, 2.75);
     c.n.legL.rotation.z = 0.18 + Math.sin(t * 2.1) * 0.08;
     c.n.legR.rotation.z = 0.05 - Math.sin(t * 2.1) * 0.08;
-    c.n.torso.rotation.z = 0;
-    c.n.torso.position.y = HIP_Y;
+    c.n.torso.rotation.set(0, 0, 0);
+    c.n.torso.position.set(0, HIP_Y, 0);
     return true;
   }
   // landed: canopy deflates and folds down behind the soldier
@@ -594,6 +646,60 @@ const THF: SoldierSpec = {
   },
 };
 
+const SHOK: SoldierSpec = {
+  uniform: M.teamCloth,
+  trousers: M.teamClothDark,
+  headgear: 'gasmask',
+  swingArms: false,
+  armL: [1.2, -0.5],
+  armR: [0.7, 0.15],
+  fire: 'rifle',
+  build: (t) => {
+    // armoured vest
+    t.box(M.gun, 0.07, 0.07, 0.112, 0.006, 0.075, 0, { b: 0.008 });
+    // tesla backpack: generator box, copper coils, glowing core
+    t.box(M.gun, 0.05, 0.1, 0.09, -0.07, 0.08, 0, { b: 0.008 });
+    for (const z of [-0.026, 0.026]) {
+      t.cyl(M.copper, 0.014, 0.014, 0.07, -0.085, 0.135, z, { seg: 6 });
+      t.cyl(M.offwhite, 0.016, 0.016, 0.012, -0.085, 0.175, z, { seg: 6 });
+    }
+    t.sph(G.tesla, 0.016, -0.098, 0.08, 0, { seg: 6, slot: 'glow:pack' });
+    // tesla gun: short body, two coils near the muzzle, emitter tip; cable to the pack
+    t.box(M.gun, 0.11, 0.026, 0.022, 0.06, 0.07, 0.035, { b: 0.004 });
+    for (const x of [0.11, 0.14]) t.cyl(M.copper, 0.016, 0.016, 0.01, x, 0.072, 0.035, { r: [0, 0, Math.PI / 2], seg: 6 });
+    t.cyl(M.dark, 0.006, 0.006, 0.06, 0.15, 0.072, 0.035, { r: [0, 0, -Math.PI / 2], seg: 5 });
+    t.sph(G.tesla, 0.009, 0.185, 0.072, 0.035, { seg: 4, slot: 'glow:pack' });
+    t.box(M.dark, 0.012, 0.03, 0.01, 0.04, 0.045, 0.035, { b: 0, r: [0, 0, 0.3] });
+    pipe(t, [-0.06, 0.05, 0.03], [0.03, 0.06, 0.04], 0.005, M.dark, 4);
+  },
+};
+
+const MECH: SoldierSpec = {
+  uniform: { c: 0x6f7480, m: 0, r: 0.85, d: 2, t: 0.35 },
+  trousers: { c: 0x5c616c, m: 0, r: 0.86, d: 2, t: 0.35 },
+  headgear: 'cap',
+  swingArms: true,
+  armL: [0.1, -0.12],
+  armR: [0.2, 0.12],
+  fire: 'wrench',
+  build: (t, armL, armR) => {
+    // overall bib with team patch and a tool belt
+    t.box(M.teamCloth, 0.004, 0.022, 0.03, 0.047, 0.09, 0.02, { b: 0 });
+    t.box(M.boot, 0.07, 0.016, 0.104, 0, 0.018, 0, { b: 0 });
+    t.box(M.webbing, 0.022, 0.03, 0.022, 0.03, 0.005, 0.05, { b: 0 });
+    t.box(M.webbing, 0.022, 0.026, 0.02, -0.03, 0.005, 0.05, { b: 0 });
+    t.box(M.red, 0.02, 0.04, 0.012, 0.0, 0.0, -0.056, { b: 0 });
+    t.box(M.steel, 0.006, 0.05, 0.006, -0.02, 0.02, 0.058, { b: 0, r: [0, 0, 0.3] });
+    // big adjustable wrench in the right hand
+    armR.box(M.steel, 0.01, 0.12, 0.008, 0.012, -0.16, 0, { b: 0, r: [0, 0, 0.15] });
+    armR.box(M.steel, 0.03, 0.022, 0.01, 0.02, -0.225, 0, { b: 0 });
+    armR.box(M.dark, 0.012, 0.02, 0.012, 0.03, -0.215, 0, { b: 0 });
+    // oil can in the left hand
+    armL.cyl(M.red, 0.014, 0.016, 0.035, 0.0, -0.14, 0, { seg: 6 });
+    armL.cyl(M.brass, 0.003, 0.004, 0.04, 0.014, -0.11, 0, { r: [0, 0, -0.6], seg: 4 });
+  },
+};
+
 // ---------------------------------------------------------------------------------------------
 // Attack dog
 // ---------------------------------------------------------------------------------------------
@@ -687,5 +793,7 @@ export const INFANTRY_BUILDERS: Record<string, () => ModelTemplate> = {
   e7: () => soldier(E7),
   spy: () => soldier(SPY),
   thf: () => soldier(THF),
+  shok: () => soldier(SHOK),
+  mech: () => soldier(MECH),
   dog,
 };

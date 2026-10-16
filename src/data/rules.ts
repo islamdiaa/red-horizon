@@ -127,6 +127,15 @@ export interface UnitTypeDef extends BaseTypeDef {
   cloakable?: boolean;
   /** Naval: detects submerged submarines within this many cells (RA Sensors / IsScanner). */
   sensors?: number;
+  // --- Aftermath / Counterstrike units (behaviour in sim/aftermath.ts) [CONTENT]
+  /** M.A.D. Tank: 'deploy' arms a seismic charge (the crew bails out); its quake pulses hit vehicles and structures, then the tank is gone. */
+  quake?: boolean;
+  /** Demolition truck: drives into its target and detonates (mini-nuke), also when destroyed on the way. Holds fire by default. */
+  demolition?: boolean;
+  /** Chrono Tank: seconds between self-chronoshifts (the 'chronoJump' command). */
+  chronoShift?: number;
+  /** Phase Transport: cloaked (Entity.cloaked) whenever it has not fired for a few seconds. */
+  phasing?: boolean;
 }
 
 export interface BuildingTypeDef extends BaseTypeDef {
@@ -183,6 +192,8 @@ export const WARHEADS: Record<string, WarheadDef> = {
   Super:       { id: 'Super', spread: 1, verses: p(100, 100, 100, 100, 100), wall: false, wood: false, ore: false, explosion: 'electric', infDeath: 'electro' },
   Organic:     { id: 'Organic', spread: 0, verses: p(100, 0, 0, 0, 0), wall: false, wood: false, ore: false, explosion: 'none', infDeath: 'bite' },
   Nuke:        { id: 'Nuke', spread: 6, verses: p(90, 100, 60, 25, 50), wall: true, wood: true, ore: true, explosion: 'nuke', infDeath: 'burn' },
+  // Aftermath [Mechanical]: the mechanic's wrench, repairs vehicles only (OBJECT.CPP heals units / aircraft)
+  Mechanical:  { id: 'Mechanical', spread: 0, verses: p(0, 100, 100, 100, 100), wall: false, wood: false, ore: false, explosion: 'none', infDeath: 'normal' },
 };
 
 // ---------------------------------------------------------------------------
@@ -229,6 +240,14 @@ export const WEAPONS: Record<string, WeaponDef> = {
   Stinger:          W({ id: 'Stinger', damage: 30, rof: 60, range: 9, projectile: 'missile', speed: 60, warhead: 'AP', report: 'missile_launch', burst: 2, antiAir: true }),
   TorpTube:         W({ id: 'TorpTube', damage: 90, rof: 60, range: 9, projectile: 'torpedo', speed: 35, warhead: 'AP', report: 'torpedo' }),
   DepthCharge:      W({ id: 'DepthCharge', damage: 80, rof: 60, range: 5, projectile: 'depthcharge', speed: 5, warhead: 'AP', report: 'depth_charge', inaccuracy: 0.3 }),
+  // ---- Aftermath / Counterstrike (RA AFTRMATH.INI [TTankZap] [PortaTesla] [GoodWrench] [APTusk] [SubSCUD] [Democharge]) [CONTENT]
+  TTankZap:         W({ id: 'TTankZap', damage: 100, rof: 120, range: 7, projectile: 'tesla', warhead: 'Super', report: 'tesla_zap' }),
+  PortaTesla:       W({ id: 'PortaTesla', damage: 45, rof: 70, range: 3.5, projectile: 'tesla', warhead: 'Super', report: 'tesla_zap' }),
+  GoodWrench:       W({ id: 'GoodWrench', damage: -100, rof: 80, range: 1.83, projectile: 'heal', warhead: 'Mechanical', report: 'repair' }),
+  APTusk:           W({ id: 'APTusk', damage: 75, rof: 60, range: 6, projectile: 'missile', speed: 30, warhead: 'AP', report: 'missile_launch', burst: 2 }),
+  SubSCUD:          W({ id: 'SubSCUD', damage: 400, rof: 120, range: 14, projectile: 'missile', speed: 25, warhead: 'HE', report: 'missile_launch', burst: 2, inaccuracy: 1 }),
+  // the demolition truck never "fires" this: it drives into range and detonates (sim/aftermath.ts); it sets the reach
+  Democharge:       W({ id: 'Democharge', damage: 1000, rof: 80, range: 1.75, projectile: 'bullet', warhead: 'Nuke', report: 'demo_arm' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -278,7 +297,8 @@ export const UNITS: Record<string, UnitTypeDef> = {
   '1tnk': VEH({ id: '1tnk', name: 'Light Tank', cost: 700, strength: 300, speed: 9, rot: 5, primary: '75mm', turret: true, owner: ['allies'], radius: 0.34, description: 'Fast, lightly armed tank.' }),
   '2tnk': VEH({ id: '2tnk', name: 'Medium Tank', cost: 800, strength: 400, speed: 8, rot: 5, sight: 5, primary: '90mm', turret: true, owner: ['allies'], radius: 0.42, description: 'Allied main battle tank.' }),
   '3tnk': VEH({ id: '3tnk', name: 'Heavy Tank', cost: 950, strength: 400, speed: 7, rot: 5, sight: 5, primary: '105mm', secondary: '105mm', twinShot: true, turret: true, owner: ['soviet'], radius: 0.46, description: 'Soviet twin-barrel main battle tank.' }),
-  '4tnk': VEH({ id: '4tnk', name: 'Mammoth Tank', cost: 1700, strength: 600, speed: 4, rot: 5, sight: 6, primary: '120mm', secondary: 'MammothTusk', twinShot: true, turret: true, selfHealing: true, owner: ['soviet'], prereq: ['weap', 'stek'], radius: 0.56, description: 'Massive twin-cannon tank with missile pods. Self-repairs.' }),
+  // [AI] balance: cost 1700 -> 1900 (round 5 self-play: no cost-equal counter among Allied ground units, best in-game exchange)
+  '4tnk': VEH({ id: '4tnk', name: 'Mammoth Tank', cost: 1900, strength: 600, speed: 4, rot: 5, sight: 6, primary: '120mm', secondary: 'MammothTusk', twinShot: true, turret: true, selfHealing: true, owner: ['soviet'], prereq: ['weap', 'stek'], radius: 0.56, description: 'Massive twin-cannon tank with missile pods. Self-repairs.' }),
   arty: VEH({ id: 'arty', name: 'Artillery', cost: 600, strength: 75, armor: 'light', speed: 6, rot: 2, sight: 5, primary: '155mm', noMovingFire: true, owner: ['allies'], prereq: ['weap', 'dome'], description: 'Long-range howitzer. Devastating but fragile.' }),
   v2rl: VEH({ id: 'v2rl', name: 'V2 Rocket Launcher', cost: 700, strength: 150, armor: 'light', speed: 7, rot: 5, sight: 5, primary: 'SCUD', tracked: false, noMovingFire: true, owner: ['soviet'], prereq: ['weap', 'dome'], radius: 0.4, description: 'Fires a long-range ballistic rocket.' }),
   harv: VEH({ id: 'harv', name: 'Ore Truck', cost: 1400, strength: 600, speed: 6, rot: 5, harvester: true, prereq: ['weap', 'proc'], radius: 0.5, description: 'Harvests ore and gems and delivers them to a refinery.' }),
@@ -306,6 +326,17 @@ export const UNITS: Record<string, UnitTypeDef> = {
   ca:   NAV({ id: 'ca', name: 'Cruiser', cost: 2000, strength: 700, speed: 4, rot: 5, sight: 7, primary: '8Inch', secondary: '8Inch', twinShot: true, turret: true, owner: ['allies'], prereq: ['syrd', 'atek'], radius: 0.62, description: 'Heavy warship. Twin 8-inch guns bombard targets far inland. Cannot engage submarines.' }),
   lst:  NAV({ id: 'lst', name: 'Transport', cost: 700, strength: 350, speed: 14, rot: 10, sight: 6, passengers: 5, prereq: ['syrd|spen'], radius: 0.55, description: 'Landing craft. Carries five infantry or vehicles; beach it next to land to load and unload.' }),
   ss:   NAV({ id: 'ss', name: 'Submarine', cost: 950, strength: 120, armor: 'light', speed: 6, rot: 7, sight: 6, primary: 'TorpTube', cloakable: true, owner: ['soviet'], prereq: ['spen'], radius: 0.42, description: 'Stealthy attack submarine. Surfaces only to fire torpedoes at ships.' }),
+
+  // ---- Aftermath / Counterstrike (RA UDATA / IDATA / VDATA FIXIT_CSII types; numbers from AFTRMATH.INI as best known,
+  //      behaviour in sim/aftermath.ts) [CONTENT]
+  shok: INF({ id: 'shok', name: 'Shock Trooper', cost: 900, strength: 80, speed: 3, sight: 4, primary: 'PortaTesla', owner: ['soviet'], prereq: ['barr', 'tsla'], description: 'Elite infantry with a portable Tesla coil. Strong against infantry and vehicles.' }),
+  mech: INF({ id: 'mech', name: 'Mechanic', cost: 950, strength: 80, speed: 4, sight: 3, primary: 'GoodWrench', medic: true, owner: ['allies'], prereq: ['tent', 'fix'], description: 'Field mechanic: repairs nearby damaged vehicles.' }),
+  ttnk: VEH({ id: 'ttnk', name: 'Tesla Tank', cost: 1500, strength: 450, speed: 8, rot: 5, sight: 7, primary: 'TTankZap', jamRadius: 10, owner: ['soviet'], prereq: ['weap', 'tsla'], radius: 0.44, description: 'Tank with a mounted Tesla coil. Its coil also jams enemy radar nearby.' }),
+  qtnk: VEH({ id: 'qtnk', name: 'M.A.D. Tank', cost: 2300, strength: 900, speed: 4, rot: 5, sight: 6, quake: true, owner: ['soviet'], prereq: ['weap', 'stek'], radius: 0.5, description: 'Deploy (D) to charge a seismic shock that wrecks every vehicle and structure nearby (friend or foe). The crew bails out; the tank is lost.' }),
+  dtrk: VEH({ id: 'dtrk', name: 'Demolition Truck', cost: 1500, strength: 110, armor: 'light', speed: 8, rot: 5, sight: 3, primary: 'Democharge', demolition: true, tracked: false, crusher: false, owner: ['soviet'], prereq: ['weap', 'mslo'], radius: 0.4, description: 'Truck loaded with a nuclear charge: order it to attack and it drives in and detonates. Explodes if destroyed.' }),
+  ctnk: VEH({ id: 'ctnk', name: 'Chrono Tank', cost: 2400, strength: 350, armor: 'light', speed: 9, rot: 5, sight: 5, primary: 'APTusk', chronoShift: 75, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.42, description: 'Anti-armour missile tank that can chronoshift itself anywhere you have explored (recharges).' }),
+  stnk: VEH({ id: 'stnk', name: 'Phase Transport', cost: 1350, strength: 200, armor: 'light', speed: 10, rot: 5, sight: 6, primary: 'APTusk', turret: true, passengers: 5, phasing: true, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.42, description: 'Cloaked armoured transport for five infantry. Visible only while firing or with an enemy right next to it.' }),
+  msub: NAV({ id: 'msub', name: 'Missile Submarine', cost: 1650, strength: 400, armor: 'light', speed: 5, rot: 7, sight: 6, primary: 'SubSCUD', cloakable: true, owner: ['soviet'], prereq: ['spen', 'stek'], radius: 0.48, description: 'Submarine with long-range missiles for ships and shore targets. Surfaces to fire.' }),
 };
 
 // ---------------------------------------------------------------------------

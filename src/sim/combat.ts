@@ -10,6 +10,8 @@ import type { World } from './world';
 import { initNavalProjectile, navalImpactOk, navalReadyToFire, navalSplash, navalWeaponOk, stepTorpedo } from './naval';
 import { autoTargetable } from './stealth';
 import { damageBridgeAt, damageBridgesInRadius } from './bridges';
+import { focusBias } from './orders'; // [CTRL]
+import { healable } from './aftermath'; // [CONTENT]
 
 export interface Projectile {
   id: number;
@@ -62,7 +64,8 @@ export function weaponCanHit(w: WeaponDef, attacker: Entity, t: Entity): boolean
     return t instanceof Unit && t.kind === 'infantry';
   }
   if (w.damage < 0) {
-    return t instanceof Unit && t.kind === 'infantry' && t.owner.team === attacker.owner.team && t.hp < t.maxHp;
+    // medic: infantry; mechanic (Mechanical warhead): vehicles [CONTENT aftermath.ts]
+    return t instanceof Unit && healable(w, t) && t.owner.team === attacker.owner.team && t.hp < t.maxHp;
   }
   return true;
 }
@@ -130,6 +133,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     // prefer targets our weapon is good against, and finish off the wounded (natural focus fire)
     score -= WARHEADS[slot.def.warhead].verses[ARMOR_INDEX[u.type.armor]] * 2;
     score -= (1 - u.healthFrac) * 2;
+    score += focusBias(world, e, u, slot); // [CTRL] spread fire: avoid overkill, take the finishing shot
     if (score < bestScore) { bestScore = score; best = u; }
   });
   // structures (defences first)
@@ -148,8 +152,10 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
 /** Find a wounded friendly infantry for a medic. */
 export function findHealTarget(world: World, u: Unit, range: number): Unit | null {
   let best: Unit | null = null, bestD = Infinity;
+  const heal = u.weapons[0]?.def;
+  if (!heal) return null;
   world.grid.query(u.x, u.y, range + 1, (o) => {
-    if (!o.alive || o === u || o.owner.team !== u.owner.team || o.kind !== 'infantry' || o.hp >= o.maxHp) return;
+    if (!o.alive || o === u || o.owner.team !== u.owner.team || !healable(heal, o) || o.hp >= o.maxHp || o.transport) return; // [CONTENT] mechanics mend vehicles
     const d = Math.hypot(o.x - u.x, o.y - u.y);
     if (d < bestD && d <= range) { bestD = d; best = o; }
   });

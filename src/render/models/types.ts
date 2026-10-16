@@ -62,12 +62,28 @@ export interface ModelInstance {
   muzzles: THREE.Object3D[];
   /** Chimneys / exhausts that should emit smoke. */
   smokePoints?: THREE.Object3D[];
+  /**
+   * Ambient effect points of structures: 'steam' vents (power plants, refinery) puff while powered / active,
+   * 'sparks' (factory welding) while the door is open. Driven by the destruction system's per-structure hook.
+   */
+  fxPoints?: { kind: 'steam' | 'sparks'; node: THREE.Object3D }[];
   /** Approximate top of the model (world units), used for health bar placement. */
   height: number;
   /** Approximate XZ radius, used for selection rings. */
   radius: number;
   update(state: ModelAnimState): void;
   dispose(): void;
+  /** Type id the model was built for. */
+  typeId?: string;
+  /** Switch the body's damage / death material variant (BodyVariant): ragdolls and wrecks drive it directly. */
+  setVariant?(variant: number): void;
+  /** A named node of the model (bones such as 'turret', 'torso', 'armL', plain nodes such as muzzles). */
+  node?(name: string): THREE.Object3D | undefined;
+  /**
+   * Bounds of the body geometry carried by a node (and its child nodes when deep, the default), in the
+   * node's local rest frame. Null for nodes without body geometry. Used by destruction physics.
+   */
+  nodeBounds?(name: string, deep?: boolean): THREE.Box3 | null;
 }
 
 export type ProjectileModelKind = 'shell' | 'missile' | 'scud' | 'grenade' | 'nuke' | 'fireball' | 'torpedo' | 'depthcharge' | 'bomb' | 'satrocket';

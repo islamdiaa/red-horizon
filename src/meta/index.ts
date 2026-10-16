@@ -16,7 +16,7 @@ import { loadProgress, recordResult, type MissionRecord } from '../missions/prog
 import { SURVIVAL_VARIANTS, currentDailyDay } from '../missions/special';
 import { DAILY_MEDAL_BONUS, dailyConfig, prevDay } from './daily';
 import {
-  ACHIEVEMENTS, ACH_BY_ID, BY_COUNTER, TIER_NAMES, achievementDesc, achievementMetal, achievementRarity, achievementXp, isTiered, tierCount,
+  ACHIEVEMENTS, ACH_BY_ID, BY_COUNTER, MAX_COUNTERS, TIER_NAMES, achievementDesc, achievementMetal, achievementRarity, achievementXp, isTiered, tierCount,
   type AchievementDef,
 } from './achievements';
 import { insigniaSvg, medalSvg } from './art';
@@ -216,7 +216,8 @@ export class MetaTracker {
         this.onDeath(ev, ctx);
         break;
       case 'impact':
-        if (ev.kind === 'nuke' && ev.owner === local) { m.nukeTick = world.tick; m.nukeX = ev.x; m.nukeY = ev.y; m.nukeKills = 0; }
+        // (a demolition truck's blast is a half-size nuke impact: not a missile strike)
+        if (ev.kind === 'nuke' && ev.scale >= 1 && ev.owner === local) { m.nukeTick = world.tick; m.nukeX = ev.x; m.nukeY = ev.y; m.nukeKills = 0; }
         if (ev.owner === local) { m.boomTick = world.tick; m.boomX = ev.x; m.boomY = ev.y; }
         return;
       case 'infiltrate':
@@ -600,6 +601,12 @@ export class MetaTracker {
       while (reach < tiers.length && v >= tiers[reach]) reach++;
       for (let t = have; t < reach; t++) this.grant(a, t);
     }
+  }
+  /** [MODES] Count towards a medal from outside a tracked match (challenges, co-op survival); best-value counters keep the max. */
+  addCounter(counter: string, value = 1) {
+    if (MAX_COUNTERS.has(counter)) this.setMax(counter, value);
+    else this.bump(counter, value);
+    this.save();
   }
   /** Unlock a single-tier medal by id (no-op when already earned). */
   unlock(id: string) {

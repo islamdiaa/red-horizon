@@ -2,7 +2,7 @@ import { BUILDINGS, UNITS, WEAPONS, type BuildingTypeDef, type TypeDef, type Uni
 import type { PathPoint } from './pathfinding';
 import type { Player } from './player';
 import type { Order } from './types';
-import type { Stance } from './types';
+import type { FormationShape, Stance } from './types';
 
 export class WeaponSlot {
   cooldown = 0;     // seconds until ready
@@ -119,6 +119,8 @@ export class Unit extends Entity {
   exitBuilding = 0;
   /** Engagement behaviour (see Stance). */
   stance: Stance = 'guard';
+  /** [CTRL] Formation kept on group moves (formation.ts); 'none' = automatic. */
+  formShape: FormationShape = 'none';
   /** Where an idle unit returns after chasing a target. */
   guardX: number;
   guardY: number;
@@ -172,6 +174,20 @@ export class Unit extends Entity {
   ramp = 0;
   rampHold = 0;
 
+  // --- Aftermath / Counterstrike units (see aftermath.ts) [CONTENT]
+  /** M.A.D. Tank: 0 = mobile, 1 = deployed and arming (crew bailed out), 2 = pumping its quake pulses. */
+  madStage = 0;
+  /** M.A.D. Tank: seconds left in the current stage (stage 2: until the next pulse). */
+  madTimer = 0;
+  /** M.A.D. Tank: 0..1 progress from deploying to the final pulse (renderer: piston / anim.charge). */
+  madCharge = 0;
+  /** M.A.D. Tank: quake pulses released so far. */
+  madPulses = 0;
+  /** Chrono Tank: seconds until it can chronoshift again (0 = ready). */
+  chronoCooldown = 0;
+  /** Demolition truck: has a target and is driving in to detonate (renderer / sfx). */
+  armed = false;
+
   constructor(id: number, type: UnitTypeDef, owner: Player, x: number, y: number) {
     super(id, owner, x, y, type.strength);
     this.ut = type;
@@ -181,6 +197,8 @@ export class Unit extends Entity {
     if (type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.primary]));
     if (type.secondary && type.secondary !== type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.secondary]));
     this.ammo = type.ammo ?? 0;
+    // a parked demolition truck never sets off on its own (aftermath.ts) [CONTENT]
+    if (type.demolition) this.stance = 'passive';
   }
 
   get type(): UnitTypeDef {
@@ -206,6 +224,8 @@ export class Building extends Entity {
   primary = false;
   rallyX = -1;
   rallyY = -1;
+  /** [CTRL] Rally to a unit: id of the own unit new units join and guard (0 = none, see orders.ts). */
+  rallyUnit = 0;
   door = 0;
   doorHold = 0;
   /** Refinery: harvester currently docked. */

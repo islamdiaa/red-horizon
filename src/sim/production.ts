@@ -5,6 +5,7 @@ import type { Player } from './player';
 import { DT, type QueueKind } from './types';
 import type { World } from './world';
 import { spawnNaval } from './naval';
+import { rallyNewUnit } from './orders'; // [CTRL]
 
 const KINDS: QueueKind[] = ['structure', 'infantry', 'vehicle', 'aircraft', 'naval'];
 
@@ -155,5 +156,6 @@ export function spawnProduced(world: World, p: Player, typeId: string): boolean 
     ry = spot[1];
   }
   world.setOrder(u, { type: 'move', x: rx, y: ry, attackMove: false });
+  rallyNewUnit(world, f, u); // [CTRL] rally to a unit
   return true;
 }

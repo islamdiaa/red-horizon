@@ -1,4 +1,5 @@
 import { BAIL_COUNT, BUILDINGS, CATEGORIES, CONDITION_RED, CONDITION_YELLOW, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, type BuildingTypeDef, type Category, type TypeDef, type UnitTypeDef } from '../data/rules';
+import { modCardTag, modTipHtml } from '../mods'; // [EDIT] "Modded" markers
 import { formatTime } from '../core/util';
 import { Building, Unit, type Entity } from '../sim/entities';
 import { queueKindOf, type Player, type ProductionQueue } from '../sim/player';
@@ -14,6 +15,7 @@ import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtm
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
 import { RANK_NAMES, factionTypes, missingRequirements, statLines, xpThresholds } from './tech';
 import { applyUiSettings } from './settings';
+import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui'; // [CTRL]
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
 
 export interface HudHost {
@@ -158,12 +160,12 @@ interface Card {
 type CardState = 'idle' | 'build' | 'hold' | 'nofunds' | 'queued' | 'ready' | 'busy';
 
 export class Hud {
-  private unsubFullscreen: (() => void) | null = null;
+  private detachListeners: (() => void) | null = null;
 
   /** Detach document-level listeners (the DOM itself is cleared with the UI root). */
   dispose() {
-    this.unsubFullscreen?.();
-    this.unsubFullscreen = null;
+    this.detachListeners?.();
+    this.detachListeners = null;
   }
   readonly root: HTMLElement;
   readonly minimap: Minimap;
@@ -328,7 +330,7 @@ export class Hud {
       };
       fsBtn.onclick = () => { this.sound.play('click'); void toggleFullscreen(); };
       sync(isFullscreen());
-      this.unsubFullscreen = onFullscreenChange(sync);
+      this.detachListeners = onFullscreenChange(sync);
       tr.appendChild(fsBtn);
     }
     ui.appendChild(tr);
@@ -339,6 +341,13 @@ export class Hud {
     // ======================================================== bottom dock: control groups + selection
     this.dock = el('div');
     this.dock.id = 'dock';
+    // radios (mission, rival) sit above the unit panel; it changes height with what is selected
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => document.body.style.setProperty('--dock-h', `${this.dock.offsetHeight}px`));
+      ro.observe(this.dock);
+      const prev = this.detachListeners;
+      this.detachListeners = () => { prev?.(); ro.disconnect(); };
+    }
     this.groupsBar = el('div');
     this.groupsBar.id = 'groups';
     this.selpanel = el('div', 'panel');
@@ -642,7 +651,7 @@ export class Hud {
         <span class="bi-name">${esc(shortName(t))}</span>
         <span class="bi-count"></span>
         ${locked ? `<span class="bi-lock">${ICONS.lock}</span>` : ''}
-        <span class="bi-new">New</span>
+        <span class="bi-new">New</span>${modCardTag(id)}
         <div class="bi-glare"></div><div class="bi-shine"></div>
       </div>`;
     const card: Card = {
@@ -692,6 +701,9 @@ export class Hud {
         card.countEl.classList.toggle('on', n > 1);
         if (n > 1) replay(card.countEl, 'bump', 400);
       }
+      // [CTRL] planned copies of this structure (build plan)
+      const planned = q.kind === 'structure' ? p.buildPlan.reduce((n, x) => n + (x.type === card.id ? 1 : 0), 0) : 0;
+      if ((card.el.dataset.planned ?? '') !== (planned ? `${planned}` : '')) { if (planned) card.el.dataset.planned = `${planned}`; else delete card.el.dataset.planned; }
       const poor = state === 'idle' && credits < t.cost;
       if (poor !== card.poor) { card.poor = poor; card.el.classList.toggle('poor', poor); }
     }
@@ -714,7 +726,7 @@ export class Hud {
     }
     return `<div class="tt-head"><b>${esc(t.name)}</b><span class="tt-cost">$${t.cost.toLocaleString('en-US')}</span></div>
       <div class="tt-sub">${cap(t.category === 'building' ? 'structure' : t.category)}${isBuildingType(t) ? ` · ${t.size[0]}×${t.size[1]}` : ''}</div>
-      <p>${esc(t.description)}</p><div class="tt-stats">${rows}</div>${foot}`;
+      <p>${esc(t.description)}</p><div class="tt-stats">${rows}</div>${modTipHtml(card.id)}${foot}`;
   }
 
   private clickItem(card: Card, shift: boolean) {
@@ -733,7 +745,10 @@ export class Hud {
     this.sound.play('click');
     if (isBuildingType(t)) {
       if (q.ready === id) { this.host.beginPlacement(id); return; }
-      if (q.ready || (q.items.length && q.items[0].type !== id)) {
+      // [CTRL] yard busy (or Shift): plan it instead; the yard builds and places it later
+      if (shift || q.ready || (q.items.length && q.items[0].type !== id)) {
+        this.host.beginPlacement(id);
+        if (this.host.getMode() === 'plan') return;
         this.message('Already building', true);
         this.host.audio.play('error');
         replay(card.el, 'shake', 450);
@@ -848,6 +863,7 @@ export class Hud {
     if (ents.length === 1) this.refreshSingle(ents[0]);
     else this.refreshMulti(ents);
     this.refreshStances(ents);
+    refreshFormationBar(this.selpanel, ents.filter((e): e is Unit => e instanceof Unit)); // [CTRL]
   }
 
   /** Stance selector for own combat units (current stance highlighted; mixed selections show none). */
@@ -940,6 +956,14 @@ export class Hud {
       sp.appendChild(this.commandButtons(cmdEnts));
       const st = this.stanceButtons(cmdEnts);
       if (st) sp.appendChild(st);
+      // [CTRL] formation selector for two or more own ground units
+      const fm = formationBar(cmdEnts.filter((e): e is Unit => e instanceof Unit), (shape) => {
+        const ids = cmdEnts.filter((e): e is Unit => e instanceof Unit && (e.kind === 'infantry' || e.kind === 'vehicle')).map((u) => u.id);
+        this.sound.play('click');
+        this.host.issue({ c: 'formation', player: local.id, units: ids, shape });
+        this.message(`Formation: ${FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape}`);
+      });
+      if (fm) sp.appendChild(fm);
     }
     replay(sp, wasOpen ? 'swap' : 'pop', 500);
   }
@@ -1028,6 +1052,8 @@ export class Hud {
     if (e.invulnerable > 0) { tag = 'Invulnerable'; tagCls = 'inv'; }
     else if (e instanceof Unit && e.submerged) { tag = 'Submerged'; tagCls = 'acc'; }
     else if (e instanceof Unit && e.parachute > 0) { tag = 'Parachuting'; tagCls = 'acc'; }
+    else if (e instanceof Unit && e.madStage) { tag = e.madStage === 2 ? 'Quaking' : 'Arming'; tagCls = 'bad'; } // [CTRL] Aftermath
+    else if (e instanceof Unit && e.armed) { tag = 'Armed'; tagCls = 'bad'; }
     else if (e instanceof Building && e.repairing) { tag = 'Repairing'; tagCls = 'ok'; }
     else if (e instanceof Building && e.bt.requiresPower && e.owner.lowPower) { tag = 'Offline'; tagCls = 'bad'; }
     else if (e instanceof Building && e.primary) { tag = 'Primary'; tagCls = 'acc'; }
@@ -1057,6 +1083,13 @@ export class Hud {
         const frac = e.cargo / BAIL_COUNT;
         return this.xbar(ICONS.ore, 'Cargo', frac, `${Math.round(frac * 100)}% · ${HARVEST_STATE[e.hstate] ?? e.hstate}`, 'ore');
       }
+      // [CTRL] Aftermath status: chrono recharge, M.A.D. charge, demolition truck
+      if (e.ut.chronoShift) {
+        const left = e.chronoCooldown;
+        return this.xbar(ICONS.clock, 'Chronoshift', 1 - left / e.ut.chronoShift, left > 0 ? `Recharging ${Math.ceil(left)} s` : own ? 'Ready · D' : 'Ready', left > 0 ? 'hold' : 'ready');
+      }
+      if (e.ut.quake) return this.xbar(ICONS.boltSolid, e.madStage === 2 ? 'Quaking' : e.madStage === 1 ? 'Arming…' : 'Seismic charge', e.madCharge, e.madStage ? `${Math.round(e.madCharge * 100)}%` : own ? 'D to deploy' : 'Mobile', e.madStage ? 'hold' : '');
+      if (e.ut.demolition) return this.xbar(ICONS.target, 'Charge', e.armed ? 1 : 0, e.armed ? 'Armed: driving in' : own ? 'Attack to arm · D detonates' : 'Safe', e.armed ? 'hold' : '');
       if (e.ut.passengers) return this.pips(ICONS.people, 'Passengers', e.passengers.length, e.ut.passengers, e.passengers.length && own ? 'D to unload' : `${e.passengers.length} / ${e.ut.passengers}`);
       let s = '';
       if (e.kind === 'aircraft' && e.ut.ammo) s += this.pips(ICONS.ammo, 'Ammo', e.ammo, e.ut.ammo, e.ammo ? `${e.ammo} / ${e.ut.ammo}` : 'Rearm at pad');
@@ -1168,7 +1201,16 @@ export class Hud {
       if (units.some((u) => u.ut.deploysInto)) add(ICONS.deploy, 'D', 'Deploy', 'Deploy into a Construction Yard.', 'hl');
       else if (units.some((u) => u.ut.passengers)) add(ICONS.unload, 'D', 'Unload', 'Unload all passengers.');
       else if (units.some((u) => u.kind === 'aircraft')) add(ICONS.home, 'D', 'Return to base', 'Fly back to a pad to rearm.');
+      // [CTRL] Aftermath specials on D
+      else if (units.some((u) => u.ut.chronoShift)) add(ICONS.deploy, 'D', 'Chronoshift', 'Click any explored open ground: the Chrono Tank jumps there, then recharges.', 'hl');
+      else if (units.some((u) => u.ut.quake)) add(ICONS.deploy, 'D', 'Deploy seismic charge', 'The crew bails out and the charge arms, then quakes wreck every vehicle and structure nearby (friend or foe).', 'warn');
+      else if (units.some((u) => u.ut.demolition)) add(ICONS.deploy, 'D', 'Detonate', 'Set the charge off right here. Order an attack to arm it and drive it into a target.', 'warn');
       add(ICONS.groundFire, 'G', 'Fire at ground', 'Force-fire at a location (click the target after).');
+      // [CTRL] patrol and guard
+      if (units.some((u) => u.kind !== 'aircraft')) {
+        add(CTRL_ICONS.patrol, 'P', 'Patrol', 'Click the far end of a route (Shift-click for more waypoints): loop along it, engaging enemies on the way.');
+        add(CTRL_ICONS.guard, 'C', 'Guard / escort', 'Click a unit to escort (follow and defend it) or a structure to defend. Right-clicking a friendly unit escorts it too.');
+      }
       if (units.some((u) => u.ut.minelayer)) add(ICONS.mine, 'M', 'Lay mines', 'Click the ground to lay a minefield there (Ctrl + right click does the same). D drops a single mine.', 'hl');
     }
     if (blds.length === 1) {

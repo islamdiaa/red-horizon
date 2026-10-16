@@ -14,6 +14,8 @@ import { stanceIdle } from './stance';
 import { infiltrate } from './infiltration';
 import { updateLayMines } from './mines';
 import { updateRepairBridge } from './bridges';
+import { formationSteer } from './formation'; // [CTRL]
+import { ordersUnitStep, updateCtrlOrder } from './orders'; // [CTRL]
 
 const LEASH = 5;
 
@@ -47,6 +49,9 @@ export function updateUnit(world: World, u: Unit) {
     case 'repairBridge':
       updateRepairBridge(world, u, o);
       break;
+    case 'patrol': case 'escort': // [CTRL] orders.ts
+      updateCtrlOrder(world, u, o);
+      break;
     case 'move':
       move(world, u, o);
       break;
@@ -69,6 +74,7 @@ export function updateUnit(world: World, u: Unit) {
       world.setOrder(u, { type: 'idle' });
       break;
   }
+  if (u.alive && u.target) ordersUnitStep(world, u); // [CTRL] kiting
 
   followPath(world, u);
   if (u.exitBuilding) {
@@ -187,7 +193,8 @@ function medic(world: World, u: Unit) {
 }
 
 function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
-  if (!u.hasGoal && !u.pathPending && !u.path) {
+  const steered = o.formation !== undefined && formationSteer(world, u, o); // [CTRL] formation members follow their slot
+  if (!steered && !u.hasGoal && !u.pathPending && !u.path) {
     if (Math.hypot(o.x - u.x, o.y - u.y) < 0.15 || o.started) {
       finishOrder(world, u);
       return;
@@ -202,7 +209,7 @@ function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
       const sight = Math.max(u.ut.sight, maxRange(u));
       const t = findTarget(world, u, sight, sight);
       if (t) {
-        world.setOrder(u, { type: 'attack', target: t.id, forced: false, resume: { type: 'move', x: o.x, y: o.y, attackMove: true } });
+        world.setOrder(u, { type: 'attack', target: t.id, forced: false, resume: { type: 'move', x: o.x, y: o.y, attackMove: true, formation: o.formation } });
         u.target = t;
         return;
       }

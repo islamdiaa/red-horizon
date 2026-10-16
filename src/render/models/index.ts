@@ -19,6 +19,7 @@ import { STRUCTURE_BUILDERS } from './structures';
 import { DEFENSE_BUILDERS } from './defenses';
 import { NAVAL_BUILDERS } from './naval';
 import { SUPPORT_BUILDERS } from './support';
+import { AFTERMATH_BUILDERS } from './aftermath';
 import { createProjectile } from './projectiles';
 
 export type { ModelInstance, ModelAnimState, ProjectileModelKind } from './types';
@@ -31,6 +32,7 @@ const BUILDERS: Record<string, () => ModelTemplate> = {
   ...DEFENSE_BUILDERS,
   ...NAVAL_BUILDERS,
   ...SUPPORT_BUILDERS,
+  ...AFTERMATH_BUILDERS,
 };
 
 /**
@@ -102,6 +104,22 @@ export function listModelIds(): string[] {
 /** The id whose template `typeId` renders with (fake structures map to the real building). */
 export function modelAliasOf(typeId: string): string {
   return ALIASES[typeId] ?? typeId;
+}
+
+/** [EDIT] Mod variants (src/mods): render a cloned type with its base type's model (null removes the alias). */
+export function setModelAlias(typeId: string, baseId: string | null): void {
+  if (baseId) ALIASES[typeId] = ALIASES[baseId] ?? baseId;
+  else delete ALIASES[typeId];
+  templates.delete(typeId);
+}
+
+/**
+ * The merged body geometry (model space, rest pose) a type renders with, or null; `far` = the distant
+ * level of detail when the model has one. Used by the destruction system to bake fractures; do not modify it.
+ */
+export function modelBodyGeometry(typeId: string, far = false): THREE.BufferGeometry | null {
+  const skin = getTemplate(typeId).skin;
+  return (far ? skin?.geoLo : null) ?? skin?.geo ?? null;
 }
 
 /** Optional: build all templates up-front (e.g. during a loading screen). */

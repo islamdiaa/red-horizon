@@ -22,6 +22,13 @@ import { enterFullscreen } from './platform/fullscreen';
 import { loadSettings, saveSettings } from './ui/settings';
 import { attachPlayback } from './replay/playback'; // [D] replays
 import { resolveTestSetup } from './replay/launch';
+import { openEditor } from './editor'; // [EDIT] map & mission editor
+import { customMissionSetup, initEditorStore } from './editor/store'; // [EDIT]
+import { activeModSet, showModBadge, showMods } from './mods'; // [EDIT] mods
+import { attachModes, modesOnEnd, offerMoments, setModeHost } from './modes/ui'; // [MODES] KOTH, challenges, branches, co-op
+import { showConquest, showConquestAfterBattle } from './ui/conquest'; // [CONQ] Conquest roguelite campaign
+import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conquest'; // [CONQ]
+import { demoState, midCampaignRun, runWithBattle } from './conquest/testing'; // [CONQ] test URL hooks
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -38,6 +45,8 @@ const params = new URLSearchParams(location.search);
 const audio = new AudioSystem();
 let game: Game | null = null;
 let lastSetup: GameSetup | null = null;
+/** [EDIT] A playtest started from the editor: leaving the match goes back to the editor. */
+let returnToEditor = false;
 const loading = document.getElementById('loading')!;
 const loadingBar = loading.querySelector('.bar div') as HTMLElement;
 const loadingLabel = loading.querySelector('.label') as HTMLElement;
@@ -64,13 +73,17 @@ const menus = new Menus(audio, {
   start: (setup) => void startGame(setup),
   resume: () => game?.resume(),
   // same map, same opponents, from the beginning (a loaded game restarts its map from scratch)
-  restart: (newMap) => { if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap ? { seed: (Math.random() * 1e9) | 0 } : {}) }); },
-  quit: () => { if (applyUpdate) return applyUpdate(); audio.stopMusic(); startDemo(); },
+  restart: (newMap) => { if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap && !lastSetup.branch && !lastSetup.challenge ? { seed: (Math.random() * 1e9) | 0 } : {}) }); }, // [MODES] a branch / challenge restarts from its moment
+  quit: () => { if (game?.setup.conquest && !game.world.gameOver) game.save('auto'); /* [CONQ] the campaign can resume this battle */ if (applyUpdate) return applyUpdate(); audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); }, // [EDIT] playtests return to the editor
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
+  openConquest: () => openConquest(), // [CONQ]
+  conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? `Turn ${r.turn}` : null; }, // [CONQ]
   openChallenges: () => openChallenges(),
   openProfile: () => openProfile(),
   openBootCamp: () => deployMission('bootcamp'),
+  openEditor: () => openEditorScreen(), // [EDIT]
+  openMods: () => showMods({ play: (k) => audio.play(k), onBack: () => menus.showMain() }), // [EDIT]
   continueInfo: () => {
     const s = latestSave();
     return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
@@ -81,6 +94,8 @@ const menus = new Menus(audio, {
   },
   saveGame: () => game?.save('manual') ?? false,
 });
+// [MODES] how mode screens (challenges, result, end-screen offers) start games and return to the menus
+setModeHost({ start: (s) => void startGame(s), quality: () => menus.settings.quality, toMenu: () => { audio.stopMusic(); startDemo(); }, openChallenges: () => openChallenges(), openReplays: () => menus.showReplays() });
 
 function latestSave(): SaveData | null {
   const a = readSave('auto'), m = readSave('manual');
@@ -96,15 +111,54 @@ setToastSound((k) => (k === 'rank' ? audio.stinger('promotion') : audio.play(k =
 
 /** Start a scripted mission (campaign, special operation or daily challenge); the mission defines the rest. */
 function deployMission(id: string) {
+  // [EDIT] a custom mission (editor) travels with its content, so saves rebuild it even if it is edited later
+  const custom = customMissionSetup(id) ?? (lastSetup?.mission === id && lastSetup.customMission ? { customMission: lastSetup.customMission, customMap: lastSetup.customMap } : null);
   void startGame({
     faction: 'allies', color: 0x3d7be0, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
-    startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: id, intro: true,
+    startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: id, intro: true, ...(custom ?? {}),
+  });
+}
+
+/** [EDIT] Map & mission editor (the menu backdrop battle is stopped while it is open). */
+function openEditorScreen() {
+  returnToEditor = false;
+  game?.dispose();
+  game = null;
+  exposeDebug(null);
+  showModBadge(null);
+  menus.hide();
+  hideLoading();
+  audio.stopMusic();
+  openEditor({
+    quality: menus.settings.quality,
+    play: (k) => audio.play(k),
+    onExit: () => startDemo(),
+    onPlaytest: (setup) => { returnToEditor = true; void startGame(setup); },
   });
 }
 
 /** Campaign / special operations screen. */
 function openCampaign() {
   showCampaign({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onDeploy: (id) => deployMission(id) });
+}
+
+/** [CONQ] Conquest: the roguelite campaign across Europe (src/ui/conquest.ts). */
+function openConquest(demo?: string) {
+  showConquest({
+    play: (k) => audio.play(k),
+    onBack: () => menus.showMain(),
+    onDeploy: (c) => deployConquest(c),
+    onResume: (save) => { if (save.game?.setup) void startGame({ ...save.game.setup, load: save, intro: false, quality: menus.settings.quality }); },
+    demo,
+  });
+}
+
+/** [CONQ] Start a conquest battle (the mission is built from the frozen battle spec). */
+function deployConquest(c: ConquestSetup) {
+  void startGame({
+    faction: c.battle.faction, color: c.battle.faction === 'allies' ? 0x3d7be0 : 0xd23a2c, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
+    startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: 'conquest', conquest: c, intro: true,
+  });
 }
 
 function openChallenges() {
@@ -134,6 +188,8 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => set
 
 async function startGame(setup: GameSetup) {
   if (menus.settings.skipIntro && !params.get('autostart')) setup = { ...setup, intro: false };
+  // [EDIT] a new match runs with the enabled mods (loads and replays keep the mods they were recorded with)
+  if (!setup.load && !setup.replay && !setup.demo && !('mods' in setup)) setup = { ...setup, mods: activeModSet() ?? undefined };
   // still inside the Deploy click, so the browser allows it
   if (menus.settings.fullscreen !== false && !params.get('autostart')) void enterFullscreen();
   menus.hide();
@@ -148,24 +204,35 @@ async function startGame(setup: GameSetup) {
       onEnd: (g, won) => {
         if (g.setup.replay) return; // [D] replay playback shows its own end panel
         g.paused = true;
+        if (modesOnEnd(g, won)) return; // [MODES] challenge result screen · mode medals
+        if (g.setup.conquest) { // [CONQ] the result goes back to the campaign: battle report, then the strategic map
+          showConquestAfterBattle(g.world, g.setup.conquest, {
+            play: (k) => audio.play(k),
+            onContinue: () => { audio.stopMusic(); startDemo(); menus.hide(); openConquest(); },
+            onMenu: () => { audio.stopMusic(); startDemo(); },
+          });
+          return;
+        }
         const def = g.missionDef, res = g.missionResult;
-        if (!def || !res) { menus.showEnd(g, won); return; }
+        if (!def || !res) { menus.showEnd(g, won); offerMoments(g, won); return; } // [MODES] "make this a challenge" offers
         // campaign / special operation: debrief with objectives, stars and the next mission
         const next = won && def.campaign !== 'special' ? campaignMissions(def.campaign).find((m) => m.index === def.index + 1) : undefined;
         showDebrief(res, def, {
           onNext: next ? () => deployMission(next.id) : undefined,
           onRetry: () => deployMission(def.id),
-          onMenu: () => { audio.stopMusic(); startDemo(); menus.hide(); openCampaign(); },
+          onMenu: () => { audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); menus.hide(); openCampaign(); }, // [EDIT] playtests return to the editor
         });
       },
       onProgress: (f, l) => setLoading(f, l),
     });
     applySettings(game, menus.settings);
+    showModBadge(game.setup.mods); // [EDIT] "Modded" badge
     exposeDebug(game);
     (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
     // [D] watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
     if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
+    attachModes(game); // [MODES] KOTH HUD, branch / challenge badge, moment tracking
     game.start();
   } catch (e) {
     reportError(e, true);
@@ -209,6 +276,8 @@ function startDemo() {
   game?.dispose();
   exposeDebug(null);
   game = null;
+  returnToEditor = false; // [EDIT]
+  showModBadge(null); // [EDIT]
   if (params.get('demo') !== '0') {
     try {
       const tods: TimeOfDay[] = ['day', 'dusk', 'night'];
@@ -229,7 +298,12 @@ function startDemo() {
   hideLoading();
 }
 
-if (params.get('autostart')) {
+if (params.get('autostart') && params.get('conquest')) {
+  // [CONQ] ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
+  const { run, setup } = runWithBattle(+(params.get('seed') ?? 7), (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
+  saveRun(run);
+  deployConquest(setup);
+} else if (params.get('autostart')) {
   // Testing shortcut: ?autostart=1&faction=soviet&ai=hard&size=64&fog=0&tod=dusk&units=heavy
   // [D] plus map=<curated id> · mapcode=<code> · replay=<id>|latest (resolveTestSetup)
   void resolveTestSetup(params, {
@@ -243,7 +317,30 @@ if (params.get('autostart')) {
   }).then(startGame);
 } else {
   setLoading(0.5, 'Loading');
-  setTimeout(startDemo, 30);
+  // [EDIT] custom maps / missions are listed in the menus: load the editor library first (bounded wait)
+  setTimeout(() => void Promise.race([initEditorStore(), new Promise((r) => setTimeout(r, 1500))]).finally(startDemo), 30);
+}
+
+// [CONQ] ?conquest=ui|fresh|mid[&seed=N&faction=soviet&cqdemo=new|select|preview|research|army|perks|perk|event|report|summary|threat] opens the campaign screen
+if (params.get('conquest') && !params.get('autostart')) {
+  const t0 = performance.now();
+  const wait = () => {
+    if (!game && performance.now() - t0 < 4000) { setTimeout(wait, 100); return; }
+    const seed = +(params.get('seed') ?? 1953), fac = (params.get('faction') as Faction) ?? 'allies', demo = params.get('cqdemo') ?? undefined;
+    const mode = params.get('conquest');
+    if (mode === 'mid' || mode === 'fresh') {
+      const run = midCampaignRun(seed, fac, mode === 'mid' ? +(params.get('turns') ?? 6) : 0);
+      if (demo) demoState(run, demo);
+      saveRun(run);
+    } else if (demo && loadRun()) {
+      const run = loadRun()!;
+      demoState(run, demo);
+      saveRun(run);
+    }
+    menus.hide();
+    openConquest(demo);
+  };
+  setTimeout(wait, 100);
 }
 
 // Offline support. A downloaded update is applied only between matches (never mid-game).

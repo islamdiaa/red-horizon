@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { NB, makeTemplate, type Ctx, type Mat, type ModelTemplate } from './builder';
 import type { ModelAnimState } from './types';
-import { M, G, alliedStar, antenna, barrel, faceRot, hazard, lamp, lathe, pipe, prismXY, prismXZ, sovietStar, windows, ladder, grille, mergeChild } from './parts';
+import { M, G, alliedStar, antenna, barrel, faceRot, hazard, lamp, lathe, pipe, prismXY, prismXZ, sovietStar, windows, ladder, grille, mergeChild, rivets, stencilNumber } from './parts';
 import { approach, blink, dtOf, healthVariant, recoil } from './anim';
 import { BodyVariant } from './materials';
 
@@ -835,6 +835,129 @@ function submarine(): ModelTemplate {
   });
 }
 
+// =============================================================================================
+// Missile Submarine (Soviet, Counterstrike) — bigger boat, raised missile deck aft of the sail
+// =============================================================================================
+
+function missileSub(): ModelTemplate {
+  const { r, hl } = shipRoot();
+  const H = hull(hl, { L: 1.5, B: 0.24, free: 0.045, sheer: 0.01, draft: 0.1, bow: 0.32, stern: 0.16, rake: 0.0, round: true, n: 16 }, HULL_SUB, shadeDeck(), HULL_SUB);
+  const dy = H.deckAt(0);
+  hl.box(HULL_SUB, 1.0, 0.02, 0.08, 0.05, dy + 0.007, 0, { b: 0.006 });
+  for (let i = 0; i < 11; i++) for (const s of [-1, 1]) hl.box(M.darker, 0.03, 0.006, 0.002, -0.44 + i * 0.09, dy - 0.012, (H.halfAt(-0.44 + i * 0.09) * 0.55 + 0.001) * s, { b: 0 });
+  // sail (forward)
+  const sx = 0.28;
+  hl.add(
+    prismXZ(
+      [
+        [0.11, 0],
+        [0.07, 0.036],
+        [-0.08, 0.036],
+        [-0.12, 0.02],
+        [-0.12, -0.02],
+        [-0.08, -0.036],
+        [0.07, -0.036],
+      ],
+      0.13,
+      0.012,
+    ),
+    HULL_SUB,
+    { p: [sx, dy + 0.01, 0] },
+  );
+  hl.box(M.team, 0.17, 0.02, 0.074, sx - 0.01, dy + 0.105, 0, { b: 0.004 });
+  hl.box(M.darker, 0.1, 0.008, 0.05, sx - 0.02, dy + 0.141, 0, { b: 0.002 });
+  for (const s of [-1, 1]) hl.box(HULL_SUB, 0.05, 0.006, 0.06, sx + 0.02, dy + 0.08, 0.06 * s, { b: 0.002 });
+  sovietStar(hl, 0.022, [sx - 0.01, dy + 0.07, 0.0375], faceRot('+z'));
+  sovietStar(hl, 0.022, [sx - 0.01, dy + 0.07, -0.0375], faceRot('-z'));
+  stencilNumber(hl, '711', [sx - 0.02, dy + 0.035, 0.0372], [0, 0, 0], 0.022);
+  stencilNumber(hl, '711', [sx - 0.02, dy + 0.035, -0.0372], [0, Math.PI, 0], 0.022);
+  const masts = hl.node('masts', [sx, dy + 0.14, 0]);
+  masts.cyl(GREY_DARK, 0.005, 0.006, 0.14, 0.02, 0.07, 0, { seg: 5 });
+  masts.cyl(GREY_DARK, 0.004, 0.005, 0.12, -0.01, 0.06, 0.012, { seg: 5 });
+  masts.box(GREY_DARK, 0.016, 0.01, 0.01, 0.025, 0.14, 0, { b: 0 });
+  masts.sph(G.red, 0.006, -0.01, 0.125, 0.012, { seg: 4, slot: 'glow:strobe' });
+  // raised missile deck: two rows of three tubes with hatches that swing open to fire
+  const mx = -0.12;
+  hl.add(
+    prismXY(
+      [
+        [-0.32, 0],
+        [0.1, 0],
+        [0.07, 0.05],
+        [-0.29, 0.05],
+      ],
+      0.13,
+      0.012,
+    ),
+    HULL_SUB,
+    { p: [mx, dy + 0.005, 0] },
+  );
+  const muzzles: string[] = [];
+  let k = 0;
+  for (let i = 0; i < 3; i++) {
+    for (const s of [-1, 1]) {
+      const x = mx - 0.19 + i * 0.11;
+      const z = 0.032 * s;
+      hl.cyl(M.darker, 0.022, 0.022, 0.006, x, dy + 0.057, z, { seg: 10 });
+      hl.cyl(M.red, 0.025, 0.025, 0.004, x, dy + 0.056, z, { seg: 10 });
+      const hatchN = hl.node(`hatch${k}`, [x - 0.022, dy + 0.06, z]);
+      hatchN.cyl(HULL_SUB, 0.022, 0.022, 0.008, 0.022, 0.004, 0, { seg: 10 });
+      rivets(hatchN, [0.006, 0.009, 0], [0.038, 0.009, 0], 3, 0.003);
+      // missile tips peek out of the tube (local +X of the muzzle points up)
+      hl.add(lathe([[0.012, 0], [0.009, 0.012], [0.0, 0.024]], 8), M.offwhite, { p: [x, dy + 0.035, z] });
+      const m = `m${k}`;
+      hl.node(m, [x, dy + 0.08, z], [0, 0, Math.PI / 2]);
+      muzzles.push(m);
+      k++;
+    }
+  }
+  for (const s of [-1, 1]) {
+    hl.box(HULL_SUB, 0.06, 0.006, 0.07, 0.55, -0.02, 0.11 * s, { b: 0.002 });
+    hl.box(HULL_SUB, 0.07, 0.006, 0.09, -0.69, -0.03, 0.065 * s, { b: 0.002 });
+  }
+  hl.box(HULL_SUB, 0.08, 0.13, 0.006, -0.7, -0.02, 0, { b: 0.002 });
+  const prop = hl.node('prop', [-0.76, -0.035, 0]);
+  for (let i = 0; i < 7; i++) prop.box(M.brass, 0.008, 0.075, 0.016, 0, 0, 0, { b: 0, r: [(i / 7) * Math.PI * 2, 0, 0.3] });
+  prop.cyl(M.brass, 0.013, 0.009, 0.02, 0, 0, 0, { r: [0, 0, Math.PI / 2], seg: 6 });
+  hl.cyl(M.darker, 0.015, 0.015, 0.006, 0.55, dy + 0.017, 0, { seg: 8 });
+  const ghost = r.node('ghost', [0, 0.012, 0]);
+  ghost.add(new THREE.CircleGeometry(0.5, 20), M.dark, { r: [-Math.PI / 2, 0, 0], s: [1.55, 1, 0.3], slot: 'fx:add:3fa8ff:0.32', keepUv: true });
+  r.node('exhaust', [sx - 0.05, dy + 0.2, 0]);
+
+  return makeTemplate({
+    root: r,
+    height: 0.32,
+    radius: 0.7,
+    muzzles,
+    smoke: ['exhaust'],
+    glow: { glow: 2.5, 'glow:strobe': 4 },
+    anim: (c, s) => {
+      const dt = dtOf(s);
+      const sub = (c.v.sub = approach(c.v.sub ?? 0, Math.min(1, Math.max(0, s.submerged ?? 0)), 2.2, dt));
+      // hatches: open while surfaced and shooting, close before diving
+      const open = (c.v.hatch = approach(c.v.hatch ?? 0, sub < 0.2 && s.firing > 0 ? 1 : 0, s.firing > 0 ? 12 : 1.5, dt));
+      for (let i = 0; i < 6; i++) {
+        const h = c.n[`hatch${i}`];
+        if (h) h.rotation.z = open * (i === s.firingMuzzle % 6 ? 1.9 : 1.2);
+      }
+      shipAnim(c, s, 1.5 * (1 + sub * 2), (c2, s2) => {
+        if (s2.dying > 0) return;
+        const h = c2.n.hull;
+        h.position.y = h.position.y * (1 - sub) - sub * 0.25;
+        h.rotation.z += Math.sin(Math.min(1, sub) * Math.PI) * 0.06 * (s2.submerged ? -1 : 1);
+        c2.n.prop.rotation.x += Math.min(dt * 16 * (s2.moving ? 1 : 0.15), 0.6);
+        c2.setGlow('glow:strobe', sub > 0.5 ? 0 : blink(s2.time, 1.8, 0.4) ? 1 : 0.1);
+      });
+      const gh = c.n['fx:ghost'];
+      if (gh) {
+        gh.visible = sub > 0.35;
+        const kk = 0.75 + 0.25 * sub + 0.04 * Math.sin(s.time * 3);
+        gh.scale.set(kk, 1, kk);
+      }
+    },
+  });
+}
+
 function shadeDeck(): Mat {
   return { c: 0x3a3e42, m: 0.2, r: 0.75, d: 1, uv: 3 };
 }
@@ -1195,4 +1318,5 @@ export const NAVAL_BUILDERS: Record<string, () => ModelTemplate> = {
   ca: cruiser,
   lst: transport,
   ss: submarine,
+  msub: missileSub,
 };

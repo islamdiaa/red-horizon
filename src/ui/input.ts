@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { BUILDINGS } from '../data/rules';
+import { BUILDINGS, getType } from '../data/rules';
 import { wallLine } from '../sim/world';
 import { lerp } from '../core/util';
 import { Building, Entity, Unit } from '../sim/entities';
 import type { Player } from '../sim/player';
 import { SUPER_TARGET, type SuperKind } from '../sim/superweapons';
-import type { Command, Stance } from '../sim/types';
+import type { Command, FormationShape, Stance } from '../sim/types';
 import type { PlacementIssue, World } from '../sim/world';
 import type { GameRenderer } from '../render/renderer';
 import type { EntityRenderer } from '../render/entities';
@@ -18,10 +18,29 @@ import type { TargetReticle } from '../render/reticle';
 import { bridgeAtCell } from '../sim/bridges';
 import { disguisedAs } from '../sim/infiltration';
 import { canCarry } from '../sim/naval';
+import { pickWeapon } from '../sim/combat';
+import { FORMATION_SHAPES } from '../sim/formation';
+import { chronoTarget } from '../sim/aftermath';
 import { T } from '../sim/map';
 import { toggleFullscreen } from '../platform/fullscreen';
+import { FORMATION_INFO, OrderViz, injectCtrlStyles } from './orderui';
+import { TouchController } from './touch';
+import { attachGamepad, gamepadFrame } from './gamepad';
 
-export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines';
+export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines'
+  /** [CTRL] click patrol waypoints (Shift: more) / click a unit or structure to guard / click to plan a structure. */
+  | 'patrol' | 'guard' | 'plan'
+  /** Chrono Tank: click where to chronoshift (D). */
+  | 'chrono';
+
+/** A pointer position with modifier keys: a PointerEvent, or synthesised by touch and gamepad input. */
+export interface PtrLike {
+  clientX: number;
+  clientY: number;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}
 
 /** Units the player can click or box-select: not support planes (Badger, U2), not still under a parachute. */
 export function selectableUnit(u: Unit): boolean {
@@ -37,7 +56,10 @@ export const SUPER_RETICLE: Record<SuperKind, { r: number; color: number }> = {
 
 /** Stance hotkeys (F1–F4). */
 export const STANCE_KEYS: Record<string, Stance> = { f1: 'aggressive', f2: 'guard', f3: 'hold', f4: 'passive' };
-const STANCE_NAME: Record<Stance, string> = { aggressive: 'Aggressive', guard: 'Guard', hold: 'Hold position', passive: 'Hold fire' };
+export const STANCE_NAME: Record<Stance, string> = { aggressive: 'Aggressive', guard: 'Guard', hold: 'Hold position', passive: 'Hold fire' };
+
+/** Camera bookmark keys: F6–F9 jump, Ctrl / Shift + F6–F9 store. */
+const BOOKMARK_KEYS = ['f6', 'f7', 'f8', 'f9'];
 
 export interface InputHost {
   world: World;
@@ -69,10 +91,14 @@ export function voiceOf(u: Unit): VoiceKind {
   if (t.medic) return 'medic';
   if (t.harvester) return 'harvester';
   if (t.id === 'spy' || t.id === 'thf') return 'spy';
+  if (t.id === 'mech') return 'mechanic';
+  if (t.id === 'shok') return 'shock';
   if (u.kind === 'aircraft') return 'aircraft';
   if (u.kind === 'naval') return 'naval';
   return u.kind === 'infantry' ? 'infantry' : 'vehicle';
 }
+
+const isGroundUnit = (u: Unit) => u.kind === 'infantry' || u.kind === 'vehicle';
 
 export class InputController {
   mode: Mode = 'normal';
@@ -105,6 +131,18 @@ export class InputController {
   /** Camera follows the selection (F). */
   follow = false;
   private idleCursor = 0;
+  /** [CTRL] Patrol waypoints placed so far (patrol mode). */
+  patrolPts: [number, number][] = [];
+  /** [CTRL] Plan-mode ghost is on a plannable spot. */
+  planOk = false;
+  /** [CTRL] Camera bookmarks (F6–F9): x, y, zoom, yaw. */
+  bookmarks = new Map<string, [number, number, number, number]>();
+  readonly touch: TouchController;
+  private viz: OrderViz;
+  /** [CTRL] Timestamp of the touch tap being handled (double taps are timed on event timestamps). */
+  tapTime = 0;
+  /** [CTRL] Camera pan from a gamepad's right stick (-1..1 per axis). */
+  padPan: [number, number] = [0, 0];
 
   constructor(private h: InputHost) {
     this.canvas = h.gfx.canvas;
@@ -115,6 +153,7 @@ export class InputController {
     on(this.canvas, 'pointerdown', (e: PointerEvent) => this.onDown(e));
     on(window, 'pointermove', (e: PointerEvent) => this.onMove(e));
     on(window, 'pointerup', (e: PointerEvent) => this.onUp(e));
+    on(window, 'pointercancel', (e: PointerEvent) => { if (e.pointerType === 'touch') this.touch.cancel(e); });
     on(this.canvas, 'contextmenu', (e: Event) => e.preventDefault());
     on(this.canvas, 'wheel', (e: WheelEvent) => { e.preventDefault(); this.h.gfx.cam.zoomBy(e.deltaY * (e.deltaMode === 1 ? 30 : 1)); }, { passive: false });
     on(this.canvas, 'pointerenter', () => { this.pointerInside = true; });
@@ -128,10 +167,24 @@ export class InputController {
     on(window, 'keydown', (e: KeyboardEvent) => this.onKey(e, true));
     on(window, 'keyup', (e: KeyboardEvent) => this.onKey(e, false));
     on(window, 'blur', () => { this.keys.clear(); this.exitX = this.exitY = 0; });
+    // [CTRL] order layer, touch and gamepad
+    injectCtrlStyles();
+    const self = this;
+    this.viz = new OrderViz({
+      get world() { return self.h.world; }, get local() { return self.h.local; }, get selection() { return self.h.selection; },
+      get alpha() { return self.h.alpha; }, get mode() { return self.mode; }, get placeType() { return self.placeType; },
+      get patrolPts() { return self.patrolPts; }, get groundX() { return self.groundX; }, get groundY() { return self.groundY; },
+      get planOk() { return self.planOk; },
+    });
+    h.overlay.extra = (ctx, project) => this.viz.draw(ctx, project);
+    this.touch = new TouchController(this, h);
+    this.disposers.push(() => this.touch.dispose());
+    this.disposers.push(attachGamepad(this, h));
   }
 
   dispose() {
     for (const d of this.disposers) d();
+    if (this.h.overlay.extra) this.h.overlay.extra = null;
   }
 
   /** Switch the player whose units are "own" (replay player-view switch). */
@@ -166,7 +219,8 @@ export class InputController {
     return [(_v.x * 0.5 + 0.5) * window.innerWidth, (-_v.y * 0.5 + 0.5) * window.innerHeight, _v.z];
   }
 
-  pickAt(sx: number, sy: number): Entity | null {
+  /** Entity under a screen point. `slack` widens the unit hit radius (fingers are less precise than mice). */
+  pickAt(sx: number, sy: number, slack = 1): Entity | null {
     const { world, ents } = this.h;
     const map = world.map;
     const cam = this.h.gfx.cam.camera;
@@ -180,7 +234,7 @@ export class InputController {
       const wy = map.surfaceAt(x, y) + top * 0.5 + (u.kind === 'aircraft' ? u.altitude : 0);
       const [px, py] = this.project(x, wy, y);
       const depth = cam.position.distanceTo(_v.set(x, wy, y));
-      const rpx = Math.max(10, (u.ut.radius * 1.5 + 0.1) * focal / depth);
+      const rpx = Math.max(10 * slack, (u.ut.radius * 1.5 + 0.1) * focal / depth * slack);
       const d = Math.hypot(px - sx, py - sy);
       if (d < rpx && d < bestD) { bestD = d; best = u; }
     }
@@ -231,7 +285,7 @@ export class InputController {
   // ---------------------------------------------------------------------------
   // Selection helpers
   // ---------------------------------------------------------------------------
-  private ownSelectedUnits(): Unit[] {
+  ownSelectedUnits(): Unit[] {
     const out: Unit[] = [];
     for (const id of this.h.selection) {
       const e = this.h.world.getEntity(id);
@@ -240,7 +294,7 @@ export class InputController {
     return out;
   }
 
-  private ownSelectedBuildings(): Building[] {
+  ownSelectedBuildings(): Building[] {
     const out: Building[] = [];
     for (const id of this.h.selection) {
       const e = this.h.world.getEntity(id);
@@ -258,7 +312,8 @@ export class InputController {
     else if (this.ownSelectedBuildings().length) this.h.audio.play('click');
   }
 
-  private boxSelect(x0: number, y0: number, x1: number, y1: number, add: boolean) {
+  /** Box select (Shift: add, Ctrl: remove from the selection). */
+  boxSelect(x0: number, y0: number, x1: number, y1: number, add: boolean, remove = false) {
     const minX = Math.min(x0, x1), maxX = Math.max(x0, x1), minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
     const map = this.h.world.map;
     const a = this.h.alpha;
@@ -269,6 +324,10 @@ export class InputController {
       const [px, py] = this.project(x, map.surfaceAt(x, y) + 0.2, y);
       if (px >= minX && px <= maxX && py >= minY && py <= maxY) hits.push(u);
     }
+    if (remove) {
+      for (const u of hits) this.h.selection.delete(u.id);
+      return;
+    }
     // prefer combat units over harvesters / MCVs when mixed
     const combat = hits.filter((u) => !u.ut.harvester && !u.ut.deploysInto);
     if (combat.length) hits = combat;
@@ -276,17 +335,29 @@ export class InputController {
     else if (!add) this.h.selection.clear();
   }
 
-  private selectSameTypeOnScreen(types: string | Set<string>) {
-    const ids: number[] = [];
+  private onScreen(x: number, y: number): boolean {
     const W = window.innerWidth - this.sidebarW(), H = window.innerHeight;
-    const map = this.h.world.map;
+    const [px, py] = this.project(x, this.h.world.map.surfaceAt(x, y), y);
+    return px >= 0 && px <= W && py >= 0 && py <= H;
+  }
+
+  private selectSameTypeOnScreen(types: string | Set<string>, add = false) {
     const want = typeof types === 'string' ? new Set([types]) : types;
+    const ids: number[] = [];
     for (const u of this.h.world.units) {
       if (!selectableUnit(u) || u.owner !== this.h.local || !want.has(u.ut.id)) continue;
-      const [px, py] = this.project(u.x, map.surfaceAt(u.x, u.y), u.y);
-      if (px >= 0 && px <= W && py >= 0 && py <= H) ids.push(u.id);
+      if (this.onScreen(u.x, u.y)) ids.push(u.id);
     }
-    if (ids.length) this.select(ids);
+    if (ids.length) this.select(ids, add);
+  }
+
+  /** Double-click a structure: every own structure of that type on screen (e.g. all barracks to set a rally point). */
+  private selectSameBuildingsOnScreen(type: string, add = false) {
+    const ids: number[] = [];
+    for (const b of this.h.world.buildings) {
+      if (b.alive && b.owner === this.h.local && b.bt.id === type && this.onScreen(b.x, b.y)) ids.push(b.id);
+    }
+    if (ids.length) this.select(ids, add);
   }
 
   /** Who an entity appears to belong to for this player (a disguised spy passes for the player it mimics). */
@@ -305,14 +376,11 @@ export class InputController {
   }
 
   /** Ctrl+A: every own unit on screen (combat units preferred over harvesters / MCVs, like box select). */
-  private selectOnScreen() {
-    const W = window.innerWidth - this.sidebarW(), H = window.innerHeight;
-    const map = this.h.world.map;
+  selectOnScreen() {
     let hits: Unit[] = [];
     for (const u of this.h.world.units) {
       if (!selectableUnit(u) || u.owner !== this.h.local) continue;
-      const [px, py] = this.project(u.x, map.surfaceAt(u.x, u.y), u.y);
-      if (px >= 0 && px <= W && py >= 0 && py <= H) hits.push(u);
+      if (this.onScreen(u.x, u.y)) hits.push(u);
     }
     const combat = hits.filter((u) => !u.ut.harvester && !u.ut.deploysInto);
     if (combat.length) hits = combat;
@@ -346,13 +414,70 @@ export class InputController {
     this.h.audio.play('click');
   }
 
+  /** [CTRL] Formation of the selected ground units (they form up on the spot when idle). */
+  setFormation(shape: FormationShape) {
+    if (this.spectator) return;
+    const ids = this.ownSelectedUnits().filter(isGroundUnit).map((u) => u.id);
+    if (ids.length < 2) { this.h.message('Select two or more ground units for a formation'); return; }
+    this.h.issue({ c: 'formation', player: this.h.local.id, units: ids, shape });
+    this.h.message(`Formation: ${FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape}`);
+    this.h.audio.play('click');
+  }
+
+  /** [CTRL] L: next formation (Shift: previous). */
+  cycleFormation(dir = 1) {
+    const units = this.ownSelectedUnits().filter(isGroundUnit);
+    if (!units.length) return;
+    const cur = units[0].formShape ?? 'none';
+    const i = FORMATION_SHAPES.indexOf(cur);
+    this.setFormation(FORMATION_SHAPES[(i + dir + FORMATION_SHAPES.length) % FORMATION_SHAPES.length]);
+  }
+
+  /** [CTRL] Recall control group g (add: to the selection); a quick second recall centres the camera on it. */
+  recallGroup(g: number, add = false) {
+    const ids = (this.groups.get(g) ?? []).filter((id) => this.h.world.getEntity(id)?.alive);
+    if (!ids.length) return;
+    const now = performance.now();
+    if (this.lastGroupTap.g === g && now - this.lastGroupTap.t < 350) this.centreOn(ids);
+    this.lastGroupTap = { t: now, g };
+    this.select(ids, add);
+  }
+
+  /** Fly to the middle of a group of entities (the member nearest the middle, so never empty ground). */
+  centreOn(ids: number[]) {
+    const es = ids.map((id) => this.h.world.getEntity(id)).filter((e): e is Entity => !!e?.alive);
+    if (!es.length) return;
+    let x = 0, y = 0;
+    for (const e of es) { x += e.x; y += e.y; }
+    x /= es.length; y /= es.length;
+    let best = es[0], bd = Infinity;
+    for (const e of es) { const d = Math.hypot(e.x - x, e.y - y); if (d < bd) { bd = d; best = e; } }
+    this.h.gfx.cam.flyToPoint(bd < 4 ? x : best.x, bd < 4 ? y : best.y);
+  }
+
+  /** [CTRL] Ctrl+N: assign / Shift+N: add the selected units to group g. */
+  assignGroup(g: number, add: boolean) {
+    const ids = this.ownSelectedUnits().map((u) => u.id);
+    if (!ids.length) return;
+    const ov = this.h.overlay.groups;
+    let members = ids;
+    if (add) members = [...new Set([...(this.groups.get(g) ?? []).filter((id) => this.h.world.getEntity(id)?.alive), ...ids])];
+    else for (const [id, gg] of ov) if (gg === g) ov.delete(id);
+    // a unit belongs to one group: take these units out of the other groups
+    for (const [k2, list] of this.groups) if (k2 !== g) this.groups.set(k2, list.filter((id) => !ids.includes(id)));
+    this.groups.set(g, members);
+    for (const id of members) ov.set(id, g);
+    this.h.message(add ? `Added to group ${g} (${members.length})` : `Group ${g} assigned`);
+  }
+
   // ---------------------------------------------------------------------------
   // Modes
   // ---------------------------------------------------------------------------
   setMode(m: Mode) {
     this.mode = m;
     this.wallStart = null;
-    if (m !== 'place') {
+    this.patrolPts.length = 0;
+    if (m !== 'place' && m !== 'plan') {
       this.placeType = null;
       this.h.placement.set(null);
       this.h.gfx.terrain.uniforms.uGrid.value.w = 0;
@@ -360,10 +485,21 @@ export class InputController {
     if (m !== 'super') this.superKind = null;
   }
 
+  /** Place a finished structure; one that isn't ready yet goes into plan mode (queue it in the build plan). */
   beginPlacement(type: string) {
+    if (this.h.local.queues.structure.ready !== type) { this.beginPlan(type); return; }
     this.setMode('place');
     this.placeType = type;
     this.h.placement.set(type, new THREE.Color(this.h.local.color));
+  }
+
+  /** [CTRL] Plan mode: click to add the structure to the build plan (Shift: keep planning). */
+  beginPlan(type: string) {
+    if (this.spectator || !BUILDINGS[type]) return;
+    this.setMode('plan');
+    this.placeType = type;
+    this.h.placement.set(type, new THREE.Color(0x8fd0ff));
+    this.h.message(`Plan ${getType(type).name}: click to queue it (Shift-click: several). The yard builds and places it when affordable.`);
   }
 
   beginSuperweapon(kind: SuperKind) {
@@ -383,11 +519,31 @@ export class InputController {
     return [Math.round(this.groundX - bt.size[0] / 2), Math.round(this.groundY - bt.size[1] / 2)];
   }
 
+  /** Plan mode: open ground, clear of other planned structures, next to the base or to a planned structure. */
+  private planValid(type: string, cx: number, cy: number): boolean {
+    const bt = BUILDINGS[type];
+    const { world, local } = this.h;
+    const m = world.map;
+    for (let dy = 0; dy < bt.size[1]; dy++) for (let dx = 0; dx < bt.size[0]; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (bt.water ? !(m.inBounds(x, y) && m.navalTerrain(m.idx(x, y)) && !m.occupant[m.idx(x, y)]) : !m.buildable(x, y)) return false;
+    }
+    // cells between the footprints (negative: they overlap)
+    const gap = (it: { type: string; cx: number; cy: number }) => {
+      const o = BUILDINGS[it.type];
+      if (!o) return Infinity;
+      return Math.max(it.cx - (cx + bt.size[0]), cx - (it.cx + o.size[0]), it.cy - (cy + bt.size[1]), cy - (it.cy + o.size[1]));
+    };
+    if (local.buildPlan.some((it) => gap(it) < 0)) return false;
+    return world.isAdjacentToBase(local, bt, cx, cy, bt.wall ? 6 : 2, !bt.wall) || local.buildPlan.some((it) => gap(it) <= 2);
+  }
+
   // ---------------------------------------------------------------------------
   // Pointer
   // ---------------------------------------------------------------------------
   private onDown(e: PointerEvent) {
     if (this.h.paused) return;
+    if (e.pointerType === 'touch') { this.touch.down(e); return; }
     this.mouseX = e.clientX;
     this.mouseY = e.clientY;
     if (e.button === 1) {
@@ -400,6 +556,11 @@ export class InputController {
       return;
     }
     if (e.button !== 0) return;
+    this.primaryPress(e);
+  }
+
+  /** Left button (tap, gamepad A) pressed at a screen point: act on the current mode, or start selecting. */
+  primaryPress(e: PtrLike) {
     const [gx, gy] = this.screenToGround(e.clientX, e.clientY);
     const world = this.h.world;
     const local = this.h.local;
@@ -407,17 +568,64 @@ export class InputController {
     switch (this.mode) {
       case 'place': {
         const [cx, cy] = this.placementCell();
-        const issue = world.placementIssue(local, this.placeType!, cx, cy);
+        const type = this.placeType!;
+        const issue = world.placementIssue(local, type, cx, cy);
         if (issue) {
           this.h.audio.play('error');
           this.h.audio.announce('cannot_build_here');
-          this.h.message(placementText(issue, !!BUILDINGS[this.placeType!].wall, !!BUILDINGS[this.placeType!].water), true);
+          this.h.message(placementText(issue, !!BUILDINGS[type].wall, !!BUILDINGS[type].water), true);
           return;
         }
-        if (BUILDINGS[this.placeType!].wall) { this.wallStart = [cx, cy]; return; }
-        this.h.issue({ c: 'place', player: local.id, type: this.placeType!, cx, cy });
+        if (BUILDINGS[type].wall) { this.wallStart = [cx, cy]; return; }
+        this.h.issue({ c: 'place', player: local.id, type, cx, cy });
         this.h.audio.play('build_place');
+        // Shift: keep going and plan more of the same
+        if (e.shiftKey) this.beginPlan(type);
+        else this.setMode('normal');
+        return;
+      }
+      case 'plan': {
+        const [cx, cy] = this.placementCell();
+        const type = this.placeType!;
+        if (!this.planValid(type, cx, cy)) {
+          this.h.audio.play('error');
+          this.h.message('Cannot plan here: open ground next to your base or another planned structure', true);
+          return;
+        }
+        this.h.issue({ c: 'queuePlan', player: local.id, items: [{ type, cx, cy }] });
+        this.h.audio.play('build_place');
+        this.h.message(`${getType(type).name} planned (#${local.buildPlan.length + 1})`);
+        if (!e.shiftKey) this.setMode('normal');
+        return;
+      }
+      case 'patrol': {
+        const units = this.ownSelectedUnits().filter((u) => u.kind !== 'aircraft');
+        if (!units.length || !world.map.inBounds(Math.floor(gx), Math.floor(gy))) { this.setMode('normal'); return; }
+        this.patrolPts.push([gx, gy]);
+        this.marker(gx, gy, 'move');
+        if (e.shiftKey && this.patrolPts.length < 12) return;
+        this.h.issue({ c: 'patrol', player: local.id, units: units.map((u) => u.id), points: this.patrolPts.slice() });
+        this.voice('move', voiceOf(units[0]));
+        this.h.message(`Patrolling ${this.patrolPts.length + 1} waypoints`);
         this.setMode('normal');
+        return;
+      }
+      case 'guard': {
+        const units = this.ownSelectedUnits();
+        const t = this.pickAt(e.clientX, e.clientY, 1.4);
+        if (t && this.guardable(t)) {
+          const ids = units.filter((u) => u.id !== t.id).map((u) => u.id);
+          if (ids.length) {
+            this.h.issue({ c: 'guard', player: local.id, units: ids, target: t.id, queue: e.shiftKey });
+            this.marker(t.x, t.y, 'rally');
+            this.voice('move', voiceOf(units[0]));
+            this.h.message(`Guarding the ${t.type.name}`);
+          }
+          if (!e.shiftKey) this.setMode('normal');
+        } else {
+          this.h.audio.play('error');
+          this.h.message('Guard: click one of your (or an ally\'s) units or structures', true);
+        }
         return;
       }
       case 'sell': {
@@ -459,6 +667,19 @@ export class InputController {
         if (!e.shiftKey) this.setMode('normal');
         return;
       }
+      case 'chrono': {
+        // Chrono Tanks: each ready tank jumps (side by side when several)
+        const tanks = this.readyChronoTanks();
+        if (!tanks.length || !chronoTarget(world, local, gx, gy)) {
+          this.h.audio.play('error');
+          this.h.message(tanks.length ? 'Cannot chronoshift there: explored open ground only' : 'No Chrono Tank ready', true);
+          return;
+        }
+        tanks.forEach((u, k) => this.h.issue({ c: 'chronoJump', player: local.id, unit: u.id, x: gx + (k % 3) * 1.1, y: gy + Math.floor(k / 3) * 1.1 }));
+        this.marker(gx, gy, 'move');
+        this.setMode('normal');
+        return;
+      }
       case 'super': {
         const kind = this.superKind!;
         const unit = SUPER_TARGET[kind] === 'unit-point' ? this.ownSelectedUnits().find((u) => u.kind === 'vehicle') : undefined;
@@ -471,7 +692,20 @@ export class InputController {
     }
   }
 
+  /** Selected own Chrono Tanks that can jump now. */
+  private readyChronoTanks(): Unit[] {
+    return this.ownSelectedUnits().filter((u) => u.ut.chronoShift && u.chronoCooldown <= 0);
+  }
+
+  /** A friendly unit or structure that can be escorted / guarded. */
+  private guardable(t: Entity): boolean {
+    if (this.h.local.isEnemy(t.owner)) return false;
+    if (t instanceof Building) return !t.bt.mine;
+    return t instanceof Unit && selectableUnit(t) && t.kind !== 'aircraft';
+  }
+
   private onMove(e: PointerEvent) {
+    if (e.pointerType === 'touch') { this.touch.move(e); return; }
     this.hasMoved = true;
     this.pointerInside = true;
     this.exitX = this.exitY = 0;
@@ -486,24 +720,41 @@ export class InputController {
       document.body.dataset.cursor = 'pan';
       return;
     }
-    if (this.leftDown && this.mode === 'normal') {
-      if (Math.hypot(e.clientX - this.leftDown.x, e.clientY - this.leftDown.y) > 6) {
-        this.h.overlay.selectionBox = { x0: this.leftDown.x, y0: this.leftDown.y, x1: e.clientX, y1: e.clientY };
-      }
+    this.dragTo(e.clientX, e.clientY);
+  }
+
+  /** Move the (virtual) pointer: gamepad cursor, touch. Extends a box selection in progress. */
+  pointerAt(x: number, y: number) {
+    this.hasMoved = true;
+    this.pointerInside = true;
+    this.exitX = this.exitY = 0;
+    this.mouseX = x;
+    this.mouseY = y;
+    this.dragTo(x, y);
+  }
+
+  private dragTo(x: number, y: number) {
+    if (this.leftDown && this.mode === 'normal' && Math.hypot(x - this.leftDown.x, y - this.leftDown.y) > 6) {
+      this.h.overlay.selectionBox = { x0: this.leftDown.x, y0: this.leftDown.y, x1: x, y1: y };
     }
   }
 
   private onUp(e: PointerEvent) {
+    if (e.pointerType === 'touch') { this.touch.up(e); return; }
     if (e.button === 1) { this.middleDown = null; return; }
     if (e.button === 2) {
       const rd = this.rightDown;
       this.rightDown = null;
       if (!rd || rd.moved || this.h.paused) return;
-      if (this.mode !== 'normal') { this.setMode('normal'); return; }
-      if (!this.spectator) this.command(e);
+      this.contextAt(e);
       return;
     }
-    if (e.button === 0 && this.wallStart && this.mode === 'place' && this.placeType) {
+    if (e.button === 0) this.primaryRelease(e);
+  }
+
+  /** Left button released (tap end, gamepad A up): finish a wall line, a box, or a click selection. */
+  primaryRelease(e: PtrLike) {
+    if (this.wallStart && this.mode === 'place' && this.placeType) {
       const [cx, cy] = this.placementCell();
       this.h.issue({ c: 'place', player: this.h.local.id, type: this.placeType, cx: this.wallStart[0], cy: this.wallStart[1], cx2: cx, cy2: cy });
       this.h.audio.play('build_place');
@@ -511,39 +762,50 @@ export class InputController {
       this.setMode('normal');
       return;
     }
-    if (e.button !== 0 || !this.leftDown) return;
+    if (!this.leftDown) return;
     const ld = this.leftDown;
     this.leftDown = null;
     const box = this.h.overlay.selectionBox;
     this.h.overlay.selectionBox = null;
     if (box && Math.hypot(box.x1 - box.x0, box.y1 - box.y0) > 6) {
-      this.boxSelect(box.x0, box.y0, box.x1, box.y1, e.shiftKey);
+      this.boxSelect(box.x0, box.y0, box.x1, box.y1, e.shiftKey, e.ctrlKey);
       return;
     }
     this.clickSelect(ld.x, ld.y, e.shiftKey, e.ctrlKey);
   }
 
-  private clickSelect(sx: number, sy: number, shift: boolean, ctrl: boolean) {
-    const t = this.pickAt(sx, sy);
+  /** Right click (gamepad X, touch tap with a selection): cancel the mode, or the context command. */
+  contextAt(e: PtrLike) {
+    if (this.h.paused) return;
+    if (this.mode !== 'normal') { this.setMode('normal'); return; }
+    if (!this.spectator) this.command(e);
+  }
+
+  /** Click selection: Shift toggles, double-click / Ctrl selects all of that type on screen (Shift: adds them). */
+  clickSelect(sx: number, sy: number, shift: boolean, ctrl: boolean, slack = 1) {
+    const t = this.pickAt(sx, sy, slack);
     const sel = this.h.selection;
-    const now = performance.now();
+    const now = this.tapTime || performance.now();
+    this.tapTime = 0;
     if (!t) {
       if (!shift) sel.clear();
       return;
     }
+    const own = t.owner === this.h.local;
     // clicking an already selected MCV deploys it (classic behaviour)
-    if (!this.spectator && t instanceof Unit && t.owner === this.h.local && t.ut.deploysInto && sel.size === 1 && sel.has(t.id)) {
+    if (!this.spectator && t instanceof Unit && own && t.ut.deploysInto && sel.size === 1 && sel.has(t.id)) {
       this.h.issue({ c: 'deploy', player: this.h.local.id, units: [t.id] });
       return;
     }
-    if (now - this.lastClick.t < 320 && this.lastClick.id === t.id && t instanceof Unit && t.owner === this.h.local) {
-      this.selectSameTypeOnScreen(t.ut.id);
+    if (now - this.lastClick.t < 320 && this.lastClick.id === t.id && own) {
+      if (t instanceof Unit) this.selectSameTypeOnScreen(t.ut.id, shift);
+      else if (t instanceof Building) this.selectSameBuildingsOnScreen(t.bt.id, shift);
       this.lastClick.t = 0;
       return;
     }
     this.lastClick = { t: now, id: t.id };
-    if (ctrl && t instanceof Unit && t.owner === this.h.local) { this.selectSameTypeOnScreen(t.ut.id); return; }
-    if (shift && t.owner === this.h.local) {
+    if (ctrl && t instanceof Unit && own) { this.selectSameTypeOnScreen(t.ut.id, shift); return; }
+    if (shift && own) {
       if (sel.has(t.id)) sel.delete(t.id);
       else this.select([t.id], true);
     } else {
@@ -552,21 +814,35 @@ export class InputController {
   }
 
   /** Context-sensitive right-click order. */
-  private command(e: PointerEvent) {
+  private command(e: PtrLike) {
     const { world, local } = this.h;
     const [gx, gy] = this.screenToGround(e.clientX, e.clientY);
     const units = this.ownSelectedUnits();
     const ids = units.map((u) => u.id);
     if (!units.length) {
       const fac = this.ownSelectedBuildings().filter((b) => b.bt.factory && b.bt.factory !== 'building');
+      if (!fac.length) return;
+      // [CTRL] right click an own unit: new units join it (rally to a unit)
+      const t = e.altKey ? null : this.pickAt(e.clientX, e.clientY);
+      const rallyTo = fac.filter((b) => b.bt.factory !== 'aircraft');
+      if (t instanceof Unit && t.owner === local && selectableUnit(t) && t.kind !== 'aircraft' && rallyTo.length) {
+        for (const b of rallyTo) this.h.issue({ c: 'rallyUnit', player: local.id, building: b.id, target: t.id });
+        this.marker(t.x, t.y, 'rally');
+        this.h.message(`Rally: new units join the ${t.ut.name}`);
+        return;
+      }
       for (const b of fac) this.h.issue({ c: 'rally', player: local.id, building: b.id, x: gx, y: gy });
-      if (fac.length) this.marker(gx, gy, 'rally');
+      this.marker(gx, gy, 'rally');
       return;
     }
     const t = e.altKey ? null : this.pickAt(e.clientX, e.clientY);
     const voice = voiceOf(units[0]);
     if (t && t.owner !== local && local.isEnemy(this.apparentOwner(t))) {
-      this.h.issue({ c: 'attack', player: local.id, units: ids, target: t.id });
+      // [CTRL] whoever can't hurt the target (rifles vs aircraft, medics…) attack-moves there with the others
+      const able = units.filter((u) => canEngage(u, t));
+      const rest = units.filter((u) => !able.includes(u)).map((u) => u.id);
+      if (able.length) this.h.issue({ c: 'attack', player: local.id, units: able.map((u) => u.id), target: t.id });
+      if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: t.x, y: t.y, attackMove: true });
       this.marker(t.x, t.y, 'attack');
       this.voice('attack', voice);
       return;
@@ -583,6 +859,18 @@ export class InputController {
       this.marker(t.x, t.y, 'move');
       this.voice('move', voice);
       return;
+    }
+    // [CTRL] right click a friendly unit outside the selection: escort it (follow and defend)
+    if (t instanceof Unit && !this.h.selection.has(t.id) && this.guardable(t)) {
+      const escorts = units.filter((u) => u.kind !== 'aircraft');
+      if (escorts.length) {
+        this.h.issue({ c: 'guard', player: local.id, units: escorts.map((u) => u.id), target: t.id, queue: e.shiftKey });
+        const rest = units.filter((u) => u.kind === 'aircraft').map((u) => u.id);
+        if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: t.x, y: t.y });
+        this.marker(t.x, t.y, 'rally');
+        this.voice('move', voice);
+        return;
+      }
     }
     if (t instanceof Building && t.owner === local) {
       const harv = units.filter((u) => u.ut.harvester && t.bt.dock);
@@ -679,29 +967,23 @@ export class InputController {
       this.setStance(STANCE_KEYS[k]);
       return;
     }
-    // control groups
-    if (/^[0-9]$/.test(k)) {
-      const g = +k;
+    // [CTRL] camera bookmarks: F6–F9 jump, Ctrl / Shift + F6–F9 store
+    if (BOOKMARK_KEYS.includes(k)) {
+      e.preventDefault();
+      this.bookmark(k, e.ctrlKey || e.metaKey || e.shiftKey);
+      return;
+    }
+    // control groups (by key position, so Shift+1 works on every layout): Ctrl assign, Shift add, plain recall
+    const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code)?.[1] ?? (/^[0-9]$/.test(k) ? k : null);
+    if (digit !== null) {
+      const g = +digit;
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
-        const ids = this.ownSelectedUnits().map((u) => u.id);
-        // a unit belongs to one group: drop the old members' badges and take these units out of other groups
-        for (const [id, gg] of this.h.overlay.groups) if (gg === g) this.h.overlay.groups.delete(id);
-        for (const [k2, list] of this.groups) if (k2 !== g) this.groups.set(k2, list.filter((id) => !ids.includes(id)));
-        this.groups.set(g, ids);
-        for (const id of ids) this.h.overlay.groups.set(id, g);
-        this.h.message(`Group ${g} assigned`);
-      } else {
-        const ids = (this.groups.get(g) ?? []).filter((id) => this.h.world.getEntity(id)?.alive);
-        if (!ids.length) return;
-        const now = performance.now();
-        if (this.lastGroupTap.g === g && now - this.lastGroupTap.t < 350) {
-          const u = this.h.world.getEntity(ids[0])!;
-          this.h.gfx.cam.flyToPoint(u.x, u.y);
-        }
-        this.lastGroupTap = { t: now, g };
-        this.select(ids, e.shiftKey);
-      }
+        this.assignGroup(g, false);
+      } else if (e.shiftKey && this.ownSelectedUnits().length) {
+        e.preventDefault();
+        this.assignGroup(g, true);
+      } else this.recallGroup(g);
       return;
     }
     if ((e.ctrlKey || e.metaKey) && k === 'a') {
@@ -711,7 +993,24 @@ export class InputController {
     }
     if (e.ctrlKey || e.metaKey) return;
     if (k === 'i') { this.cycleIdle(e.shiftKey); return; }
+    if (k === 'l') { if (!this.spectator) this.cycleFormation(e.shiftKey ? -1 : 1); return; }
     this.keyCommand(k);
+  }
+
+  /** [CTRL] Store or recall a camera bookmark. */
+  bookmark(key: string, store: boolean) {
+    const cam = this.h.gfx.cam;
+    const n = BOOKMARK_KEYS.indexOf(key) + 6;
+    if (store) {
+      this.bookmarks.set(key, [cam.x, cam.y, cam.targetDist, cam.targetYaw]);
+      this.h.message(`Camera position F${n} saved`);
+      return;
+    }
+    const b = this.bookmarks.get(key);
+    if (!b) { this.h.message(`No camera position on F${n} yet: Ctrl + F${n} saves one`); return; }
+    cam.flyToPoint(b[0], b[1]);
+    cam.targetDist = b[2];
+    cam.targetYaw = b[3];
   }
 
   keyCommand(k: string, fromButton = false) {
@@ -720,7 +1019,7 @@ export class InputController {
     const ids = units.map((u) => u.id);
     const blds = this.ownSelectedBuildings();
     // spectators keep the camera and selection keys only
-    if (this.spectator && k.length === 1 && 'sagxdzrpm '.includes(k)) return;
+    if (this.spectator && k.length === 1 && 'sagxdzrpmcl '.includes(k)) return;
     switch (k) {
       case 's':
         if (ids.length) this.h.issue({ c: 'stop', player: local.id, units: ids });
@@ -734,9 +1033,19 @@ export class InputController {
       case 'x':
         if (ids.length) this.h.issue({ c: 'scatter', player: local.id, units: ids });
         break;
-      case 'd':
-        if (ids.length) this.h.issue({ c: 'deploy', player: local.id, units: ids });
+      case 'd': {
+        // Chrono Tanks pick a destination; everything else deploys / unloads / detonates as before
+        const chrono = units.filter((u) => u.ut.chronoShift);
+        const rest = ids.filter((id) => !chrono.some((u) => u.id === id));
+        if (rest.length) this.h.issue({ c: 'deploy', player: local.id, units: rest });
+        if (chrono.length) {
+          if (this.readyChronoTanks().length) {
+            this.setMode(this.mode === 'chrono' ? 'normal' : 'chrono');
+            if (this.mode === 'chrono') this.h.message('Chronoshift: click a spot you have explored');
+          } else this.h.message(`Chrono Tank recharging (${Math.ceil(Math.min(...chrono.map((u) => u.chronoCooldown)))} s)`);
+        }
         break;
+      }
       case 'z':
         // the hotkey only arms sell mode (avoids accidental sales); the panel button sells directly
         if (fromButton && blds.length === 1 && blds[0].alive) this.h.issue({ c: 'sell', player: local.id, building: blds[0].id });
@@ -747,7 +1056,18 @@ export class InputController {
         else this.setMode(this.mode === 'repair' ? 'normal' : 'repair');
         break;
       case 'p':
-        if (blds.length === 1) this.h.issue({ c: 'primary', player: local.id, building: blds[0].id });
+        // [CTRL] units: patrol (click waypoints, Shift-click for more); a factory: primary
+        if (units.some((u) => u.kind !== 'aircraft')) {
+          this.setMode(this.mode === 'patrol' ? 'normal' : 'patrol');
+          if (this.mode === 'patrol') this.h.message('Patrol: click the far end of the route (Shift-click: add waypoints)');
+        } else if (blds.length === 1) this.h.issue({ c: 'primary', player: local.id, building: blds[0].id });
+        break;
+      case 'c':
+        // [CTRL] guard / escort: click the unit or structure to protect
+        if (units.some((u) => u.kind !== 'aircraft')) {
+          this.setMode(this.mode === 'guard' ? 'normal' : 'guard');
+          if (this.mode === 'guard') this.h.message('Guard: click a unit to escort or a structure to defend');
+        }
         break;
       case 'h': {
         const fact = this.h.world.buildings.find((b) => b.alive && b.owner === local && b.bt.id === 'fact');
@@ -790,6 +1110,7 @@ export class InputController {
           document.head.appendChild(st);
         }
         document.body.classList.toggle('photo-mode');
+        this.h.gfx.setPhotoMode?.(document.body.classList.contains('photo-mode')); // [FX] depth-of-field panel
         break;
       case '+': case '=':
         this.h.gfx.cam.zoomBy(-300);
@@ -803,13 +1124,14 @@ export class InputController {
   // ---------------------------------------------------------------------------
   /** Per-frame: camera keys / edge scroll, hover & cursor, placement ghost. */
   update(dt: number, time: number) {
+    gamepadFrame();
     const cam = this.h.gfx.cam;
-    let px = 0, py = 0;
+    let px = this.padPan[0], py = this.padPan[1];
     if (this.keys.has('arrowleft')) px -= 1;
     if (this.keys.has('arrowright')) px += 1;
     if (this.keys.has('arrowup')) py -= 1;
     if (this.keys.has('arrowdown')) py += 1;
-    if (this.edgeScroll && this.hasMoved && document.hasFocus() && !this.middleDown && !this.rightDown) {
+    if (this.edgeScroll && this.hasMoved && document.hasFocus() && !this.middleDown && !this.rightDown && !this.touch.active) {
       if (this.pointerInside) {
         // a band rather than the last pixel row: easy to hit in a window as well as fullscreen
         const m = 10;
@@ -851,10 +1173,10 @@ export class InputController {
         return [x, y, ok];
       });
       this.h.placement.updateLine(cells, time);
-    } else if (this.mode === 'place' && this.placeType) {
+    } else if ((this.mode === 'place' || this.mode === 'plan') && this.placeType) {
       const [cx, cy] = this.placementCell();
       const map = this.h.world.map;
-      const valid = this.h.world.canPlace(this.h.local, this.placeType, cx, cy);
+      const valid = this.mode === 'plan' ? (this.planOk = this.planValid(this.placeType, cx, cy)) : this.h.world.canPlace(this.h.local, this.placeType, cx, cy);
       const water = !!BUILDINGS[this.placeType].water;
       // shipyards / sub pens stand on open water; everything else on clear dry ground
       const cellOk = water
@@ -867,7 +1189,11 @@ export class InputController {
     if (this.mode === 'super' && this.superKind && this.h.reticle) {
       const ret = SUPER_RETICLE[this.superKind] ?? { r: 1.5, color: 0xffffff };
       this.h.reticle.show(this.groundX, this.groundY, Math.max(0.9, ret.r), ret.color, time);
+    } else if (this.mode === 'chrono' && this.h.reticle) {
+      const ok = !!chronoTarget(this.h.world, this.h.local, this.groundX, this.groundY);
+      this.h.reticle.show(this.groundX, this.groundY, 0.9, ok ? SUPER_RETICLE.chrono.color : 0xff3020, time);
     } else this.h.reticle?.hide();
+    this.touch.update(dt);
     this.updateCursor();
   }
 
@@ -878,14 +1204,22 @@ export class InputController {
     const local = this.h.local;
     let c = '';
     switch (this.mode) {
-      case 'place': c = ''; break;
+      case 'place': case 'plan': c = ''; break;
       case 'sell': c = t instanceof Building && t.owner === local ? 'sell' : 'nomove'; break;
       case 'repair': c = t instanceof Building && t.owner === local && t.hp < t.maxHp ? 'repair' : 'nomove'; break;
       case 'attackMove': case 'attackGround': c = 'attack'; break;
       case 'super': case 'layMines': c = 'target'; break;
+      case 'patrol': c = 'patrol'; break;
+      case 'chrono': c = chronoTarget(this.h.world, local, this.groundX, this.groundY) ? 'target' : 'nomove'; break;
+      case 'guard': c = t && this.guardable(t) ? 'guard' : 'nomove'; break;
       default: {
         const units = this.ownSelectedUnits();
-        if (!units.length || this.spectator) { c = t ? 'select' : ''; break; }
+        if (this.spectator) { c = t ? 'select' : ''; break; }
+        if (!units.length) {
+          const factory = this.ownSelectedBuildings().some((b) => b.bt.factory && b.bt.factory !== 'building' && b.bt.factory !== 'aircraft');
+          c = factory && t instanceof Unit && t.owner === local && t.kind !== 'aircraft' ? 'rally' : t ? 'select' : '';
+          break;
+        }
         if (t && local.isEnemy(this.apparentOwner(t))) {
           c = units.some((u) => u.weapons.length || u.ut.engineer || u.ut.c4) ? (units.every((u) => u.ut.engineer) ? 'enter' : 'attack') : 'select';
         } else if (t instanceof Unit && t.owner === local && t.ut.passengers && units.some((u) => canCarry(t, u))) {
@@ -894,6 +1228,8 @@ export class InputController {
           c = 'deploy';
         } else if (t instanceof Building && t.owner === local && ((t.bt.dock && units.some((u) => u.ut.harvester)) || (t.bt.repairPad && units.some((u) => u.kind === 'vehicle')) || (units.some((u) => u.ut.engineer) && t.hp < t.maxHp))) {
           c = 'enter';
+        } else if (t instanceof Unit && !this.h.selection.has(t.id) && this.guardable(t) && units.some((u) => u.kind !== 'aircraft')) {
+          c = 'guard';
         } else if (t) {
           c = 'select';
         } else {
@@ -918,6 +1254,26 @@ export class InputController {
     if (c) b.classList.add('cur-' + c);
     this.curCursor = c;
   }
+
+  /** The cursor class currently shown (for the gamepad cursor). */
+  get cursorKind(): string {
+    return this.curCursor;
+  }
+
+  // --- for touch / gamepad -------------------------------------------------------
+  get world(): World { return this.h.world; }
+  get local(): Player { return this.h.local; }
+  get selection(): Set<number> { return this.h.selection; }
+  get paused(): boolean { return this.h.paused; }
+  message(text: string, warn = false) { this.h.message(text, warn); }
+  pause() { this.h.openPauseMenu(); }
+  playClick() { this.h.audio.play('click'); }
+}
+
+/** Whether a selected unit can act on an enemy target with the attack command. */
+function canEngage(u: Unit, t: Entity): boolean {
+  if (t instanceof Building && (u.ut.engineer || u.ut.c4 || u.ut.spy || u.ut.thief)) return true;
+  return u.weapons.length > 0 && !u.ut.medic && !!pickWeapon(u, t);
 }
 
 /** Why a structure can't go where the player clicked. */

@@ -35,6 +35,10 @@
   </head>
   <body>
     <div id="info"></div>
-    <script type="module" src="/src/render/models/preview.ts"></script>
+    <!-- ?destroy=<scene> shows the destruction preview (collapses, wrecks, ragdolls, craters) -->
+    <script type="module">
+      if (new URLSearchParams(location.search).has('destroy')) import('/src/render/destruction-preview.ts');
+      else import('/src/render/models/preview.ts');
+    </script>
   </body>
 </html>

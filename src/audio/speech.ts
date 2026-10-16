@@ -57,6 +57,8 @@ export const ANNOUNCER_TEXT: Record<AnnouncerKey, string> = {
   paratroopers_inbound: 'Enemy paratroopers inbound.',
   spy_detected: 'Enemy spy eliminated.',
   mines_laid: 'Mines laid.',
+  mad_tank_deployed: 'M.A.D. Tank deployed.',
+  chrono_tank_charged: 'Chrono tank charged.',
 };
 
 /** Minimum ms between two announcements of the same key. */
@@ -128,6 +130,16 @@ export const RESPONSE_LINES: Record<Exclude<VoiceKind, 'dog'>, Lines> = {
     move: ['Setting course.', 'Full ahead.', 'Aye, Commander.', 'Helm answering.'],
     attack: ['All guns, fire!', 'Target bearing locked.', 'Engaging.'],
   },
+  mechanic: {
+    select: ['Mechanic here.', 'What needs fixing?', 'Tools ready.'],
+    move: ['On my way.', 'Moving.', 'Right there.'],
+    attack: ['I can fix that.', 'Patching her up.', 'Good as new soon.'],
+  },
+  shock: {
+    select: ['Fully charged!', 'Shock trooper ready.', 'Power is on.'],
+    move: ['Moving out.', 'Charging forward.', 'Yes, Comrade.'],
+    attack: ['Lightning strikes!', 'Feel the current!', 'Discharge!'],
+  },
   spy: {
     select: ['Yes?', 'Discreetly.', 'At your service.'],
     move: ['Quietly now.', 'Of course.', 'Leave it with me.'],
@@ -146,6 +158,8 @@ export const VOICE_PARAMS: Record<Exclude<VoiceKind, 'dog'>, VoiceParams> = {
   aircraft: { pitch: 0.8, rate: 1.15, gender: 'male', radio: true },
   naval: { pitch: 0.7, rate: 1.0, gender: 'male', radio: true },
   spy: { pitch: 1.0, rate: 0.95, gender: 'male', radio: false },
+  mechanic: { pitch: 0.95, rate: 1.05, gender: 'male', radio: false },
+  shock: { pitch: 0.75, rate: 1.15, gender: 'male', radio: false },
 };
 
 const FEMALE = /\b(zira|aria|jenny|michelle|emma|sonia|libby|hazel|susan|samantha|karen|moira|tessa|fiona|serena|victoria|allison|ava|kate|female|woman|joanna|salli|kendra|kimberly|ivy|amy|natasha|clara|catherine|heather|linda|nicky|sara|ana|eva|emily|olivia|ashley|jane|elizabeth|nancy|libby|maisie|mia|isla)\b/i;

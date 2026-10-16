@@ -9,6 +9,7 @@ import {
 import { star } from '../meta/art';
 import { UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
+import { showRivals } from './rivals'; // [AI]
 
 type PlayKey = 'click' | 'tab' | 'hover';
 
@@ -302,7 +303,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
           <div><h5>By AI difficulty</h5>${barRow('Easy', st.winsByDifficulty.easy, st.gamesByDifficulty.easy, '#4dff9a', maxD)}${barRow('Normal', st.winsByDifficulty.normal, st.gamesByDifficulty.normal, '#5ab4ff', maxD)}${barRow('Hard', st.winsByDifficulty.hard, st.gamesByDifficulty.hard, '#ffb43c', maxD)}${barRow('Brutal', st.winsByDifficulty.brutal, st.gamesByDifficulty.brutal, '#ff4a3a', maxD)}</div>
         </div>
       </div>
-      <div class="pf-foot"><button class="pf-btn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button></div>
+      <div class="pf-foot"><button class="pf-btn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button><button class="pf-btn" data-act="rivals">${picto('skull')}<span>Rivals</span></button></div>
     </div>
     <div class="pf-col pf-right">
       <div class="pf-panel pf-case">
@@ -320,6 +321,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
 
     root.querySelectorAll<HTMLElement>('[data-f]').forEach((b) => (b.onclick = () => { filter = b.dataset.f as typeof filter; opts.play('tab'); render(); }));
     (root.querySelector('[data-act="back"]') as HTMLElement).onclick = () => { opts.play('click'); close(); opts.onBack(); };
+    (root.querySelector('[data-act="rivals"]') as HTMLElement).onclick = () => { opts.play('click'); showRivals({ play: opts.play, onBack: () => {} }); }; // [AI] rivals board
     const nameEl = root.querySelector('[data-act="rename"]') as HTMLElement;
     nameEl.onclick = () => {
       if (nameEl.querySelector('input')) return;
@@ -347,7 +349,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !root.isConnected) return;
+    if (e.key !== 'Escape' || !root.isConnected || document.querySelector('.rv')) return; // [AI] (the rivals board closes first)
     e.preventDefault();
     e.stopPropagation();
     opts.play('click');

@@ -2,16 +2,24 @@ import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import type { Player } from '../sim/player';
 import { getDummyShadowTexture, getNoiseTexture, TNOISE_GLSL } from './terrain';
+import { DYN_LIGHTS_GLSL, type DynamicLights } from './dynlights';
+import { CLOUD_GLSL } from './volumetrics';
 
 /** CPU-side smoothed visibility, uploaded as an RG texture (R = visible, G = explored). */
 export class FogOfWar {
-  readonly texture: THREE.DataTexture;
-  private data: Uint8Array;
-  private vis: Float32Array;
-  private exp: Float32Array;
+  texture!: THREE.DataTexture;
+  private data!: Uint8Array;
+  private vis!: Float32Array;
+  private exp!: Float32Array;
   enabled = true;
 
   constructor(private w: number, private h: number) {
+    this.alloc(w, h);
+  }
+
+  private alloc(w: number, h: number) {
+    this.w = w;
+    this.h = h;
     this.data = new Uint8Array(w * h * 4);
     this.vis = new Float32Array(w * h);
     this.exp = new Float32Array(w * h);
@@ -19,6 +27,14 @@ export class FogOfWar {
     this.texture.magFilter = THREE.LinearFilter;
     this.texture.minFilter = THREE.LinearFilter;
     this.texture.needsUpdate = true;
+  }
+
+  /** A map of another size (map editor): new texture (re-bind it), everything hidden until the next update. */
+  resize(w: number, h: number) {
+    if (w === this.w && h === this.h) return;
+    const old = this.texture;
+    this.alloc(w, h);
+    old.dispose();
   }
 
   /** Snap to the current state immediately (game start). */
@@ -78,19 +94,33 @@ export class FogOfWar {
 export interface AtmosphereOptions {
   /** Multiply in screen-space ambient occlusion (aoSource). */
   ao?: boolean;
-  /** Volumetric sun shafts: march the shadow map through the low air (shadowLight). */
+  /** Volumetric sun shafts: march the shadow map through the low air (shadowLight). Superseded by `volume`. */
   shafts?: boolean;
   /** Low-lying mist pooling in valleys and over water. */
   mist?: boolean;
+  /** Per-pixel sun visibility from the shadow map (shadowLight): better albedo estimate, cloud shadows only where sunlit. */
+  shadow?: boolean;
+  /** Cloud shadows drifting over everything (terrain, units, buildings). */
+  clouds?: boolean;
+  /** Composite a half-resolution volumetric pass (volumeSource: rgb in-scatter, a transmittance). */
+  volume?: boolean;
+  /** Analytic weather fog layer (fog banks, storm haze) when there is no volume pass. */
+  fogLayer?: boolean;
+  /** Dynamic lights (tiled, see dynlights.ts). */
+  dyn?: DynamicLights | null;
 }
 
 /**
  * The atmosphere post pass, reading the scene colour and depth:
- *   - fog of war: darkens unexplored (shroud) and not-currently-visible (fog) areas;
+ *   - dynamic lights: every muzzle flash, explosion, fire, tesla bolt, headlight and floodlight of the frame
+ *     (DynamicLights) lights the reconstructed surface (normal from depth, albedo estimated from the lit
+ *     colour and the known sun / sky irradiance), with an in-scattering halo through the air;
+ *   - cloud shadows drifting over terrain and units alike (medium+), only where the sun actually reaches;
  *   - ambient occlusion from the GTAO pass (high);
+ *   - volumetric fog, low clouds and god rays from the half-resolution VolumetricPass (high), or an analytic
+ *     weather fog layer (medium);
  *   - low-lying mist that pools in valleys and over water, thicker at dawn and in fog weather (medium+);
- *   - volumetric light shafts: in-scattered sunlight through the lower air, with the shadow volumes of
- *     trees, buildings and units carved out of it (high) — golden god rays at dawn and dusk.
+ *   - fog of war: darkens unexplored (shroud) and not-currently-visible (fog) areas.
  */
 export class FogPass extends Pass {
   private quad: FullScreenQuad;
@@ -102,16 +132,28 @@ export class FogPass extends Pass {
   inputSource: (() => THREE.Texture) | null = null;
   /** Ambient occlusion texture (r channel, 1 = open). */
   aoSource: (() => THREE.Texture | null) | null = null;
-  /** Light whose shadow map shapes the light shafts. */
+  /** Volumetric in-scatter (rgb) and transmittance (a) at half resolution. */
+  volumeSource: (() => THREE.Texture | null) | null = null;
+  /** Light whose shadow map gives sun visibility (shadow / shafts options). */
   shadowLight: THREE.DirectionalLight | null = null;
+  /** Render into this target instead of the composer's write buffer (TAA reads it). */
+  outputTarget: THREE.WebGLRenderTarget | null = null;
 
   constructor(private camera: THREE.PerspectiveCamera, fogTex: THREE.Texture, mapW: number, mapH: number, opts: AtmosphereOptions = {}) {
     super();
     const defines: Record<string, string> = {};
     if (opts.ao) defines.USE_AO = '';
-    if (opts.shafts) defines.USE_SHAFTS = '';
+    if (opts.shafts && !opts.volume) defines.USE_SHAFTS = '';
     if (opts.mist) defines.USE_MIST = '';
+    if (opts.shadow || (opts.shafts && !opts.volume)) defines.USE_SHADOWMAP = '';
+    if (opts.shadow) defines.USE_SUNVIS = '';
+    if (opts.clouds) defines.USE_CLOUDS = '';
+    if (opts.volume) defines.USE_VOLUME = '';
+    if (opts.fogLayer && !opts.volume) defines.USE_FOGLAYER = '';
+    const dyn = opts.dyn ?? null;
+    if (dyn) Object.assign(defines, dyn.defines);
     this.material = new THREE.ShaderMaterial({
+      name: 'atmosphere',
       defines,
       uniforms: {
         tDiffuse: { value: null },
@@ -119,11 +161,15 @@ export class FogPass extends Pass {
         tFog: { value: fogTex },
         tNoise: { value: getNoiseTexture() },
         tAO: { value: null },
+        tVolume: { value: null },
         tShadow: { value: getDummyShadowTexture() },
+        tDynLights: { value: dyn?.lightTex ?? null },
+        tDynTiles: { value: dyn?.tileTex ?? null },
         uShadowMatrix: { value: new THREE.Matrix4() },
         uProjInv: { value: new THREE.Matrix4() },
         uCamWorld: { value: new THREE.Matrix4() },
         uMapSize: { value: new THREE.Vector2(mapW, mapH) },
+        uTexel: { value: new THREE.Vector2(1, 1) },
         uTime: { value: 0 },
         uEnabled: { value: 1 },
         uShafts: { value: 0 },
@@ -131,22 +177,36 @@ export class FogPass extends Pass {
         uHaze: { value: new THREE.Color(0.6, 0.65, 0.7) },
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uHemiSky: { value: new THREE.Color(0.5, 0.5, 0.5) },
+        uHemiGround: { value: new THREE.Color(0.2, 0.2, 0.2) },
+        uEnvIrr: { value: 0.1 },
+        uDynScatter: { value: 0.02 },
+        uCloud: { value: new THREE.Vector4(0.35, 12, 4, 0.4) },
+        uCloudOff: { value: new THREE.Vector2() },
+        uFogLayer: { value: new THREE.Vector4(0, 2, -0.5, 0.5) },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
         void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: /* glsl */ `
-        uniform sampler2D tDiffuse, tDepth, tFog, tNoise, tAO;
+        uniform sampler2D tDiffuse, tDepth, tFog, tNoise, tAO, tVolume;
         uniform mat4 uProjInv, uCamWorld;
-        uniform vec2 uMapSize;
-        uniform float uTime, uEnabled, uShafts, uMist;
-        uniform vec3 uHaze, uSunColor, uSunDir;
-        #ifdef USE_SHAFTS
+        uniform vec2 uMapSize, uTexel;
+        uniform float uTime, uEnabled, uShafts, uMist, uEnvIrr, uDynScatter;
+        uniform vec3 uHaze, uSunColor, uSunDir, uHemiSky, uHemiGround;
+        uniform vec4 uFogLayer;
+        #ifdef USE_SHADOWMAP
           uniform sampler2DShadow tShadow;
           uniform mat4 uShadowMatrix;
         #endif
         varying vec2 vUv;
         ${TNOISE_GLSL}
+        ${CLOUD_GLSL}
+        ${DYN_LIGHTS_GLSL}
+        vec3 viewAt(vec2 uv) {
+          vec4 v = uProjInv * vec4(uv * 2.0 - 1.0, texture2D(tDepth, uv).x * 2.0 - 1.0, 1.0);
+          return v.xyz / v.w;
+        }
         void main() {
           vec4 col = texture2D(tDiffuse, vUv);
           float depth = texture2D(tDepth, vUv).x;
@@ -170,6 +230,47 @@ export class FogPass extends Pass {
           float mu = dot(rd, uSunDir);
           float phase = 0.55 + 0.45 * pow(max(mu, 0.0), 6.0) * 3.0;
 
+          #if defined(USE_CLOUDS) || defined(DYN_LIGHTS)
+          {
+            bool needN = true;
+            #if !defined(USE_CLOUDS)
+              needN = dynAny(vUv);
+            #endif
+            if (needN) {
+              // surface normal from the depth buffer: the smaller of the one-sided differences on each axis
+              vec3 vc = view.xyz;
+              vec3 dx1 = viewAt(vUv + vec2(uTexel.x, 0.0)) - vc, dx2 = vc - viewAt(vUv - vec2(uTexel.x, 0.0));
+              vec3 dy1 = viewAt(vUv + vec2(0.0, uTexel.y)) - vc, dy2 = vc - viewAt(vUv - vec2(0.0, uTexel.y));
+              vec3 ddx = abs(dx1.z) < abs(dx2.z) ? dx1 : dx2;
+              vec3 ddy = abs(dy1.z) < abs(dy2.z) ? dy1 : dy2;
+              vec3 nv = normalize(cross(ddx, ddy));
+              vec3 N = normalize(mat3(uCamWorld) * nv);
+              // irradiance the scene was lit with here: sky + ground bounce, sun (shadowed) and environment
+              float ndl = max(dot(N, uSunDir), 0.0);
+              float vis = 1.0;
+              #ifdef USE_SUNVIS
+                vec4 sc = uShadowMatrix * vec4(world + N * 0.06, 1.0);
+                if (sc.x > 0.0 && sc.x < 1.0 && sc.y > 0.0 && sc.y < 1.0 && sc.z < 1.0) vis = texture(tShadow, vec3(sc.xy, sc.z - 0.0015));
+              #else
+                vis = 0.7;
+              #endif
+              vec3 sunIrr = uSunColor * ndl * vis;
+              vec3 E = mix(uHemiGround, uHemiSky, N.y * 0.5 + 0.5) + sunIrr + uEnvIrr;
+              vec3 alb = min(c / max(E, vec3(1e-3)), vec3(0.2));
+              #ifdef USE_CLOUDS
+                // clouds only take away direct sunlight
+                float cs = cloudShadowAt(world, uSunDir);
+                c *= 1.0 - cs * clamp(dot(sunIrr, vec3(0.33)) / max(dot(E, vec3(0.33)), 1e-3), 0.0, 1.0);
+              #endif
+              #ifdef DYN_LIGHTS
+                vec3 scat = vec3(0.0);
+                vec3 dl = dynLight(vUv, world + N * 0.02, N, camPos, rd, rayLen, scat);
+                c += alb * dl + scat * (uDynScatter * 0.0796);
+              #endif
+            }
+          }
+          #endif
+
           #ifdef USE_SHAFTS
           if (uShafts > 0.001) {
             // march the part of the view ray below 7 units through the shadow map: lit air glows,
@@ -191,6 +292,27 @@ export class FogPass extends Pass {
               float l = lit / 10.0;
               c += uSunColor * (l * l) * air * uShafts * phase;
             }
+          }
+          #endif
+
+          #ifdef USE_VOLUME
+          {
+            // half-resolution volumetric fog / clouds / god rays: in-scatter (rgb) over transmittance (a)
+            vec4 vol = texture2D(tVolume, vUv);
+            c = c * vol.a + vol.rgb;
+          }
+          #endif
+
+          #ifdef USE_FOGLAYER
+          if (uFogLayer.x > 0.0005) {
+            // weather fog bank: exponential height layer with drifting density
+            float H = uFogLayer.y, y0 = uFogLayer.z;
+            float a = min(rd.y, -0.03);
+            float dens = H / -a * (exp(-(world.y - y0) / H) - exp(-max(camPos.y - y0, 0.0) / H));
+            float wisps = 1.0 - uFogLayer.w + uFogLayer.w * 2.0 * tn_fbm(p * 0.07 + vec2(uTime * 0.04, uTime * 0.025));
+            float m = 1.0 - exp(-max(dens, 0.0) * uFogLayer.x * wisps);
+            vec3 fogCol = uHaze * 1.02 + uSunColor * 0.03 * phase;
+            c = mix(c, fogCol, clamp(m, 0.0, 0.92));
           }
           #endif
 
@@ -244,8 +366,12 @@ export class FogPass extends Pass {
   render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
     const u = this.material.uniforms;
     u.tDiffuse.value = this.inputSource?.() ?? readBuffer.texture;
-    u.tDepth.value = this.depthSource?.() ?? readBuffer.depthTexture;
+    const depth = this.depthSource?.() ?? readBuffer.depthTexture;
+    u.tDepth.value = depth;
+    const img = depth?.image as { width?: number; height?: number } | undefined;
+    if (img?.width && img.height) u.uTexel.value.set(1 / img.width, 1 / img.height);
     if (this.aoSource) u.tAO.value = this.aoSource();
+    if (this.volumeSource) u.tVolume.value = this.volumeSource();
     const sl = this.shadowLight;
     if (sl && sl.shadow.map) {
       u.tShadow.value = sl.shadow.map.depthTexture;
@@ -253,7 +379,8 @@ export class FogPass extends Pass {
     }
     u.uProjInv.value.copy(this.camera.projectionMatrixInverse);
     u.uCamWorld.value.copy(this.camera.matrixWorld);
-    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    const out = this.outputTarget;
+    renderer.setRenderTarget(out ?? (this.renderToScreen ? null : writeBuffer));
     if (this.clear) renderer.clear();
     this.quad.render(renderer);
   }

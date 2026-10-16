@@ -13,6 +13,8 @@ export interface MapGenOptions {
   ore: number;           // 0..1 ore richness
   /** Lay bridges over narrow water that would otherwise force a long detour (default: on, except sea maps; bridges.ts). */
   bridges?: boolean;
+  /** [CONQ] 0..1 extra rock / cliff ridges (mountain battlefields); default 0 = the classic amount. */
+  rocks?: number;
 }
 
 const smooth = (e0: number, e1: number, x: number) => {
@@ -125,7 +127,7 @@ export function generateMap(opts: MapGenOptions): GameMap {
       let t: number = T.Clear;
       if (sea && seaAt(cx + 0.5, cy + 0.5, (noise.fbm(cx * 0.11 + 500, cy * 0.11 + 500, 2) - 0.5) * 3)) t = T.Water;
       else if (lakes > 0 && wf < waterT && ds > baseR + 5) t = T.Water;
-      else if (rf > 0.7 && ds > baseR + 3) t = T.Rock;
+      else if (rf > 0.7 - (opts.rocks ?? 0) * 0.12 && ds > baseR + 3) t = T.Rock; // [CONQ] rocks
       else if (df > 0.66) t = T.Dirt;
       map.terrain[i] = t;
     }

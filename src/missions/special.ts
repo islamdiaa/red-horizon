@@ -6,6 +6,8 @@
 import { BUILDINGS, UNITS, type Faction } from '../data/rules';
 import type { MissionDef, MissionRuntime } from '../sim/mission';
 import type { Unit } from '../sim/entities';
+import type { Player } from '../sim/player'; // [MODES] co-op survival
+import type { AIDifficulty } from '../sim/ai'; // [MODES]
 import { DAILY_MODIFIERS, MODIFIER_BY_ID, dailyConfig, dailyVictoryScore, dayKey, type DailyConfig } from '../meta/daily';
 
 // =============================================================================
@@ -36,19 +38,23 @@ function removeQuiet(m: MissionRuntime, u: Unit) {
   m.world.kill(u, 'sold');
   u.owner.stats.unitsLost = Math.max(0, u.owner.stats.unitsLost - 1);
 }
-/** Centre of the human base (construction yard, else the building centroid, else the start). */
-function baseCentre(m: MissionRuntime): [number, number] {
-  const bs = m.buildings(0);
+/** Centre of a defender's base, the human's by default (construction yard, else the building centroid, else the start). */
+function baseCentre(m: MissionRuntime, p = 0): [number, number] {
+  const bs = m.buildings(p);
   const fact = bs.find((b) => b.bt.id === 'fact');
   if (fact) return [fact.x, fact.y];
   const real = bs.filter((b) => !b.bt.wall);
   if (real.length) return [real.reduce((s, b) => s + b.x, 0) / real.length, real.reduce((s, b) => s + b.y, 0) / real.length];
-  const us = m.units(0);
+  const us = m.units(p);
   if (us.length) return [us[0].x, us[0].y];
-  const s = m.start(0);
+  const s = m.start(p);
   return [s.x, s.y];
 }
-/** Nearest living target of the human (non-wall structure preferred) to a point. */
+/** [MODES] The human and any AI teammates (co-op survival); never the horde (player 1). */
+function isDefender(m: MissionRuntime, p: Player): boolean {
+  return p.team === m.human.team && p !== m.player(1);
+}
+/** Nearest living target of the defenders (non-wall structure preferred) to a point. */
 function nearestHumanTarget(m: MissionRuntime, x: number, y: number, preferTypes?: string[]): { id: number; x: number; y: number } | null {
   let best: { id: number; x: number; y: number } | null = null, bd = Infinity;
   const consider = (id: number, ex: number, ey: number, bonus: number) => {
@@ -56,10 +62,10 @@ function nearestHumanTarget(m: MissionRuntime, x: number, y: number, preferTypes
     if (d < bd) { bd = d; best = { id, x: ex, y: ey }; }
   };
   for (const b of m.world.buildings) {
-    if (!b.alive || b.owner !== m.human || b.bt.wall) continue;
+    if (!b.alive || !isDefender(m, b.owner) || b.bt.wall) continue;
     consider(b.id, b.x, b.y, preferTypes?.includes(b.bt.id) ? 25 : 0);
   }
-  if (!best) for (const u of m.world.units) if (u.alive && u.owner === m.human) consider(u.id, u.x, u.y, 0);
+  if (!best) for (const u of m.world.units) if (u.alive && isDefender(m, u.owner)) consider(u.id, u.x, u.y, 0);
   return best;
 }
 /** Map point `d` cells in from an edge, `along` cells along it. */
@@ -91,13 +97,13 @@ function entryPoint(m: MissionRuntime, side: Side, along: number, bx: number, by
   return edgeCell(m, side, Math.min(len - 3, Math.max(3, along)), 2.5);
 }
 /** Spawn a group at a reachable entry point on a map edge, spread in a few ranks. Aircraft appear right at the edge. */
-function spawnAtEdge(m: MissionRuntime, p: number, types: string[], side: Side, along: number, rank = 0): Unit[] {
+function spawnAtEdge(m: MissionRuntime, p: number, types: string[], side: Side, along: number, rank = 0, target?: [number, number]): Unit[] {
   const out: Unit[] = [];
   if (!types.length) return out;
   const horizontal = side === 'n' || side === 's';
   const inward = side === 'n' || side === 'w' ? 1 : -1;
   const heading = horizontal ? (inward > 0 ? Math.PI / 2 : -Math.PI / 2) : inward > 0 ? 0 : Math.PI;
-  const [bx, by] = baseCentre(m);
+  const [bx, by] = target ?? baseCentre(m); // [MODES] co-op: the base this wave goes for
   const ground = types.some((t) => UNITS[t].kind !== 'aircraft');
   const [ax, ay] = ground ? entryPoint(m, side, along, bx, by) : edgeCell(m, side, along, 1);
   const [ix, iy] = horizontal ? [0, inward] : [inward, 0];
@@ -218,6 +224,51 @@ function survivalBudget(n: number, factor: number): number {
   return (800 + 360 * n + 26 * n * n) * factor;
 }
 
+// ---- [MODES] co-op survival: AI teammates with their own bases; waves go for every base in turn ----
+/** Score factor (difficulty x co-op discount). */
+function scoreFactor(m: MissionRuntime, v: SurvivalVariant): number {
+  return v.factor * (m.flags.coopScore ?? 1);
+}
+/** Structures lost by the whole defending team (solo: the human's). */
+function teamBuildingsLost(m: MissionRuntime): number {
+  let n = 0;
+  for (const p of m.world.players) if (isDefender(m, p)) n += p.stats.buildingsLost;
+  return n;
+}
+/** Defender whose base wave n goes for: the human solo; in co-op every standing base in turn. */
+function waveTarget(m: MissionRuntime, n: number): number {
+  const ds = m.world.players.filter((p) => isDefender(m, p) && !p.defeated && (m.buildings(p).length > 0 || m.units(p).length > 0));
+  if (ds.length <= 1) return ds[0]?.id ?? 0;
+  return ds[(n - 1) % ds.length].id;
+}
+/** Allied AIs send part of their idle army when the human's base is under heavy attack. */
+function allyHelp(m: MissionRuntime) {
+  const horde = m.player(1);
+  const [hx, hy] = baseCentre(m, 0);
+  let value = 0, sx = 0, sy = 0, k = 0;
+  for (const u of m.world.units) {
+    if (!u.alive || u.owner !== horde || u.kind === 'aircraft' || Math.hypot(u.x - hx, u.y - hy) > 18) continue;
+    value += u.ut.cost; sx += u.x; sy += u.y; k++;
+  }
+  if (value < 1500 || !k) return;
+  for (const p of m.world.players) {
+    if (!isDefender(m, p) || p === m.human || p.defeated) continue;
+    const [ax, ay] = baseCentre(m, p.id);
+    let home = 0;
+    for (const u of m.world.units) if (u.alive && u.owner === horde && Math.hypot(u.x - ax, u.y - ay) < 16) home++;
+    if (home > 2) continue;
+    const idle = m.army(p.id, false).filter((u) => (u.order.type === 'idle' || u.order.type === 'guard') && !u.target)
+      .sort((a, b) => Math.hypot(a.x - hx, a.y - hy) - Math.hypot(b.x - hx, b.y - hy) || a.id - b.id);
+    const n = Math.ceil(idle.length * 0.6);
+    if (n < 2) continue;
+    m.move(idle.slice(0, n), sx / k, sy / k, true);
+    if (m.time - (m.flags.helpSaid ?? -1e9) > 90) {
+      m.flags.helpSaid = m.time;
+      m.say(p.name, 'Hold on, commander. Sending armour to your base!', 'commander');
+    }
+  }
+}
+
 function launchWave(m: MissionRuntime, v: SurvivalVariant) {
   const n = ++m.flags.wave;
   const rng = m.world.rng;
@@ -235,10 +286,13 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
     if (kind === m.flags.lastKind) kind = rng.pick(opts);
   }
   m.flags.lastKind = kind;
-  const budget = survivalBudget(n, v.factor);
+  const budget = survivalBudget(n, v.factor) * (m.flags.budgetMul ?? 1); // [MODES] co-op: bigger waves
   const rank = n >= 22 ? 2 : n >= 12 ? 1 : 0;
   const cap = 44;
-  const [bx, by] = baseCentre(m);
+  const tgt = waveTarget(m, n); // [MODES] co-op: the base this wave goes for (solo: the human's)
+  const [bx, by] = baseCentre(m, tgt);
+  const at: [number, number] = [bx, by];
+  if (m.flags.allies) (m.flags.waveTargets ??= []).push(tgt);
   const side = pickSide(m, m.flags.lastSide);
   m.flags.lastSide = side;
   const along = alongFor(m, side);
@@ -267,10 +321,11 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
       fill(m, pools.armour, budget * 0.3, b, cap / 2);
       fill(m, pools.inf, budget * 0.2, b, cap / 2);
       const side2: Side = side === 'n' ? 's' : side === 's' ? 'n' : side === 'e' ? 'w' : 'e';
-      const ua = spawnAtEdge(m, 1, a, side, along, rank);
-      const ub = spawnAtEdge(m, 1, b, side2, alongFor(m, side2), rank);
+      const at2 = baseCentre(m, waveTarget(m, n + 1)); // [MODES] co-op: the second column goes for the next base
+      const ua = spawnAtEdge(m, 1, a, side, along, rank, at);
+      const ub = spawnAtEdge(m, 1, b, side2, alongFor(m, side2), rank, at2);
       orderMove(m, ua, bx, by);
-      orderMove(m, ub, bx, by);
+      orderMove(m, ub, at2[0], at2[1]);
       m.say('Intelligence', `Wave ${n}: pincer attack! Enemy columns from the ${SIDE_NAME[side]} and the ${SIDE_NAME[side2]}.`, 'intel');
       break;
     }
@@ -279,7 +334,7 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
       const nPlanes = Math.min(9, 2 + Math.floor(n / 3));
       for (let k = 0; k < nPlanes; k++) planes.push(rng.pick(pools.air));
       fill(m, pools.inf, budget * 0.25, types, cap);
-      const air = spawnAtEdge(m, 1, planes, side, along);
+      const air = spawnAtEdge(m, 1, planes, side, along, 0, at);
       const tgt = nearestHumanTarget(m, bx, by, pools.airTargets);
       if (tgt) orderAttack(m, air, tgt.id);
       m.flags.air = [...(m.flags.air ?? []), ...air.map((u) => u.id)];
@@ -292,9 +347,9 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
       const air = bt.filter((t) => UNITS[t].kind === 'aircraft');
       const ground = bt.filter((t) => UNITS[t].kind !== 'aircraft');
       fill(m, pools.inf, budget * 0.15, ground, cap + 10);
-      const units = spawnAtEdge(m, 1, ground, side, along, Math.min(2, rank + 1));
+      const units = spawnAtEdge(m, 1, ground, side, along, Math.min(2, rank + 1), at);
       orderMove(m, units, bx, by);
-      const planes = spawnAtEdge(m, 1, air, side, along);
+      const planes = spawnAtEdge(m, 1, air, side, along, 0, at);
       const tgt = nearestHumanTarget(m, bx, by, pools.airTargets);
       if (tgt && planes.length) orderAttack(m, planes, tgt.id);
       m.flags.air = [...(m.flags.air ?? []), ...planes.map((u) => u.id)];
@@ -305,13 +360,14 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
     }
   }
   if (types.length) {
-    const units = spawnAtEdge(m, 1, types, side, along, rank);
+    const units = spawnAtEdge(m, 1, types, side, along, rank, at);
     orderMove(m, units, bx, by);
   }
+  if (line && tgt !== 0) line = kind === 'air' ? `${line} Target: ${m.player(tgt).name}'s base.` : line.replace(/!$/, `, heading for ${m.player(tgt).name}'s base!`); // [MODES] co-op
   if (line) m.say('Intelligence', line, 'intel');
   m.flags.waveActive = true;
-  m.flags.waveLossMark = m.human.stats.buildingsLost;
-  if (n > 1) m.addScore('Score', Math.round(100 * (n - 1) * m.flags.mult * v.factor));
+  m.flags.waveLossMark = teamBuildingsLost(m);
+  if (n > 1) m.addScore('Score', Math.round(100 * (n - 1) * m.flags.mult * scoreFactor(m, v)));
   m.progress('survive', `Wave ${n} · x${m.flags.mult.toFixed(2)}`);
   if (m.flags.survived >= 10) m.complete('ten');
   else m.progress('ten', `${m.flags.survived} / 10`);
@@ -330,9 +386,9 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
     const d = lost - m.flags.hordeLost;
     if (d > 0) {
       m.flags.hordeLost = lost;
-      m.addScore('Score', Math.round(d * (10 + 2 * n) * m.flags.mult * v.factor));
+      m.addScore('Score', Math.round(d * (10 + 2 * n) * m.flags.mult * scoreFactor(m, v)));
     }
-    const bl = m.human.stats.buildingsLost;
+    const bl = teamBuildingsLost(m); // [MODES] co-op: any defender's structure
     if (bl > m.flags.humanBLost) {
       m.flags.humanBLost = bl;
       if (m.flags.mult > 1) {
@@ -347,9 +403,9 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
       for (const u of m.world.units) if (u.alive && u.owner === horde) { alive++; break; }
       if (!alive) {
         m.flags.waveActive = false;
-        const cleanWave = m.human.stats.buildingsLost === m.flags.waveLossMark;
+        const cleanWave = teamBuildingsLost(m) === m.flags.waveLossMark;
         if (cleanWave) m.flags.mult = Math.min(5, m.flags.mult + 0.25);
-        m.addScore('Score', Math.round(150 * n * m.flags.mult * v.factor));
+        m.addScore('Score', Math.round(150 * n * m.flags.mult * scoreFactor(m, v)));
         m.give(0, 200 + 30 * n);
         m.say('Intelligence', `Wave ${n} repelled.${cleanWave ? ` Multiplier x${m.flags.mult.toFixed(2)}.` : ''} Field bounty $${200 + 30 * n}.`, 'intel');
         m.progress('survive', `Wave ${n} · x${m.flags.mult.toFixed(2)}`);
@@ -365,7 +421,7 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
         m.flags.bosses = (m.flags.bosses ?? 0) + 1;
         const cash = 1000 + 150 * boss.n;
         m.give(0, cash);
-        m.addScore('Score', Math.round(1000 * (boss.n / 5) * m.flags.mult * v.factor));
+        m.addScore('Score', Math.round(1000 * (boss.n / 5) * m.flags.mult * scoreFactor(m, v)));
         const [bx, by] = baseCentre(m);
         dropCrates(m, bx, by, 3);
         const left = m.timeLeft('wave') ?? 0;
@@ -401,6 +457,8 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
     m.flags.air = keep;
   }
 
+  if (m.flags.allies && m.every(8, 'allyHelp')) allyHelp(m); // [MODES] co-op: teammates reinforce the human's base
+
   // keep stragglers pushing into the base; units that cannot find a way in desert after ~20 s
   if (m.every(6, 'push')) {
     const stuck: Record<number, [number, number, number]> = (m.flags.stuck ??= {});
@@ -417,28 +475,33 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
   }
 }
 
-function makeSurvival(v: SurvivalVariant): MissionDef {
+function makeSurvival(v: SurvivalVariant, allies: CoopAlly[] = []): MissionDef {
+  const n = allies.length; // [MODES] co-op survival: AI teammates (players 2, 3) on the human's team
+  const coopScore = n === 1 ? 0.8 : 0.65;
   return {
-    id: v.id,
+    id: n ? coopMissionId(v.id, allies) : v.id,
     campaign: 'special',
     index: v.index,
-    title: v.title,
+    title: n ? `${v.title} · Co-op` : v.title,
     codename: v.codename,
     location: v.location,
     briefing: [
       `${v.blurb} Hold the line for as long as you can: every wave is stronger than the last.`,
       `Expect infantry swarms, armour columns and air raids. Every fifth wave is a boss wave; destroy it for a supply drop and a breather.`,
       `Score: kills, waves survived and bosses destroyed. Clear a wave without losing a structure to raise your score multiplier (up to x5). Difficulty bonus x${v.factor.toFixed(2)}.`,
+      ...(n ? [`Co-op: ${n === 1 ? 'an allied AI commander holds a base' : 'two allied AI commanders hold bases'} of their own nearby. The horde attacks every base in turn and its waves are bigger; any lost structure resets the multiplier, and score counts x${coopScore.toFixed(2)}.`] : []),
     ],
     tips: [
       'Air raids arrive on wave 3, 8, 13... Build anti-air before then.',
       'A lost structure resets your multiplier to x1. Walls and repairs pay off.',
       'Boss waves come every five waves; the supply drop after them buys you time.',
+      ...(n ? ['Your allies send armour when your base is under heavy attack; return the favour.'] : []),
     ],
-    map: { size: v.size, seed: v.seed, players: 2, water: v.water, trees: v.trees, ore: v.ore, climate: v.climate, hour: v.hour, dayCycle: true, weather: 'auto' },
+    map: { size: v.size + (n ? 8 : 0), seed: v.seed, players: 2 + n, water: v.water, trees: v.trees, ore: v.ore, climate: v.climate, hour: v.hour, dayCycle: true, weather: 'auto' },
     players: [
       { name: 'Commander', faction: v.human, color: COLOR[v.human] },
       { name: v.hordeName, faction: v.horde, color: v.horde === 'soviet' ? 0xd23a2c : 0xe0b030, ai: 'passive' },
+      ...allies.map((a, i) => ({ name: ALLY_NAMES[i], faction: a.faction ?? v.human, color: ALLY_COLORS[i], team: 0, ai: a.difficulty, credits: 8000 })),
     ],
     startUnits: 'light',
     credits: 8000,
@@ -451,8 +514,13 @@ function makeSurvival(v: SurvivalVariant): MissionDef {
       // The horde has no base: flag it as eliminated so the HUD never announces its defeat between
       // waves. It is driven with direct orders (see orderMove), which the command queue would drop.
       m.player(1).defeated = true;
+      if (n) {
+        Object.assign(m.flags, { allies: n, budgetMul: 1 + 0.55 * n, coopScore, waveTargets: [] });
+        for (let i = 0; i < n; i++) spawnKit(m, 2 + i, 'light');
+      }
       m.startTimer('wave', 100, 'First wave');
       m.say('Command', `${v.hordeName} is massing beyond the ridge. Dig in, commander: first contact in under two minutes.`, 'commander');
+      if (n) m.say(ALLY_NAMES[0], `${n === 1 ? 'My division holds' : 'Our divisions hold'} the flank${n > 1 ? 's' : ''}. We stand together, commander.`, 'commander');
     },
     update(m) {
       survivalUpdate(m, v);
@@ -460,7 +528,46 @@ function makeSurvival(v: SurvivalVariant): MissionDef {
   };
 }
 
-export const SURVIVALS: MissionDef[] = SURVIVAL_VARIANTS.map(makeSurvival);
+export const SURVIVALS: MissionDef[] = SURVIVAL_VARIANTS.map((v) => makeSurvival(v));
+
+// ---- [MODES] co-op survival ids: "<variant>:coop:<ally>[+<ally>]", ally = "[faction.]difficulty" ----
+export type CoopAlly = { faction?: Faction; difficulty: AIDifficulty };
+const ALLY_NAMES = ['Gen. Hartmann', 'Col. Dubois'];
+const ALLY_COLORS = [0x3fa34d, 0x2aa8a8];
+const COOP_DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+
+/** Mission id of a co-op survival run (records and retries key on it). */
+export function coopMissionId(variantId: string, allies: CoopAlly[]): string {
+  const base = variantId.split(':')[0];
+  if (!allies.length) return base;
+  return `${base}:coop:${allies.slice(0, 2).map((a) => (a.faction ? `${a.faction}.` : '') + a.difficulty).join('+')}`;
+}
+
+/** Parse a co-op id (null if it isn't one). */
+export function parseCoopId(id: string): { variant: SurvivalVariant; allies: CoopAlly[] } | null {
+  const [base, tag, list] = id.split(':');
+  const variant = SURVIVAL_VARIANTS.find((v) => v.id === base);
+  if (!variant || tag !== 'coop' || !list) return null;
+  const allies: CoopAlly[] = [];
+  for (const part of list.split('+').slice(0, 2)) {
+    const [f, d] = part.includes('.') ? part.split('.') : [undefined, part];
+    if (!COOP_DIFFS.includes(d as AIDifficulty) || (f && f !== 'allies' && f !== 'soviet')) return null;
+    allies.push({ faction: f as Faction | undefined, difficulty: d as AIDifficulty });
+  }
+  return allies.length ? { variant, allies } : null;
+}
+
+const coopCache = new Map<string, MissionDef>();
+/** Co-op survival mission for an id (cached so records and the meta tracker see one definition). */
+export function coopSurvival(id: string): MissionDef | undefined {
+  let d = coopCache.get(id);
+  if (d) return d;
+  const p = parseCoopId(id);
+  if (!p) return undefined;
+  d = makeSurvival(p.variant, p.allies);
+  coopCache.set(id, d);
+  return d;
+}
 /** Classic Survival (temperate). The id `survival` is kept for old links and saves. */
 export const SURVIVAL: MissionDef = SURVIVALS[0];
 

@@ -20,6 +20,11 @@ import { el, esc, hexColor } from '../ui/dom';
 import { renderThumbnails } from '../render/thumbnails';
 import { CommandFeeder } from './core';
 import type { PlaybackOptions, ReplayData } from './format';
+import { branchSetup, defaultTakeoverAI, makeBranch, replayStartTick } from './branch'; // [MODES] rewind & take command
+import { openMomentPanel, weather } from '../ui/moment'; // [MODES]
+import { challengeGameSetup } from '../modes/author'; // [MODES]
+import type { AIDifficulty } from '../sim/ai';
+import { picto } from '../meta';
 
 export interface PlaybackHost {
   /** Start a new game from this setup (seeking backwards, watching again). */
@@ -59,10 +64,15 @@ export class ReplayPlayback {
   private timer = 0;
   private dragFrac = -1;
   private keyHandler = (e: KeyboardEvent) => this.onKey(e);
+  /** [MODES] First tick of the recording (a branch starts at its branch point). */
+  readonly startTick: number;
+  private closeMoment: (() => void) | null = null;
+  private tookCommand = false;
 
   constructor(private game: Game, private host: PlaybackHost) {
     this.opts = game.setup.replay!;
     this.data = this.opts.data;
+    this.startTick = replayStartTick(this.data);
     const world = game.world;
     this.feeder = new CommandFeeder(world, this.data.cmds, this.data.hashes);
     // feed the recorded orders; a recording that stops before the match ended freezes on its last tick
@@ -103,6 +113,7 @@ export class ReplayPlayback {
     window.clearInterval(this.timer);
     window.clearTimeout(this.endTimer);
     window.removeEventListener('keydown', this.keyHandler);
+    this.closeMoment?.();
     document.body.classList.remove('spectating');
     this.bar.remove();
     this.panel.remove();
@@ -131,7 +142,7 @@ export class ReplayPlayback {
   /** Jump to a tick: forward by fast simulation, backward by restarting the match and seeking. */
   seek(tick: number) {
     const world = this.game.world;
-    tick = Math.max(0, Math.min(this.data.ticks, Math.round(tick)));
+    tick = Math.max(this.startTick, Math.min(this.data.ticks, Math.round(tick))); // [MODES] a branch begins at its branch point
     if (this.seeking) return;
     if (tick < world.tick) {
       const { load: _l, ...setup } = this.game.setup;
@@ -176,6 +187,43 @@ export class ReplayPlayback {
     g.gfx.fog.snap(g.local);
     if (!this.ended) g.speed = this.paused ? 0 : this.speed;
     this.refresh();
+    // [MODES] "Continue" from the replay list: take command at the end of the recording
+    const tc = this.opts.takeCommand;
+    if (tc && !this.tookCommand && !w.gameOver) this.takeCommand(tc.local, tc.ai ?? defaultTakeoverAI(this.data));
+  }
+
+  // ---------------------------------------------------------------------------
+  // [MODES] Rewind & take command · make a challenge from this moment
+  // ---------------------------------------------------------------------------
+  /** Start a live game from this exact moment with `local` as the human (a branch of this replay). */
+  takeCommand(local: number, ai: AIDifficulty) {
+    if (this.tookCommand || this.seeking || this.game.world.gameOver) return;
+    this.tookCommand = true;
+    const g = this.game, cam = g.gfx.cam;
+    // looking through someone else's eyes: open the branch over the new commander's base
+    let at: [number, number] = [cam.x, cam.y];
+    if (local !== this.view) {
+      const p = g.world.players[local];
+      const b = g.world.buildings.find((x) => x.alive && x.owner === p && x.bt.id === 'fact') ?? g.world.buildings.find((x) => x.alive && x.owner === p && !x.bt.wall);
+      const u = g.world.units.find((x) => x.alive && x.owner === p);
+      const s = g.world.map.startPositions[local % g.world.map.startPositions.length];
+      at = b ? [b.x, b.y + 2] : u ? [u.x, u.y] : [s.x, s.y];
+    }
+    const branch = makeBranch(this.data, g.world, local, ai, { cam: { x: at[0], y: at[1], dist: cam.targetDist, yaw: cam.targetYaw }, hours: g.hours, ...weather(g) });
+    this.host.restart(branchSetup(this.data.setup, branch, g.setup.quality));
+  }
+
+  /** The moment panel (take command / make a challenge), paused at the current tick. */
+  openMoment(tab: 'take' | 'challenge') {
+    if (this.closeMoment || this.seeking) return;
+    const wasPaused = this.paused;
+    this.setPaused(true);
+    this.closeMoment = openMomentPanel({
+      game: this.game, data: this.data, view: this.view, tab,
+      onTake: (local, ai) => this.takeCommand(local, ai),
+      onPlayChallenge: (c) => { this.tookCommand = true; this.host.restart(challengeGameSetup(c, this.game.setup.quality)); },
+      onClose: () => { this.closeMoment = null; if (!wasPaused && !this.tookCommand && !this.disposed) this.setPaused(false); },
+    });
   }
 
   private reachEnd() {
@@ -311,6 +359,13 @@ export class ReplayPlayback {
     }
     const tl = el('div', 'rp-timeline', `<span class="rp-time">00:00</span><div class="rp-track"><i class="rp-fill"></i><i class="rp-head"></i><i class="rp-desync"></i><span class="rp-hover"></span></div><span class="rp-total">${formatTime(d.ticks * DT)}</span>`);
     const track = tl.querySelector('.rp-track') as HTMLElement;
+    if (this.startTick > 0) {
+      // [MODES] the part before the branch point belongs to the parent recording
+      const pre = el('i', 'rp-pre');
+      pre.style.width = `${((this.startTick / Math.max(1, d.ticks)) * 100).toFixed(2)}%`;
+      pre.title = `Branched from the parent replay at ${formatTime(this.startTick * DT)}`;
+      track.prepend(pre);
+    }
     const fracAt = (e: PointerEvent) => {
       const r = track.getBoundingClientRect();
       return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
@@ -337,8 +392,12 @@ export class ReplayPlayback {
     const fog = btn('rp-fog', ICONS.eye, 'Observer view: no fog of war (V cycles views)', () => this.setView(this.view < 0 ? this.hudPlayer : -1));
     const sync = el('span', 'rp-sync');
     const exit = btn('rp-exit', ICONS.close, 'Leave the replay', () => this.host.exit(true));
-    right.append(fog, sync, exit);
-    const tag = el('div', 'rp-tag', `${ICONS.replay}<span><b>Replay</b><small>${esc(d.mapName)}</small></span>`);
+    // [MODES] rewind & take command · challenge from this moment
+    const take = btn('rp-take', `${ICONS.flag}<span>Take command</span>`, 'Take command from this moment (T)', () => this.openMoment('take'));
+    const chal = btn('rp-chal', picto('trophy', 'ic'), 'Make a challenge from this moment (C)', () => this.openMoment('challenge'));
+    right.append(take, chal, fog, sync, exit);
+    const br = d.setup.branch;
+    const tag = el('div', 'rp-tag', `${ICONS.replay}<span><b${br ? ' class="rp-branchtag"' : ''}>${br ? 'Branch' : 'Replay'}</b><small>${esc(d.mapName)}${br ? ` · from ${formatTime(br.tick * DT)}` : ''}</small></span>`);
     this.bar.append(tag, left, speeds, tl, right);
   }
 
@@ -421,5 +480,7 @@ export class ReplayPlayback {
       this.setSpeed(SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (i < 0 ? 0 : i) + (k === ']' ? 1 : -1)))]);
     } else if (k === 'v' && !e.ctrlKey && !e.metaKey) this.cycleView(e.shiftKey ? -1 : 1);
     else if (k === 'home') this.seek(0);
+    else if (k === 't' && !e.ctrlKey && !e.metaKey) this.openMoment('take'); // [MODES]
+    else if (k === 'c' && !e.ctrlKey && !e.metaKey) this.openMoment('challenge'); // [MODES]
   }
 }

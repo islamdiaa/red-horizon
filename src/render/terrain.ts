@@ -102,6 +102,32 @@ const PALETTES: Record<Climate, number[][]> = {
   desert: [[0.66, 0.52, 0.33], [0.78, 0.64, 0.42], [0.5, 0.46, 0.26], [0.86, 0.73, 0.52], [0.6, 0.42, 0.27], [0.5, 0.33, 0.25], [0.68, 0.48, 0.36]],
 };
 
+/** Texels of the deformation map per map cell. */
+const DRES = 4;
+/** Fine crater height range encoded in the deformation map's red channel (world units, +-). */
+const DEFORM_RANGE = 0.6;
+/** Deepest a crater can dig below the original ground (world units). */
+const MAX_DIG = 1.1;
+
+/**
+ * Persistent, purely visual terrain damage (the simulation's heightAt never changes):
+ * craters, burn marks and tread ruts. Coordinates are map cells (x, y) = world (x, z).
+ */
+export interface TerrainDeformApi {
+  /**
+   * Blast crater: a bowl `depth` deep with a raised, churned rim; repeated hits dig deeper (capped).
+   * A negative depth heals: the ground within the radius moves back toward its original height by up to
+   * |depth| (never past it) and the churned soil / burn fade in proportion (craters fading out over time).
+   */
+  deform(x: number, y: number, radius: number, depth: number): void;
+  /** Persistent scorch / burn on the ground (0..1 amount, accumulates). */
+  scorch(x: number, y: number, radius: number, amount?: number): void;
+  /** Tread ruts from (x0, y0) to (x1, y1): two grooves `width` apart, pressed into snow, sand and mud. */
+  rut(x0: number, y0: number, x1: number, y1: number, width: number, depth?: number): void;
+  /** Visual ground height including craters (renderHeight). */
+  renderHeight(x: number, y: number): number;
+}
+
 export interface TerrainUniforms {
   uTime: { value: number };
   uGrid: { value: THREE.Vector4 };      // x, z, radius, strength
@@ -109,15 +135,32 @@ export interface TerrainUniforms {
   uWet: { value: number };
   uSnow: { value: number };
   uPal: { value: THREE.Vector3[] };
+  tDeform: { value: THREE.Texture };
+  uMapSize: { value: THREE.Vector2 };
 }
 
-export class TerrainMesh {
+export class TerrainMesh implements TerrainDeformApi {
   readonly mesh: THREE.Mesh;
   readonly uniforms: TerrainUniforms;
+  /**
+   * Rendered ground height per vertex (2 per cell, includes craters) as a float texture, for GPU particle
+   * collisions: uv = (x, z) * heightUvXf.xy + heightUvXf.zw.
+   */
+  readonly heightTexture: THREE.DataTexture;
+  readonly heightUvXf: THREE.Vector4;
+  /** Fine deformation map (DRES texels per cell): r crater relief, g scorch, b ruts, a churned soil. */
+  readonly deformTexture: THREE.DataTexture;
   private geo: THREE.BufferGeometry;
   private oreAttr: THREE.BufferAttribute;
   private vw: number;
   private vh: number;
+  private baseH: Float32Array;
+  private heightData: Float32Array;
+  private deformData: Uint8Array;
+  private heightDirty = false;
+  private heightUploadT = 0;
+  /** deform / scorch calls so far (lets the effects system see that someone else owns craters). */
+  deformCalls = 0;
 
   constructor(private map: GameMap, readonly climate: Climate = 'temperate', quality: 'low' | 'medium' | 'high' = 'high') {
     const vw = map.w * SUB + 1, vh = map.h * SUB + 1;
@@ -195,6 +238,24 @@ export class TerrainMesh {
     geo.computeBoundingSphere();
     this.geo = geo;
     this.refreshOre();
+    // [FX] deformation support: original heights, a height texture for particle collisions, the fine map
+    (geo.attributes.position as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+    (geo.attributes.normal as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+    this.baseH = new Float32Array(n);
+    this.heightData = new Float32Array(n);
+    for (let k = 0; k < n; k++) this.baseH[k] = this.heightData[k] = pos[k * 3 + 1];
+    this.heightTexture = new THREE.DataTexture(this.heightData, vw, vh, THREE.RedFormat, THREE.FloatType);
+    this.heightTexture.minFilter = this.heightTexture.magFilter = THREE.LinearFilter;
+    this.heightTexture.generateMipmaps = false;
+    this.heightTexture.needsUpdate = true;
+    this.heightUvXf = new THREE.Vector4(SUB / vw, SUB / vh, 0.5 / vw, 0.5 / vh);
+    const dw = map.w * DRES, dh = map.h * DRES;
+    this.deformData = new Uint8Array(dw * dh * 4);
+    for (let i = 0; i < dw * dh; i++) this.deformData[i * 4] = 128;
+    this.deformTexture = new THREE.DataTexture(this.deformData, dw, dh, THREE.RGBAFormat, THREE.UnsignedByteType);
+    this.deformTexture.minFilter = this.deformTexture.magFilter = THREE.LinearFilter;
+    this.deformTexture.generateMipmaps = false;
+    this.deformTexture.needsUpdate = true;
 
     this.uniforms = {
       uTime: { value: 0 },
@@ -203,6 +264,8 @@ export class TerrainMesh {
       uWet: { value: 0 },
       uSnow: { value: 0 },
       uPal: { value: PALETTES[climate].map(([r, g, b]) => new THREE.Vector3(r, g, b)) },
+      tDeform: { value: this.deformTexture },
+      uMapSize: { value: new THREE.Vector2(map.w, map.h) },
     };
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.93, metalness: 0.0 });
     const uni = this.uniforms;
@@ -232,6 +295,8 @@ export class TerrainMesh {
           uniform float uSnow;
           uniform vec3 uPal[7];
           uniform sampler2D tNoise;
+          uniform sampler2D tDeform;
+          uniform vec2 uMapSize;
           varying vec4 vSplat;
           varying vec2 vOre;
           varying vec3 vWPos;
@@ -294,11 +359,26 @@ export class TerrainMesh {
           vec3 oreStain = mix(srgb(vec3(0.52, 0.33, 0.16)), srgb(vec3(0.36, 0.28, 0.42)), vOre.y);
           oreStain *= (0.72 + 0.5 * n3) * (1.0 + fleck * 0.9);
           col = mix(col, oreStain, ore * 0.85);
+          // persistent damage (terrain.deform / scorch / rut): churned soil in craters, burnt ground
+          vec2 duv = vWPos.xz / uMapSize;
+          float dIn = step(0.0, duv.x) * step(0.0, duv.y) * step(duv.x, 1.0) * step(duv.y, 1.0);
+          vec4 dmg = mix(vec4(0.5, 0.0, 0.0, 0.0), texture2D(tDeform, duv), dIn);
+          // churned soil: freshly thrown earth, darker towards the bottom of the bowl
+          vec3 soil = srgb(uPal[4]) * vec3(0.85, 0.8, 0.74) * (0.7 + 0.55 * n3) * (1.0 - smoothstep(0.55, 1.0, dmg.a) * 0.35);
+          col = mix(col, soil, smoothstep(0.05, 0.6, dmg.a) * 0.88);
+          float burn = smoothstep(0.02, 0.9, dmg.g) * (0.7 + 0.3 * n4);
+          col = mix(col, col * vec3(0.2, 0.18, 0.16) + vec3(0.01, 0.008, 0.006), burn * 0.85);
           // snow-capped peaks (outer mountains) and weather snow cover on flat ground
           float upward = smoothstep(0.55, 0.85, nW.y);
           float peak = smoothstep(3.2, 5.0, vWPos.y + n2 * 0.8) * smoothstep(0.35, 0.7, nW.y);
           float snowCover = max(peak, uSnow * upward * smoothstep(0.25, 0.6, n1 * 0.6 + n3 * 0.4 + uSnow * 0.5)) * (1.0 - bed);
           col = mix(col, srgb(vec3(0.86, 0.9, 0.95)) * (0.92 + 0.08 * n3), snowCover);
+          // tread ruts show in snow (packed, blue-grey), sand and mud; barely on grass
+          float snowy = ${climate === 'winter' ? 'max(snowCover, sp.x * (1.0 - cliff))' : 'snowCover'};
+          float rutK = dmg.b * max(max(snowy, sp.y * 0.8), max(sp.w * 0.6, 0.15));
+          col = mix(col, col * mix(vec3(0.62, 0.58, 0.52), vec3(0.7, 0.77, 0.88), snowy), clamp(rutK * 1.4, 0.0, 0.85));
+          // churned craters have no snow on their walls
+          col = mix(col, soil, smoothstep(0.3, 0.9, dmg.a) * snowCover * 0.6);
           // rain-soaked ground is darker
           col *= 1.0 - uWet * 0.38 * (1.0 - snowCover);
           diffuseColor.rgb = col;
@@ -314,21 +394,23 @@ export class TerrainMesh {
           ${low ? '' : `{
             // detail relief as a screen-space-derivative bump (one height evaluation per pixel)
             float hgt = rh_detail(vWPos.xz, vSplat) * (1.0 - snowCover * 0.7) * (0.4 + 0.6 * (1.0 - puddle));
-            vec2 dHdxy = vec2(dFdx(hgt), dFdy(hgt)) * 0.05;
+            // crater rims and tread ruts from the deformation map (world units)
+            float dh = (dmg.r - 0.5) * ${(DEFORM_RANGE * 2).toFixed(2)} - dmg.b * 0.09 * (0.4 + snowy);
+            vec2 dHdxy = vec2(dFdx(hgt), dFdy(hgt)) * 0.05 + vec2(dFdx(dh), dFdy(dh)) * 1.6;
             vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
             vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
             float det = dot(sx, r1) * faceDirection;
             normal = normalize(abs(det) * normal - sign(det) * (dHdxy.x * r1 + dHdxy.y * r2));
           }`}`)
         .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
-          {
-            // drifting cloud shadows
+          ${low ? `{
+            // drifting cloud shadows (medium / high: the atmosphere pass shades them on everything)
             vec2 cp = vWPos.xz * 0.035 + vec2(uTime * 0.012, uTime * 0.006);
             float cloud = smoothstep(0.45, 0.75, tn_fbm(cp));
             float shade = 1.0 - cloud * 0.4;
             reflectedLight.directDiffuse *= shade;
             reflectedLight.directSpecular *= shade;
-          }`)
+          }` : ''}`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           if (uGrid.w > 0.0) {
             vec2 gd = abs(fract(vWPos.xz) - 0.5);
@@ -339,12 +421,212 @@ export class TerrainMesh {
           // gem fields glimmer faintly in their flecks
           totalEmissiveRadiance += srgb(vec3(0.6, 0.35, 0.9)) * vOre.y * ore * fleck * 0.08;`);
     };
-    mat.customProgramCacheKey = () => (low ? 'rh-terrain-v2-low' : 'rh-terrain-v2');
+    mat.customProgramCacheKey = () => (low ? 'rh-terrain-v3-low' : 'rh-terrain-v3');
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = true;
     this.mesh.customDepthMaterial = shadowDepthMaterial(this.mesh);
     this.mesh.name = 'terrain';
+  }
+
+  dispose() {
+    this.geo.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+    this.heightTexture.dispose();
+    this.deformTexture.dispose();
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Persistent deformation (visual only; the simulation's heights never change)
+
+  deform(x: number, y: number, radius: number, depth: number): void {
+    if (!(radius > 0) || !depth || !Number.isFinite(x + y + depth)) return;
+    this.deformCalls++;
+    radius = Math.min(radius, 12);
+    if (depth < 0) {
+      this.heal(x, y, radius, Math.min(-depth, 1.5));
+      return;
+    }
+    depth = Math.min(depth, 1.5);
+    const vw = this.vw, vh = this.vh;
+    const pos = this.geo.attributes.position as THREE.BufferAttribute;
+    const P = pos.array as Float32Array;
+    const reach = radius * 1.45;
+    const i0 = Math.max(0, Math.floor((x - reach) * SUB)), i1 = Math.min(vw - 1, Math.ceil((x + reach) * SUB));
+    const j0 = Math.max(0, Math.floor((y - reach) * SUB)), j1 = Math.min(vh - 1, Math.ceil((y + reach) * SUB));
+    if (i1 < i0 || j1 < j0) return;
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const r = Math.hypot(i / SUB - x, j / SUB - y) / radius;
+        if (r >= 1.45) continue;
+        const k = j * vw + i;
+        // bowl inside, raised lip around the edge
+        let dh = r < 1 ? -depth * (1 - r * r) * (1 - r * r * 0.35) : 0;
+        dh += depth * 0.32 * Math.exp(-((r - 1.0) * (r - 1.0)) / 0.045);
+        const h = Math.max(this.baseH[k] - MAX_DIG, Math.min(this.baseH[k] + 0.5, P[k * 3 + 1] + dh));
+        P[k * 3 + 1] = h;
+        this.heightData[k] = h;
+      }
+    }
+    this.refreshNormals(i0 - 1, i1 + 1, j0 - 1, j1 + 1);
+    pos.addUpdateRange((j0 * vw) * 3, ((j1 - j0 + 1) * vw) * 3);
+    pos.needsUpdate = true;
+    this.heightDirty = true;
+    // fine relief, churned soil and a scorched halo in the deformation map
+    this.stamp(x, y, radius * 1.5, (d, n) => {
+      const r = d / radius;
+      const o = n * 4;
+      const D = this.deformData;
+      if (r < 1.25) {
+        const relief = (r < 1 ? -0.25 * (1 - r) : 0) + 0.18 * Math.exp(-((r - 1) * (r - 1)) / 0.02);
+        const enc = D[o] + Math.round((relief * depth * 0.6 / DEFORM_RANGE) * 127);
+        D[o] = Math.max(0, Math.min(255, enc));
+        D[o + 3] = Math.max(D[o + 3], Math.round(255 * Math.min(1, 1.15 - r * 0.85)));
+      }
+      const burn = Math.max(0, 1 - d / (radius * 1.5));
+      D[o + 1] = Math.min(255, D[o + 1] + Math.round(burn * burn * 90));
+    });
+  }
+
+  /** Undo up to `amount` of crater relief around (x, y) (see deform with a negative depth). */
+  private heal(x: number, y: number, radius: number, amount: number) {
+    const vw = this.vw, vh = this.vh;
+    const pos = this.geo.attributes.position as THREE.BufferAttribute;
+    const P = pos.array as Float32Array;
+    const reach = radius * 1.45;
+    const i0 = Math.max(0, Math.floor((x - reach) * SUB)), i1 = Math.min(vw - 1, Math.ceil((x + reach) * SUB));
+    const j0 = Math.max(0, Math.floor((y - reach) * SUB)), j1 = Math.min(vh - 1, Math.ceil((y + reach) * SUB));
+    if (i1 < i0 || j1 < j0) return;
+    // how much of the dip at the centre is left afterwards decides how much soil / burn fades
+    const ci = Math.min(vw - 1, Math.max(0, Math.round(x * SUB))), cj = Math.min(vh - 1, Math.max(0, Math.round(y * SUB)));
+    const ck = cj * vw + ci;
+    const before = Math.max(0, this.baseH[ck] - P[ck * 3 + 1]);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const r = Math.hypot(i / SUB - x, j / SUB - y) / reach;
+        if (r >= 1) continue;
+        const k = j * vw + i;
+        const step = amount * (1 - r * r);
+        const h = P[k * 3 + 1], d = this.baseH[k] - h;
+        const nh = h + Math.max(-step, Math.min(step, d));
+        P[k * 3 + 1] = nh;
+        this.heightData[k] = nh;
+      }
+    }
+    this.refreshNormals(i0 - 1, i1 + 1, j0 - 1, j1 + 1);
+    pos.addUpdateRange((j0 * vw) * 3, ((j1 - j0 + 1) * vw) * 3);
+    pos.needsUpdate = true;
+    this.heightDirty = true;
+    const after = Math.max(0, this.baseH[ck] - P[ck * 3 + 1]);
+    const fade = before > 1e-4 ? 1 - Math.min(1, after / before) : 1;
+    const D = this.deformData;
+    this.stamp(x, y, radius * 1.5, (d, n) => {
+      const w = fade * Math.min(1, 1.25 - d / (radius * 1.5));
+      if (w <= 0) return;
+      const o = n * 4;
+      D[o] = Math.round(128 + (D[o] - 128) * (1 - w));
+      D[o + 1] = Math.round(D[o + 1] * (1 - w * 0.6));
+      D[o + 3] = Math.round(D[o + 3] * (1 - w));
+    });
+  }
+
+  scorch(x: number, y: number, radius: number, amount = 0.6): void {
+    if (!(radius > 0) || !Number.isFinite(x + y)) return;
+    this.deformCalls++;
+    this.stamp(x, y, Math.min(radius, 12), (d, n) => {
+      const w = 1 - d / radius;
+      const o = n * 4 + 1;
+      this.deformData[o] = Math.min(255, this.deformData[o] + Math.round(w * w * amount * 255));
+    });
+  }
+
+  rut(x0: number, y0: number, x1: number, y1: number, width: number, depth = 0.6): void {
+    const dx = x1 - x0, dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    if (!(len > 1e-4) || len > 4 || !Number.isFinite(x0 + y0 + x1 + y1)) return;
+    const nx = -dy / len, ny = dx / len;
+    const half = width / 2;
+    const groove = 0.07 * Math.max(0.6, width);
+    const v = Math.round(Math.min(1, depth) * 200);
+    // one stamp per texel along the segment, for both treads
+    const steps = Math.ceil(len * DRES);
+    const W = this.map.w * DRES, H = this.map.h * DRES;
+    const D = this.deformData;
+    let minI = W, maxI = -1, minJ = H, maxJ = -1;
+    for (let side = -1; side <= 1; side += 2) {
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const px = (x0 + dx * t + nx * half * side) * DRES, py = (y0 + dy * t + ny * half * side) * DRES;
+        const gr = groove * DRES;
+        for (let j = Math.floor(py - gr); j <= Math.ceil(py + gr); j++) {
+          if (j < 0 || j >= H) continue;
+          for (let i = Math.floor(px - gr); i <= Math.ceil(px + gr); i++) {
+            if (i < 0 || i >= W) continue;
+            const d = Math.hypot(i + 0.5 - px, j + 0.5 - py) / Math.max(gr, 0.5);
+            if (d >= 1) continue;
+            const o = (j * W + i) * 4 + 2;
+            D[o] = Math.max(D[o], Math.round(v * (1 - d * d)));
+            if (i < minI) minI = i;
+            if (i > maxI) maxI = i;
+            if (j < minJ) minJ = j;
+            if (j > maxJ) maxJ = j;
+          }
+        }
+      }
+    }
+    if (maxI >= minI) this.markDeform(minI, maxI, minJ, maxJ);
+  }
+
+  /** Apply fn(distance in cells, texel index) to every deformation texel within radius of (x, y). */
+  private stamp(x: number, y: number, radius: number, fn: (d: number, n: number) => void) {
+    const W = this.map.w * DRES, H = this.map.h * DRES;
+    const i0 = Math.max(0, Math.floor((x - radius) * DRES)), i1 = Math.min(W - 1, Math.ceil((x + radius) * DRES));
+    const j0 = Math.max(0, Math.floor((y - radius) * DRES)), j1 = Math.min(H - 1, Math.ceil((y + radius) * DRES));
+    if (i1 < i0 || j1 < j0) return;
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const d = Math.hypot((i + 0.5) / DRES - x, (j + 0.5) / DRES - y);
+        if (d < radius) fn(d, j * W + i);
+      }
+    }
+    this.markDeform(i0, i1, j0, j1);
+  }
+
+  private markDeform(i0: number, i1: number, j0: number, j1: number) {
+    const W = this.map.w * DRES;
+    for (let j = j0; j <= j1; j++) this.deformTexture.addUpdateRange((j * W + i0) * 4, (i1 - i0 + 1) * 4);
+    this.deformTexture.needsUpdate = true;
+  }
+
+  /** Central-difference normals for the vertex block (regular grid). */
+  private refreshNormals(i0: number, i1: number, j0: number, j1: number) {
+    const vw = this.vw, vh = this.vh;
+    i0 = Math.max(0, i0); j0 = Math.max(0, j0); i1 = Math.min(vw - 1, i1); j1 = Math.min(vh - 1, j1);
+    const P = this.geo.attributes.position.array as Float32Array;
+    const nAttr = this.geo.attributes.normal as THREE.BufferAttribute;
+    const N = nAttr.array as Float32Array;
+    const h = (i: number, j: number) => P[(Math.min(vh - 1, Math.max(0, j)) * vw + Math.min(vw - 1, Math.max(0, i))) * 3 + 1];
+    const step = 2 / SUB;
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const nx = -(h(i + 1, j) - h(i - 1, j)) / step, nz = -(h(i, j + 1) - h(i, j - 1)) / step;
+        const l = Math.hypot(nx, 1, nz);
+        const k = (j * vw + i) * 3;
+        N[k] = nx / l; N[k + 1] = 1 / l; N[k + 2] = nz / l;
+      }
+    }
+    nAttr.addUpdateRange(j0 * vw * 3, (j1 - j0 + 1) * vw * 3);
+    nAttr.needsUpdate = true;
+  }
+
+  /** Upload the collision height texture after deformations (throttled: a full re-upload). */
+  flush(dt: number) {
+    this.heightUploadT -= dt;
+    if (this.heightDirty && this.heightUploadT <= 0) {
+      this.heightTexture.needsUpdate = true;
+      this.heightDirty = false;
+      this.heightUploadT = 0.25;
+    }
   }
 
   /** Visual (rendered) terrain height including the extra rock relief. */

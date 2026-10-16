@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { lerp } from '../core/util';
 import type { World } from '../sim/world';
 import type { EntityRenderer } from './entities';
+import type { DynamicLights } from './dynlights';
 
 /**
  * Fake light pools on the ground (one instanced draw call): warm floodlights around
@@ -36,6 +37,27 @@ export class LightPools {
   update(alpha: number, time: number, strength = 1) {
     const w = this.world;
     const map = w.map;
+    // [FX] with the renderer's dynamic lights (medium / high) floodlights and headlights really light the
+    // ground, units and buildings around them; low keeps the cheap additive pools
+    const dyn = this.mesh.parent?.userData.dynamicLights as DynamicLights | undefined;
+    if (dyn && dyn.cap >= 100) {
+      this.mesh.count = 0;
+      for (const b of w.buildings) {
+        if (!b.alive || b.buildAnim < 1 || !this.ents.isShown(b.id)) continue;
+        const on = !b.owner.lowPower || b.bt.power > 0;
+        const flicker = on ? 1 : 0.25 + 0.15 * Math.sin(time * 9 + b.id);
+        const r = Math.max(b.w, b.h) * 1.15 + 2.4;
+        dyn.add(b.x, map.surfaceAt(b.x, b.y) + 1.5 + Math.max(b.w, b.h) * 0.25, b.y + b.h * 0.3, 0xffbf73, 3 * strength * flicker, r, 0, { priority: 0.5 });
+      }
+      for (const u of w.units) {
+        if (!u.alive || u.kind !== 'vehicle' || !this.ents.isShown(u.id)) continue;
+        const x = lerp(u.prevX, u.x, alpha), y = lerp(u.prevY, u.y, alpha);
+        const h = u.heading, c = Math.cos(h), sn = Math.sin(h);
+        const ahead = u.ut.radius * 0.9;
+        dyn.add(x + c * ahead, map.surfaceAt(x, y) + 0.42, y + sn * ahead, 0xdce6ff, 0.9 * strength, 3.6, 0, { priority: 0.4, spot: { x: c, y: -0.32, z: sn, angle: 0.9 } });
+      }
+      return;
+    }
     const d = this.dummy;
     let n = 0;
     const cap = this.mesh.instanceMatrix.count;

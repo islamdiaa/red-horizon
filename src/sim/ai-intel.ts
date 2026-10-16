@@ -1,0 +1,246 @@
+/**
+ * What an AI player knows about its enemies, built only from what its own side has actually seen (no map-hack):
+ * enemy structures it has spotted (remembered where they stood until it looks again and finds them gone, like the
+ * player's fog "ghosts"), enemy units seen recently (for counter-composition and threat estimates) and its best
+ * guess of where each enemy base is (the last known structures, otherwise the unexplored start positions a
+ * commander can read off the map).
+ *
+ * Scripted missions and fog-free games keep the classic omniscient AI: mission AIs are balanced around knowing
+ * where the player is, and without fog everybody sees everything anyway.
+ *
+ * Everything here is plain data restored by save.ts through AIController.saveState / loadState.
+ */
+import { WEAPONS } from '../data/rules';
+import { Building, Unit, type Entity } from './entities';
+import type { Player } from './player';
+import { TICK_HZ } from './types';
+import type { World } from './world';
+import { apparentType } from './infiltration';
+
+export interface KnownStructure {
+  id: number;
+  /** Apparent type (decoys pass for the real thing). */
+  type: string;
+  owner: number;
+  x: number;
+  y: number;
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  cost: number;
+  /** Has a weapon (defence) / anti-aircraft weapon. */
+  armed: boolean;
+  aa: boolean;
+  range: number;
+  /** Tick last seen. */
+  seen: number;
+}
+
+export interface SeenUnit {
+  id: number;
+  type: string;
+  owner: number;
+  x: number;
+  y: number;
+  cost: number;
+  cls: UnitClass;
+  seen: number;
+}
+
+export type UnitClass = 'infantry' | 'armour' | 'light' | 'artillery' | 'air' | 'naval';
+
+/** Enemy army value by class (seen recently). */
+export type ArmyMix = Record<UnitClass, number> & { total: number };
+
+/** Seconds a sighting of a unit stays in the composition estimate. */
+const UNIT_MEMORY = 150;
+
+export function unitClass(u: { ut: Unit['ut'] }): UnitClass {
+  const t = u.ut;
+  if (t.kind === 'aircraft') return 'air';
+  if (t.kind === 'naval') return 'naval';
+  if (t.kind === 'infantry') return 'infantry';
+  const w = t.primary ? WEAPONS[t.primary] : null;
+  if (w && (w.minRange || t.noMovingFire)) return 'artillery';
+  return t.armor === 'heavy' ? 'armour' : 'light';
+}
+
+export class AIIntel {
+  structures = new Map<number, KnownStructure>();
+  units = new Map<number, SeenUnit>();
+  /** Tick the first enemy structure was spotted (-1 = enemy base not found yet). */
+  foundTick = -1;
+  /** Enemy units seen destroyed recently (for counter-attacks after a successful defence). */
+  deaths: { tick: number; x: number; y: number; value: number }[] = [];
+
+  /** Experiments only (AITuning.mapHack): the classic all-seeing AI. */
+  mapHack = false;
+
+  constructor(readonly world: World, readonly p: Player) {}
+
+  /** Scripted missions and fog-free games: the AI knows the battlefield (classic behaviour). */
+  get omniscient(): boolean {
+    return this.mapHack || !!this.world.mission || !this.world.fog;
+  }
+
+  /** Whether the AI can see this enemy entity right now. */
+  sees(e: Entity): boolean {
+    if (this.omniscient) {
+      if (e instanceof Building) return !e.bt.mine;
+      if (e instanceof Unit && e.kind === 'naval' && e.cloaked) return this.world.canSee(this.p, e);
+      return !(e instanceof Unit && e.ut.spy && e.disguise >= 0);
+    }
+    if (e instanceof Unit && e.ut.spy && e.disguise >= 0) return false; // looks like one of ours
+    return this.world.canSee(this.p, e);
+  }
+
+  /** Any cell of the rectangle currently in view. */
+  private viewing(cx: number, cy: number, w: number, h: number): boolean {
+    const m = this.world.map, vis = this.p.visible;
+    for (let y = cy; y < cy + h; y++) for (let x = cx; x < cx + w; x++) {
+      if (m.inBounds(x, y) && vis[y * m.w + x]) return true;
+    }
+    return false;
+  }
+
+  /** Refresh from what is visible now (cheap: one pass over units and structures). */
+  update() {
+    const w = this.world, p = this.p, tick = w.tick;
+    for (const b of w.buildings) {
+      if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || b.bt.mine || b.buildAnim < 0.05) continue;
+      if (!this.sees(b)) continue;
+      const t = apparentType(b, p);
+      const wd = b.weapons[0]?.def;
+      let s = this.structures.get(b.id);
+      if (!s) {
+        s = { id: b.id, type: t.id, owner: b.owner.id, x: b.x, y: b.y, cx: b.cx, cy: b.cy, w: b.w, h: b.h, cost: t.cost, armed: !!wd, aa: !!wd?.antiAir, range: wd?.range ?? 0, seen: tick };
+        this.structures.set(b.id, s);
+        if (this.foundTick < 0) this.foundTick = tick;
+      }
+      s.seen = tick;
+      s.type = t.id;
+      s.owner = b.owner.id;
+    }
+    for (const [id, s] of this.structures) {
+      if (s.seen === tick) continue;
+      const e = w.entities.get(id);
+      const alive = !!e && e.alive && p.isEnemy(e.owner);
+      if (this.omniscient) { if (!alive) this.structures.delete(id); continue; }
+      // looked at the spot and it isn't there (destroyed, sold, captured, or hidden by a gap generator: forget)
+      if (this.viewing(s.cx, s.cy, s.w, s.h) && (!alive || !this.sees(e!))) this.structures.delete(id);
+    }
+    for (const u of w.units) {
+      if (!u.alive || !p.isEnemy(u.owner) || u.ut.supportPlane) continue;
+      if (!this.sees(u)) continue;
+      let s = this.units.get(u.id);
+      if (!s) {
+        s = { id: u.id, type: u.ut.id, owner: u.owner.id, x: u.x, y: u.y, cost: u.ut.cost, cls: unitClass(u), seen: tick };
+        this.units.set(u.id, s);
+      }
+      s.x = u.x; s.y = u.y; s.seen = tick;
+    }
+    const m = w.map;
+    while (this.deaths.length && tick - this.deaths[0].tick > TICK_HZ * 90) this.deaths.shift();
+    for (const [id, s] of this.units) {
+      if (s.seen === tick) continue;
+      if (tick - s.seen > UNIT_MEMORY * TICK_HZ) { this.units.delete(id); continue; }
+      const e = w.entities.get(id);
+      // saw it die (its last position is in view and it isn't there)
+      if ((!e || !e.alive) && m.inBounds(Math.floor(s.x), Math.floor(s.y)) && p.visible[m.idx(Math.floor(s.x), Math.floor(s.y))]) {
+        this.units.delete(id);
+        if (!e || !e.alive) this.deaths.push({ tick, x: s.x, y: s.y, value: s.type === 'harv' || s.type === 'mcv' ? 0 : s.cost });
+      }
+    }
+  }
+
+  /** Value of the enemy army seen within the last `sec` seconds, by class. */
+  armyMix(sec = UNIT_MEMORY, owner = -1): ArmyMix {
+    const out: ArmyMix = { infantry: 0, armour: 0, light: 0, artillery: 0, air: 0, naval: 0, total: 0 };
+    const since = this.world.tick - sec * TICK_HZ;
+    for (const s of this.units.values()) {
+      if (s.seen < since || (owner >= 0 && s.owner !== owner)) continue;
+      // harvesters / MCVs are not army
+      if (s.type === 'harv' || s.type === 'mcv') continue;
+      out[s.cls] += s.cost;
+      out.total += s.cost;
+    }
+    return out;
+  }
+
+  /** Known enemy army value (units seen recently and, optionally, armed structures) within r cells of a point. */
+  strengthNear(x: number, y: number, r: number, sec = 30, structures = true): number {
+    const since = this.world.tick - sec * TICK_HZ;
+    let v = 0;
+    for (const s of this.units.values()) {
+      if (s.seen < since || s.type === 'harv' || s.type === 'mcv') continue;
+      if (Math.hypot(s.x - x, s.y - y) < r) {
+        const e = this.world.entities.get(s.id);
+        v += s.cost * (e && e.alive && this.sees(e) ? e.healthFrac : 1);
+      }
+    }
+    if (structures) for (const s of this.structures.values()) {
+      if (!s.armed || Math.hypot(s.x - x, s.y - y) > r + s.range) continue;
+      // static defences count double: they out-trade mobile units of the same price
+      v += s.cost * 2;
+    }
+    return v;
+  }
+
+  knownStructures(): KnownStructure[] {
+    return [...this.structures.values()];
+  }
+
+  /** Enemy start positions a commander can read off the map, nearest first, minus the ones explored and empty. */
+  candidateStarts(fromX: number, fromY: number): [number, number][] {
+    const w = this.world, m = w.map, p = this.p;
+    const out: [number, number, number][] = [];
+    for (const s of m.startPositions) {
+      // our own start (and an ally's base) is not a candidate
+      if (Math.hypot(s.x - fromX, s.y - fromY) < 12) continue;
+      if (w.buildings.some((b) => b.alive && b.owner.team === p.team && Math.hypot(b.x - s.x, b.y - s.y) < 10)) continue;
+      const i = m.idx(Math.floor(s.x), Math.floor(s.y));
+      const known = [...this.structures.values()].some((k) => Math.hypot(k.x - s.x, k.y - s.y) < 14);
+      if (p.explored[i] && !known) continue; // looked: nobody home
+      out.push([s.x, s.y, Math.hypot(s.x - fromX, s.y - fromY)]);
+    }
+    out.sort((a, b) => a[2] - b[2]);
+    return out.map(([x, y]) => [x, y]);
+  }
+
+  /**
+   * Best guess of the nearest enemy base: a known Construction Yard, else the densest cluster of known structures,
+   * else the nearest unexplored enemy start position. Null when the AI has no idea at all.
+   */
+  enemyBase(fromX: number, fromY: number): [number, number] | null {
+    let best: KnownStructure | null = null, bestScore = Infinity;
+    for (const s of this.structures.values()) {
+      if (!this.world.players[s.owner] || this.world.players[s.owner].defeated) continue;
+      let near = 0;
+      for (const o of this.structures.values()) if (o.owner === s.owner && Math.hypot(o.x - s.x, o.y - s.y) < 8) near++;
+      const score = Math.hypot(s.x - fromX, s.y - fromY) - near * 3 - (s.type === 'fact' ? 10 : 0);
+      if (score < bestScore) { bestScore = score; best = s; }
+    }
+    if (best) return [best.x, best.y];
+    return this.candidateStarts(fromX, fromY)[0] ?? null;
+  }
+
+  /** Value of enemy units seen destroyed within r of a point in the last `sec` seconds. */
+  killedNear(x: number, y: number, r: number, sec: number): number {
+    const since = this.world.tick - sec * TICK_HZ;
+    let v = 0;
+    for (const d of this.deaths) if (d.tick >= since && Math.hypot(d.x - x, d.y - y) < r) v += d.value;
+    return v;
+  }
+
+  saveState() {
+    return { s: [...this.structures.values()], u: [...this.units.values()], f: this.foundTick, d: this.deaths };
+  }
+
+  loadState(st: { s?: KnownStructure[]; u?: SeenUnit[]; f?: number; d?: AIIntel['deaths'] } | undefined) {
+    this.structures = new Map((st?.s ?? []).map((s) => [s.id, { ...s }]));
+    this.units = new Map((st?.u ?? []).map((s) => [s.id, { ...s }]));
+    this.foundTick = st?.f ?? -1;
+    this.deaths = (st?.d ?? []).map((d) => ({ ...d }));
+  }
+}

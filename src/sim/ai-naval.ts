@@ -1,7 +1,8 @@
 /**
  * Naval AI, run by every AIController (see the hooks in ai.ts): decides whether a navy is worth having, builds
  * a shipyard / sub pen and a fleet, defends its home waters, hunts enemy ships and bombards structures near
- * the coast with cruisers.
+ * the coast with cruisers. The commander personality (ai-personality.ts) scales its appetite for a navy; without map-hack
+ * it only hunts ships and yards its side has seen (ai-intel.ts).
  *
  * A navy is only built when the base has a decent body of water nearby that also reaches an enemy base (or
  * the enemy already has ships), so land maps never waste money on it. The logic is stateless between thinks
@@ -15,6 +16,14 @@ import { pickWeapon } from './combat';
 import { TICK_HZ } from './types';
 import type { World } from './world';
 import type { AIDifficulty } from './ai';
+import type { AIIntel } from './ai-intel';
+import { trait, type Personality } from './ai-personality';
+
+/** What the naval AI reads from its AIController (optional: missions' scripted use and tests may omit it). */
+export interface NavalAIView {
+  personality: Personality;
+  intel: AIIntel;
+}
 
 /**
  * Water bodies smaller than this are lakes, not seas worth a navy: 7% of the map (generated sea maps have a sea
@@ -121,16 +130,18 @@ export function baseOf(world: World, p: Player): [number, number] {
 
 const isNavalYard = (b: Building) => !!b.bt.water && b.bt.factory === 'naval';
 
-/** Enemy naval presence: ships, or a yard that can build them. */
-function enemyNavy(world: World, p: Player): { ships: Unit[]; subs: boolean; yards: Building[] } {
+/** Enemy naval presence the AI knows of: ships seen recently, yards it has spotted (everything without intel). */
+function enemyNavy(world: World, p: Player, ai?: NavalAIView): { ships: Unit[]; subs: boolean; yards: Building[] } {
   const ships: Unit[] = [];
   let subs = false;
+  const recent = world.tick - TICK_HZ * 30;
   for (const u of world.units) {
     if (!u.alive || u.kind !== 'naval' || !p.isEnemy(u.owner)) continue;
+    if (ai && !ai.intel.sees(u) && !((ai.intel.units.get(u.id)?.seen ?? -1e9) >= recent)) continue;
     if (u.ut.cloakable) subs = true;
     ships.push(u);
   }
-  const yards = world.buildings.filter((b) => b.alive && isNavalYard(b) && p.isEnemy(b.owner));
+  const yards = world.buildings.filter((b) => b.alive && isNavalYard(b) && p.isEnemy(b.owner) && (!ai || ai.intel.structures.has(b.id)));
   if (yards.some((b) => b.bt.id === 'spen')) subs = true;
   return { ships, subs, yards };
 }
@@ -150,13 +161,15 @@ function sharedWaters(world: World, p: Player, info: SeaInfo): Set<number> {
 }
 
 /** Whether this AI should run a navy at all. */
-function navyWanted(world: World, p: Player, info: SeaInfo): boolean {
+function navyWanted(world: World, p: Player, info: SeaInfo, ai?: NavalAIView): boolean {
   const [bx, by] = baseOf(world, p);
   const home = watersNear(world.map, info, bx, by);
   if (!home.size) return false;
-  if (sharedWaters(world, p, info).size) return true;
+  const naval = ai?.personality.naval ?? 0.5;
+  // (a commander who hates the sea only answers a fleet in its own waters)
+  if (naval >= 0.15 && sharedWaters(world, p, info).size) return true;
   // enemy ships that could reach our waters
-  const { ships, yards } = enemyNavy(world, p);
+  const { ships, yards } = enemyNavy(world, p, ai);
   return ships.some((u) => home.has(info.label[world.map.idx(Math.floor(u.x), Math.floor(u.y))])) ||
     yards.some((b) => home.has(info.label[world.map.idx(b.cx, b.cy)]));
 }
@@ -188,13 +201,13 @@ export function navalPlacement(world: World, p: Player, bt: BuildingTypeDef): [n
  * Land structures: when we want a navy but no water spot is in reach yet, power plants and silos are used as
  * stepping stones that grow the base towards the shore. Returns null to let the normal placement decide.
  */
-function shorewardPlacement(world: World, p: Player, bt: BuildingTypeDef): [number, number] | null {
+function shorewardPlacement(world: World, p: Player, bt: BuildingTypeDef, ai?: NavalAIView): [number, number] | null {
   if (bt.id !== 'powr' && bt.id !== 'apwr' && bt.id !== 'silo') return null;
   const yard = p.faction === 'allies' ? 'syrd' : 'spen';
   if (!p.canBuild(yard) || world.buildings.some((b) => b.alive && b.owner === p && isNavalYard(b))) return null;
   const m = world.map;
   const info = seaInfo(m);
-  if (!navyWanted(world, p, info)) return null;
+  if (!navyWanted(world, p, info, ai)) return null;
   if (navalPlacement(world, p, BUILDINGS[yard])) return null;
   const [bx, by] = baseOf(world, p);
   const shared = sharedWaters(world, p, info);
@@ -226,36 +239,38 @@ function shorewardPlacement(world: World, p: Player, bt: BuildingTypeDef): [numb
 }
 
 /** placeReadyStructure hook: naval yards go on water, other buildings may creep towards the shore. */
-export function aiPlacement(world: World, p: Player, bt: BuildingTypeDef): [number, number] | null {
+export function aiPlacement(world: World, p: Player, bt: BuildingTypeDef, ai?: NavalAIView): [number, number] | null {
   if (bt.water) return navalPlacement(world, p, bt);
-  return shorewardPlacement(world, p, bt);
+  return shorewardPlacement(world, p, bt, ai);
 }
 
 /** planStructures hook: the shipyard / sub pen once the core base stands and a navy makes sense. */
-export function aiNavalStructure(world: World, p: Player): string | null {
+export function aiNavalStructure(world: World, p: Player, ai?: NavalAIView): string | null {
   const type = p.faction === 'allies' ? 'syrd' : 'spen';
   if (!p.canBuild(type) || !p.has('weap')) return null;
   if (world.buildings.some((b) => b.alive && b.owner === p && isNavalYard(b))) return null;
   // a lost yard is rebuilt after a pause, and only twice while the enemy fleet that sank it is still afloat
   if (p.yardsLost && world.tick - p.yardLostTick < TICK_HZ * 150) return null;
-  if (p.yardsLost >= 3 && enemyNavy(world, p).ships.some((u) => u.weapons.length)) return null;
+  if (p.yardsLost >= 3 && enemyNavy(world, p, ai).ships.some((u) => u.weapons.length)) return null;
+  const naval = ai?.personality.naval ?? 0.5;
   let procs = 0;
   for (const b of world.buildings) if (b.alive && b.owner === p && b.bt.id === 'proc') procs++;
-  if (procs < 2 && world.time < 600) return null;
+  if (procs < (naval >= 0.8 ? 1 : 2) && world.time < 600) return null;
   // (like the land AI: start a structure with half its price in the bank)
   if (p.powerOut - p.powerUse < 30 || p.credits < 350) return null;
   const info = seaInfo(world.map);
-  if (!navyWanted(world, p, info)) return null;
-  // subs only fight ships: the Soviets wait until there is something to sink (or the match drags on)
-  if (p.faction === 'soviet') {
-    const { ships, yards } = enemyNavy(world, p);
-    if (!ships.length && !yards.length && world.time < 900) return null;
+  if (!navyWanted(world, p, info, ai)) return null;
+  // subs only fight ships: the Soviets wait until there is something to sink (or the match drags on);
+  // a naval commander builds its pens anyway
+  if (p.faction === 'soviet' && naval < 0.8) {
+    const { ships, yards } = enemyNavy(world, p, ai);
+    if (!ships.length && !yards.length && world.time < 900 * trait(naval, 1.5, 0.6)) return null;
   }
   const spot = navalPlacement(world, p, BUILDINGS[type]);
   if (!spot) return null;
   // don't launch a yard into a waiting wolf pack (the AI knows where the enemy fleet is, as for land units)
   const cx = spot[0] + 1.5, cy = spot[1] + 1.5;
-  if (world.units.some((u) => u.alive && u.kind === 'naval' && u.weapons.length && p.isEnemy(u.owner) && Math.hypot(u.x - cx, u.y - cy) < 14)) return null;
+  if (enemyNavy(world, p, ai).ships.some((u) => u.weapons.length && Math.hypot(u.x - cx, u.y - cy) < 14)) return null;
   return type;
 }
 
@@ -266,8 +281,8 @@ export function aiNavalStructure(world: World, p: Player): string | null {
 const ALLIED_MIX: [string, number][] = [['pt', 25], ['dd', 40], ['ca', 35]];
 const ANTI_SUB_MIX: [string, number][] = [['pt', 30], ['dd', 60], ['ca', 10]];
 
-function pick(world: World, p: Player, mix: [string, number][]): string | null {
-  const opts = mix.filter(([t]) => p.canBuild(t));
+function pick(world: World, p: Player, mix: [string, number][], ai?: NavalAIView): string | null {
+  const opts = mix.filter(([t]) => p.canBuild(t)).map(([t, w]): [string, number] => [t, w * (ai?.personality.prefer?.[t] ?? 1)]);
   if (!opts.length) return null;
   const total = opts.reduce((s, [, w]) => s + w, 0);
   let r = world.rng.next() * total;
@@ -276,7 +291,7 @@ function pick(world: World, p: Player, mix: [string, number][]): string | null {
 }
 
 /** Naval think: production, rally point, defence, hunting, shore bombardment. `defensive` = never attack. */
-export function aiNavalThink(world: World, p: Player, thinks: number, difficulty: AIDifficulty, defensive: boolean) {
+export function aiNavalThink(world: World, p: Player, thinks: number, difficulty: AIDifficulty, defensive: boolean, ai?: NavalAIView) {
   // every 3 s, staggered per player
   if ((thinks + p.id) % 3 !== 0) return;
   const yards = world.buildings.filter((b) => b.alive && b.owner === p && isNavalYard(b) && b.active);
@@ -284,8 +299,8 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
   if (!yards.length && !ships.length) return;
   const m = world.map;
   const info = seaInfo(m);
-  const enemy = enemyNavy(world, p);
-  // (like the land AI it knows where surface ships are; submerged subs only once detected)
+  const enemy = enemyNavy(world, p, ai);
+  // (ships seen recently; submerged subs only once detected)
   const visibleEnemy = enemy.ships.filter((u) => !u.cloaked || world.canSee(p, u));
   const [bx, by] = baseOf(world, p);
 
@@ -299,13 +314,14 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
     }
     const q = p.queues.naval;
     const shared = sharedWaters(world, p, info).size > 0;
-    let cap = FLEET_CAP[difficulty];
-    if (p.faction === 'soviet') cap = Math.min(cap, Math.max(2, enemy.ships.length + 1));
+    const naval = ai?.personality.naval ?? 0.5;
+    let cap = Math.round(FLEET_CAP[difficulty] * trait(naval, 0.3, 2));
+    if (p.faction === 'soviet' && naval < 0.8) cap = Math.min(cap, Math.max(2, enemy.ships.length + 1));
     else if (!shared) cap = Math.min(cap, 2 + enemy.ships.length);
     // one hull at a time, paid as it is built like the land queues (so the land army isn't starved)
     const reserve = world.time < 600 ? 600 : 250;
     if (!q.items.length && ships.length < cap && p.credits > reserve) {
-      const t = p.faction === 'soviet' ? (p.canBuild('ss') ? 'ss' : null) : pick(world, p, enemy.subs ? ANTI_SUB_MIX : ALLIED_MIX);
+      const t = p.faction === 'soviet' ? (p.canBuild('ss') ? 'ss' : null) : pick(world, p, enemy.subs ? ANTI_SUB_MIX : ALLIED_MIX, ai);
       if (t) world.issue({ c: 'build', player: p.id, type: t });
     }
   }
@@ -359,7 +375,7 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
       const coast = coastDistance(m, info, id);
       let best: Building | null = null, bestD = Infinity;
       for (const b of world.buildings) {
-        if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || b.weapons.length) continue;
+        if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || b.weapons.length || (ai && !ai.intel.structures.has(b.id))) continue;
         if (coast[m.idx(Math.floor(b.x), Math.floor(b.y))] > 5) continue;
         const d = Math.hypot(b.x - hunters[0].x, b.y - hunters[0].y);
         if (d < bestD) { bestD = d; best = b; }
@@ -379,7 +395,7 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
       const range = cruisers[0].weapons[0].def.range - 2;
       let best: Building | null = null, bestScore = Infinity;
       for (const b of world.buildings) {
-        if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall) continue;
+        if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || (ai && !ai.intel.structures.has(b.id))) continue;
         if (coast[m.idx(Math.floor(b.x), Math.floor(b.y))] > range) continue;
         let score = Math.hypot(b.x - cruisers[0].x, b.y - cruisers[0].y) * 0.2;
         if (b.weapons.length) score -= 6; // silence coastal defences first

@@ -30,6 +30,8 @@ import {
   discGeo,
   mergeChild,
   orePile,
+  rivets,
+  stencilNumber,
 } from './parts';
 import { approach, blink, dtOf, healthVariant } from './anim';
 
@@ -300,6 +302,12 @@ function powerPlant(): ModelTemplate {
   pipe(r, [-0.72, y0 + 0.27, 0.5], [0.0, y0 + 0.27, 0.5], 0.006, M.copper, 4);
   pipe(r, [0.0, y0 + 0.27, 0.5], [0.22, y0 + 0.3, 0.5], 0.006, M.copper, 4);
   beacon(r, [0.58, y0 + 1.16, -0.58], G.red, 0.02);
+  // pressure relief valves (steam puffs) on the reactor dome and the turbine hall roof
+  r.cyl(M.steel, 0.012, 0.012, 0.05, gx + 0.1, y0 + 0.5, gz + 0.08, { seg: 6 });
+  r.node('steam0', [gx + 0.1, y0 + 0.53, gz + 0.08]);
+  r.node('steam1', [hx - 0.3, y0 + 0.57, hz - 0.2]);
+  rivets(r, [hx - 0.6, y0 + 0.5, hz + 0.505], [hx + 0.6, y0 + 0.5, hz + 0.505], 14, 0.007);
+  stencilNumber(r, '1', [hx + 0.42, y0 + 0.13, hz + 0.505], [0, 0, 0], 0.11);
 
   return makeTemplate({
     root: r,
@@ -307,6 +315,7 @@ function powerPlant(): ModelTemplate {
     radius: 1.05,
     muzzles: [],
     smoke: ['smoke0', 'smoke1'],
+    fx: { steam: ['steam0', 'steam1'] },
     glow: { glow: 1.6, 'glow:core': 4, 'glow:blink': 5 },
     anim: sAnim((c, s) => {
       const k = s.health < 0.25 ? 0.4 : 1;
@@ -385,6 +394,9 @@ function advPowerPlant(): ModelTemplate {
   r.box(G.cyan, 0.08, 0.004, 0.86, 0.0, y0 + 0.021, 0.05, { b: 0, slot: 'glow:core' });
   beacon(r, [bx + 0.4, y0 + 0.44, bz + 0.33]);
   beacon(r, [-0.72, y0 + 1.15, -0.68 - 0.38], G.red, 0.02);
+  r.node('steam0', [bx + 0.25, y0 + 0.52, bz - 0.15]);
+  r.node('steam1', [rx + 0.2, y0 + 0.7, rz + 0.1]);
+  stencilNumber(r, '2', [bx + 0.3, y0 + 0.13, bz + 0.402], [0, 0, 0], 0.11);
 
   return makeTemplate({
     root: r,
@@ -392,6 +404,7 @@ function advPowerPlant(): ModelTemplate {
     radius: 1.55,
     muzzles: [],
     smoke: ['smoke0', 'smoke1'],
+    fx: { steam: ['steam0', 'steam1'] },
     glow: { glow: 1.6, 'glow:core': 3.5, 'glow:blink': 5 },
     anim: sAnim((c, s) => {
       c.setGlow('glow:core', s.powered ? 0.8 + 0.2 * Math.sin(s.time * 1.7 + c.v.seed) : 0.15);
@@ -439,8 +452,12 @@ function refinery(): ModelTemplate {
   r.box(M.darker, 0.5, 0.26, 0.02, 0, y0 + 0.2, hz + 0.705, { b: 0 });
   r.box(G.fire, 0.42, 0.04, 0.01, 0, y0 + 0.1, hz + 0.715, { b: 0, slot: 'glow:proc' });
   hazard(r, 0.62, 0.05, [0, y0 + 0.36, hz + 0.72]);
-  // conveyor rollers
-  for (let i = 0; i < 5; i++) r.cyl(M.steel, 0.02, 0.02, 0.4, 0, y0 + 0.05, hz + 0.75 + i * 0.07, { r: [0, 0, Math.PI / 2], seg: 8 });
+  // conveyor rollers (turn while ore is coming in)
+  for (let i = 0; i < 5; i++) {
+    const roll = r.node(`roll${i}`, [0, y0 + 0.05, hz + 0.75 + i * 0.07]);
+    roll.cyl(M.steel, 0.02, 0.02, 0.4, 0, 0, 0, { r: [0, 0, Math.PI / 2], seg: 8 });
+    roll.box(M.dark, 0.4, 0.008, 0.006, 0, 0.018, 0, { b: 0 });
+  }
   // silos (left)
   for (const [i, z] of [
     [0, -0.95],
@@ -475,6 +492,10 @@ function refinery(): ModelTemplate {
   r.box(M.concreteDark, 0.75, 0.08, 0.04, -0.95, y0 + 0.04, 1.1, { b: 0.01 });
   beacon(r, [-1.05, y0 + 1.25, -0.95]);
   beacon(r, [0.82, y0 + 0.97, -0.62]);
+  r.node('steam0', [1.05, y0 + 0.45, 0.28]);
+  r.node('steam1', [0.86, y0 + 0.98, -0.95]);
+  rivets(r, [-0.62, y0 + 0.71, hz + 0.72], [0.62, y0 + 0.71, hz + 0.72], 14, 0.007);
+  stencilNumber(r, '04', [-1.05, y0 + 0.6, -0.28 + 0.282], [0, 0, 0], 0.09);
 
   return makeTemplate({
     root: r,
@@ -482,6 +503,7 @@ function refinery(): ModelTemplate {
     radius: 1.55,
     muzzles: [],
     smoke: ['smoke0'],
+    fx: { steam: ['steam0', 'steam1'] },
     glow: { glow: 1.6, 'glow:proc': 4, 'glow:dock': 3, 'glow:blink': 5 },
     anim: sAnim((c, s, pw) => {
       const active = s.harvesting || s.load > 0.05;
@@ -489,6 +511,9 @@ function refinery(): ModelTemplate {
       c.setGlow('glow:proc', s.powered ? (active ? 0.6 + 0.4 * flick : 0.3) : 0.08);
       // dock guide lights chase while receiving
       c.setGlow('glow:dock', s.powered ? (s.harvesting ? (blink(s.time, 0.5, 0.5) ? 1 : 0.2) : 0.5) : 0.05);
+      // conveyor rollers
+      c.v.roll = ((c.v.roll ?? 0) + (active && s.powered ? dtOf(s) * 7 : 0)) % (Math.PI * 2);
+      for (let i = 0; i < 5; i++) c.n[`roll${i}`].rotation.x = c.v.roll;
     }),
   });
 }
@@ -835,6 +860,12 @@ function warFactory(): ModelTemplate {
   for (const s of [-1, 1]) {
     for (let i = 0; i < 4; i++) r.box(M.concrete, 0.06, hh - 0.1, 0.1, (hw / 2 + 0.02) * s, y0 + (hh - 0.1) / 2, hz - 0.8 + i * 0.5, { b: 0.01 });
   }
+  // close-up detail: frame rivets, bay number, roof edge bolts
+  for (const sx of [-1, 1]) rivets(r, [sx * (dw / 2 + 0.04), y0 + 0.05, fz + 0.074], [sx * (dw / 2 + 0.04), y0 + dh - 0.05, fz + 0.074], 8, 0.007);
+  rivets(r, [-dw / 2, y0 + dh + 0.11, fz + 0.074], [dw / 2, y0 + dh + 0.11, fz + 0.074], 12, 0.007);
+  stencilNumber(r, '02', [1.0, y0 + 0.72, fz + 0.017], [0, 0, 0], 0.09);
+  rivets(r, [-hw / 2, y0 + hh + 0.025, hz + hd / 2 + 0.02], [hw / 2, y0 + hh + 0.025, hz + hd / 2 + 0.02], 18, 0.008);
+  r.node('weld', [0.1, y0 + 0.18, fz - bayD + 0.2]);
 
   return makeTemplate({
     root: r,
@@ -842,6 +873,7 @@ function warFactory(): ModelTemplate {
     radius: 1.55,
     muzzles: [],
     smoke: ['smoke0'],
+    fx: { sparks: ['weld'] },
     glow: { glow: 1.6, 'glow:door': 4 },
     anim: sAnim((c, s) => {
       const d = Math.min(1, Math.max(0, s.door));

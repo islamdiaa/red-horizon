@@ -1,7 +1,7 @@
 import type { MissionDef } from '../sim/mission';
 import { ALLIED_MISSIONS } from './allied';
 import { SOVIET_MISSIONS } from './soviet';
-import { SPECIAL_MISSIONS } from './special';
+import { SPECIAL_MISSIONS, coopSurvival } from './special'; // [MODES] co-op survival ids
 import { BOOT_CAMP } from './tutorial';
 import { NAVAL_MISSIONS } from './naval';
 
@@ -9,7 +9,7 @@ const ALL: MissionDef[] = [BOOT_CAMP, ...ALLIED_MISSIONS, ...SOVIET_MISSIONS, ..
 export const MISSIONS: Record<string, MissionDef> = Object.fromEntries(ALL.map((m) => [m.id, m]));
 
 export function getMission(id: string): MissionDef | undefined {
-  return MISSIONS[id];
+  return MISSIONS[id] ?? coopSurvival(id); // [MODES] "survival:coop:hard" etc.
 }
 
 export function campaignMissions(c: 'allies' | 'soviet' | 'special'): MissionDef[] {

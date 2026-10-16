@@ -43,6 +43,13 @@ export class RTSCamera {
     return lerp(0.82, 1.05, clamp(t, 0, 1));
   }
 
+  /** New map size (map editor resizes): keeps the focus inside it. */
+  setBounds(mapW: number, mapH: number) {
+    this.mapW = mapW;
+    this.mapH = mapH;
+    this.clampFocus();
+  }
+
   jumpTo(x: number, y: number) {
     this.x = x;
     this.y = y;

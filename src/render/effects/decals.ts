@@ -44,6 +44,11 @@ void main() {
 `;
 
 export class DecalSystem {
+  /**
+   * Height of the rendered (possibly cratered) ground; when set it replaces the sim heightfield for new
+   * decals so scorch marks lie inside craters. The destruction system installs it with the terrain.
+   */
+  static terrainHeight: ((x: number, z: number) => number) | null = null;
   readonly mesh: THREE.Mesh;
   readonly capacity: number;
   private pos: Float32Array;
@@ -117,6 +122,7 @@ export class DecalSystem {
     const c = Math.cos(rot);
     const s = Math.sin(rot);
     const t0 = this.now + delay;
+    const hf = DecalSystem.terrainHeight ?? this.getHeight;
     for (let j = 0; j < GRID; j++) {
       const lz = j / (GRID - 1) - 0.5;
       for (let i = 0; i < GRID; i++) {
@@ -125,7 +131,7 @@ export class DecalSystem {
         const wx = x + lx * size;
         const wz = z + lz * size;
         this.pos[v * 3] = wx;
-        this.pos[v * 3 + 1] = this.getHeight(wx, wz) + LIFT;
+        this.pos[v * 3 + 1] = hf(wx, wz) + LIFT;
         this.pos[v * 3 + 2] = wz;
         this.uv[v * 2] = c * lx - s * lz;
         this.uv[v * 2 + 1] = s * lx + c * lz;

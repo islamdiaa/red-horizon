@@ -1,0 +1,25 @@
+{
+  "format": "rhmod",
+  "version": 1,
+  "id": "tank-rush",
+  "name": "Tank Rush",
+  "author": "Red Horizon",
+  "modVersion": "1.0",
+  "description": "Armour rolls off the line cheaper and faster: every tank costs 25% less and drives 25% faster, War Factories are cheaper, and the Soviets get the Rhino, a lighter and quicker Heavy Tank built for the rush.",
+  "buildings": {
+    "weap": { "cost": 1500 }
+  },
+  "units": {
+    "rhino": {
+      "clone": "3tnk",
+      "name": "Rhino Tank",
+      "cost": 750,
+      "strength": 330,
+      "speed": 9,
+      "description": "Lighter, faster variant of the Heavy Tank. Trades armour for tempo."
+    }
+  },
+  "scale": [
+    { "table": "units", "ids": ["1tnk", "2tnk", "3tnk", "4tnk"], "fields": { "cost": 0.75, "speed": 1.25 } }
+  ]
+}

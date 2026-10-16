@@ -23,6 +23,9 @@ import {
   tracks,
   wheel,
   orePile,
+  rivets,
+  stencilNumber,
+  hatch,
 } from './parts';
 import { animTracks, approach, blink, dtOf, healthVariant, recoil } from './anim';
 
@@ -107,6 +110,11 @@ function lightTank(): ModelTemplate {
   const b0 = t.node('b0', [0.15, 0.04, 0]);
   barrel(b0, 0.27, 0.014, { brake: true });
   t.node('m0', [0.43, 0.04, 0]);
+  // close-up detail
+  stencilNumber(t, '21', [-0.04, 0.045, 0.121], [0, 0, 0], 0.03);
+  stencilNumber(t, '21', [-0.04, 0.045, -0.121], [0, Math.PI, 0], 0.03);
+  for (const s of [-1, 1]) rivets(r, [-0.3, 0.2, 0.161 * s], [0.22, 0.2, 0.161 * s], 8, 0.005);
+  rivets(t, [0.13, 0.07, -0.05], [0.13, 0.07, 0.05], 4, 0.004);
 
   return makeTemplate({
     root: r,
@@ -204,6 +212,10 @@ function mediumTank(): ModelTemplate {
   const b0 = t.node('b0', [0.22, 0.04, 0]);
   barrel(b0, 0.36, 0.0145, { sleeve: true });
   t.node('m0', [0.59, 0.04, 0]);
+  stencilNumber(t, '114', [-0.05, 0.05, 0.157], [0, 0, 0], 0.03);
+  stencilNumber(t, '114', [-0.05, 0.05, -0.157], [0, Math.PI, 0], 0.03);
+  for (const s of [-1, 1]) rivets(r, [-0.34, 0.215, 0.181 * s], [0.26, 0.215, 0.181 * s], 9, 0.005);
+  rivets(t, [0.235, 0.075, -0.045], [0.235, 0.075, 0.045], 4, 0.004);
 
   return makeTemplate({
     root: r,
@@ -305,6 +317,10 @@ function heavyTank(): ModelTemplate {
     barrel(b, 0.4, 0.0145, { sleeve: true });
     t.node(`m${i}`, [0.64, 0.05, z]);
   }
+  stencilNumber(r, '305', [0.12, 0.19, 0.2015], [0, 0, 0], 0.035);
+  stencilNumber(r, '305', [0.12, 0.19, -0.2015], [0, Math.PI, 0], 0.035);
+  for (const s of [-1, 1]) rivets(r, [-0.4, 0.228, 0.201 * s], [0.3, 0.228, 0.201 * s], 10, 0.005);
+  rivets(t, [0.16, 0.112, -0.05], [-0.12, 0.112, -0.05], 5, 0.004);
 
   return makeTemplate({
     root: r,
@@ -420,6 +436,10 @@ function mammothTank(): ModelTemplate {
     }
     t.node(`m${i}`, [0.13, 0.06, z]);
   }
+  stencilNumber(t, '01', [-0.05, 0.05, 0.2055], [0, 0, 0], 0.045);
+  stencilNumber(t, '01', [-0.05, 0.05, -0.2055], [0, Math.PI, 0], 0.045);
+  for (const s of [-1, 1]) rivets(r, [-0.5, 0.28, 0.231 * s], [0.4, 0.28, 0.231 * s], 12, 0.006);
+  rivets(t, [0.31, 0.1, -0.11], [0.31, 0.1, 0.11], 6, 0.005);
 
   return makeTemplate({
     root: r,
@@ -569,6 +589,9 @@ function apc(): ModelTemplate {
   const b0 = mg.node('b0', [0.05, 0.045, 0]);
   barrel(b0, 0.12, 0.006, { mat: M.dark });
   mg.node('m0', [0.18, 0.045, 0]);
+  stencilNumber(r, '33', [0.1, 0.19, 0.1855], [0, 0, 0], 0.035);
+  stencilNumber(r, '33', [0.1, 0.19, -0.1855], [0, Math.PI, 0], 0.035);
+  for (const s of [-1, 1]) rivets(r, [-0.33, 0.25, 0.186 * s], [0.24, 0.25, 0.186 * s], 8, 0.005);
 
   return makeTemplate({
     root: r,
@@ -639,6 +662,8 @@ function artillery(): ModelTemplate {
   const b0 = gun.node('b0', [0.02, 0, 0]);
   barrel(b0, 0.52, 0.017, { brake: true });
   gun.node('m0', [0.56, 0, 0]);
+  hatch(r, 0.025, [0.12, 0.175, 0.07]);
+  for (const s of [-1, 1]) rivets(r, [-0.33, 0.165, 0.171 * s], [0.2, 0.165, 0.171 * s], 7, 0.005);
   // rear spades
   for (const s of [-1, 1]) r.box(M.dark, 0.03, 0.08, 0.06, -0.39, 0.12, 0.1 * s, { b: 0.006, r: [0, 0, 0.5] });
 

@@ -32,8 +32,7 @@ const CSS = `
   background: linear-gradient(180deg, rgba(14,20,28,0.92), rgba(8,11,16,0.9)); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.55); transform: translateY(20px); opacity: 0; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.35s, bottom 0.3s ease; }
 /* lift the radio above the unit panel / group bar when they are on screen (they share the bottom-left) */
-body:has(#selpanel.on) .mh-tx { bottom: 128px; }
-body:has(#selpanel.on):has(#groups.on) .mh-tx { bottom: 182px; }
+body:has(#selpanel.on) .mh-tx, body:has(#groups.on) .mh-tx { bottom: calc(var(--dock-h, 128px) + 22px); }
 .mh-tx.on { transform: none; opacity: 1; }
 .mh-tx .pt { width: 74px; height: 86px; flex-shrink: 0; border-radius: 8px; overflow: hidden; position: relative;
   background: radial-gradient(ellipse at 50% 30%, rgba(var(--accent-rgb, 90,180,255),0.35), #05080c 75%); border: 1px solid rgba(var(--accent-rgb, 90,180,255),0.4); }

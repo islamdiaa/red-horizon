@@ -4,6 +4,9 @@
  * Draw calls (always): decals 1, main particles 1, beams 1, projectile sprites 1, glow particles 1
  * (+1 per active Iron Curtain shell). Particles/beams are GPU-animated ring buffers: the CPU only
  * writes newly spawned elements; update() advances the clock, runs emitters and uploads new data.
+ * Round 5 (FX): GPU-simulated particles (gpuparticles.ts: 8k / 32k / 64k by quality, +1 draw, +1-2 small sim
+ * passes while alive) layered on explosions, fires and splashes; light flashes become dynamic lights
+ * (render/dynlights.ts, hundreds at once, no THREE.Light); ctx.terrain digs persistent craters / ruts.
  *
  * Usage:
  *   const fx = new Effects({ scene, camera, renderer, getHeight });
@@ -16,7 +19,7 @@ import * as THREE from 'three';
 import type { ExplosionKind, ProjectileKind } from '../../data/rules';
 import type { EffectsApi, EffectsOptions, EmitterHandle, EmitterKind, ProjectileHandle } from './types';
 import type { FxContext } from './context';
-import { createEffectTextures, D, type EffectTextures } from './textures';
+import { createEffectTextures, D, R, type EffectTextures } from './textures';
 import { ParticleBatch, createParticleUniforms, type ParticleUniforms } from './particles';
 import { BeamBatch } from './beams';
 import { SpriteBatch } from './sprites';
@@ -35,10 +38,19 @@ import { waterSplash, underwaterBlast, sonarPing, bowSpray, radarJamPulse, mineB
 import { TrailVisual, type TrailKind } from './specialproj';
 import type { FxCue } from './context';
 import { WATER_LEVEL } from '../../sim/map';
+import { GpuParticles, gpuParticlesSupported, GK, type GpuParticleApi } from './gpuparticles';
+import { gpuExplosion } from './gpufx';
+import type { DynamicLightApi, DynamicLightOptions } from '../dynlights';
+import type { TerrainDeformApi, TerrainMesh } from '../terrain';
+import { getNoiseTexture } from '../terrain';
 
 export type { EffectsApi, EffectsOptions, EmitterHandle, EmitterKind, ProjectileHandle } from './types';
 export type { FxCue } from './context';
 export type { TrailKind } from './specialproj';
+export type { GpuParticleApi, GpuKind, BurstOptions } from './gpuparticles';
+export { GK } from './gpuparticles';
+export type { DynamicLightApi, DynamicLightOptions } from '../dynlights';
+export type { TerrainDeformApi } from '../terrain';
 
 export interface EffectsStats {
   mainAlive: number;
@@ -46,7 +58,13 @@ export interface EffectsStats {
   spawnedTotal: number;
   emitters: number;
   drawCalls: number;
+  /** GPU particle slots (0 when unsupported) and particles spawned on the GPU so far. */
+  gpuCapacity?: number;
+  gpuSpawned?: number;
 }
+
+/** GPU particle buffer (texels across, down) and count multiplier per quality preset. */
+const GPU_SIZE: Record<'low' | 'medium' | 'high', [number, number, number]> = { low: [128, 64, 0.3], medium: [256, 128, 0.6], high: [256, 256, 1] };
 
 const MAIN_CAPACITY = 16384;
 const GLOW_CAPACITY = 8192;
@@ -90,6 +108,22 @@ export class Effects implements EffectsApi {
   // delayed shake (parallel arrays, no allocations)
   private shakeT: number[] = [];
   private shakeA: number[] = [];
+  private gpuP: GpuParticles | null = null;
+  /**
+   * Opt-in: persistent craters + burn marks for ground explosions when the recipe did not dig one itself.
+   * Off in the game: the destruction system (destruction.ts) owns the crater policy (cap + healing).
+   */
+  autoCraters = false;
+  private deformCalls = 0;
+  private readonly terrainProxy: TerrainDeformApi = {
+    deform: (x, y, r, d) => { this.deformCalls++; (this.scene.userData.terrain as TerrainDeformApi | undefined)?.deform(x, y, r, d); },
+    scorch: (x, y, r, a) => { this.deformCalls++; (this.scene.userData.terrain as TerrainDeformApi | undefined)?.scorch(x, y, r, a); },
+    rut: (x0, y0, x1, y1, w, d) => (this.scene.userData.terrain as TerrainDeformApi | undefined)?.rut(x0, y0, x1, y1, w, d),
+    renderHeight: (x, y) => (this.scene.userData.terrain as TerrainDeformApi | undefined)?.renderHeight(x, y) ?? 0,
+  };
+  /** The game renderer runs the GPU particle simulation itself (inside its frame, counted in its stats). */
+  private simHook = false;
+  private scene: THREE.Scene;
 
   constructor(opts: EffectsOptions) {
     this.tex = createEffectTextures();
@@ -107,9 +141,30 @@ export class Effects implements EffectsApi {
     this.shells = new ShellPool(4, this.tex.noise, 24);
     this.lights = new LightPool(opts.scene, LIGHT_COUNT);
     this.bodies = new BodyPool(0);
+    this.scene = opts.scene;
+    // [FX] GPU particles (float MRT) and the renderer's terrain for collisions and craters
+    const ud = opts.scene.userData;
+    const terrain = (ud.terrain as TerrainMesh | undefined) ?? null;
+    const quality = (ud.fxQuality as 'low' | 'medium' | 'high' | undefined) ?? 'high';
+    if (gpuParticlesSupported(opts.renderer)) {
+      try {
+        const [w, h, dens] = GPU_SIZE[quality] ?? GPU_SIZE.high;
+        this.gpuP = new GpuParticles({
+          renderer: opts.renderer, width: w, height: h, atlas: this.tex.atlas, ramp: this.tex.ramp, shared: u,
+          noise: getNoiseTexture(), waterLevel: opts.waterLevel ?? WATER_LEVEL, density: dens, renderOrder: 22.5,
+        });
+        if (terrain) this.gpuP.setHeightField(terrain.heightTexture, terrain.heightUvXf);
+        this.simHook = !!ud.fxSimHook;
+        if (this.simHook) ud.gpuParticles = this.gpuP;
+      } catch (e) {
+        console.warn('GPU particles unavailable', e);
+        this.gpuP = null;
+      }
+    }
 
     this.root.name = 'effects';
     this.root.add(this.decals.mesh, this.main.mesh, this.beams.mesh, this.sprites.mesh, this.glow.mesh, this.shells.group, this.bodies.group);
+    if (this.gpuP) this.root.add(this.gpuP.mesh);
     opts.scene.add(this.root);
 
     // make sure freshly spawned data is uploaded even if spawns happen after update()
@@ -135,6 +190,13 @@ export class Effects implements EffectsApi {
         opts.isWater ??
         ((x: number, z: number) => opts.getHeight(x, z) <= (opts.waterLevel ?? WATER_LEVEL) + 1e-4),
       bodies: this.bodies,
+      dyn: this.lights.api,
+      gpu: this.gpuP,
+      // looked up every time (the renderer may rebuild its terrain for the map editor); counted, so the
+      // automatic craters stand back when a recipe digs its own
+      get terrain(): TerrainDeformApi | null {
+        return self.scene.userData.terrain ? self.terrainProxy : null;
+      },
       cue(kind: FxCue, x: number, y: number, z: number, delay: number) {
         if (!self.onCue) return;
         self.cueT.push(self.now + Math.max(0, delay));
@@ -211,6 +273,11 @@ export class Effects implements EffectsApi {
     this.beams.flush();
     this.sprites.flush();
     this.decals.flush();
+    // GPU particles: the game renderer simulates them inside its frame; standalone pages do it here
+    if (this.gpuP) {
+      this.gpuP.advance(dt);
+      if (!this.simHook) this.gpuP.simulate(this.now);
+    }
   }
 
   private syncClock(): void {
@@ -227,11 +294,38 @@ export class Effects implements EffectsApi {
   // API
 
   explosion(pos: THREE.Vector3, kind: ExplosionKind, scale = 1): void {
-    explode(this.ctx, kind, pos.x, pos.y, pos.z, scale > 0 ? scale : 1);
+    const s = scale > 0 ? scale : 1;
+    const dug = this.deformCalls;
+    explode(this.ctx, kind, pos.x, pos.y, pos.z, s);
+    if (this.autoCraters && this.deformCalls === dug) this.autoCrater(kind, pos, s);
+    const gpu = this.gpuP;
+    if (gpu && kind !== 'none') {
+      const ctx = this.ctx;
+      const water = kind !== 'nuke' && ctx.isWater(pos.x, pos.z);
+      if (water && pos.y < ctx.waterLevel - 0.03) gpu.burst(GK.SPRAY, pos.x, ctx.waterLevel, pos.z, 40 * s, 3.2 * s, { life: [0.6, 1.3], size0: 0.08, size1: 0.3, alpha: 0.6, up: 0.95 });
+      else gpuExplosion(gpu, kind, pos.x, pos.y, pos.z, ctx.getHeight(pos.x, pos.z), s, water);
+    }
+  }
+
+  private autoCrater(kind: ExplosionKind, pos: THREE.Vector3, s: number): void {
+    const t = this.ctx.terrain;
+    if (!t || this.ctx.isWater(pos.x, pos.z)) return;
+    const gy = this.ctx.getHeight(pos.x, pos.z);
+    if (pos.y - gy > 0.7 * s && kind !== 'nuke') return; // air bursts leave the ground alone
+    switch (kind) {
+      case 'medium': t.deform(pos.x, pos.z, 0.55 * s, 0.1 * s); break;
+      case 'large': t.deform(pos.x, pos.z, 0.85 * s, 0.18 * s); t.scorch(pos.x, pos.z, 1.2 * s, 0.35); break;
+      case 'huge': t.deform(pos.x, pos.z, 1.4 * s, 0.32 * s); t.scorch(pos.x, pos.z, 2.2 * s, 0.5); break;
+      case 'building': t.deform(pos.x, pos.z, Math.min(3, 0.8 + 0.5 * s), 0.16); t.scorch(pos.x, pos.z, 1.5 + s, 0.5); break;
+      case 'nuke': t.deform(pos.x, pos.z, 4.5 * s, 0.9); t.scorch(pos.x, pos.z, 9 * s, 0.9); break;
+      case 'fire': t.scorch(pos.x, pos.z, 0.6 * s, 0.25); break;
+      default: break;
+    }
   }
 
   muzzleFlash(pos: THREE.Vector3, dir: THREE.Vector3, size = 1): void {
     muzzleFlash(this.ctx, pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, size);
+    this.ctx.dyn?.add(pos.x + dir.x * 0.25, pos.y + 0.12, pos.z + dir.z * 0.25, 0xffc27a, 2.4 * size, 2.4 + 1.6 * size, 0.09, { attack: 0.008, flicker: 0, priority: 0.7 });
   }
 
   tracer(from: THREE.Vector3, to: THREE.Vector3, color?: number): void {
@@ -240,6 +334,8 @@ export class Effects implements EffectsApi {
 
   teslaBolt(from: THREE.Vector3, to: THREE.Vector3): void {
     teslaBolt(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z);
+    this.ctx.dyn?.add(from.x, from.y + 0.2, from.z, 0x8fb4ff, 10, 6.5, 0.35, { attack: 0.01, flicker: 0.5 });
+    this.gpuP?.burst(GK.SPARK, to.x, to.y + 0.05, to.z, 24, 4, { life: [0.2, 0.6], size0: 0.02, up: 0.6, ramp: R.TESLA });
   }
 
   flameStream(from: THREE.Vector3, to: THREE.Vector3): void {
@@ -255,7 +351,21 @@ export class Effects implements EffectsApi {
    * 8-inch guns) and bombs. 'torpedo' | 'depthcharge' | 'bomb' get dedicated visuals.
    */
   spawnProjectile(kind: ProjectileKind, size = 1): ProjectileHandle {
-    return spawnProjectile(this.ctx, kind, size);
+    const h = spawnProjectile(this.ctx, kind, size);
+    const dyn = this.ctx.dyn;
+    if (!dyn || !(kind === 'missile' || kind === 'scud' || kind === 'fireball')) return h;
+    // rocket exhaust / fireballs light the ground they fly over
+    const col = kind === 'fireball' ? 0xff7a28 : 0xffad5c;
+    const I = (kind === 'scud' ? 4 : kind === 'fireball' ? 3 : 1.6) * size;
+    return {
+      update(p: THREE.Vector3, d: THREE.Vector3) {
+        h.update(p, d);
+        dyn.add(p.x - d.x * 0.3, p.y - d.y * 0.3, p.z - d.z * 0.3, col, I, 2.8 + I * 0.5, 0, { flicker: 0.3 });
+      },
+      end() {
+        h.end();
+      },
+    };
   }
 
   createEmitter(kind: EmitterKind, pos: THREE.Vector3): EmitterHandle {
@@ -266,6 +376,7 @@ export class Effects implements EffectsApi {
 
   dust(pos: THREE.Vector3, amount = 1): void {
     dust(this.ctx, pos.x, pos.z, amount);
+    this.gpuP?.burst(GK.DUST, pos.x, this.ctx.getHeight(pos.x, pos.z) + 0.05, pos.z, 3 * amount, 0.7, { life: [0.9, 1.8], size0: 0.12, size1: 0.55, alpha: 0.3, up: 0.2, radius: 0.15 });
   }
 
   scorch(pos: THREE.Vector3, size: number): void {
@@ -304,6 +415,7 @@ export class Effects implements EffectsApi {
   /** Something lands in open water. pos.y is ignored (the water surface is used). size 1 = tank shell, 2 = 8-inch shell, 0.3 = bullets. */
   waterSplash(pos: THREE.Vector3, size = 1): void {
     waterSplash(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
+    this.gpuP?.burst(GK.SPRAY, pos.x, this.ctx.waterLevel + 0.02, pos.z, 26 * size, 2.6 * Math.sqrt(size), { life: [0.5, 1.1], size0: 0.06 * size, size1: 0.22 * size, alpha: 0.6, up: 0.95, radius: 0.1 * size });
   }
 
   /** Underwater detonation (depth charge, torpedo hit): flash under the surface, bulge, tall water column, foam slick. */
@@ -361,6 +473,53 @@ export class Effects implements EffectsApi {
    */
   prepareCompile(on: boolean): void {
     this.bodies.prepareCompile(on);
+    // GPU particle sim / spawn programs compile here; the draw mesh joins the scene compile
+    if (on) this.gpuP?.warmUp(this.now);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Round 5 (FX): dynamic lights, GPU particles, terrain damage
+
+  /**
+   * A dynamic light (hundreds at once, lit in the atmosphere pass). `duration` > 0: timed flash (fast
+   * attack, quadratic decay); 0: this frame only (re-add every frame for moving lights); < 0: persistent
+   * until removeDynamicLight(id). Intensity in PointLight candela (inverse-square falloff windowed to
+   * `radius`). Returns an id, or -1 (dropped, or no dynamic lights on this page).
+   */
+  addDynamicLight(x: number, y: number, z: number, color: number | THREE.Color, intensity: number, radius: number, duration: number, opts?: DynamicLightOptions): number {
+    const dyn = this.ctx.dyn;
+    if (dyn) return dyn.add(x, y, z, color, intensity, radius, duration, opts);
+    if (duration > 0) this.lights.flash(this.now, x, y, z, typeof color === 'number' ? color : color.getHex(), intensity, radius, duration, opts?.delay ?? 0, opts?.attack ?? 0.03);
+    return -1;
+  }
+
+  /** Move / re-scale a persistent or timed light; false when it has expired. */
+  updateDynamicLight(id: number, x: number, y: number, z: number, intensity?: number): boolean {
+    return this.ctx.dyn?.update(id, x, y, z, intensity) ?? false;
+  }
+
+  removeDynamicLight(id: number): void {
+    this.ctx.dyn?.remove(id);
+  }
+
+  /** The shared recipe context (read-only use: destruction recipes run on the same batches, lights and terrain). */
+  get context(): FxContext {
+    return this.ctx;
+  }
+
+  /** The dynamic light system (null without the game renderer). */
+  get dynamicLights(): DynamicLightApi | null {
+    return this.ctx.dyn;
+  }
+
+  /** GPU particles (null when unsupported): `gpu.burst(GK.DUST, x, y, z, n, speed, opts)`. */
+  get gpu(): GpuParticleApi | null {
+    return this.gpuP;
+  }
+
+  /** Persistent terrain damage: `terrain.deform(x, y, radius, depth)`, `scorch`, `rut` (null without the game renderer). */
+  get terrain(): TerrainDeformApi | null {
+    return this.ctx.terrain;
   }
 
   /** Water surface height used by water effects. */
@@ -418,7 +577,9 @@ export class Effects implements EffectsApi {
       glowAlive: this.glow.countAlive(this.now),
       spawnedTotal: this.main.spawned + this.glow.spawned,
       emitters: this.emitters.length,
-      drawCalls: 5,
+      drawCalls: 5 + (this.gpuP ? 1 : 0),
+      gpuCapacity: this.gpuP?.capacity ?? 0,
+      gpuSpawned: this.gpuP?.stats.spawnedTotal ?? 0,
     };
   }
 
@@ -432,6 +593,11 @@ export class Effects implements EffectsApi {
     this.flights.dispose();
     this.bodies.dispose();
     this.lights.dispose();
+    if (this.gpuP) {
+      if (this.scene.userData.gpuParticles === this.gpuP) delete this.scene.userData.gpuParticles;
+      this.gpuP.dispose();
+      this.gpuP = null;
+    }
     this.tex.dispose();
     this.emitters.length = 0;
     this.root.removeFromParent();

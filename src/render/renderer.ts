@@ -16,6 +16,11 @@ import { FogOfWar, FogPass } from './fog';
 import { Weather, patchMaterialForWeather } from './weather';
 import { WATER_LEVEL } from '../sim/map';
 import { shadowDepthMaterial } from './models/materials';
+import { DynamicLights } from './dynlights';
+import { VolumetricPass } from './volumetrics';
+import { TemporalPass } from './temporal';
+import { CinematicPass } from './cinematicfx';
+import { PhotoLens } from './photo';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
@@ -104,6 +109,7 @@ const FinalShader = {
     uHi: { value: new THREE.Vector3(1.05, 1.0, 0.93) },
     tBloom: { value: null as THREE.Texture | null },
     uBloom: { value: 0 },
+    uSharpen: { value: 0 },
   },
   vertexShader: /* glsl */ `
     precision highp float;
@@ -115,7 +121,7 @@ const FinalShader = {
     precision highp float;
     uniform sampler2D tDiffuse, tBloom;
     uniform vec2 uRes;
-    uniform float uTilt, uFocus, uTime, uVignette, uSaturation, uContrast, uFlash, uBloom;
+    uniform float uTilt, uFocus, uTime, uVignette, uSaturation, uContrast, uFlash, uBloom, uSharpen;
     uniform vec3 uTint, uLo, uHi;
     #include <tonemapping_pars_fragment>
     #include <colorspace_pars_fragment>
@@ -123,6 +129,18 @@ const FinalShader = {
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
       vec3 base = texture2D(tDiffuse, vUv).rgb;
+      #ifdef SHARPEN
+        // contrast-adaptive sharpening after the temporal resolve / upscale (clamped: no halos)
+        if (uSharpen > 0.0) {
+          vec2 px = 1.0 / uRes;
+          vec3 n = texture2D(tDiffuse, vUv + vec2(0.0, px.y)).rgb, so = texture2D(tDiffuse, vUv - vec2(0.0, px.y)).rgb;
+          vec3 e = texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb, w = texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb;
+          vec3 mn = min(base, min(min(n, so), min(e, w))), mx = max(base, max(max(n, so), max(e, w)));
+          vec3 amp = sqrt(clamp(min(mn, 1.0 - min(mx, 1.0)) / max(mx, 1e-4), 0.0, 1.0));
+          vec3 sharp = base + (base * 4.0 - (n + so + e + w)) * amp * 0.2 * uSharpen;
+          base = clamp(sharp, mn, mx);
+        }
+      #endif
       vec3 c = base;
       float amt = 0.0;
       #ifdef TILT
@@ -176,18 +194,20 @@ class FinalPass extends Pass {
   readonly material: THREE.RawShaderMaterial;
   readonly uniforms: typeof FinalShader.uniforms;
   private quad: FullScreenQuad;
-  constructor(tilt: boolean, bloom: boolean) {
+  /** Colour to grade instead of the composer's read buffer (the TAA resolve). */
+  source: (() => THREE.Texture | null) | null = null;
+  constructor(tilt: boolean, bloom: boolean, sharpen = false) {
     super();
     this.uniforms = THREE.UniformsUtils.clone(FinalShader.uniforms) as typeof FinalShader.uniforms;
     this.material = new THREE.RawShaderMaterial({
       name: 'FinalShader', uniforms: this.uniforms, vertexShader: FinalShader.vertexShader, fragmentShader: FinalShader.fragmentShader,
-      defines: { ...(tilt ? { TILT: '' } : {}), ...(bloom ? { BLOOM: '' } : {}), ACES_FILMIC_TONE_MAPPING: '', SRGB_TRANSFER: '' },
+      defines: { ...(tilt ? { TILT: '' } : {}), ...(bloom ? { BLOOM: '' } : {}), ...(sharpen ? { SHARPEN: '' } : {}), ACES_FILMIC_TONE_MAPPING: '', SRGB_TRANSFER: '' },
       depthTest: false, depthWrite: false,
     });
     this.quad = new FullScreenQuad(this.material);
   }
   render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
-    this.uniforms.tDiffuse.value = readBuffer.texture;
+    this.uniforms.tDiffuse.value = this.source?.() ?? readBuffer.texture;
     this.uniforms.toneMappingExposure.value = renderer.toneMappingExposure;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
@@ -210,6 +230,8 @@ class BloomPass extends Pass {
   private down: THREE.ShaderMaterial;
   private up: THREE.ShaderMaterial;
   private quad: FullScreenQuad;
+  /** Image to bloom instead of the composer's read buffer (the TAA resolve). */
+  source: (() => THREE.Texture | null) | null = null;
   constructor(private scale: number, levels: number) {
     super();
     this.needsSwap = false;
@@ -277,7 +299,7 @@ class BloomPass extends Pass {
   render(renderer: THREE.WebGLRenderer, _w: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
     const d = this.down.uniforms, u = this.up.uniforms;
     this.quad.material = this.down;
-    let src: THREE.Texture = readBuffer.texture;
+    let src: THREE.Texture = this.source?.() ?? readBuffer.texture;
     let sw = readBuffer.width, sh = readBuffer.height;
     for (let i = 0; i < this.mips.length; i++) {
       d.tSrc.value = src;
@@ -314,6 +336,8 @@ class BloomPass extends Pass {
  */
 class SceneRenderPass extends Pass {
   readonly target: THREE.WebGLRenderTarget;
+  /** Render resolution relative to the composer (TAA upscaling renders fewer pixels). */
+  scale = 1;
   constructor(private scene: THREE.Scene, private camera: THREE.Camera, w: number, h: number) {
     super();
     this.needsSwap = false;
@@ -330,7 +354,7 @@ class SceneRenderPass extends Pass {
     renderer.render(this.scene, this.camera);
   }
   setSize(w: number, h: number) {
-    this.target.setSize(w, h);
+    this.target.setSize(Math.max(1, Math.round(w * this.scale)), Math.max(1, Math.round(h * this.scale)));
   }
   dispose() {
     this.target.dispose();
@@ -339,6 +363,7 @@ class SceneRenderPass extends Pass {
 
 /** GTAO computed at half resolution from the scene depth; the atmosphere pass applies it (no extra full-res passes). */
 class SceneAOPass extends Pass {
+  scale = 1;
   constructor(readonly gtao: GTAOPass, private depth: () => THREE.Texture | null, private input: () => THREE.WebGLRenderTarget) {
     super();
     this.needsSwap = false;
@@ -356,7 +381,7 @@ class SceneAOPass extends Pass {
     this.gtao.render(renderer, writeBuffer, this.input(), deltaTime, maskActive);
   }
   setSize(w: number, h: number) {
-    this.gtao.setSize(Math.round(w / 2), Math.round(h / 2));
+    this.gtao.setSize(Math.max(1, Math.round((w * this.scale) / 2)), Math.max(1, Math.round((h * this.scale) / 2)));
   }
   dispose() {
     this.gtao.dispose();
@@ -370,12 +395,15 @@ export class GameRenderer {
   readonly cam: RTSCamera;
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
-  readonly terrain: TerrainMesh;
-  readonly skirt: TerrainSkirt;
-  readonly water: Water;
-  readonly vegetation: Vegetation;
-  readonly ore: OreRenderer;
+  // world layers (replaced by rebuildMap)
+  terrain!: TerrainMesh;
+  skirt!: TerrainSkirt;
+  water!: Water;
+  vegetation!: Vegetation;
+  ore!: OreRenderer;
   readonly fog: FogOfWar;
+  /** Old world layers released after the next frame (their programs stay warm for the replacements). */
+  private trash: (() => void)[] = [];
   readonly fogPass: FogPass;
   readonly weather: Weather;
   private baseFogDensity = 0.0042;
@@ -385,6 +413,27 @@ export class GameRenderer {
   private final: FinalPass;
   private fxaa: ShaderPass | null = null;
   private aoPass: SceneAOPass | null = null;
+  /** Dynamic lights (muzzle flashes, explosions, fires, headlights...) lit in the atmosphere pass. */
+  readonly dynLights: DynamicLights;
+  /** Half-resolution volumetric fog / low clouds / god rays (high). */
+  readonly volumetrics: VolumetricPass | null = null;
+  /** Temporal anti-aliasing + upscaling (high). */
+  readonly taa: TemporalPass | null = null;
+  /** Depth of field + motion blur for cinematics and photo mode (medium / high). */
+  readonly lens: CinematicPass | null = null;
+  private atmoTarget: THREE.WebGLRenderTarget | null = null;
+  /** Render scale under the TAA upscaler (dynamic resolution on high), 0.5..1. */
+  private renderScale = 1;
+  /** Cloud drift (world units) and current cloud cover. */
+  private cloudOff = new THREE.Vector2(13, 41);
+  private fogWind = new THREE.Vector2();
+  /** Cinematic lens requests: depth of field (0..1), motion blur shutter (0..1); photo mode adds its own. */
+  cinematicDof = 0;
+  cinematicBlur = 0;
+  photoDof = 0;
+  /** Photo mode focus distance (world units) or -1 for auto focus on the screen centre. */
+  photoFocus = -1;
+  private photo: PhotoLens | null = null;
   private readonly climateGrade: (typeof CLIMATE_GRADE)['temperate'];
   /** 0..1 user preference for the miniature lens. */
   tiltShiftAmount = 1;
@@ -396,6 +445,8 @@ export class GameRenderer {
   flash = 0;
   /** Per-frame totals across all passes. */
   stats = { calls: 0, tris: 0 };
+  /** Draw calls per post pass in the last frame (plus 'gpuSim' and 'waterSim'). */
+  passCalls: Record<string, number> = {};
   private basePixelRatio = 1;
   private scale = 1;
   private frameAcc = 0;
@@ -423,6 +474,8 @@ export class GameRenderer {
     this.renderer.shadowMap.autoUpdate = false;
     this.shadowEvery = q === 'high' ? 1 : 2;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // [FX] hundreds of dynamic lights without THREE.Lights (see dynlights.ts); effects find it on the scene
+    this.dynLights = new DynamicLights(q === 'high' ? 255 : q === 'medium' ? 128 : 48, q === 'high' ? 32 : q === 'medium' ? 24 : 8);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.preset = PRESETS[settings.timeOfDay];
     this.renderer.toneMappingExposure = this.preset.exposure;
@@ -434,6 +487,10 @@ export class GameRenderer {
     // the main camera, for renderers that cull against it (see EntityRenderer.preRender)
     this.scene.userData.mainCamera = this.cam.camera;
     this.scene.userData.sunDir = this.sunDir;
+    this.scene.userData.dynamicLights = this.dynLights;
+    // the effects system sizes its GPU particles by quality and lets this renderer run their simulation
+    this.scene.userData.fxQuality = q;
+    this.scene.userData.fxSimHook = true;
 
     // environment reflections for PBR metals
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -461,30 +518,7 @@ export class GameRenderer {
     // world layers
     const climate = settings.climate ?? 'temperate';
     this.climateGrade = CLIMATE_GRADE[climate];
-    this.terrain = new TerrainMesh(map, climate, q);
-    this.scene.add(this.terrain.mesh);
-    this.skirt = new TerrainSkirt(map, this.terrain.mesh.material as THREE.Material);
-    this.scene.add(this.skirt.mesh);
-    const hFn = (x: number, y: number) => this.terrain.renderHeight(x, y);
-    // winter freezes lakes, but a sea (naval maps: more than ~7% of the map is water) stays open, icy-cold water
-    let wet = 0;
-    for (let i = 0; i < map.terrain.length; i++) if (map.terrain[i] === 1) wet++;
-    const frozen = climate === 'winter' && wet < map.w * map.h * 0.07;
-    this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir, frozen, q);
-    if (q !== 'low') this.water.sun = this.sun;
-    this.scene.add(this.water.mesh);
-    this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high', climate, this.skirt.treeSpots);
-    this.scene.add(this.vegetation.group);
-    this.ore = new OreRenderer(map, hFn);
-    this.scene.add(this.ore.group);
-    // static world layers: no per-frame matrix composition for them or their children
-    for (const o of [this.terrain.mesh, this.skirt.mesh, this.water.mesh, this.ore.group]) {
-      o.updateMatrix();
-      o.matrixAutoUpdate = false;
-      o.updateMatrixWorld(true);
-      o.matrixWorldAutoUpdate = false;
-    }
-    this.cam.heightAt = (x, y) => map.heightAt(x, y);
+    this.buildWorld(map);
     this.weather = new Weather({
       scene: this.scene, camera: this.cam.camera, renderer: this.renderer,
       getHeight: (x, z) => this.terrain.renderHeight(x, z), mapW: map.w, mapH: map.h, waterLevel: WATER_LEVEL,
@@ -497,7 +531,8 @@ export class GameRenderer {
       if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); }
     });
 
-    // post-processing: scene -> [AO] -> atmosphere (fog of war, AO, height mist, light shafts) -> [bloom] -> final -> [AA]
+    // post-processing: scene -> [AO] -> [volumetrics] -> atmosphere (dynamic lights, clouds, fog, fog of war)
+    //   -> [TAA resolve / upscale] -> [cinematic lens] -> [bloom] -> final -> [AA]
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, rt);
@@ -513,29 +548,77 @@ export class GameRenderer {
       gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
       this.aoPass = new SceneAOPass(gtao, sceneDepth, () => scenePass.target);
       this.composer.addPass(this.aoPass);
+      const vol = new VolumetricPass(this.cam.camera);
+      vol.depthSource = sceneDepth;
+      vol.shadowLight = this.sun;
+      this.volumetrics = vol;
+      this.composer.addPass(vol);
     }
     this.fog = new FogOfWar(map.w, map.h);
-    this.fogPass = new FogPass(this.cam.camera, this.fog.texture, map.w, map.h, { ao: !!this.aoPass, shafts: q === 'high', mist: q !== 'low' });
+    this.fogPass = new FogPass(this.cam.camera, this.fog.texture, map.w, map.h, {
+      ao: !!this.aoPass, mist: q !== 'low', shadow: q !== 'low', clouds: q !== 'low', volume: !!this.volumetrics, fogLayer: q === 'medium', dyn: this.dynLights,
+    });
     this.fogPass.depthSource = sceneDepth;
     this.fogPass.inputSource = () => scenePass.target.texture;
     if (this.aoPass) {
       const ao = this.aoPass;
       this.fogPass.aoSource = () => ao.aoTexture;
     }
-    if (q === 'high') this.fogPass.shadowLight = this.sun;
+    if (this.volumetrics) {
+      const vol = this.volumetrics;
+      this.fogPass.volumeSource = () => vol.texture;
+    }
+    if (q !== 'low') this.fogPass.shadowLight = this.sun;
     this.composer.addPass(this.fogPass);
+    // TAA on high: the atmosphere resolves into its own render-resolution target, the temporal pass
+    // reconstructs the display-resolution image from it (and replaces SMAA)
+    if (q === 'high') {
+      const atmo = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, depthBuffer: false });
+      atmo.texture.name = 'atmosphere';
+      this.atmoTarget = atmo;
+      this.fogPass.outputTarget = atmo;
+      this.fogPass.needsSwap = false;
+      const taa = new TemporalPass(this.cam.camera);
+      taa.inputSource = () => atmo.texture;
+      taa.depthSource = sceneDepth;
+      this.taa = taa;
+      this.composer.addPass(taa);
+    }
+    const resolved = () => (this.lens?.enabled ? null : this.taa ? this.taa.texture : null);
+    if (q !== 'low') {
+      const lens = new CinematicPass(this.cam.camera);
+      lens.depthSource = sceneDepth;
+      lens.inputSource = () => (this.taa ? this.taa.texture : null);
+      lens.enabled = false;
+      this.lens = lens;
+      this.composer.addPass(lens);
+    }
     // bloom mip chain from half resolution on high, quarter on medium; none on low. The final pass adds it.
     if (q !== 'low') {
       this.bloom = new BloomPass(q === 'high' ? 2 : 4, q === 'high' ? 5 : 4);
+      this.bloom.source = resolved;
       this.composer.addPass(this.bloom);
     }
-    this.final = new FinalPass(q !== 'low', !!this.bloom);
+    this.final = new FinalPass(q !== 'low', !!this.bloom, !!this.taa);
+    this.final.source = resolved;
     if (this.bloom) this.final.uniforms.tBloom.value = this.bloom.texture;
     this.composer.addPass(this.final);
-    if (q === 'high') this.composer.addPass(new SMAAPass());
+    if (q === 'high' && !this.taa) this.composer.addPass(new SMAAPass());
     else if (q === 'medium') {
       this.fxaa = new ShaderPass(FXAAShader);
       this.composer.addPass(this.fxaa);
+    }
+
+    // per-pass draw calls of the last frame (fxStats / perf probes)
+    for (const pass of this.composer.passes) {
+      const name = pass.constructor.name || 'pass';
+      const orig = pass.render.bind(pass);
+      const info = this.renderer.info.render;
+      pass.render = ((...args: Parameters<typeof orig>) => {
+        const c0 = info.calls;
+        orig(...args);
+        this.passCalls[name] = (this.passCalls[name] ?? 0) + info.calls - c0;
+      }) as typeof pass.render;
     }
 
     // Game.precompileShaders compiles the scene on the loading screen; extend that to the post chain and
@@ -557,16 +640,105 @@ export class GameRenderer {
     this.onResize();
   }
 
+  /** Terrain, skirt, water, vegetation and ore for a map (constructor and rebuildMap). */
+  private buildWorld(map: GameMap) {
+    const q = this.settings.quality;
+    const climate = this.settings.climate ?? 'temperate';
+    this.terrain = new TerrainMesh(map, climate, q);
+    this.scene.add(this.terrain.mesh);
+    // [FX] craters / scorch / ruts (terrain.deform...) for the effects and destruction code
+    this.scene.userData.terrain = this.terrain;
+    this.skirt = new TerrainSkirt(map, this.terrain.mesh.material as THREE.Material);
+    this.scene.add(this.skirt.mesh);
+    const terrain = this.terrain;
+    const hFn = (x: number, y: number) => terrain.renderHeight(x, y);
+    // winter freezes lakes, but a sea (naval maps: more than ~7% of the map is water) stays open, icy-cold water
+    let wet = 0;
+    for (let i = 0; i < map.terrain.length; i++) if (map.terrain[i] === 1) wet++;
+    const frozen = climate === 'winter' && wet < map.w * map.h * 0.07;
+    this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir, frozen, q);
+    if (q !== 'low') this.water.sun = this.sun;
+    this.scene.add(this.water.mesh);
+    this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high', climate, this.skirt.treeSpots);
+    this.scene.add(this.vegetation.group);
+    this.ore = new OreRenderer(map, hFn);
+    this.scene.add(this.ore.group);
+    // static world layers: no per-frame matrix composition for them or their children
+    for (const o of [this.terrain.mesh, this.skirt.mesh, this.water.mesh, this.ore.group]) {
+      o.updateMatrix();
+      o.matrixAutoUpdate = false;
+      o.updateMatrixWorld(true);
+      o.matrixWorldAutoUpdate = false;
+    }
+    this.cam.heightAt = (x, y) => map.heightAt(x, y);
+  }
+
+  /**
+   * Rebuild every map-dependent layer (terrain incl. its crater / scorch / rut state, skirt, water, vegetation,
+   * ore, fog-of-war size, weather height field, camera bounds) for a changed map, without recreating the
+   * renderer, its post chain or any compiled program (map editor). The old layers are released after the
+   * next rendered frame, so their shader programs carry over to the replacements.
+   */
+  rebuildMap(map: GameMap) {
+    const old = { terrain: this.terrain, skirt: this.skirt, water: this.water, vegetation: this.vegetation, ore: this.ore };
+    for (const o of [old.terrain.mesh, old.skirt.mesh, old.water.mesh, old.vegetation.group, old.ore.group]) this.scene.remove(o);
+    (this as { map: GameMap }).map = map;
+    this.buildWorld(map);
+    this.onResize();
+    // vegetation and rocks get wet / snow-covered too
+    const patched = new Set<THREE.Material>();
+    this.vegetation.group.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); }
+    });
+    this.fog.resize(map.w, map.h);
+    const fu = this.fogPass.material.uniforms;
+    fu.tFog.value = this.fog.texture;
+    fu.uMapSize.value.set(map.w, map.h);
+    this.cam.setBounds(map.w, map.h);
+    this.weather.setTerrain((x, z) => this.terrain.renderHeight(x, z), map.w, map.h);
+    (this.scene.userData.gpuParticles as { setHeightField(t: THREE.Texture, xf: THREE.Vector4): void } | undefined)?.setHeightField(this.terrain.heightTexture, this.terrain.heightUvXf);
+    this.dynLights.clear();
+    this.water.warmUp(this.renderer);
+    this.renderer.shadowMap.needsUpdate = true;
+    this.trash.push(() => {
+      old.terrain.dispose();
+      old.skirt.mesh.geometry.dispose();
+      old.water.dispose();
+      for (const g of [old.vegetation.group, old.ore.group]) {
+        g.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          m.geometry?.dispose();
+          for (const mat of Array.isArray(m.material) ? m.material : [m.material]) mat?.dispose();
+          if ((m as THREE.InstancedMesh).isInstancedMesh) (m as THREE.InstancedMesh).dispose();
+        });
+      }
+    });
+  }
+
   private onResize = () => {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    // passes that run at the (TAA) render resolution pick the scale up in their setSize
+    const s = this.taa ? this.renderScale : 1;
+    this.scenePass.scale = s;
+    if (this.aoPass) this.aoPass.scale = s;
     this.composer.setSize(w, h);
     this.cam.camera.aspect = w / h;
     this.cam.camera.updateProjectionMatrix();
     const size = this.renderer.getDrawingBufferSize(_v2);
+    const rw = Math.max(1, Math.round(size.x * s)), rh = Math.max(1, Math.round(size.y * s));
+    this.volumetrics?.setSize(rw, rh);
+    this.atmoTarget?.setSize(rw, rh);
+    if (this.taa) {
+      this.taa.renderSize.set(rw, rh);
+      this.taa.reset = true;
+    }
     this.final.uniforms.uRes.value.set(size.x, size.y);
+    this.final.uniforms.uSharpen.value = this.taa ? (s < 0.99 ? 1 : 0.5) : 0;
     this.fxaa?.uniforms.resolution.value.set(1 / size.x, 1 / size.y);
-    this.water.setSize(size.x, size.y);
+    this.water.setSize(rw, rh);
   };
 
   resize() {
@@ -586,11 +758,20 @@ export class GameRenderer {
     const avg = this.frameAcc / this.frameN;
     this.frameAcc = 0;
     this.frameN = 0;
-    let s = this.scale;
+    let s = this.taa ? this.renderScale : this.scale;
     // below ~33 fps: render fewer pixels; back up only after two windows at (nearly) the display rate
-    if (avg > 30) { s = Math.max(0.55, s - 0.12); this.goodWindows = 0; }
+    if (avg > 30) { s = Math.max(this.taa ? 0.6 : 0.55, s - 0.12); this.goodWindows = 0; }
     else if (avg < 19 && s < 1) { if (++this.goodWindows >= 2) { s = Math.min(1, s + 0.08); this.goodWindows = 0; } }
     else this.goodWindows = 0;
+    if (this.taa) {
+      // TAA upscaling: keep the display resolution, render fewer pixels and let the temporal resolve
+      // (plus sharpening) reconstruct the rest
+      if (s !== this.renderScale) {
+        this.renderScale = s;
+        this.onResize();
+      }
+      return;
+    }
     if (s !== this.scale) {
       this.scale = s;
       this.renderer.setPixelRatio(this.basePixelRatio * s);
@@ -679,7 +860,59 @@ export class GameRenderer {
     fu.uHaze.value.copy(fog.color);
     fu.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity);
     fu.uSunDir.value.copy(this.sunDir);
+    // [FX] irradiance the scene is lit with (albedo estimate for the dynamic lights)
+    fu.uHemiSky.value.copy(this.hemi.color).multiplyScalar(this.hemi.intensity);
+    fu.uHemiGround.value.copy(this.hemi.groundColor).multiplyScalar(this.hemi.intensity);
+    fu.uEnvIrr.value = this.scene.environmentIntensity * 0.5;
+    // clouds drift with the wind; cover follows the overcast
+    const lv = w.levels;
+    this.cloudOff.x -= (w.wind.x * 0.6 + 0.3) * dt;
+    this.cloudOff.y -= (w.wind.y * 0.6 + 0.12) * dt;
+    const cover = Math.min(1, 0.22 + 0.68 * oc + 0.1 * lv.storm);
+    fu.uCloud.value.set(cover, 17, 5, 0.42 * (1 - 0.4 * oc));
+    fu.uCloudOff.value.copy(this.cloudOff);
+    // weather fog layer: fog banks, storm / rain haze, snow and sand in the air
+    const fogD = 0.026 * lv.fog + 0.01 * lv.storm + 0.005 * lv.rain + 0.008 * lv.snow + 0.012 * lv.dust;
+    const fogH = 1.8 + 1.6 * lv.storm + 1.0 * lv.rain + 0.8 * lv.dust;
+    fu.uFogLayer.value.set(fogD, fogH, -0.45, 0.8);
+    // air density for the light halos: thicker in haze and mist
+    fu.uDynScatter.value = 0.015 + w.haze * 0.12 + this.mistBase * 0.03;
+    const vol = this.volumetrics;
+    if (vol) {
+      const vu = vol.material.uniforms;
+      vu.uSunDir.value.copy(this.sunDir);
+      vu.uSunColor.value.copy(fu.uSunColor.value);
+      vu.uSky.value.copy(fu.uHemiSky.value).multiplyScalar(0.5).lerp(fog.color, 0.5);
+      this.fogWind.x -= w.wind.x * 0.06 * dt;
+      this.fogWind.y -= w.wind.y * 0.06 * dt;
+      vu.uFog.value.set(fogD * 1.6, fogH, -0.45, 0.8);
+      vu.uFogWind.value.copy(this.fogWind);
+      vu.uAir.value = this.shaftBase * (1 - 0.85 * oc) * (1 + w.haze * 1.5) * 0.03;
+      vu.uCloud.value.copy(fu.uCloud.value);
+      vu.uCloudOff.value.copy(this.cloudOff);
+      vu.uCloudDens.value = 0.08 + 0.32 * oc;
+      vu.uTime.value = time;
+    }
     this.water.setLighting(this.sunDir, this.sun.color, this.sun.intensity, this.hemi.color, fog.color, this.night, w);
+  }
+
+  /** Photo mode (U) on / off: shows the depth-of-field panel (medium / high). */
+  setPhotoMode(on: boolean) {
+    if (!this.lens) return;
+    if (!this.photo) this.photo = new PhotoLens(this);
+    this.photo.set(on);
+  }
+
+  /** Per-frame numbers of the FX systems (debug / perf probes). */
+  fxStats() {
+    return {
+      dyn: { ...this.dynLights.stats },
+      renderScale: this.taa ? this.renderScale : this.scale,
+      taa: !!this.taa,
+      lens: !!this.lens?.enabled,
+      gpu: (this.scene.userData.gpuParticles as { stats?: object } | undefined)?.stats,
+      passes: { ...this.passCalls },
+    };
   }
 
   /**
@@ -757,9 +990,41 @@ export class GameRenderer {
     // stronger miniature look when zoomed in, subtle when zoomed out
     const z = (this.cam.dist - this.cam.minDist) / (this.cam.maxDist - this.cam.minDist);
     u.uTilt.value = this.tiltShiftAmount * (1.0 - Math.min(1, Math.max(0, z)) * 0.65);
+    // [FX] bin this frame's dynamic lights; cinematic lens on demand; jittered projection for TAA
+    this.dynLights.prepare(this.cam.camera);
+    const lens = this.lens;
+    const dof = Math.min(1, Math.max(this.cinematicDof, this.photoDof));
+    if (lens) {
+      lens.aperture = dof;
+      lens.shutter = this.cinematicBlur;
+      // photo mode can pin the focus; cinematics focus on whatever is at the screen centre
+      const pinned = this.photoDof > this.cinematicDof && this.photoFocus > 0;
+      lens.autoFocus = pinned ? 0 : 1;
+      if (pinned) lens.focus = this.photoFocus;
+      lens.enabled = lens.active;
+      // the lens replaces the miniature blur
+      u.uTilt.value *= 1 - Math.min(1, dof * 3);
+    }
+    this.terrain.flush(dt);
+    this.taa?.jitter(this.cam.camera);
     this.renderer.info.reset();
-    this.composer.render(dt);
+    for (const k in this.passCalls) this.passCalls[k] = 0;
+    // GPU particle simulation + spawns (counted in this frame's draw calls)
+    (this.scene.userData.gpuParticles as { simulate(t: number): void } | undefined)?.simulate(time);
+    this.passCalls.gpuSim = this.renderer.info.render.calls;
+    // interactive water ripples around the camera (high)
+    this.passCalls.waterSim = this.water.simulate(this.renderer, this.cam.x, this.cam.y, dt);
+    try {
+      this.composer.render(dt);
+    } finally {
+      this.taa?.unjitter(this.cam.camera);
+      lens?.endFrame();
+    }
     (this.scene.userData.postRender as (() => void) | undefined)?.();
+    if (this.trash.length) {
+      for (const f of this.trash) f();
+      this.trash.length = 0;
+    }
     this.stats.calls = this.renderer.info.render.calls;
     this.stats.tris = this.renderer.info.render.triangles;
   }
@@ -800,14 +1065,21 @@ export class GameRenderer {
     }
     g.position.set(this.cam.x, -0.5, this.cam.y);
     this.scene.add(g);
+    const lens = this.lens;
     try {
       this.cam.update(0);
       this.updateShadowFrustum();
       this.renderer.shadowMap.needsUpdate = true;
       this.renderer.info.reset();
+      // passes that only run on demand (cinematic lens) still get their programs now
+      if (lens) { lens.enabled = true; lens.force = true; }
+      this.dynLights.prepare(this.cam.camera);
+      this.water.warmUp(this.renderer);
       this.composer.render(0);
     } catch (e) {
       console.warn('post warm-up failed', e);
+    } finally {
+      if (lens) { lens.enabled = false; lens.force = false; }
     }
     this.scene.remove(g);
     // Finish every program now (link status, uniform and attribute locations): drivers that compile lazily
@@ -836,8 +1108,17 @@ export class GameRenderer {
 
   dispose() {
     window.removeEventListener('resize', this.onResize);
+    for (const f of this.trash) f();
+    this.trash.length = 0;
     this.weather.dispose();
     this.water.dispose();
+    this.terrain.dispose();
+    this.dynLights.dispose();
+    this.photo?.dispose();
+    this.atmoTarget?.dispose();
+    delete this.scene.userData.dynamicLights;
+    delete this.scene.userData.terrain;
+    delete this.scene.userData.gpuParticles;
     // EffectComposer.dispose() only frees its own buffers: release every pass's targets and materials
     for (const p of this.composer.passes) p.dispose();
     this.composer.dispose();

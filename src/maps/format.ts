@@ -10,13 +10,16 @@
  *  - `mirror4` 4 players, mirrored in x and y (exact)
  *  - `rot4`    4 players, 90° pinwheel rotation about the centre (exact)
  *  - `rot3`    3 players, 120° rotation about `center` (approximate on a square grid)
+ *  - `none`    no symmetry: every start is authored (custom maps from the editor)
+ *  - `mirrorX` 2 players, mirrored left / right (x -> N - x); `mirrorY` top / bottom; `mirrorD` across
+ *              the main diagonal (x <-> y) — all exact
  *
  * Shapes have soft, noise-wobbled edges evaluated in the authored frame, so every copy is an exact
  * image of the original. Coordinates are continuous map coordinates (cell (x, y) spans [x, x+1)).
  */
 export type Pt = [number, number];
 export type Climate = 'temperate' | 'winter' | 'desert';
-export type Symmetry = 'rot2' | 'mirror4' | 'rot4' | 'rot3';
+export type Symmetry = 'rot2' | 'mirror4' | 'rot4' | 'rot3' | 'none' | 'mirrorX' | 'mirrorY' | 'mirrorD';
 
 export type Shape =
   | { circle: Pt; r: number }
@@ -35,7 +38,12 @@ export type FeatureKind =
   | 'ford'    // shallow crossing through water (passable sand at the waterline)
   | 'forest'  // trees at `density` on open land
   | 'ore'     // gold ore field
-  | 'gems';   // gem field
+  | 'gems'    // gem field
+  // [EDIT] editor brushes (no curated map uses them, so those build exactly as before)
+  | 'deforest' // remove trees only
+  | 'noore'    // remove ore / gems only
+  | 'raise'    // raise the ground by `amount` (height units) in a smooth dome; land only
+  | 'lower';   // lower the ground by `amount`; land never sinks below the waterline
 
 export type Feature = Shape & {
   t: FeatureKind;
@@ -49,6 +57,8 @@ export type Feature = Shape & {
   rich?: number;
   /** Paint only this one copy (no symmetry): decoration in dead corners of rot3 maps. */
   once?: boolean;
+  /** Raise / lower: height change at the centre of the shape (default 0.6). */
+  amount?: number;
 };
 
 export interface BridgeDef {
@@ -85,6 +95,9 @@ export interface MapDef {
   tags?: string[];
   /** Height multiplier for rock relief (default 1). */
   relief?: number;
+  /** [EDIT] Custom (editor) maps: author name and format version of the `.rhmap.json` file. */
+  author?: string;
+  format?: number;
 }
 
 /** What the menu needs to list a map. */

@@ -32,6 +32,15 @@ export function symmetryGroup(def: MapDef): Xf[] {
         { f: (x, y) => [N - y, x], inv: (x, y) => [y, N - x], swap: true },
         r180,
         { f: (x, y) => [y, N - x], inv: (x, y) => [N - y, x], swap: true }];
+    // [EDIT] editor symmetries: none (every start authored) and the 2-player mirrors
+    case 'none':
+      return [id];
+    case 'mirrorX':
+      return [id, { f: (x, y) => [N - x, y], inv: (x, y) => [N - x, y], swap: false }];
+    case 'mirrorY':
+      return [id, { f: (x, y) => [x, N - y], inv: (x, y) => [x, N - y], swap: false }];
+    case 'mirrorD':
+      return [id, { f: (x, y) => [y, x], inv: (x, y) => [y, x], swap: true }];
     case 'rot3': {
       const [cx, cy] = def.center ?? [N / 2, N / 2];
       const rot = (a: number): Xf => {
@@ -297,6 +306,7 @@ function equaliseOre(map: GameMap) {
 }
 
 function paintFeature(map: GameMap, ft: Feature, k: number, G: Xf[], noise: Noise2D, seed: number, ford: Uint8Array) {
+  if (ft.t === 'raise' || ft.t === 'lower') return; // [EDIT] height brushes act on vertices (buildHeights)
   const N = map.w;
   const wob = ft.wobble ?? 1.2, freq = ft.freq ?? 0.22;
   const [bx0, by0, bx1, by1] = bounds(ft);
@@ -341,6 +351,12 @@ function applyFeature(map: GameMap, ft: Feature, i: number, depth: number, px: n
       map.tree[i] = 0;
       ford[i] = 0;
       break;
+    case 'deforest': // [EDIT] editor eraser brushes
+      map.tree[i] = 0;
+      break;
+    case 'noore':
+      clearOre();
+      break;
     case 'ford':
       map.terrain[i] = T.Sand;
       map.tree[i] = 0;
@@ -371,7 +387,7 @@ function applyFeature(map: GameMap, ft: Feature, i: number, depth: number, px: n
 }
 
 /** Water cells crossed by a straight bridge through (x, y) along `axis`, with land at both ends. */
-function traceBridge(map: GameMap, x: number, y: number, axis: 'x' | 'y'): MapBridge | null {
+export function traceBridge(map: GameMap, x: number, y: number, axis: 'x' | 'y'): MapBridge | null {
   if (!map.inBounds(x, y) || map.terrain[map.idx(x, y)] !== T.Water) return null;
   const dx = axis === 'x' ? 1 : 0, dy = axis === 'y' ? 1 : 0;
   let a = 0, b = 0;
@@ -403,6 +419,7 @@ function buildHeights(map: GameMap, def: MapDef, G: Xf[], noise: Noise2D, starts
     return (s / G.length - 0.5) * amp + 0.5;
   };
   const relief = def.relief ?? 1;
+  const bump = heightBrushes(def, G, N);
   const cell = (x: number, y: number) => map.idx(Math.min(N - 1, Math.max(0, x)), Math.min(N - 1, Math.max(0, y)));
   for (let vy = 0; vy <= N; vy++) {
     for (let vx = 0; vx <= N; vx++) {
@@ -429,6 +446,8 @@ function buildHeights(map: GameMap, def: MapDef, G: Xf[], noise: Noise2D, starts
         h = WATER_LEVEL + 0.1 + (h - WATER_LEVEL - 0.1) * smooth(0.5, 4, dw);
         if (h < WATER_LEVEL + 0.05) h = WATER_LEVEL + 0.05;
       }
+      // [EDIT] raise / lower brushes (dry land only, never below the waterline)
+      if (bump && water === 0 && fd === 0) h = Math.max(WATER_LEVEL + 0.05, h + bump[vy * W + vx]);
       // flatten base areas (never lifting the sea floor above the waterline)
       if (water === 0) {
         let ds = Infinity;
@@ -438,4 +457,53 @@ function buildHeights(map: GameMap, def: MapDef, G: Xf[], noise: Noise2D, starts
       map.heights[vy * W + vx] = h;
     }
   }
+}
+
+/** How deep inside a shape its centre lies (cells): the radius of a raise / lower dome. */
+function innerDepth(s: Shape): number {
+  if ('circle' in s) return s.r;
+  if ('ellipse' in s) return Math.min(s.rx, s.ry);
+  if ('path' in s) return s.w / 2;
+  if ('rect' in s) return Math.min(s.rect[2] - s.rect[0], s.rect[3] - s.rect[1]) / 2;
+  return 3;
+}
+
+/**
+ * [EDIT] Per-vertex height change from the editor's raise / lower brushes: a smooth dome per feature.
+ * Symmetric copies of one feature take the maximum (not the sum), so a dab on a symmetry axis is not
+ * doubled; the result is symmetric because the maximum over a symmetry orbit is invariant.
+ */
+function heightBrushes(def: MapDef, G: Xf[], N: number): Float32Array | null {
+  const fts = def.features.filter((f) => f.t === 'raise' || f.t === 'lower');
+  if (!fts.length) return null;
+  const W = N + 1;
+  const out = new Float32Array(W * W);
+  const tmp = new Float32Array(W * W);
+  const touched: number[] = [];
+  for (const ft of fts) {
+    const amt = (ft.amount ?? 0.6) * (ft.t === 'lower' ? -1 : 1);
+    const inner = Math.max(0.5, innerDepth(ft));
+    const [bx0, by0, bx1, by1] = bounds(ft);
+    for (const g of ft.once ? [G[0]] : G) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [cx, cy] of [[bx0 - 1, by0 - 1], [bx1 + 1, by0 - 1], [bx0 - 1, by1 + 1], [bx1 + 1, by1 + 1]] as Pt[]) {
+        const [x, y] = g.f(cx, cy);
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      }
+      for (let vy = Math.max(0, Math.floor(y0)); vy <= Math.min(N, Math.ceil(y1)); vy++) {
+        for (let vx = Math.max(0, Math.floor(x0)); vx <= Math.min(N, Math.ceil(x1)); vx++) {
+          const [px, py] = g.inv(vx, vy);
+          const d = sdf(ft, px, py);
+          if (d >= 0) continue;
+          const t = smooth(0, inner, -d);
+          const k = vy * W + vx;
+          if (!tmp[k]) touched.push(k);
+          if (t > tmp[k]) tmp[k] = t;
+        }
+      }
+    }
+    for (const k of touched) { out[k] += amt * tmp[k]; tmp[k] = 0; }
+    touched.length = 0;
+  }
+  return out;
 }

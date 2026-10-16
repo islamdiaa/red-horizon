@@ -187,7 +187,7 @@ describe('veterancy', () => {
     assert.equal(tank.rank, 1, 'veteran');
     events.push(...world.events);
     assert.ok(events.some((e) => e.e === 'promoted' && e.id === tank.id && e.rank === 1), 'promotion event');
-    world.kill(unit(world, '4tnk', p1, 30.5, 32.5), 'normal', tank); // 800 + 1700 = 2500 >= 3 x 800
+    world.kill(unit(world, '4tnk', p1, 30.5, 32.5), 'normal', tank); // 800 + 1900 = 2700 >= 3 x 800
     assert.equal(tank.rank, 2, 'elite');
     // buildings give 60 % of their cost
     const rifle = unit(world, 'e1', p0, 12.5, 10.5); // vet at 300

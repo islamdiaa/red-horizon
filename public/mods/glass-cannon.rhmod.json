@@ -1,0 +1,13 @@
+{
+  "format": "rhmod",
+  "version": 1,
+  "id": "glass-cannon",
+  "name": "Glass Cannon",
+  "author": "Red Horizon",
+  "modVersion": "1.0",
+  "description": "Short, brutal battles: every unit has 60% of its normal health and every weapon deals 30% more damage. Structures keep their full strength.",
+  "scale": [
+    { "table": "units", "fields": { "strength": 0.6 } },
+    { "table": "weapons", "fields": { "damage": 1.3 } }
+  ]
+}

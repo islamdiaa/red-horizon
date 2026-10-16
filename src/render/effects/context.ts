@@ -7,6 +7,9 @@ import type { SpriteBatch } from './sprites';
 import type { DecalSystem } from './decals';
 import type { LightPool } from './lights';
 import type { BodyPool } from './bodies';
+import type { DynamicLightApi } from '../dynlights';
+import type { GpuParticleApi } from './gpuparticles';
+import type { TerrainDeformApi } from '../terrain';
 
 /** Audio-facing moments raised by effects (see Effects.onCue). */
 export type FxCue = 'splash' | 'thump' | 'bomb' | 'sonar' | 'launch' | 'torpedo';
@@ -37,6 +40,15 @@ export interface FxContext {
   bodies: BodyPool;
   /** Raise an audio cue (forwarded to Effects.onCue after `delay` seconds). */
   cue(kind: FxCue, x: number, y: number, z: number, delay: number): void;
+  /**
+   * Dynamic lights (hundreds at once; null on preview pages without the game renderer):
+   * `dyn.add(x, y, z, color, intensity, radius, duration)` — duration 0 = this frame only, < 0 = persistent.
+   */
+  dyn: DynamicLightApi | null;
+  /** GPU-simulated particles (null when float render targets are unavailable): gpu.burst / gpu.emit. */
+  gpu: GpuParticleApi | null;
+  /** Persistent craters, burn marks and tread ruts on the terrain (null without the game renderer). */
+  terrain: TerrainDeformApi | null;
 }
 
 /** Scale a nominal particle count by quality, keeping at least `min`. */

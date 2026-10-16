@@ -2,8 +2,9 @@
  * AI use of the land/air content (called from AIController.think): spies and thieves, minelayers mining
  * the approaches to the base, support powers (spy plane, paratroopers, parabombs, sonar; GPS launches by
  * itself). Stateless: everything is derived from the world each think, so nothing extra needs saving.
- * The AI knows enemy structure positions exactly as much as the rest of ai.ts does (no new cheating):
- * decoys fool it and disguised spies are ignored.
+ * The AI knows enemy structures only from its intel (ai-intel.ts: what its side has seen, no map-hack):
+ * decoys fool it and disguised spies are ignored. The subterfuge trait of the commander personality scales how
+ * much it invests in agents, mines and air drops; drops are timed with its attack waves.
  */
 import { Building, Unit } from './entities';
 import type { Player } from './player';
@@ -13,17 +14,27 @@ import type { World } from './world';
 import { apparentType } from './infiltration';
 import { allMines, mineable } from './mines';
 import { sortieRoute } from './powers';
+import type { AIIntel } from './ai-intel';
+import { trait, type Personality } from './ai-personality';
 
 /** The parts of AIController this module uses (its members are private to TypeScript only). */
 interface AIView {
   world: World;
   p: Player;
-  d: { superweapons: boolean; defenses: number };
+  d: { superweapons: boolean; defenses: number; skill?: number };
   thinks: number;
   difficulty: string;
+  personality?: Personality;
+  intel?: AIIntel;
+  state?: string;
+  stage?: string;
+  stageTarget?: [number, number];
   baseCenter(): [number, number];
   enemyDir(): [number, number];
 }
+
+/** The commander's subterfuge trait (0.5 without a personality). */
+const sub = (v: AIView) => v.personality?.subterfuge ?? 0.5;
 
 const MAX_MINES = 15;
 const SPY_PRIORITY: Record<string, number> = { spen: 5, dome: 4, proc: 3, silo: 1, powr: 2, apwr: 2, weap: 2, fact: 1 };
@@ -38,8 +49,9 @@ export function contentAI(ai: unknown) {
   if (due(3)) minelayers(v, due);
 }
 
+/** Enemy structures the AI knows of (all of them without intel). */
 function enemyBuildings(v: AIView): Building[] {
-  return v.world.buildings.filter((b) => b.alive && v.p.isEnemy(b.owner) && !b.bt.wall && !b.bt.mine);
+  return v.world.buildings.filter((b) => b.alive && v.p.isEnemy(b.owner) && !b.bt.wall && !b.bt.mine && (!v.intel || v.intel.structures.has(b.id)));
 }
 
 function queued(p: Player, type: string): boolean {
@@ -62,8 +74,8 @@ interface Flak { x: number; y: number; r: number }
 function enemyFlak(v: AIView): Flak[] {
   const w = v.world, p = v.p;
   const out: Flak[] = [];
-  for (const b of w.buildings) {
-    if (b.alive && b.active && p.isEnemy(b.owner) && b.weapons.length && b.weapons[0].def.antiAir) out.push({ x: b.x, y: b.y, r: b.weapons[0].def.range + 1 });
+  for (const b of enemyBuildings(v)) {
+    if (b.active && b.weapons.length && b.weapons[0].def.antiAir) out.push({ x: b.x, y: b.y, r: b.weapons[0].def.range + 1 });
   }
   for (const u of w.units) {
     if (!u.alive || !p.isEnemy(u.owner) || u.kind === 'aircraft' || !w.canSee(p, u)) continue;
@@ -97,6 +109,12 @@ function supportPowers(v: AIView, due: (s: number) => boolean) {
       if (score > bestScore && !w.canSee(p, b)) { bestScore = score; best = b; }
     }
     if (best) w.issue({ c: 'superweapon', player: p.id, kind: 'spyplane', x: best.x, y: best.y });
+    else if (v.intel && !v.intel.omniscient) {
+      // nothing known yet: a reconnaissance flight over the likeliest enemy base
+      const [bx, by] = v.baseCenter();
+      const guess = v.intel.candidateStarts(bx, by)[0];
+      if (guess) w.issue({ c: 'superweapon', player: p.id, kind: 'spyplane', x: guess[0], y: guess[1] });
+    }
   }
   if (superReady(w, p, 'sonar') && w.units.some((u) => u.alive && u.ut.cloakable && p.isEnemy(u.owner))) {
     w.issue({ c: 'superweapon', player: p.id, kind: 'sonar', x: 0, y: 0 });
@@ -104,7 +122,14 @@ function supportPowers(v: AIView, due: (s: number) => boolean) {
   if (!v.d.superweapons || !due(4)) return;
   const bombs = superReady(w, p, 'parabombs'), troops = superReady(w, p, 'paratroopers');
   if (!bombs && !troops) return;
-  const targets = enemyBuildings(v);
+  // timed with the attack: while a wave is out (normal and up, skirmish) the drop goes to its target area.
+  // (Drops are never held back: they recharge on their own, so a held drop is a lost one.)
+  let targets = enemyBuildings(v);
+  if ((v.d.skill ?? 0) >= 0.6 && !w.mission && v.stageTarget && v.state === 'attack') {
+    const [tx, ty] = v.stageTarget;
+    const near = targets.filter((b) => Math.hypot(b.x - tx, b.y - ty) < 14);
+    if (near.length) targets = near;
+  }
   const flak = enemyFlak(v);
   if (bombs) {
     // the richest cluster of structures the Badger can reach without flying past air defences
@@ -172,12 +197,14 @@ function agents(v: AIView, due: (s: number) => boolean) {
     }
     if (best) w.issue({ c: 'enter', player: p.id, units: [u.id], target: best.id });
   }
-  if (w.time < 420 || p.credits < 700 || !targets.length) return;
-  if (!spies.length && p.canBuild('spy') && !queued(p, 'spy') &&
+  const s = sub(v);
+  // (agents are a luxury: once the economy is up, unless the commander lives for this)
+  if (s < 0.1 || w.time < 600 * trait(s, 1.5, 0.6) || p.credits < 700 * trait(s, 1.6, 0.6) || !targets.length) return;
+  if (spies.length < (s >= 0.85 ? 2 : 1) && p.canBuild('spy') && !queued(p, 'spy') &&
     targets.some((b) => ['dome', 'spen', 'proc', 'powr', 'apwr'].includes(apparentType(b, p).id) && !(b.spiedBy & (1 << p.id)))) {
     w.issue({ c: 'build', player: p.id, type: 'spy' });
   }
-  if (!thieves.length && w.time > 900 && p.credits > 1200 && p.canBuild('thf') && !queued(p, 'thf') && due(120) && targets.some((b) => !!b.bt.storage)) {
+  if (!thieves.length && w.time > 900 * trait(s, 1.5, 0.6) && p.credits > 1200 && p.canBuild('thf') && !queued(p, 'thf') && due(120 * trait(s, 1.5, 0.5)) && targets.some((b) => !!b.bt.storage)) {
     w.issue({ c: 'build', player: p.id, type: 'thf' });
   }
 }
@@ -190,8 +217,9 @@ function minelayers(v: AIView, due: (s: number) => boolean) {
   const w = v.world, p = v.p;
   const layers = w.units.filter((u) => u.alive && u.owner === p && u.ut.minelayer);
   const mines = allMines(w).filter((b) => b.owner === p).length;
+  const maxMines = Math.round(MAX_MINES * trait(sub(v), 0, 2.2));
   if (!layers.length) {
-    if (mines < MAX_MINES && w.time > 420 && p.credits > 1000 && p.canBuild('mnly') && !queued(p, 'mnly')) {
+    if (mines < maxMines && w.time > 420 * trait(sub(v), 1.5, 0.6) && p.credits > 1000 && p.canBuild('mnly') && !queued(p, 'mnly')) {
       w.issue({ c: 'build', player: p.id, type: 'mnly' });
     }
     return;
@@ -203,10 +231,10 @@ function minelayers(v: AIView, due: (s: number) => boolean) {
       if (onDepot(w, u)) continue; // re-arming
       const depot = w.buildings.find((b) => b.alive && b.owner === p && b.bt.repairPad && b.active);
       if (depot) w.issue({ c: 'enter', player: p.id, units: [u.id], target: depot.id });
-      else if (u.ammo > 0 && mines < MAX_MINES) layField(v, u);
+      else if (u.ammo > 0 && mines < maxMines) layField(v, u);
       continue;
     }
-    if (mines < MAX_MINES) layField(v, u);
+    if (mines < maxMines) layField(v, u);
   }
 }
 

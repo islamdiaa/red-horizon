@@ -1,9 +1,14 @@
 /**
- * Fixed pool of PointLights for explosion flashes. Lights are added to the scene once and never
- * removed or hidden (that would change the light count and recompile every material); idle lights
- * simply have intensity 0.
+ * Light flashes for explosions, muzzle flashes, tesla bolts...
+ *
+ * In the game the renderer provides DynamicLights (scene.userData.dynamicLights, see render/dynlights.ts):
+ * every flash becomes one of hundreds of tiled dynamic lights evaluated in the atmosphere pass, and no
+ * THREE.Light exists at all (lit materials stay cheap). Without it (preview pages) this falls back to the
+ * old fixed pool of PointLights: added once and never removed or hidden (that would change the light
+ * count and recompile every material); idle lights simply have intensity 0.
  */
 import * as THREE from 'three';
+import type { DynamicLightApi, DynamicLights } from '../dynlights';
 
 interface Slot {
   start: number;
@@ -19,9 +24,13 @@ export class LightPool {
   private group = new THREE.Group();
   /** Global multiplier for all flashes (tuning hook). */
   intensityScale = 1;
+  /** The renderer's dynamic light system, when there is one. */
+  readonly dyn: DynamicLights | null;
 
   constructor(scene: THREE.Scene, count: number) {
+    this.dyn = (scene.userData.dynamicLights as DynamicLights | undefined) ?? null;
     this.group.name = 'fx-lights';
+    if (this.dyn) return;
     for (let i = 0; i < count; i++) {
       const l = new THREE.PointLight(0xffaa55, 0, 8, 2);
       l.castShadow = false;
@@ -32,11 +41,22 @@ export class LightPool {
     scene.add(this.group);
   }
 
+  /** The dynamic light API (null on preview pages). */
+  get api(): DynamicLightApi | null {
+    return this.dyn;
+  }
+
   /**
-   * Flash a light. Picks a free slot or the one contributing the least right now.
+   * Flash a light. With dynamic lights every flash is kept (up to the renderer's cap); the PointLight pool
+   * picks a free slot or the one contributing the least right now.
    * colour is a hex/linear colour, intensity in three.js (physical) candela units.
    */
   flash(now: number, x: number, y: number, z: number, color: number, intensity: number, radius: number, duration: number, delay = 0, attack = 0.03): void {
+    if (this.dyn) {
+      this.dyn.now = now;
+      this.dyn.add(x, y, z, color, intensity * this.intensityScale, radius, Math.max(0.02, duration), { delay, attack, flicker: 0.1 });
+      return;
+    }
     let best = 0;
     let bestScore = Infinity;
     for (let i = 0; i < this.slots.length; i++) {
@@ -69,6 +89,10 @@ export class LightPool {
   }
 
   update(now: number): void {
+    if (this.dyn) {
+      this.dyn.now = now;
+      return;
+    }
     for (let i = 0; i < this.slots.length; i++) {
       const s = this.slots[i];
       const l = this.lights[i];

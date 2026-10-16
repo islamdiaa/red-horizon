@@ -158,7 +158,7 @@ function buildUi(): void {
   const resp = section('Unit responses');
   resp.style.flexDirection = 'column';
   resp.style.alignItems = 'flex-start';
-  for (const v of ['infantry', 'vehicle', 'tanya', 'engineer', 'medic', 'harvester', 'aircraft', 'naval', 'spy', 'dog'] as VoiceKind[]) {
+  for (const v of ['infantry', 'vehicle', 'tanya', 'engineer', 'medic', 'harvester', 'aircraft', 'naval', 'spy', 'mechanic', 'shock', 'dog'] as VoiceKind[]) {
     const r = el('div', { className: 'row' }, resp);
     el('span', { className: 'grp', textContent: v }, r);
     for (const k of ['select', 'move', 'attack'] as ResponseKind[]) el('button', { textContent: k, onclick: go(() => audio.unitResponse(k, v)) }, r);

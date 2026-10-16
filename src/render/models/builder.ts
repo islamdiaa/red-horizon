@@ -48,6 +48,11 @@ export interface AddOpts {
   slot?: string;
   /** Keep the geometry's own UVs instead of box projection */
   keepUv?: boolean;
+  /**
+   * Level of detail: 0 = close-up detail only (dropped from the distant body), 1 = distant body only.
+   * Default: automatic (tiny or wire-thin non-emissive parts become close-up detail).
+   */
+  lod?: 0 | 1;
 }
 
 interface MeshT {
@@ -87,7 +92,7 @@ function normSlot(slot: string | undefined): string {
 }
 
 /** Copy only position/normal/uv, force indexed, transform, re-project UVs, add color+pbr. */
-function prepGeometry(src: THREE.BufferGeometry, matrix: THREE.Matrix4, surf: Surface, keepUv: boolean, slot: string): THREE.BufferGeometry {
+function prepGeometry(src: THREE.BufferGeometry, matrix: THREE.Matrix4, surf: Surface, keepUv: boolean, slot: string, lod?: 0 | 1): THREE.BufferGeometry {
   const out = new THREE.BufferGeometry();
   const pos = src.getAttribute('position') as THREE.BufferAttribute;
   out.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos.array as ArrayLike<number>), 3));
@@ -185,7 +190,26 @@ function prepGeometry(src: THREE.BufferGeometry, matrix: THREE.Matrix4, surf: Su
   }
   out.setAttribute('color', new THREE.BufferAttribute(col, 3));
   out.setAttribute('pbr', new THREE.BufferAttribute(pbr, 4));
+  out.userData.lod = lodClass(out, surf, lod);
   return out;
+}
+
+/** Parts smaller than this (largest dimension) only show up close. */
+const DETAIL_MAX = 0.028;
+/** Wire-thin parts (antennas, rails, cables): middle dimension below this only show up close. */
+const DETAIL_THIN = 0.011;
+
+/** -1 = both levels, 0 = close-up only, 1 = distant only. */
+function lodClass(g: THREE.BufferGeometry, surf: Surface, lod: 0 | 1 | undefined): number {
+  if (lod !== undefined) return lod;
+  if (isGlow(surf)) return -1;
+  g.computeBoundingBox();
+  const b = g.boundingBox!;
+  const dx = b.max.x - b.min.x, dy = b.max.y - b.min.y, dz = b.max.z - b.min.z;
+  const mx = Math.max(dx, dy, dz);
+  const mn = Math.min(dx, dy, dz);
+  const mid = dx + dy + dz - mx - mn;
+  return mx < DETAIL_MAX || mid < DETAIL_THIN ? 0 : -1;
 }
 
 export function composeMatrix(p?: V3, r?: V3, s?: V3 | number): THREE.Matrix4 {
@@ -232,7 +256,7 @@ export class NB {
   add(geo: THREE.BufferGeometry, surf: Surface, o: AddOpts = {}): this {
     const slot = normSlot(o.slot);
     const m = composeMatrix(o.p, o.r, o.s);
-    const g = prepGeometry(geo, m, surf, !!o.keepUv, slot);
+    const g = prepGeometry(geo, m, surf, !!o.keepUv, slot, o.lod);
     let list = this.parts.get(slot);
     if (!list) this.parts.set(slot, (list = []));
     list.push(g);
@@ -389,6 +413,8 @@ export type AnimFn = (c: Ctx, s: ModelAnimState) => void;
 
 interface SkinT {
   geo: THREE.BufferGeometry;
+  /** Distant body without the close-up detail parts (null when it would save too little). */
+  geoLo: THREE.BufferGeometry | null;
   inverses: THREE.Matrix4[];
   sphere: THREE.Sphere;
   /** Only the root bone carries geometry: render as a plain (non-skinned) Mesh. */
@@ -398,6 +424,8 @@ interface SkinT {
 export interface ModelTemplate {
   root: NodeT;
   skin: SkinT | null;
+  /** Node name of each bone index of the skinned body. */
+  boneNames: string[];
   height: number;
   radius: number;
   turret?: string;
@@ -405,6 +433,8 @@ export interface ModelTemplate {
   smoke?: string[];
   /** Base HDR intensity per separate glow slot. Default 3. */
   glow?: Record<string, number>;
+  /** Ambient effect points (node names) per emitter kind: steam vents, welding sparks. */
+  fx?: Partial<Record<'steam' | 'sparks', string[]>>;
   anim?: AnimFn;
   init?: (c: Ctx) => void;
 }
@@ -417,11 +447,16 @@ export interface TemplateSpec {
   muzzles?: string[];
   smoke?: string[];
   glow?: Record<string, number>;
+  fx?: Partial<Record<'steam' | 'sparks', string[]>>;
   anim?: AnimFn;
   init?: (c: Ctx) => void;
 }
 
 const DUST = [0.11, 0.085, 0.055];
+/** The distant body is used only if it has fewer than this share of the close-up body's triangles. */
+const LOD_MIN_SAVING = 0.9;
+/** Camera distance (world units) beyond which models switch to their distant body. */
+export const LOD_DISTANCE = 17;
 
 function applyGroundAO(g: THREE.BufferGeometry, h: number, min: number) {
   const P = g.getAttribute('position').array as Float32Array;
@@ -441,6 +476,7 @@ function applyGroundAO(g: THREE.BufferGeometry, h: number, min: number) {
 
 export function makeTemplate(spec: TemplateSpec): ModelTemplate {
   const bodyParts: THREE.BufferGeometry[] = [];
+  const nodeNames: string[] = [];
   const inverses: THREE.Matrix4[] = [];
   let boneCount = 0;
 
@@ -452,7 +488,10 @@ export function makeTemplate(spec: TemplateSpec): ModelTemplate {
     );
     const world = parentWorld.clone().multiply(local);
     const bone = nb.hasBodyDeep() ? boneCount++ : -1;
-    if (bone >= 0) inverses[bone] = world.clone().invert();
+    if (bone >= 0) {
+      inverses[bone] = world.clone().invert();
+      nodeNames[bone] = nb.name;
+    }
     const meshes: MeshT[] = [];
     for (const [slot, list] of nb.parts) {
       if (slot === 'body') {
@@ -490,30 +529,41 @@ export function makeTemplate(spec: TemplateSpec): ModelTemplate {
 
   let skin: SkinT | null = null;
   if (bodyParts.length) {
-    const geo = bodyParts.length === 1 ? bodyParts[0] : mergeGeometries(bodyParts, false);
+    const hiParts = bodyParts.filter((g) => g.userData.lod !== 1);
+    const loParts = bodyParts.filter((g) => g.userData.lod !== 0);
+    const merge = (list: THREE.BufferGeometry[]) => (list.length === 1 ? list[0] : mergeGeometries(list, false));
+    const geo = merge(hiParts);
     if (!geo) throw new Error('body merge failed');
-    if (spec.root.ao) applyGroundAO(geo, spec.root.ao.h, spec.root.ao.min);
-    geo.computeBoundingSphere();
-    geo.computeBoundingBox();
+    const tris = (list: THREE.BufferGeometry[]) => list.reduce((a, g) => a + g.index!.count / 3, 0);
+    // a distant body only pays off when the close-up detail is a real share of the triangles
+    let geoLo = loParts.length && tris(loParts) < tris(hiParts) * LOD_MIN_SAVING ? merge(loParts) : null;
+    if (geoLo === geo) geoLo = null;
+    const rigid = boneCount === 1;
+    for (const g of geoLo ? [geo, geoLo] : [geo]) {
+      if (spec.root.ao) applyGroundAO(g, spec.root.ao.h, spec.root.ao.min);
+      g.computeBoundingSphere();
+      g.computeBoundingBox();
+      if (rigid) {
+        g.deleteAttribute('skinIndex');
+        g.deleteAttribute('skinWeight');
+      }
+    }
     const sphere = geo.boundingSphere!.clone();
     sphere.radius *= 1.15;
-    const rigid = boneCount === 1;
-    if (rigid) {
-      geo.deleteAttribute('skinIndex');
-      geo.deleteAttribute('skinWeight');
-    }
-    skin = { geo, inverses, sphere, rigid };
+    skin = { geo, geoLo, inverses, sphere, rigid };
   }
 
   return {
     root,
     skin,
+    boneNames: nodeNames,
     height: spec.height,
     radius: spec.radius,
     turret: spec.turret,
     muzzles: spec.muzzles ?? [],
     smoke: spec.smoke,
     glow: spec.glow,
+    fx: spec.fx,
     anim: spec.anim,
     init: spec.init,
   };
@@ -637,22 +687,36 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
   const top = buildNode(tpl.root, ctx, bones);
   root.add(top);
   if (tpl.skin) {
-    const mat = bodyMaterial(ctx.team, 0, true, !tpl.skin.rigid);
-    let mesh: THREE.Mesh;
-    if (tpl.skin.rigid) {
-      mesh = new THREE.Mesh(tpl.skin.geo, mat);
-    } else {
-      const sk = new THREE.SkinnedMesh(tpl.skin.geo, mat);
-      sk.boundingSphere = tpl.skin.sphere;
-      sk.bind(new THREE.Skeleton(bones, tpl.skin.inverses), IDENTITY);
-      mesh = sk;
-    }
-    mesh.name = 'body';
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.customDepthMaterial = shadowDepthMaterial(mesh);
-    root.add(mesh);
-    ctx.bodies.push(mesh);
+    const skin = tpl.skin;
+    const mat = bodyMaterial(ctx.team, 0, true, !skin.rigid);
+    // both levels of detail share one skeleton (one bone texture per instance)
+    const skeleton = skin.rigid ? null : new THREE.Skeleton(bones, skin.inverses);
+    const mk = (geo: THREE.BufferGeometry, name: string): THREE.Mesh => {
+      let mesh: THREE.Mesh;
+      if (!skeleton) {
+        mesh = new THREE.Mesh(geo, mat);
+      } else {
+        const sk = new THREE.SkinnedMesh(geo, mat);
+        sk.boundingSphere = skin.sphere;
+        sk.bind(skeleton, IDENTITY);
+        mesh = sk;
+      }
+      mesh.name = name;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.customDepthMaterial = shadowDepthMaterial(mesh);
+      ctx.bodies.push(mesh);
+      return mesh;
+    };
+    const hi = mk(skin.geo, 'body');
+    if (skin.geoLo) {
+      // close-up detail near the camera, the lighter body further out: still one draw call either way
+      const lod = new THREE.LOD();
+      lod.name = 'lod';
+      lod.addLevel(hi, 0, 0.08);
+      lod.addLevel(mk(skin.geoLo, 'body-lo'), LOD_DISTANCE, 0.08);
+      root.add(lod);
+    } else root.add(hi);
   }
   tpl.init?.(ctx);
   const anim = tpl.anim;
@@ -661,10 +725,21 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
     turret: tpl.turret ? ctx.n[tpl.turret] : undefined,
     muzzles: tpl.muzzles.map((m) => ctx.n[m]).filter((m): m is THREE.Object3D => !!m),
     smokePoints: tpl.smoke ? tpl.smoke.map((m) => ctx.n[m]).filter((m): m is THREE.Object3D => !!m) : undefined,
+    fxPoints: tpl.fx ? fxPointsOf(tpl, ctx) : undefined,
     height: tpl.height,
     radius: tpl.radius,
+    typeId,
     update(state: ModelAnimState) {
       if (anim) anim(ctx, state);
+    },
+    setVariant(v: number) {
+      ctx.setVariant(v);
+    },
+    node(name: string) {
+      return ctx.n[name];
+    },
+    nodeBounds(name: string, deep = true) {
+      return nodeBounds(tpl, name, deep);
     },
     dispose() {
       root.removeFromParent();
@@ -672,4 +747,52 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
       for (const b of ctx.bodies) (b as THREE.SkinnedMesh).skeleton?.dispose();
     },
   };
+}
+
+function fxPointsOf(tpl: ModelTemplate, ctx: Ctx): { kind: 'steam' | 'sparks'; node: THREE.Object3D }[] {
+  const out: { kind: 'steam' | 'sparks'; node: THREE.Object3D }[] = [];
+  for (const kind of ['steam', 'sparks'] as const) for (const n of tpl.fx?.[kind] ?? []) if (ctx.n[n]) out.push({ kind, node: ctx.n[n] });
+  return out;
+}
+
+const boundsCache = new WeakMap<ModelTemplate, Map<string, THREE.Box3 | null>>();
+const _bv = new THREE.Vector3();
+
+/**
+ * Bounds of the body geometry skinned to node `name` (and, if deep, to its descendants), in that node's
+ * local (bind) frame. Null when the node carries no body geometry. Cached per template.
+ */
+export function nodeBounds(tpl: ModelTemplate, name: string, deep = true): THREE.Box3 | null {
+  let cache = boundsCache.get(tpl);
+  if (!cache) boundsCache.set(tpl, (cache = new Map()));
+  const key = `${name}|${deep ? 1 : 0}`;
+  if (cache.has(key)) return cache.get(key)!;
+  let result: THREE.Box3 | null = null;
+  const skin = tpl.skin;
+  const bone = tpl.boneNames.indexOf(name);
+  if (skin && bone >= 0) {
+    // bones of the subtree
+    const want = new Set<number>([bone]);
+    if (deep) {
+      const find = (n: NodeT): NodeT | null => (n.name === name ? n : n.children.map(find).find((x) => x) ?? null);
+      const start = find(tpl.root);
+      const walk = (n: NodeT) => {
+        if (n.bone >= 0) want.add(n.bone);
+        n.children.forEach(walk);
+      };
+      if (start) walk(start);
+    }
+    const pos = skin.geo.getAttribute('position') as THREE.BufferAttribute;
+    const si = skin.geo.getAttribute('skinIndex') as THREE.BufferAttribute | undefined;
+    const inv = skin.inverses[bone];
+    const box = new THREE.Box3();
+    for (let i = 0; i < pos.count; i++) {
+      const b = si ? si.getX(i) : 0;
+      if (!want.has(b)) continue;
+      box.expandByPoint(_bv.fromBufferAttribute(pos, i).applyMatrix4(inv));
+    }
+    if (!box.isEmpty()) result = box;
+  }
+  cache.set(key, result);
+  return result;
 }

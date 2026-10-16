@@ -602,3 +602,71 @@ export function orePile(nb: NB, x: number, y: number, z: number, rad: number, h:
 const ORE_DIRT: Mat = { c: 0x7a5a2c, m: 0.35, r: 0.7, d: 1 };
 const ORE_BRIGHT: Mat = { c: 0xffd860, m: 0.9, r: 0.3, d: 3 };
 
+
+// ---------------------------------------------------------------------------------------------
+// Close-up detail (LOD 0 only: dropped from the distant body)
+// ---------------------------------------------------------------------------------------------
+
+const RIVET = new THREE.OctahedronGeometry(1, 0);
+
+/** Row of `n` rivet / bolt heads from a to b (close-up detail). */
+export function rivets(nb: NB, a: V3, b: V3, n: number, size = 0.006, mat: Mat = M.gun): void {
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    nb.add(RIVET, mat, { p: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t], s: [size, size * 0.6, size], lod: 0 });
+  }
+}
+
+/** Seven-segment stencil layout per digit: a b c d e f g. */
+const SEGS: Record<string, string> = {
+  '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcdfg',
+};
+
+/**
+ * Stencilled tactical number on a vertical face facing +Z (rotate with r), centred at p, digit height h.
+ * Close-up detail: flat quads, about a dozen triangles per digit.
+ */
+export function stencilNumber(nb: NB, text: string, p: V3, r: V3 = [0, 0, 0], h = 0.04, mat: Mat = M.white): void {
+  const n = new NB('_num', p, r);
+  const w = h * 0.55;
+  const t = h * 0.15;
+  const gap = w * 0.45;
+  const total = text.length * w + (text.length - 1) * gap;
+  for (let i = 0; i < text.length; i++) {
+    const segs = SEGS[text[i]];
+    if (!segs) continue;
+    const cx = -total / 2 + w / 2 + i * (w + gap);
+    const put = (x: number, y: number, sw: number, sh: number) => n.add(quadGeo(sw, sh), mat, { p: [cx + x, y, 0], lod: 0 });
+    const vy = h / 2 - t / 2;
+    for (const s of segs) {
+      if (s === 'a') put(0, vy, w, t);
+      else if (s === 'd') put(0, -vy, w, t);
+      else if (s === 'g') put(0, 0, w, t);
+      else if (s === 'b') put(w / 2 - t / 2, h / 4, t, h / 2);
+      else if (s === 'c') put(w / 2 - t / 2, -h / 4, t, h / 2);
+      else if (s === 'e') put(-w / 2 + t / 2, -h / 4, t, h / 2);
+      else if (s === 'f') put(-w / 2 + t / 2, h / 4, t, h / 2);
+    }
+  }
+  mergeChild(nb, n);
+}
+
+/** Radiation trefoil (black on yellow disc) lying in XZ, normal +Y; rotate to place on other faces. */
+export function trefoil(nb: NB, size: number, p: V3, r: V3 = [0, 0, 0]): void {
+  const n = new NB('_tre', p, r);
+  n.add(discGeo(size, 0.001, 12), M.yellow);
+  for (let i = 0; i < 3; i++) {
+    const g = new THREE.RingGeometry(size * 0.24, size * 0.82, 5, 1, (i * 2 * Math.PI) / 3 + Math.PI / 6, Math.PI / 3);
+    g.rotateX(-Math.PI / 2);
+    n.add(g, M.black, { p: [0, 0.0022, 0] });
+  }
+  n.add(discGeo(size * 0.15, 0.001, 6), M.black, { p: [0, 0.0024, 0] });
+  mergeChild(nb, n);
+}
+
+/** Small hatch with a handle on a horizontal surface (close-up handle). */
+export function hatch(nb: NB, r: number, p: V3, mat: Mat = M.teamDark): void {
+  nb.cyl(mat, r, r * 1.05, 0.01, p[0], p[1] + 0.005, p[2], { seg: 10 });
+  nb.box(M.steel, r * 0.9, 0.006, 0.006, p[0], p[1] + 0.013, p[2], { b: 0, slot: undefined });
+  rivets(nb, [p[0] - r * 0.7, p[1] + 0.011, p[2] - r * 0.7], [p[0] + r * 0.7, p[1] + 0.011, p[2] - r * 0.7], 3, 0.004);
+}
