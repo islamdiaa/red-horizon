@@ -19,35 +19,69 @@ function lumpy(g: THREE.BufferGeometry, amount: number, seed: number): THREE.Buf
   return flat(m);
 }
 
-function goldCluster(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const spots = [[0, 0, 0.11], [0.13, 0.05, 0.085], [-0.1, 0.09, 0.08], [0.04, -0.13, 0.075]];
-  spots.forEach(([x, z, r], k) => {
-    const g = lumpy(new THREE.IcosahedronGeometry(r, 0), 0.45, 100 + k);
-    g.scale(1, 0.7, 1);
-    g.translate(x, r * 0.45, z);
-    parts.push(g);
-  });
-  return mergeGeometries(parts)!;
+/** Give a part a flat colour and a "crystal" weight (aMetal: 0 rock, 1 crystal). */
+function paint(g: THREE.BufferGeometry, c: [number, number, number], metal: number, jitter = 0.15, seed = 0): THREE.BufferGeometry {
+  const f = flat(g);
+  f.deleteAttribute('uv');
+  f.computeVertexNormals();
+  const n = f.attributes.position.count;
+  const col = new Float32Array(n * 3), met = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const v = 1 + (hash2((i / 3) | 0, seed, 3) - 0.5) * jitter;
+    col[i * 3] = c[0] * v; col[i * 3 + 1] = c[1] * v; col[i * 3 + 2] = c[2] * v;
+    met[i] = metal;
+  }
+  f.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  f.setAttribute('aMetal', new THREE.BufferAttribute(met, 1));
+  return f;
 }
 
+/** A crystal shard: a hexagonal prism with a pointed tip, leaning out from (x, z). */
+function shard(r: number, h: number, x: number, z: number, lean: number, dir: number): THREE.BufferGeometry {
+  const body = new THREE.CylinderGeometry(r, r * 1.1, h, 5, 1, true).translate(0, h / 2, 0);
+  const tip = new THREE.ConeGeometry(r, r * 2.4, 5, 1, true).translate(0, h + r * 1.2, 0);
+  const g = mergeGeometries([body.toNonIndexed(), tip.toNonIndexed()])!;
+  g.rotateZ(lean);
+  g.rotateY(dir);
+  return g.translate(x, -0.02, z);
+}
+
+/** [ENV] Ore pile: a rusty, lumpy mound bristling with golden crystal shards (was: plain golden lumps). */
+function goldCluster(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const mound = lumpy(new THREE.IcosahedronGeometry(0.17, 0), 0.4, 101);
+  mound.scale(1.15, 0.5, 1.0);
+  parts.push(paint(mound, [0.3, 0.17, 0.08], 0, 0.3, 1));
+  const spots: [number, number, number, number, number][] = [
+    [0.0, 0.0, 0.05, 0.17, 0.1], [0.09, 0.04, 0.04, 0.12, 0.5], [-0.08, 0.05, 0.036, 0.11, 0.55], [0.02, -0.09, 0.034, 0.1, 0.65],
+  ];
+  spots.forEach(([x, z, r, h, lean], k) => {
+    const dir = Math.atan2(z, x) + Math.PI + (hash2(k, 7) - 0.5) * 0.4;
+    const tone = 0.85 + hash2(k, 8) * 0.3;
+    parts.push(paint(shard(r, h, x, z, lean, dir), [1.0 * tone, 0.62 * tone, 0.12 * tone], 1, 0.12, 10 + k));
+  });
+  return mergeGeometries(parts)!.scale(1.25, 1.25, 1.25);
+}
+
+/** [ENV] Gem cluster: tall glowing crystals on a dark rock base. */
 function gemCluster(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  const n = 5;
+  const base = lumpy(new THREE.DodecahedronGeometry(0.12, 0), 0.4, 111);
+  base.scale(1.1, 0.45, 1.0);
+  parts.push(paint(base, [0.16, 0.15, 0.17], 0, 0.3, 2));
+  const n = 6;
   for (let k = 0; k < n; k++) {
-    const g = new THREE.OctahedronGeometry(0.07, 0);
-    g.scale(0.8, 2.6 + hash2(k, 1) * 1.2, 0.8);
+    const g = new THREE.OctahedronGeometry(0.06, 0);
+    g.scale(0.75, 3.0 + hash2(k, 1) * 1.4, 0.75);
     const a = (k / n) * Math.PI * 2;
-    const tilt = k === 0 ? 0 : 0.45;
+    const tilt = k === 0 ? 0 : 0.4 + hash2(k, 2) * 0.2;
     g.rotateZ(Math.cos(a) * tilt);
     g.rotateX(Math.sin(a) * tilt);
-    const r = k === 0 ? 0 : 0.08;
-    g.translate(Math.cos(a) * r, 0.1, Math.sin(a) * r);
-    parts.push(flat(g));
+    const r = k === 0 ? 0 : 0.07;
+    g.translate(Math.cos(a) * r, 0.12, Math.sin(a) * r);
+    parts.push(paint(g, [1, 1, 1], 1, 0.1, 20 + k));
   }
-  const m = mergeGeometries(parts)!;
-  m.computeVertexNormals();
-  return m;
+  return mergeGeometries(parts)!.scale(1.3, 1.3, 1.3);
 }
 
 const SPARKLE_VERT = `
@@ -61,16 +95,23 @@ function sparkleMaterial(params: THREE.MeshStandardMaterialParameters, uTime: { 
     shader.uniforms.uTime = uTime;
     shader.uniforms.uSparkColor = { value: sparkleColor };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n' + SPARKLE_VERT)
+      .replace('#include <common>', '#include <common>\n' + SPARKLE_VERT + 'attribute float aMetal;\nvarying float vMetal;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vMetal = aMetal;
         {
           vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
           float ph = fract(sin(dot(ip.xz + transformed.xz * 13.0, vec2(12.9898, 78.233))) * 43758.5453);
-          vSpark = pow(max(0.0, sin(uTime * (0.7 + ph * 1.5) + ph * 40.0)), 60.0) * step(0.7, ph);
+          // [ENV] crystals glint more often (rock never)
+          vSpark = pow(max(0.0, sin(uTime * (0.7 + ph * 1.5) + ph * 40.0)), 40.0) * step(0.55, ph) * aMetal;
         }`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vSpark;\nuniform vec3 uSparkColor;')
+      .replace('#include <common>', '#include <common>\nvarying float vSpark;\nvarying float vMetal;\nuniform vec3 uSparkColor;\nuniform float uTime;')
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor *= vMetal;`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(0.92, roughnessFactor, vMetal);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        totalEmissiveRadiance *= vMetal;
         totalEmissiveRadiance += uSparkColor * vSpark * ${intensity.toFixed(2)};`);
   };
   mat.customProgramCacheKey = () => 'ore-' + key;
@@ -92,19 +133,19 @@ export class OreRenderer {
 
   constructor(private map: GameMap, private heightAt: (x: number, y: number) => number) {
     this.goldMat = sparkleMaterial({
-      color: new THREE.Color(0.62, 0.42, 0.12), metalness: 0.7, roughness: 0.42,
-      emissive: new THREE.Color(0.3, 0.16, 0.02), emissiveIntensity: 0.12,
-    }, this.uTime, new THREE.Color(3, 2.4, 1.2), 'gold', 1.0);
+      vertexColors: true, metalness: 0.5, roughness: 0.32, flatShading: true,
+      emissive: new THREE.Color(0.55, 0.3, 0.04), emissiveIntensity: 0.3,
+    }, this.uTime, new THREE.Color(3.2, 2.5, 1.2), 'gold2', 1.4);
     this.gemMat = sparkleMaterial({
-      color: new THREE.Color(0.55, 0.55, 0.55), metalness: 0.25, roughness: 0.12,
+      vertexColors: true, metalness: 0.3, roughness: 0.1, flatShading: true,
       emissive: new THREE.Color(0, 0, 0), transparent: false,
-    }, this.uTime, new THREE.Color(1.6, 1.6, 1.8), 'gem', 1.0);
-    // gems glow softly in their own colour (instance colour)
+    }, this.uTime, new THREE.Color(1.8, 1.8, 2.0), 'gem2', 1.2);
+    // gems glow in their own colour (instance colour), pulsing gently
     this.gemMat.onBeforeCompile = ((orig) => (shader: any, r: any) => {
       orig(shader, r);
       shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         #ifdef USE_INSTANCING_COLOR
-          totalEmissiveRadiance += vColor * 0.22;
+          totalEmissiveRadiance += vColor * vMetal * (0.6 + 0.18 * sin(uTime * 1.7 + vSpark * 3.0));
         #endif`);
     })(this.gemMat.onBeforeCompile);
     this.allocate(Math.max(64, map.oreFieldCells.length * 3 + 64));

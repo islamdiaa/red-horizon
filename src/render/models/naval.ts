@@ -13,11 +13,10 @@
 import * as THREE from 'three';
 import { NB, makeTemplate, type Ctx, type Mat, type ModelTemplate } from './builder';
 import type { ModelAnimState } from './types';
-import { M, G, alliedStar, antenna, barrel, faceRot, hazard, lamp, lathe, pipe, prismXY, prismXZ, sovietStar, windows, ladder, grille, mergeChild, rivets, stencilNumber } from './parts';
+import { M, G, alliedStar, antenna, barrel, faceRot, hazard, lamp, lathe, pipe, prismXY, prismXZ, sovietStar, windows, ladder, mergeChild, rivets, stencilNumber } from './parts';
 import { approach, blink, dtOf, healthVariant, recoil } from './anim';
 import { BodyVariant } from './materials';
-
-type P2 = [number, number];
+import { near, pbox, searchlight } from './unitkit';
 
 // ---------------------------------------------------------------------------------------------
 // Palette
@@ -387,6 +386,100 @@ function navLights(nb: NB, x: number, y: number, half: number, mastTop: number, 
   nb.sph(G.white, 0.008, mastX, mastTop + 0.01, 0, { seg: 4, slot: 'glow:strobe' });
 }
 
+// ---------------------------------------------------------------------------------------------
+// [UNITS] Naval detail kit: hull numbers, lifebuoys, portholes, CIWS, boats on davits, flags, vents, crew
+// ---------------------------------------------------------------------------------------------
+
+const ORANGE: Mat = { c: 0xe0601c, m: 0.1, r: 0.6, d: 3 };
+const CREW: Mat = { c: 0x34383e, m: 0, r: 0.86, d: 2 };
+
+/** Stencilled hull number on both bows, just under the deck edge at x. */
+function hullNumber(nb: NB, H: HullOut, x: number, text: string, h = 0.04): void {
+  const y = H.deckAt(x) - h * 0.75;
+  const z = H.halfAt(x) * 1.0 + 0.004;
+  stencilNumber(nb, text, [x, y, z], [0, 0.06, 0], h, M.white);
+  stencilNumber(nb, text, [x, y, -z], [0, Math.PI - 0.06, 0], h, M.white);
+}
+
+/** Lifebuoys on a superstructure side (close-up). */
+function lifebuoys(nb: NB, x: number, y: number, z: number, n = 2, gap = 0.05): void {
+  near(nb, () => {
+    for (let i = 0; i < n; i++) {
+      for (const s of [-1, 1]) nb.add(new THREE.TorusGeometry(0.011, 0.0035, 3, 8), ORANGE, { p: [x + (i - (n - 1) / 2) * gap, y, (z + 0.004) * s] });
+    }
+  });
+}
+
+/** Row of portholes (close-up) on both sides of a superstructure face at z. */
+function portholes(nb: NB, x0: number, x1: number, y: number, z: number, n: number): void {
+  near(nb, () => {
+    for (let i = 0; i < n; i++) {
+      const x = x0 + ((x1 - x0) * (i + 0.5)) / n;
+      for (const s of [-1, 1]) nb.add(new THREE.CircleGeometry(0.0055, 5), M.glass, { p: [x, y, (z + 0.0015) * s], r: [0, s > 0 ? 0 : Math.PI, 0] });
+    }
+  });
+}
+
+/** Close-in weapon system: pedestal, white radome and a gatling barrel facing +X. */
+function ciws(nb: NB, x: number, y: number, z: number): void {
+  nb.cyl(GREY_DARK, 0.018, 0.022, 0.02, x, y + 0.01, z, { seg: 7 });
+  nb.cyl(M.offwhite, 0.016, 0.018, 0.03, x - 0.004, y + 0.035, z, { seg: 7 });
+  nb.sph(M.offwhite, 0.016, x - 0.004, y + 0.05, z, { seg: 6, s: [1, 0.8, 1] });
+  nb.cyl(GREY_DARK, 0.004, 0.004, 0.045, x + 0.03, y + 0.03, z, { r: [0, 0, -Math.PI / 2], seg: 5 });
+}
+
+/** Ship's boat slung from two davits over the deck edge (side = ±1). */
+function davitBoat(nb: NB, x: number, y: number, z: number, side: number, len = 0.1): void {
+  nb.add(lathe([[0.0, -len / 2], [0.016, -len * 0.35], [0.02, 0.0], [0.016, len * 0.35], [0.0, len / 2]], 6), M.offwhite, { p: [x, y + 0.03, z], r: [0, 0, Math.PI / 2], s: [1, 1, 0.8] });
+  near(nb, () => {
+    nb.box(ORANGE, len * 0.7, 0.004, 0.026, x, y + 0.046, z, { b: 0 });
+    for (const dx of [-len * 0.38, len * 0.38]) {
+      pbox(nb, GREY_DARK, 0.006, 0.07, 0.006, x + dx, y + 0.035, z - side * 0.01);
+      pbox(nb, GREY_DARK, 0.006, 0.006, 0.03, x + dx, y + 0.07, z + side * 0.002);
+    }
+  });
+}
+
+/** Team ensign on a short staff at the stern (flag in the body: costs nothing extra). */
+function ensign(nb: NB, x: number, y: number, h = 0.12): void {
+  nb.cyl(GREY_DARK, 0.003, 0.003, h, x, y + h / 2, 0, { seg: 3 });
+  nb.box(M.team, 0.05, 0.03, 0.002, x + 0.026, y + h - 0.02, 0, { b: 0 });
+}
+
+/** Mushroom vents and a ventilator cowl (close-up). */
+function vents(nb: NB, pts: [number, number, number][]): void {
+  near(nb, () => {
+    for (const [x, y, z] of pts) {
+      nb.cyl(GREY_DARK, 0.005, 0.005, 0.02, x, y + 0.01, z, { seg: 4, open: true });
+      nb.cyl(GREY_LIGHT, 0.011, 0.008, 0.008, x, y + 0.022, z, { seg: 6 });
+    }
+  });
+}
+
+/** Sailors standing on deck (close-up figures). */
+function sailors(nb: NB, pts: [number, number, number][], cloth: Mat = CREW): void {
+  near(nb, () => {
+    for (const [x, y, z] of pts) {
+      pbox(nb, cloth, 0.016, 0.032, 0.022, x, y + 0.016, z);
+      pbox(nb, cloth, 0.018, 0.026, 0.026, x, y + 0.045, z);
+      nb.sph(M.skin, 0.008, x, y + 0.066, z, { seg: 4 });
+      pbox(nb, M.white, 0.016, 0.004, 0.016, x, y + 0.074, z);
+    }
+  });
+}
+
+/** Lattice mast detail (close-up): cross bracing and an aerial yard, around a mast at x. */
+function mastLattice(nb: NB, x: number, y: number, h: number): void {
+  near(nb, () => {
+    for (let k = 0; k < 3; k++) {
+      const yy = y + h * (0.15 + k * 0.18);
+      pbox(nb, GREY_DARK, 0.03, 0.003, 0.003, x, yy, 0, [0, 0, 0.7]);
+      pbox(nb, GREY_DARK, 0.003, 0.003, 0.03, x, yy, 0, [0.7, 0, 0]);
+    }
+    for (const s of [-1, 1]) nb.cyl(GREY_DARK, 0.0015, 0.0015, 0.06, x, y + h * 0.82, 0.05 * s, { seg: 3 });
+  });
+}
+
 const SHIP_BOB = 0.012;
 
 /** Shared ship animation: bob/roll/pitch on 'hull', health scorch, death list & sink, strobe. */
@@ -463,6 +556,21 @@ function gunboat(): ModelTemplate {
   deckRails(hl, H, -0.42, 0.3, 0.022, 0.1);
   navLights(hl, 0.08, dy + 0.065, 0.085, top, -0.01);
   hl.node('exhaust', [-0.3, dy + 0.03, 0]);
+  // [UNITS] hull number, bridge-wing MGs with gunners, searchlight, lifebuoys, ensign, crew
+  hullNumber(hl, H, 0.3, '27', 0.034);
+  for (const s of [-1, 1]) {
+    hl.cyl(GREY_DARK, 0.004, 0.004, 0.05, 0.12, dy + 0.066, 0.09 * s, { r: [0, 0, -Math.PI / 2], seg: 4 });
+    near(hl, () => pbox(hl, M.olive, 0.016, 0.012, 0.01, 0.09, dy + 0.058, 0.09 * s + 0.008 * s));
+  }
+  searchlight(hl, [0.05, dy + 0.105, 0.0], 0.014, false);
+  lifebuoys(hl, -0.13, dy + 0.03, 0.065, 1);
+  ensign(hl, -0.44, H.deckAt(-0.44), 0.1);
+  portholes(hl, -0.2, -0.06, dy + 0.02, 0.0655, 3);
+  sailors(hl, [
+    [0.12, H.deckAt(0.12), 0.06],
+    [-0.3, H.deckAt(-0.3), -0.04],
+  ]);
+  vents(hl, [[-0.06, dy + 0.05, 0.04]]);
 
   return makeTemplate({
     root: r,
@@ -536,6 +644,28 @@ function destroyer(): ModelTemplate {
   deckRails(hl, H, -0.72, 0.55, 0.024, 0.11);
   navLights(hl, 0.28, dy + 0.085, 0.12, top, 0.14);
   hazard(hl, 0.16, 0.012, [-0.42, H.deckAt(-0.42) + 0.002, 0.11], [-Math.PI / 2, 0, 0]);
+  // [UNITS] hull number, CIWS, boats on davits, searchlights, lifebuoys, ensign, crew, mast lattice
+  hullNumber(hl, H, 0.5, '962', 0.04);
+  ciws(hl, -0.3, dy + 0.06, 0);
+  ciws(hl, 0.32, dy + 0.12, 0.0);
+  for (const s of [-1, 1]) {
+    davitBoat(hl, -0.2, dy + 0.06, 0.1 * s, s);
+    searchlight(hl, [0.27, dy + 0.13, 0.08 * s], 0.014, false);
+  }
+  lifebuoys(hl, 0.03, dy + 0.03, 0.0905, 2);
+  portholes(hl, -0.3, -0.1, dy + 0.03, 0.0855, 4);
+  ensign(hl, -0.74, H.deckAt(-0.74), 0.13);
+  mastLattice(hl, 0.14, dy + 0.13, 0.25);
+  sailors(hl, [
+    [0.5, H.deckAt(0.5), 0.05],
+    [-0.5, H.deckAt(-0.5), -0.06],
+    [0.0, dy + 0.09, 0.07],
+  ]);
+  vents(hl, [
+    [0.1, dy + 0.09, 0.05],
+    [-0.04, dy + 0.06, -0.07],
+    [-0.28, dy + 0.06, 0.06],
+  ]);
 
   return makeTemplate({
     root: r,
@@ -625,6 +755,28 @@ function cruiser(): ModelTemplate {
   // flag staff aft
   hl.cyl(GREY_DARK, 0.003, 0.003, 0.12, -1.13, H.deckAt(-1.13) + 0.06, 0, { seg: 3 });
   hl.box(M.team, 0.05, 0.03, 0.002, -1.105, H.deckAt(-1.13) + 0.1, 0, { b: 0 });
+  // [UNITS] hull number, CIWS, searchlights, boats, lifebuoys, portholes, crew, lattice masts
+  hullNumber(hl, H, 0.82, '68', 0.05);
+  for (const s of [-1, 1]) {
+    ciws(hl, -0.32, dy + 0.1, 0.1 * s);
+    searchlight(hl, [0.2, dy + 0.3, 0.1 * s], 0.018, false);
+    davitBoat(hl, -0.52, dy + 0.0, 0.2 * s, s, 0.12);
+  }
+  lifebuoys(hl, 0.0, dy + 0.03, 0.1505, 3, 0.08);
+  portholes(hl, -0.5, 0.5, H.deckAt(0) - 0.04, H.halfAt(0) - 0.004, 10);
+  mastLattice(hl, 0.06, dy + 0.42, 0.28);
+  mastLattice(hl, -0.42, dy + 0.1, 0.2);
+  sailors(hl, [
+    [0.8, H.deckAt(0.8), 0.06],
+    [0.45, H.deckAt(0.45), -0.15],
+    [-0.9, H.deckAt(-0.9), 0.08],
+    [-0.55, H.deckAt(-0.55), -0.14],
+  ]);
+  vents(hl, [
+    [0.2, dy + 0.08, 0.12],
+    [-0.2, dy + 0.08, -0.12],
+    [-0.36, dy + 0.1, 0.0],
+  ]);
 
   return makeTemplate({
     root: r,
@@ -718,6 +870,22 @@ function transport(): ModelTemplate {
   // stern anchor winch
   hl.cyl(GREY_DARK, 0.03, 0.03, 0.12, -0.66, dy + 0.03, 0, { r: [Math.PI / 2, 0, 0], seg: 8 });
   navLights(hl, -0.4, dy + 0.1, 0.19, top, -0.52);
+  // [UNITS] hull number, deck crane, searchlights, lifebuoys, crew, cargo nets
+  hullNumber(hl, H, 0.45, '1157', 0.04);
+  hl.cyl(GREY_DARK, 0.014, 0.016, 0.16, -0.32, dy + 0.08, 0.17, { seg: 6 });
+  hl.box(M.yellow, 0.3, 0.016, 0.016, -0.2, dy + 0.17, 0.17, { b: 0, r: [0, 0, -0.25] });
+  near(hl, () => hl.cyl(M.steel, 0.002, 0.002, 0.1, -0.07, dy + 0.15, 0.17, { seg: 3 }));
+  for (const s of [-1, 1]) searchlight(hl, [-0.38, dy + 0.14, 0.17 * s], 0.016, false);
+  lifebuoys(hl, -0.5, dy + 0.04, 0.18, 2);
+  ensign(hl, -0.7, H.deckAt(-0.7), 0.12);
+  sailors(hl, [
+    [0.3, dy + 0.005, 0.12],
+    [-0.3, dy + 0.005, -0.1],
+  ]);
+  near(hl, () => {
+    pbox(hl, M.webbing, 0.12, 0.004, 0.08, -0.12, dy + 0.057, 0.08);
+    for (let i = 0; i < 3; i++) pbox(hl, M.dark, 0.008, 0.002, 0.07, 0.0 + i * 0.05, dy + 0.007, 0.15);
+  });
 
   return makeTemplate({
     root: r,
@@ -801,6 +969,14 @@ function submarine(): ModelTemplate {
   // deck hatch + capstan
   hl.cyl(M.darker, 0.015, 0.015, 0.006, -0.25, dy + 0.017, 0, { seg: 8 });
   hl.cyl(GREY_DARK, 0.01, 0.01, 0.012, 0.36, dy + 0.017, 0, { seg: 6 });
+  // [UNITS] sail number, bridge lookouts, deck hatches, safety track
+  stencilNumber(hl, '415', [sx - 0.03, dy + 0.035, 0.0362], [0, 0, 0], 0.022);
+  stencilNumber(hl, '415', [sx - 0.03, dy + 0.035, -0.0362], [0, Math.PI, 0], 0.022);
+  sailors(hl, [[sx - 0.03, dy + 0.12, 0.012]]);
+  near(hl, () => {
+    for (const x of [0.3, -0.1, -0.35]) hl.cyl(M.darker, 0.012, 0.012, 0.004, x, dy + 0.016, 0, { seg: 6 });
+    pbox(hl, M.darker, 0.8, 0.003, 0.004, -0.0, dy + 0.0155, 0.02);
+  });
   // owner-only "ghost" outline on the surface while submerged (additive, fades in with submerged)
   const ghost = r.node('ghost', [0, 0.012, 0]);
   ghost.add(new THREE.CircleGeometry(0.5, 20), M.dark, { r: [-Math.PI / 2, 0, 0], s: [1.35, 1, 0.26], slot: 'fx:add:3fa8ff:0.32', keepUv: true });
@@ -920,6 +1096,12 @@ function missileSub(): ModelTemplate {
   for (let i = 0; i < 7; i++) prop.box(M.brass, 0.008, 0.075, 0.016, 0, 0, 0, { b: 0, r: [(i / 7) * Math.PI * 2, 0, 0.3] });
   prop.cyl(M.brass, 0.013, 0.009, 0.02, 0, 0, 0, { r: [0, 0, Math.PI / 2], seg: 6 });
   hl.cyl(M.darker, 0.015, 0.015, 0.006, 0.55, dy + 0.017, 0, { seg: 8 });
+  // [UNITS] lookout on the sail, deck hatches, team band on the missile deck
+  sailors(hl, [[sx - 0.03, dy + 0.12, -0.012]]);
+  hl.box(M.team, 0.36, 0.008, 0.134, mx - 0.11, dy + 0.058, 0, { b: 0 });
+  near(hl, () => {
+    for (const x of [0.45, 0.1, -0.5]) hl.cyl(M.darker, 0.012, 0.012, 0.004, x, dy + 0.018, 0, { seg: 6 });
+  });
   const ghost = r.node('ghost', [0, 0.012, 0]);
   ghost.add(new THREE.CircleGeometry(0.5, 20), M.dark, { r: [-Math.PI / 2, 0, 0], s: [1.55, 1, 0.3], slot: 'fx:add:3fa8ff:0.32', keepUv: true });
   r.node('exhaust', [sx - 0.05, dy + 0.2, 0]);

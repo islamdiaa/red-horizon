@@ -311,10 +311,182 @@ function broadleafGeometry(seed: number, lod = false): THREE.BufferGeometry {
   return mergeGeometries(parts.map((p) => flat(p)))!;
 }
 
-function boulderGeometry(seed: number, tint: [number, number, number] = [0.2, 0.19, 0.17], lod = false): THREE.BufferGeometry {
-  const g = lumpy(new THREE.IcosahedronGeometry(0.5, lod ? 0 : 1), 0.55, seed, true);
-  g.scale(1, 0.75, 1);
-  return colorize(g, new THREE.Color(...tint), 0.3, seed);
+/** Triangles (non-indexed) with one colour per triangle corner set, for hand-built shapes. */
+class TriBuilder {
+  pos: number[] = [];
+  col: number[] = [];
+  tri(a: number[], b: number[], c: number[], ca: number[], cb = ca, cc = ca) {
+    this.pos.push(...a, ...b, ...c);
+    this.col.push(...ca, ...cb, ...cc);
+  }
+  geometry(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+}
+
+/**
+ * [ENV] Conifer of drooping, jagged tiers (branch tips stick out, the rim sags). `snow` 0..1: a white mantle
+ * lies on the upper part of every tier, leaving the dark undersides and branch tips showing (snow-laden).
+ */
+function tieredPineGeometry(seed: number, tall: number, snow: number, lod = false, green: [number, number, number] = [0.045, 0.13, 0.065]): THREE.BufferGeometry {
+  const trunk = colorize(new THREE.CylinderGeometry(0.04, 0.07, 0.42, lod ? 4 : 5, 1, true).translate(0, 0.21, 0), new THREE.Color(0.13, 0.08, 0.05), 0.2, seed);
+  const b = new TriBuilder();
+  const tiers = lod ? 3 : 4;
+  const m = lod ? 6 : 10;
+  const SNOW = [0.84, 0.88, 0.94];
+  for (let k = 0; k < tiers; k++) {
+    const t = k / (tiers - 1);
+    const r = (0.47 - t * 0.33) * (0.92 + hash2(k, seed, 1) * 0.16);
+    const h = (0.46 - t * 0.12) * tall;
+    const yb = 0.3 + t * 0.74 * tall;
+    const apex = [0, yb + h, 0];
+    const shade = 0.75 + t * 0.35;
+    const g0 = [green[0] * shade, green[1] * shade, green[2] * shade];
+    const gTip = [green[0] * shade * 1.25, green[1] * shade * 1.2, green[2] * shade * 1.1];
+    const gUnder = [green[0] * 0.55, green[1] * 0.55, green[2] * 0.55];
+    const rim: number[][] = [];
+    const ph = hash2(seed, k, 2) * 6.28;
+    for (let i = 0; i < m; i++) {
+      const a = (i / m) * Math.PI * 2 + ph;
+      const tip = i % 2 === 0;
+      const rr = r * (tip ? 1 : 0.7) * (0.9 + hash2(i, seed + k, 3) * 0.2);
+      rim.push([Math.cos(a) * rr, yb - (tip ? 0.05 : 0) * tall, Math.sin(a) * rr]);
+    }
+    const under = [0, yb + 0.06 * tall, 0];
+    for (let i = 0; i < m; i++) {
+      const p = rim[i], q = rim[(i + 1) % m];
+      b.tri(apex, q, p, g0, i % 2 ? g0 : gTip, i % 2 ? gTip : g0);
+      if (k === 0) b.tri(under, p, q, gUnder); // (the upper tiers' undersides are hidden by the tier below)
+    }
+    if (snow > 0) {
+      // the mantle: a lumpy white cone over the upper part of the tier, its hem between the branch tips
+      const hem = 0.3 + (1 - snow) * 0.4;
+      const sApex = [0, yb + h + 0.012, 0];
+      const sr: number[][] = [];
+      for (let i = 0; i < m; i++) {
+        const a = (i / m) * Math.PI * 2 + ph + Math.PI / m;
+        const rr = r * (1 - hem) * 1.06 * (0.98 + hash2(i, seed + k, 5) * 0.14) * (i % 2 ? 1.12 : 0.98);
+        sr.push([Math.cos(a) * rr, yb + h * hem + 0.015 - (i % 2 ? 0.02 : 0), Math.sin(a) * rr]);
+      }
+      const sTop = SNOW, sHem = [SNOW[0] * 0.86, SNOW[1] * 0.88, SNOW[2] * 0.92];
+      for (let i = 0; i < m; i++) b.tri(sApex, sr[(i + 1) % m], sr[i], sTop, sHem, sHem);
+    }
+  }
+  return mergeGeometries([flat(trunk), b.geometry()])!;
+}
+
+/**
+ * [ENV] Stratified rock: irregular slabs stacked like sedimentary layers, each its own tone, flat tops (snow in
+ * winter), the upper layers stepped back. `elong` stretches it into a wall for cliff edges.
+ */
+function strataRockGeometry(seed: number, tint: [number, number, number], lod: boolean, snow: number, layers = 4, taper = 0.13, elong = 1): THREE.BufferGeometry {
+  const b = new TriBuilder();
+  const n = lod ? 5 : 8;
+  const L = lod ? Math.min(2, layers) : layers;
+  const radii: number[] = [], angs: number[] = [];
+  for (let i = 0; i < n; i++) {
+    angs.push((i / n) * Math.PI * 2 + (hash2(i, seed, 1) - 0.5) * 0.5);
+    radii.push(0.5 * (0.66 + hash2(i, seed, 2) * 0.56));
+  }
+  let y = -0.18;
+  const totalH = 0.72;
+  let ox = 0, oz = 0;
+  const SNOW = [0.84, 0.88, 0.94];
+  for (let l = 0; l < L; l++) {
+    const hl = (totalH / L) * (0.7 + hash2(l, seed, 3) * 0.6);
+    const sc = 1 - l * taper * (0.7 + hash2(l, seed, 4) * 0.6);
+    ox += (hash2(l, seed, 5) - 0.5) * 0.1;
+    oz += (hash2(l, seed, 6) - 0.5) * 0.1;
+    const tone = 0.6 + hash2(l, seed, 7) * 0.55;
+    const side = [tint[0] * tone, tint[1] * tone, tint[2] * tone];
+    const sideLo = [side[0] * 0.78, side[1] * 0.78, side[2] * 0.78];
+    // snow lies thick on the top, thinly on the ledges below
+    const sn = snow * (l === L - 1 ? 0.95 : 0.3);
+    const topC = sn > 0 ? [side[0] + (SNOW[0] - side[0]) * sn, side[1] + (SNOW[1] - side[1]) * sn, side[2] + (SNOW[2] - side[2]) * sn] : [side[0] * 1.15, side[1] * 1.15, side[2] * 1.12];
+    const ring = (yy: number, k: number) => angs.map((a, i) => {
+      const r = radii[i] * sc * k * (0.86 + hash2(i, seed + l * 7, 8) * 0.28);
+      return [ox + Math.cos(a) * r * elong, yy, oz + Math.sin(a) * r];
+    });
+    const lo = ring(y, 1), hi = ring(y + hl, 0.93);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      b.tri(lo[i], hi[i], hi[j], sideLo, side, side);
+      b.tri(lo[i], hi[j], lo[j], sideLo, side, sideLo);
+    }
+    // flat (slightly raised in the middle) top; the top layer's snow cap stops short of its rim
+    const c = [ox, y + hl + 0.02, oz];
+    if (l === L - 1 && sn > 0) {
+      const inner = hi.map(([x, yy, z]) => [ox + (x - ox) * 0.78, yy + 0.012, oz + (z - oz) * 0.78]);
+      const rim = [side[0] * 1.1 + (SNOW[0] - side[0]) * sn * 0.35, side[1] * 1.1 + (SNOW[1] - side[1]) * sn * 0.35, side[2] * 1.1 + (SNOW[2] - side[2]) * sn * 0.35];
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        // patchy: wind scours some of the cap down to a dusting
+        const f = 0.6 + hash2(i, seed, 9) * 0.4;
+        const cap = [side[0] + (topC[0] - side[0]) * f, side[1] + (topC[1] - side[1]) * f, side[2] + (topC[2] - side[2]) * f];
+        b.tri(c, inner[j], inner[i], topC, cap, cap);
+        b.tri(hi[i], inner[i], inner[j], rim, cap, cap);
+        b.tri(hi[i], inner[j], hi[j], rim, cap, rim);
+      }
+    } else {
+      for (let i = 0; i < n; i++) b.tri(c, hi[(i + 1) % n], hi[i], topC);
+    }
+    y += hl * 0.97;
+  }
+  return b.geometry();
+}
+
+/** [ENV] Chunky boulder: few big facets, banded like the cliffs, snow cap in winter. */
+function chunkyBoulderGeometry(seed: number, tint: [number, number, number], lod: boolean, snow: number): THREE.BufferGeometry {
+  const g = lumpy(new THREE.DodecahedronGeometry(0.5, 0), 0.32, seed, true);
+  g.scale(1.15, 0.72, 0.95);
+  const f = flat(g);
+  f.computeVertexNormals();
+  const p = f.attributes.position, nrm = f.attributes.normal;
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i += 3) {
+    const yc = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+    const band = 0.78 + hash2(Math.floor((yc + 1) * 6), seed, 9) * 0.4;
+    const up = Math.max(0, Math.min(1, (nrm.getY(i) - 0.55) / 0.3)) * snow;
+    for (let k = 0; k < 3; k++) {
+      col[(i + k) * 3] = tint[0] * band + (0.84 - tint[0] * band) * up;
+      col[(i + k) * 3 + 1] = tint[1] * band + (0.88 - tint[1] * band) * up;
+      col[(i + k) * 3 + 2] = tint[2] * band + (0.94 - tint[2] * band) * up;
+    }
+  }
+  f.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  void lod;
+  return f;
+}
+
+/** [ENV] A second shrub shape: a spray of upright fronds / twigs (fern, dry scrub or snowy shrub). */
+function shrubGeometry(seed: number, color: [number, number, number], snow: number): THREE.BufferGeometry {
+  const b = new TriBuilder();
+  const n = 7;
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 + hash2(k, seed, 1) * 0.6;
+    const len = 0.2 + hash2(k, seed, 2) * 0.1;
+    const lean = 0.5 + hash2(k, seed, 3) * 0.35;
+    const w = 0.045;
+    const dx = Math.cos(a), dz = Math.sin(a);
+    const base = [dx * 0.02, 0, dz * 0.02];
+    const mid = [dx * len * lean * 0.6, len * 0.75, dz * len * lean * 0.6];
+    const tip = [dx * len * lean, len * (0.85 + hash2(k, seed, 4) * 0.3), dz * len * lean];
+    const px = -dz * w, pz = dx * w;
+    const c0 = [color[0] * 0.6, color[1] * 0.6, color[2] * 0.6];
+    const c1 = snow > 0 ? [color[0] + (0.84 - color[0]) * snow, color[1] + (0.88 - color[1]) * snow, color[2] + (0.94 - color[2]) * snow] : [color[0] * 1.15, color[1] * 1.15, color[2] * 1.1];
+    // snow clings along the upper twigs too
+    const cm = snow > 0 ? [color[0] + (0.84 - color[0]) * snow * 0.6, color[1] + (0.88 - color[1]) * snow * 0.6, color[2] + (0.94 - color[2]) * snow * 0.6] : color;
+    b.tri(base, [mid[0] - px, mid[1], mid[2] - pz], [mid[0] + px, mid[1], mid[2] + pz], c0, cm, cm);
+    b.tri([mid[0] - px, mid[1], mid[2] - pz], tip, [mid[0] + px, mid[1], mid[2] + pz], cm, c1, cm);
+  }
+  const g = b.geometry();
+  const nn = g.attributes.normal;
+  for (let i = 0; i < nn.count; i++) nn.setXYZ(i, nn.getX(i) * 0.4, 0.9, nn.getZ(i) * 0.4);
+  return g;
 }
 
 function bushGeometry(seed: number): THREE.BufferGeometry {
@@ -374,7 +546,7 @@ function windMaterial(base: THREE.MeshStandardMaterialParameters, uTime: { value
   return mat;
 }
 
-interface TreeRef { inst: CulledInstances; index: number; x: number; y: number; z: number }
+interface TreeRef { inst: CulledInstances; index: number; x: number; y: number; z: number; companion?: boolean }
 
 /** Margin of the culling grid around the map (covers the scenery forest on the skirt). */
 const MARGIN = 48;
@@ -384,7 +556,7 @@ export class Vegetation {
   readonly uTime = { value: 0 };
   private grid: BlockGrid;
   private all: CulledInstances[] = [];
-  private treeRefs = new Map<number, TreeRef>();
+  private treeRefs = new Map<number, TreeRef[]>();
   private clutterByCell = new Map<number, [CulledInstances, number][]>();
   private grass: CulledInstances | null = null;
   private lastTreeVersion: number;
@@ -408,9 +580,10 @@ export class Vegetation {
 
     // ---- trees -------------------------------------------------------------
     const treeSet = (lod: boolean): THREE.BufferGeometry[] => {
-      if (climate === 'winter') return [snowCover(pineGeometry(1, 1.0, lod), 0.85), snowCover(pineGeometry(2, 1.25, lod), 0.8), snowCover(pineGeometry(5, 1.1, lod), 0.9), snowCover(pineGeometry(6, 0.9, lod), 0.75)];
+      // [ENV] winter: snow-laden firs of drooping tiers (one lightly dusted); temperate: tiered firs and broadleaves
+      if (climate === 'winter') return [tieredPineGeometry(1, 1.0, 0.9, lod), tieredPineGeometry(2, 1.3, 0.85, lod, [0.04, 0.115, 0.07]), tieredPineGeometry(5, 1.12, 1, lod), tieredPineGeometry(6, 0.9, 0.55, lod, [0.05, 0.12, 0.06])];
       if (climate === 'desert') return [tintFoliage(broadleafGeometry(3, lod), 0.17, 0.17, 0.08), tintFoliage(broadleafGeometry(4, lod), 0.2, 0.18, 0.09), tintFoliage(pineGeometry(7, 0.8, lod), 0.12, 0.14, 0.07, 0.4), tintFoliage(broadleafGeometry(8, lod), 0.23, 0.2, 0.1)];
-      return [pineGeometry(1, 1.0, lod), pineGeometry(2, 1.25, lod), broadleafGeometry(3, lod), broadleafGeometry(4, lod)];
+      return [tieredPineGeometry(1, 1.0, 0, lod), tieredPineGeometry(2, 1.28, 0, lod, [0.05, 0.15, 0.06]), broadleafGeometry(3, lod), broadleafGeometry(4, lod)];
     };
     const treeGeos = treeSet(false);
     const treeLods = lodOn ? treeSet(true) : null;
@@ -433,6 +606,21 @@ export class Vegetation {
       treeItems[v].push({ m: mat4(), c: new THREE.Color(tint * (0.95 + hash2(cx, cy, 9) * 0.1), tint, tint * 0.95), x, y });
       treeCells[v].push(i);
       treePos[v].push([x, z, y]);
+      // [ENV] denser forest: a smaller companion tree in many forest cells (not on low)
+      if (lodOn && hash2(cx, cy, 11) < (climate === 'desert' ? 0.25 : 0.6)) {
+        const v2 = (v + 1 + Math.floor(hash2(cx, cy, 12) * 3)) % 4;
+        const a = hash2(cx, cy, 13) * Math.PI * 2;
+        const x2 = cx + 0.5 + Math.cos(a) * 0.32, y2 = cy + 0.5 + Math.sin(a) * 0.32;
+        const z2 = heightAt(x2, y2) - 0.03;
+        const sc2 = sc * (0.55 + hash2(cx, cy, 14) * 0.25);
+        dummy.position.set(x2, z2, y2);
+        dummy.rotation.set(0, hash2(cx, cy, 15) * Math.PI * 2, 0);
+        dummy.scale.set(sc2, sc2 * (0.95 + hash2(cx, cy, 16) * 0.2), sc2);
+        const t2 = 0.8 + hash2(cx, cy, 17) * 0.3;
+        treeItems[v2].push({ m: mat4(), c: new THREE.Color(t2, t2, t2 * 0.95), x: x2, y: y2 });
+        treeCells[v2].push(-1 - i);
+        treePos[v2].push([x2, z2, y2]);
+      }
     }
     // scenery forest beyond the map edge: appended after the map trees (their indices are not tracked)
     scenery.forEach(([x, h, y], k) => {
@@ -447,37 +635,71 @@ export class Vegetation {
     treeGeos.forEach((g, v) => {
       if (!treeItems[v].length) return;
       const inst = this.add(new CulledInstances(grid, this.group, g, treeMat, treeItems[v], true, treeLods?.[v] ?? null));
-      treeCells[v].forEach((ci, k) => this.treeRefs.set(ci, { inst, index: k, x: treePos[v][k][0], y: treePos[v][k][1], z: treePos[v][k][2] }));
+      treeCells[v].forEach((ci, k) => {
+        // companions (negative cell ids) go after their cell's main tree, which reports the fall
+        const cell = ci < 0 ? -1 - ci : ci;
+        let list = this.treeRefs.get(cell);
+        if (!list) this.treeRefs.set(cell, (list = []));
+        list.push({ inst, index: k, x: treePos[v][k][0], y: treePos[v][k][1], z: treePos[v][k][2], companion: ci < 0 });
+      });
     });
 
-    // ---- boulders on rocky ground ------------------------------------------
-    const rockTint: [number, number, number] = climate === 'winter' ? [0.19, 0.2, 0.23] : climate === 'desert' ? [0.3, 0.19, 0.13] : [0.2, 0.19, 0.17];
-    const rockSet = (lod: boolean) => {
-      const geos = [boulderGeometry(11, rockTint, lod), boulderGeometry(12, rockTint, lod), boulderGeometry(13, rockTint, lod)];
-      return climate === 'winter' ? geos.map((g) => snowCover(g, 0.75)) : geos;
-    };
+    // ---- rock: layered outcrops, cliff walls along the edges of rocky ground, chunky boulders -------------
+    // [ENV] (was: lumpy boulders) three geometries as before: outcrop, cliff wall, boulder (+ their LODs)
+    const rockTint: [number, number, number] = climate === 'winter' ? [0.17, 0.172, 0.19] : climate === 'desert' ? [0.42, 0.28, 0.19] : [0.27, 0.25, 0.22];
+    const rockSnow = climate === 'winter' ? 0.92 : 0;
+    const rockSet = (lod: boolean) => [
+      strataRockGeometry(11, rockTint, lod, rockSnow, 4, 0.17),
+      strataRockGeometry(12, rockTint, lod, rockSnow, 4, 0.07, 1.4),
+      chunkyBoulderGeometry(13, rockTint, lod, rockSnow * 0.85),
+    ];
     const rockGeos = rockSet(false);
     const rockLods = lodOn ? rockSet(true) : null;
     const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
     const rockItems: Item[][] = [[], [], []];
-    const addRock = (v: number, x: number, y: number, sc: number, r: number) => {
-      dummy.position.set(x, heightAt(x, y) - sc * 0.12, y);
-      dummy.rotation.set((r - 0.5) * 0.5, r * 6.28, (r - 0.3) * 0.4);
-      dummy.scale.set(sc, sc * (0.7 + r * 0.6), sc * (0.8 + r * 0.4));
-      const tint = 0.8 + r * 0.35;
-      rockItems[v].push({ m: mat4(), c: new THREE.Color(tint, tint * 0.97, tint * 0.92), x, y });
+    const addRock = (v: number, x: number, y: number, rot: number, sx: number, sy: number, sz: number, r: number, sink = 0.12) => {
+      dummy.position.set(x, heightAt(x, y) - sy * sink, y);
+      dummy.rotation.set((r - 0.5) * (v === 2 ? 0.5 : 0.1), rot, (r - 0.3) * (v === 2 ? 0.4 : 0.08));
+      dummy.scale.set(sx, sy, sz);
+      const tint = 0.82 + r * 0.3;
+      rockItems[v].push({ m: mat4(), c: new THREE.Color(tint, tint * 0.98, tint * 0.95), x, y });
     };
+    const isRock = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Rock;
+    const isWater = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Water;
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
       const i = m.idx(cx, cy);
       const t = m.terrain[i];
+      const r = hash2(cx, cy, 27);
       if (t === T.Rock) {
-        const n = 1 + (hash2(cx, cy, 21) < 0.45 ? 1 : 0);
-        for (let k = 0; k < n; k++) {
-          addRock((cx + cy + k) % 3, cx + 0.2 + hash2(cx, cy, 23 + k) * 0.6, cy + 0.2 + hash2(cx, cy, 25 + k) * 0.6, 0.55 + hash2(cx, cy, 22 + k) * 0.75, hash2(cx, cy, 27 + k));
+        let nx = 0, ny = 0;
+        if (!isRock(cx - 1, cy)) nx -= 1;
+        if (!isRock(cx + 1, cy)) nx += 1;
+        if (!isRock(cx, cy - 1)) ny -= 1;
+        if (!isRock(cx, cy + 1)) ny += 1;
+        if (nx || ny) {
+          // a stratified wall facing the open ground, its long side along the edge
+          const l = Math.hypot(nx, ny);
+          const ux = nx / l, uy = ny / l;
+          addRock(1, cx + 0.5 + ux * 0.12 + (hash2(cx, cy, 23) - 0.5) * 0.2, cy + 0.5 + uy * 0.12 + (hash2(cx, cy, 25) - 0.5) * 0.2,
+            Math.atan2(-ux, -uy) + (r - 0.5) * 0.35, 0.95 + hash2(cx, cy, 22) * 0.4, 0.75 + hash2(cx, cy, 24) * 0.6, 0.75 + r * 0.25, r, 0.25);
+          if (hash2(cx, cy, 21) < 0.35) addRock(2, cx + 0.5 - ux * 0.3, cy + 0.5 - uy * 0.3, r * 6.28, 0.5 + r * 0.4, 0.5 + r * 0.4, 0.5 + r * 0.3, r);
+        } else if (hash2(cx, cy, 21) < 0.42) {
+          // inner rock: low stepped outcrops (the terrain's own banded rock shows between them)
+          const sc = 0.95 + hash2(cx, cy, 22) * 0.6;
+          addRock(0, cx + 0.3 + hash2(cx, cy, 23) * 0.4, cy + 0.3 + hash2(cx, cy, 25) * 0.4, r * 6.28, sc, sc * (0.5 + hash2(cx, cy, 24) * 0.45), sc * (0.85 + r * 0.3), r, 0.25);
+        } else if (hash2(cx, cy, 21) < 0.58) {
+          const sc = 0.7 + hash2(cx, cy, 22) * 0.5;
+          addRock(2, cx + 0.5, cy + 0.5, r * 6.28, sc, sc, sc, r);
         }
-      } else if ((t === T.Clear || t === T.Dirt || t === T.Sand) && !m.ore[i] && !m.tree[i] && hash2(cx, cy, 31) < 0.018) {
-        // scattered small stones (decorative)
-        addRock((cx * 3 + cy) % 3, cx + hash2(cx, cy, 32), cy + hash2(cx, cy, 33), 0.12 + hash2(cx, cy, 34) * 0.12, hash2(cx, cy, 35));
+      } else if (t === T.Clear || t === T.Dirt || t === T.Sand) {
+        if (m.ore[i] || m.tree[i]) continue;
+        const bank = isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1);
+        // scattered stones (decorative); pebbles and stones line the river banks (big snowy rocks in winter)
+        if (hash2(cx, cy, 31) < (bank ? 0.32 : 0.018)) {
+          const big = bank && climate === 'winter' && hash2(cx, cy, 36) < 0.45;
+          const sc = big ? 0.28 + hash2(cx, cy, 34) * 0.3 : bank ? 0.1 + hash2(cx, cy, 34) * 0.16 : 0.12 + hash2(cx, cy, 34) * 0.12;
+          addRock(2, cx + hash2(cx, cy, 32), cy + hash2(cx, cy, 33), r * 6.28, sc, sc * 0.8, sc, hash2(cx, cy, 35));
+        }
       }
     }
     rockGeos.forEach((g, v) => { if (rockItems[v].length) this.add(new CulledInstances(grid, this.group, g, rockMat, rockItems[v], true, rockLods?.[v] ?? null)); });
@@ -500,12 +722,26 @@ export class Vegetation {
         bushItems.push({ m: mat4(), x, y });
       }
     }
+    // [ENV] variety: about a third of them are a second shrub shape (ferns / dry scrub / snowy twigs; not on low)
+    const shrubItems: Item[] = [];
+    if (lodOn) {
+      for (let k = bushItems.length - 1; k >= 0; k--) {
+        const it = bushItems[k];
+        if (hash2(Math.floor(it.x * 7), Math.floor(it.y * 7), 46) < 0.38) { shrubItems.push(it); bushItems.splice(k, 1); }
+      }
+    }
     if (bushItems.length) {
       let bushGeo = bushGeometry(5);
       if (climate === 'winter') bushGeo = snowCover(bushGeo, 0.7);
       else if (climate === 'desert') bushGeo = tintFoliage(bushGeo, 0.2, 0.18, 0.09, -1);
       const inst = this.add(new CulledInstances(grid, this.group, bushGeo, windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true, null, true));
       bushItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), inst, k));
+    }
+    if (shrubItems.length) {
+      const col: [number, number, number] = climate === 'winter' ? [0.34, 0.27, 0.2] : climate === 'desert' ? [0.3, 0.24, 0.12] : [0.12, 0.26, 0.07];
+      const geo = shrubGeometry(7, col, climate === 'winter' ? 0.9 : 0);
+      const inst = this.add(new CulledInstances(grid, this.group, geo, windMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }, this.uTime, 0.3, 0.0, 'shrub'), shrubItems, true, null, true));
+      shrubItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), inst, k));
     }
 
     // ---- grass tufts ----------------------------------------------------------
@@ -516,17 +752,20 @@ export class Vegetation {
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
       const i = m.idx(cx, cy);
       const t = m.terrain[i];
-      if ((t !== T.Clear && t !== T.Dirt) || m.tree[i] || m.ore[i]) continue;
+      // [ENV] reeds: tall, lush tufts crowd the banks (temperate; sand banks too)
+      const bank = climate === 'temperate' && lodOn && (isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1));
+      if (((t !== T.Clear && t !== T.Dirt) && !(bank && t === T.Sand)) || m.tree[i] || m.ore[i]) continue;
       const lush = gn.fbm(cx * 0.12, cy * 0.12, 3);
-      const count = Math.floor(density * (lush * 1.8 - 0.1) * (t === T.Dirt ? 0.4 : 1) + hash2(cx, cy, 51));
+      const count = Math.floor(density * (lush * 1.8 - 0.1) * (t === T.Dirt ? 0.4 : 1) + hash2(cx, cy, 51)) + (bank ? 4 : 0);
       for (let k = 0; k < count; k++) {
         const x = cx + hash2(cx, cy, 52 + k), y = cy + hash2(cx, cy, 62 + k), r = hash2(cx, cy, 72 + k);
+        if (bank && heightAt(x, y) < -0.3) continue; // not in the water
         dummy.position.set(x, heightAt(x, y) - 0.01, y);
         dummy.rotation.set(0, r * 6.28, 0);
-        const sc = 0.8 + r * 0.9;
-        dummy.scale.set(sc, sc * (0.8 + hash2(cx * 7 + k, cy, 7) * 0.6), sc);
+        const sc = (0.8 + r * 0.9) * (bank ? 1.15 : 1);
+        dummy.scale.set(sc, sc * (0.8 + hash2(cx * 7 + k, cy, 7) * 0.6) * (bank ? 2.2 : 1), sc);
         const l2 = gn.fbm(x * 0.12, y * 0.12, 3);
-        grassItems.push({ m: mat4(), c: new THREE.Color((0.85 + l2 * 0.3 + r * 0.2) * grassTint[0], (0.9 + l2 * 0.2) * grassTint[1], (0.75 + r * 0.1) * grassTint[2]), x, y });
+        grassItems.push({ m: mat4(), c: bank ? new THREE.Color(0.75 + r * 0.25, 1.05 + l2 * 0.2, 0.6) : new THREE.Color((0.85 + l2 * 0.3 + r * 0.2) * grassTint[0], (0.9 + l2 * 0.2) * grassTint[1], (0.75 + r * 0.1) * grassTint[2]), x, y });
       }
     }
     if (grassItems.length) {
@@ -572,10 +811,12 @@ export class Vegetation {
     for (let i = 0; i < this.treeState.length; i++) {
       if (this.treeState[i] && !this.map.tree[i]) {
         this.treeState[i] = 0;
-        const ref = this.treeRefs.get(i);
-        if (ref) {
-          ref.inst.hide(ref.index);
-          out.push(new THREE.Vector3(ref.x, ref.y, ref.z));
+        const refs = this.treeRefs.get(i);
+        if (refs) {
+          for (const ref of refs) {
+            ref.inst.hide(ref.index);
+            if (!ref.companion) out.push(new THREE.Vector3(ref.x, ref.y, ref.z));
+          }
         }
       }
     }

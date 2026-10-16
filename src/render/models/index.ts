@@ -9,13 +9,13 @@
  */
 import * as THREE from 'three';
 import type { ModelInstance, ProjectileModelKind } from './types';
-import { NB, instantiate, makeTemplate, type ModelTemplate } from './builder';
+import { NB, instantiate, makeTemplate, type ModelFaction, type ModelTemplate } from './builder';
 import { M, G, foundation, lamp } from './parts';
 import { healthVariant } from './anim';
 import { VEHICLE_BUILDERS } from './vehicles';
 import { INFANTRY_BUILDERS } from './infantry';
 import { AIRCRAFT_BUILDERS } from './aircraft';
-import { STRUCTURE_BUILDERS } from './structures';
+import { STRUCTURE_BUILDERS, FACTION_DRESSED } from './structures';
 import { DEFENSE_BUILDERS } from './defenses';
 import { NAVAL_BUILDERS } from './naval';
 import { SUPPORT_BUILDERS } from './support';
@@ -23,16 +23,18 @@ import { AFTERMATH_BUILDERS } from './aftermath';
 import { createProjectile } from './projectiles';
 
 export type { ModelInstance, ModelAnimState, ProjectileModelKind } from './types';
+export type { ModelFaction } from './builder';
 
-const BUILDERS: Record<string, () => ModelTemplate> = {
+// [STRUCT] structure builders take the owner's faction (shared buildings get Soviet / Allied dressing)
+const BUILDERS: Record<string, (fac: ModelFaction) => ModelTemplate> = {
   ...INFANTRY_BUILDERS,
   ...VEHICLE_BUILDERS,
   ...AIRCRAFT_BUILDERS,
-  ...STRUCTURE_BUILDERS,
   ...DEFENSE_BUILDERS,
   ...NAVAL_BUILDERS,
   ...SUPPORT_BUILDERS,
   ...AFTERMATH_BUILDERS,
+  ...STRUCTURE_BUILDERS, // [STRUCT] last: the naval yards are structures too
 };
 
 /**
@@ -69,26 +71,74 @@ function fallbackTemplate(): ModelTemplate {
   });
 }
 
-function getTemplate(typeId: string): ModelTemplate {
+/**
+ * [STRUCT] Faction of a team colour when the caller does not know the owner's faction: reds, oranges and
+ * browns read as Soviet, everything else as Allied.
+ */
+export function guessFaction(color: THREE.Color): ModelFaction {
+  const h = color.getHSL(_hsl);
+  return h.s > 0.2 && (h.h < 0.11 || h.h > 0.93) ? 'soviet' : 'allies';
+}
+const _hsl = { h: 0, s: 0, l: 0 };
+
+function templateKey(typeId: string, fac: ModelFaction): string {
+  return FACTION_DRESSED.has(typeId) ? `${typeId}|${fac}` : typeId;
+}
+
+const keyCache: Record<ModelFaction, Map<string, string>> = { soviet: new Map(), allies: new Map() };
+
+/**
+ * [STRUCT] Geometry key of a type as seen for an owner faction: the type id itself, or 'type|faction' for the
+ * structures dressed per faction. Accepted wherever a type id is (modelAliasOf, modelBodyGeometry), so caches
+ * keyed by it (fracture bakes) keep the two dressings apart. Allocation-free after the first call per type.
+ */
+export function modelKey(typeId: string, faction: ModelFaction): string {
+  const m = keyCache[faction] ?? keyCache.soviet;
+  let k = m.get(typeId);
+  if (k === undefined) {
+    const base = ALIASES[typeId] ?? typeId;
+    k = FACTION_DRESSED.has(base) ? `${typeId}|${faction}` : typeId;
+    m.set(typeId, k);
+  }
+  return k;
+}
+
+function splitKey(id: string): [string, ModelFaction | undefined] {
+  const i = id.indexOf('|');
+  return i < 0 ? [id, undefined] : [id.slice(0, i), id.slice(i + 1) === 'allies' ? 'allies' : 'soviet'];
+}
+
+function getTemplate(typeId: string, fac: ModelFaction = 'soviet'): ModelTemplate {
+  if (typeId.includes('|')) {
+    const [t, f] = splitKey(typeId);
+    typeId = t;
+    fac = f ?? fac;
+  }
   typeId = ALIASES[typeId] ?? typeId;
-  let t = templates.get(typeId);
+  const key = templateKey(typeId, fac);
+  let t = templates.get(key);
   if (t) return t;
   const b = BUILDERS[typeId];
   try {
-    t = b ? b() : fallbackTemplate();
+    t = b ? b(fac) : fallbackTemplate();
   } catch (e) {
     console.error(`[models] failed to build '${typeId}'`, e);
     t = fallbackTemplate();
   }
-  templates.set(typeId, t);
+  templates.set(key, t);
   return t;
 }
 
 const _white = new THREE.Color(0xffffff);
 
-/** Create a renderable instance of a unit/structure type. Unknown ids get a generic box. */
-export function createModel(typeId: string, teamColor: THREE.Color): ModelInstance {
-  return instantiate(getTemplate(typeId), teamColor ?? _white, typeId);
+/**
+ * Create a renderable instance of a unit/structure type. Unknown ids get a generic box. `faction` = the
+ * owner's faction (structures shared by both sides dress up as Soviet or Allied); guessed from the team
+ * colour when omitted.
+ */
+export function createModel(typeId: string, teamColor: THREE.Color, faction?: ModelFaction): ModelInstance {
+  const c = teamColor ?? _white;
+  return instantiate(getTemplate(typeId, faction ?? guessFaction(c)), c, typeId);
 }
 
 /** Create a projectile model (faces +X). */
@@ -103,6 +153,10 @@ export function listModelIds(): string[] {
 
 /** The id whose template `typeId` renders with (fake structures map to the real building). */
 export function modelAliasOf(typeId: string): string {
+  if (typeId.includes('|')) {
+    const [t, f] = splitKey(typeId);
+    return `${ALIASES[t] ?? t}|${f}`;
+  }
   return ALIASES[typeId] ?? typeId;
 }
 
@@ -111,18 +165,23 @@ export function setModelAlias(typeId: string, baseId: string | null): void {
   if (baseId) ALIASES[typeId] = ALIASES[baseId] ?? baseId;
   else delete ALIASES[typeId];
   templates.delete(typeId);
+  templates.delete(`${typeId}|soviet`);
+  templates.delete(`${typeId}|allies`);
 }
 
 /**
  * The merged body geometry (model space, rest pose) a type renders with, or null; `far` = the distant
  * level of detail when the model has one. Used by the destruction system to bake fractures; do not modify it.
  */
-export function modelBodyGeometry(typeId: string, far = false): THREE.BufferGeometry | null {
-  const skin = getTemplate(typeId).skin;
+export function modelBodyGeometry(typeId: string, far = false, faction?: ModelFaction): THREE.BufferGeometry | null {
+  const skin = getTemplate(typeId, faction).skin;
   return (far ? skin?.geoLo : null) ?? skin?.geo ?? null;
 }
 
 /** Optional: build all templates up-front (e.g. during a loading screen). */
 export function prewarmModels(ids: string[] = listModelIds()): void {
-  for (const id of ids) getTemplate(id);
+  for (const id of ids) {
+    getTemplate(id, 'soviet');
+    if (FACTION_DRESSED.has(ALIASES[id] ?? id)) getTemplate(id, 'allies');
+  }
 }

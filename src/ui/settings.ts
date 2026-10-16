@@ -13,7 +13,14 @@ export interface Settings {
   skipIntro?: boolean;
   /** Go fullscreen when a battle starts (edge scrolling needs the screen edge). */
   fullscreen?: boolean;
+  /** [HUD] In-battle interface: 'modern' (bottom build bar, corner panels; the default) or 'classic' (right-hand sidebar). */
+  hudLayout?: HudLayout;
 }
+
+/** [HUD] In-battle interface layout. */
+export type HudLayout = 'modern' | 'classic';
+/** [HUD] The layout to use (Modern unless the player picked Classic). */
+export const hudLayoutOf = (s: Settings): HudLayout => (s.hudLayout === 'classic' ? 'classic' : 'modern');
 
 const SETTINGS_KEY = 'rh.settings';
 const listeners = new Set<(s: Settings) => void>();

@@ -12,6 +12,7 @@ import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
+import { setModelDetail } from './render/models/builder'; // [STRUCT]
 import { releaseGpuResources } from './render/gpuregistry';
 import { ShipWakes, type WakeShip } from './render/wakes';
 import { GapField, type GapSource } from './render/gapfield';
@@ -22,6 +23,7 @@ import { CrateRenderer } from './render/crates';
 import { TrackMarks } from './render/tracks';
 import { Rubble } from './render/rubble';
 import { AmbientLife } from './render/ambientlife';
+import { BaseDressing } from './render/props'; // [ENV] base dressing
 import { WallRenderer } from './render/walls';
 import { TargetReticle } from './render/reticle';
 import { randomWeatherSequence, type WeatherKind, type WeatherStep } from './render/weather';
@@ -56,6 +58,8 @@ import { attachRivals } from './ui/rivals'; // [AI] rivals radio
 import { applyRoster, attachModeRuntime, isWhatIf, prepareModeSetup, startModes } from './modes/runtime'; // [MODES]
 import type { AllySetup, BranchInfo, ChallengeDef } from './modes/types'; // [MODES]
 import { conquestMission, type ConquestSetup } from './conquest/battle'; // [CONQ] conquest battles
+
+const _viewProbe = new THREE.Vector3(); // scratch for Game.inView
 
 /** Hull lengths (cells) for wake sizes. */
 const SHIP_LENGTH: Record<string, number> = { pt: 0.9, dd: 1.5, ca: 2.35, lst: 1.4, ss: 1.3 };
@@ -145,6 +149,8 @@ export class Game {
   tracks: TrackMarks;
   rubble: Rubble;
   life: AmbientLife;
+  /** [ENV] Paths, concrete aprons and props around the structures the local player can see. */
+  props: BaseDressing;
   walls: WallRenderer;
   reticle: TargetReticle;
   private wxSeq: WeatherStep[] | null = null;
@@ -295,6 +301,7 @@ export class Game {
     this.gfx.scene.add(this.bridges.group);
     this.effects.setSunDirection?.(this.gfx.sunDir);
     if (setup.quality === 'low') this.effects.setDensity?.(0.5);
+    setModelDetail(setup.quality === 'low' ? 0 : setup.quality === 'medium' ? 1 : 2); // [STRUCT] model LOD reach / Low: light bodies + shader
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
     this.ents.deckHeight = (x, y) => this.bridges.deckHeightAt(x, y);
     this.ents.weatherUniforms = this.gfx.weather.surfaceUniforms;
@@ -310,6 +317,13 @@ export class Game {
     this.rubble = new Rubble(map);
     this.gfx.scene.add(this.rubble.mesh);
     this.life = new AmbientLife(map, (x, y) => this.gfx.terrain.renderHeight(x, y));
+    // [ENV] base dressing (render only): reads the shown structures' footprints, never sim state changes
+    this.props = new BaseDressing(map, this.gfx.terrain, {
+      quality: setup.quality, climate, weather: this.gfx.weather.surfaceUniforms,
+      shown: (id) => this.ents.isShown(id), hideClutter: (cells) => this.gfx.vegetation.hideCells(cells),
+    });
+    this.gfx.scene.add(this.props.group);
+    this.attachments.push(this.props);
     this.walls = new WallRenderer(this.world, this.gfx.fog, this.local);
     this.gfx.scene.add(this.walls.group);
     this.reticle = new TargetReticle(map);
@@ -352,7 +366,7 @@ export class Game {
         const t = BUILDINGS[id] ?? UNITS[id];
         return t.owner.includes(this.local.faction);
       });
-      this.thumbs = renderThumbnails(ids, this.local.color);
+      this.thumbs = renderThumbnails(ids, this.local.color, undefined, undefined, this.local.faction); // [STRUCT] faction dressing
       cb.onProgress?.(0.9, 'Establishing battle control');
       this.overlay = new Overlay(document.body);
       document.body.classList.toggle('faction-soviet', this.local.faction === 'soviet');
@@ -639,6 +653,7 @@ export class Game {
     this.walls.update();
     if (!this.paused) this.tracks.update(this.alpha, this.time);
     this.life.update(fdt, this.time, this.gfx.night, this.gfx.cam.x, this.gfx.cam.y);
+    this.props.update(world.buildings, this.gfx.night, dt); // [ENV]
     if (this.timedEmitters.length) {
       for (const t of this.timedEmitters) if (this.time > t.until) t.h.dispose();
       this.timedEmitters = this.timedEmitters.filter((t) => this.time <= t.until);
@@ -716,9 +731,10 @@ export class Game {
     }
   }
 
+  /** Is a ground point on screen? Projected through the real camera, so it follows any pitch / FOV / yaw. */
   private inView(x: number, y: number): boolean {
-    const c = this.gfx.cam;
-    return Math.abs(x - c.x) < c.dist * 0.9 && Math.abs(y - c.y) < c.dist * 0.7;
+    const v = _viewProbe.set(x, Math.max(0, this.gfx.cam.heightAt(x, y)), y).project(this.gfx.cam.camera);
+    return v.z < 1 && Math.abs(v.x) <= 1.05 && Math.abs(v.y) <= 1.05;
   }
 
   private processEvents() {

@@ -517,6 +517,17 @@ body.gamepad-ui #game-canvas { cursor: none !important; }
 body.gamepad-ui #gp-help { display: flex; }
 #gp-help b { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; margin-right: 0.25rem; border-radius: 50%; font-size: 0.65rem; color: #08121c; background: #cfe6f7; }
 #gp-help b.A { background: #5ee08a; } #gp-help b.B { background: #ff6a5a; } #gp-help b.X { background: #5ab4ff; } #gp-help b.Y { background: #ffd34d; }
+
+/* [HUD] Modern layout: planned tag above the card's name, touch toolbar under the objectives column (wraps on short
+   screens), larger build tabs for fingers */
+body.hud-modern #buildbar .bitem[data-planned]::after { left: 50%; top: auto; bottom: 2.45rem; transform: translateX(-50%); white-space: nowrap; }
+body.hud-modern #touch-bar { top: calc(var(--edge, 0.7rem) + var(--tl-h, 7rem) + 0.6rem); transform: none; flex-wrap: wrap; align-content: flex-start;
+  max-height: calc(100vh - var(--tl-h, 7rem) - var(--dock-h, 16rem) - 2.6rem); }
+body.hud-modern.touch-ui .hint { left: calc(var(--edge, 0.7rem) + 4.4rem); }
+@media (pointer: coarse) {
+  body.hud-modern #buildbar .tab { min-height: 0; padding: 0 1rem; }
+  body.hud-modern #buildbar .bb-top { height: 2.6rem; }
+}
 `;
   document.head.appendChild(st);
 }

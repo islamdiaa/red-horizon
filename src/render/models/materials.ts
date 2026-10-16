@@ -336,6 +336,37 @@ export function setBodyTime(t: number): void {
   uBodyTime.value = t;
 }
 
+/** [STRUCT] Climate snow cover shared by every body material (0 = none, 1 = deep winter). */
+const uRhSnow = { value: 0 };
+
+/**
+ * [STRUCT] Snow that has settled on models: 1 for the winter climate, 0 elsewhere. Settles on up-facing
+ * surfaces (scaled per part by Mat.snow and per model by NB.snow; kept out of crevices). Falling snow is
+ * added on top by the weather surface patch (uWxSnow). The bridge renderer sets it from the map climate.
+ */
+export function setModelSnow(k: number): void {
+  uRhSnow.value = Math.max(0, Math.min(1, k));
+}
+
+/** [STRUCT] Current settled-snow level (thumbnails render clean and restore it afterwards). */
+export function getModelSnow(): number {
+  return uRhSnow.value;
+}
+
+/** [STRUCT] Body shader detail: 0 = Low preset (no edge wear / streak / bump work), 1 = full. */
+let bodyDetail = 1;
+
+/** [STRUCT] Switch the body shader detail (recompiles the cached body materials when it changes). */
+export function setBodyDetail(level: number): void {
+  const l = level > 0 ? 1 : 0;
+  if (l === bodyDetail) return;
+  bodyDetail = l;
+  for (const m of bodyCache.values()) {
+    m.defines = l ? {} : { RH_LOW: '' };
+    m.needsUpdate = true;
+  }
+}
+
 const bodyCache = new Map<number, THREE.MeshStandardMaterial>();
 
 /**
@@ -386,6 +417,7 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
     metalness: 1,
     roughness: 1,
   });
+  if (!bodyDetail) mat.defines = { RH_LOW: '' };
   const uniforms = {
     uTeam: { value: conditionTeamColor(teamHex) },
     uScorch: { value: VARIANT_SCORCH[variant] ?? 0 },
@@ -394,14 +426,32 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
     uEmissive: { value: powered && variant < BodyVariant.Charred ? BODY_EMISSIVE_ON : BODY_EMISSIVE_OFF },
     uDmg: { value: getDamageTexture() },
     uBodyTime,
+    uRhSnow,
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 pbr;\nvarying vec4 vPbr;\nvarying vec3 vRhN;')
-      .replace('#include <color_vertex>', '#include <color_vertex>\nvPbr = pbr;')
+      .replace(
+        '#include <common>',
+        // [STRUCT] wear: edge wear, streaks, cavity, snow/seed (see builder.ts wearAttr); vRhP: model-space
+        // position for snow noise; vRhPh: per-instance phase of animated emissive lights
+        '#include <common>\nattribute vec4 pbr;\nattribute vec4 wear;\nvarying vec4 vPbr;\nvarying vec4 vWear;\nvarying vec3 vRhN;\nvarying vec3 vRhP;\nvarying float vRhPh;',
+      )
+      .replace('#include <color_vertex>', '#include <color_vertex>\nvPbr = pbr;\nvWear = wear;')
       // model-space normal after skinning: "up" for top-face dust (models stand upright)
-      .replace('#include <defaultnormal_vertex>', '#include <defaultnormal_vertex>\nvRhN = objectNormal;');
+      .replace('#include <defaultnormal_vertex>', '#include <defaultnormal_vertex>\nvRhN = objectNormal;')
+      .replace(
+        '#include <project_vertex>',
+        `vRhP = transformed;
+{
+  vec2 rhO = modelMatrix[3].xz;
+  #ifdef USE_INSTANCING
+    rhO += instanceMatrix[3].xz;
+  #endif
+  vRhPh = fract( sin( dot( rhO, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ) * 6.2832;
+}
+#include <project_vertex>`,
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
@@ -413,8 +463,12 @@ uniform vec3 uFlash;
 uniform float uEmissive;
 uniform sampler2D uDmg;
 uniform float uBodyTime;
+uniform float uRhSnow;
 varying vec4 vPbr;
-varying vec3 vRhN;`,
+varying vec4 vWear;
+varying vec3 vRhN;
+varying vec3 vRhP;
+varying float vRhPh;`,
       )
       .replace(
         '#include <map_fragment>',
@@ -426,10 +480,33 @@ float surfK = emisK > 0.0 ? 0.0 : 1.0;
 float detail = dSel < 0.5 ? dTex.r : ( dSel < 1.5 ? dTex.g : ( dSel < 2.5 ? dTex.b : 0.87 ) );
 detail *= 1.15;
 diffuseColor.rgb *= mix( vec3( 1.0 ), uTeam, vPbr.z ) * detail * ( emisK > 0.0 ? 0.3 : 1.0 );
-// weathering: soot / rain streaks down walls, dust settled on top faces
 float rhUp = clamp( normalize( vRhN ).y, 0.0, 1.0 );
+// [STRUCT] material flags packed above the roughness (builder.ts MAT_*): camo, mud, soot
+float rhFlags = floor( vPbr.y * 0.5 + 0.0001 );
+float rhRough = vPbr.y - 2.0 * rhFlags;
+float rhCamoF = mod( rhFlags, 2.0 );
+float rhMudF = mod( floor( rhFlags * 0.5 ), 2.0 );
+float rhSootF = floor( rhFlags * 0.25 );
+// [STRUCT] weathering v5: per-part tone, large-scale mottling, cavity occlusion
+float rhSeed = fract( vWear.w );
+float rhSnowK = floor( vWear.w + 0.001 ) * ( 1.0 / 7.0 );
+float rhVar = texture2D( uDmg, vMapUv * 0.083 + rhSeed * 0.7 ).a;
+diffuseColor.rgb *= mix( 1.0, ( 0.92 + 0.15 * rhSeed ) * ( 0.88 + 0.24 * rhVar ), surfK * ( 1.0 - vPbr.z * 0.6 ) );
+diffuseColor.rgb *= 1.0 - 0.62 * vWear.z * surfK;
+// weathering: soot / rain streaks down walls, dust settled on top faces
 diffuseColor.rgb *= 1.0 - 0.17 * dmgT.b * ( 1.0 - rhUp ) * surfK;
 diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.16, 0.13, 0.09 ), rhUp * rhUp * dmgT.a * 0.24 * surfK * step( dSel, 2.5 ) );
+float rhMetal = step( dSel, 0.5 ) * step( vPbr.x, 0.8 );
+float rhChip = 0.0;
+#ifndef RH_LOW
+// rust (painted metal) and grime (concrete) streaks running down from the top edge of each part
+float rhStreak = clamp( vWear.y * smoothstep( 0.2, 0.7, dmgT.b + 0.25 * rhVar - 0.1 ) * ( 1.0 - rhUp ) * surfK, 0.0, 1.0 );
+diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * mix( vec3( 0.5, 0.48, 0.46 ), vec3( 0.66, 0.34, 0.17 ), rhMetal ), rhStreak * 0.8 );
+// worn chamfered edges: paint chipped to bare steel, concrete scuffed lighter, plus a catch-light
+float rhWn = texture2D( map, vMapUv * 3.1 + 0.37 ).a;
+rhChip = clamp( vWear.x * smoothstep( 0.25, 0.55, rhWn * 0.7 + rhVar * 0.5 ), 0.0, 1.0 ) * surfK;
+diffuseColor.rgb *= 1.0 + 0.16 * min( vWear.x, 1.0 ) * surfK;
+#endif
 float scorch = smoothstep( 1.0 - uScorch, 1.25 - uScorch, dTex.a ) * min( uScorch * 1.6, 1.0 );
 diffuseColor.rgb *= 1.0 - 0.86 * scorch;
 // damage stages: cracks from 'damaged' on, burnt-through missing panels with glowing rims when 'wrecked'
@@ -438,43 +515,106 @@ float rhHoleK = smoothstep( 0.5, 0.62, uScorch ) * surfK;
 float rhHole = smoothstep( 0.665, 0.7, dmgT.g ) * rhHoleK;
 float rhRim = clamp( smoothstep( 0.6, 0.665, dmgT.g ) * rhHoleK - rhHole, 0.0, 1.0 );
 diffuseColor.rgb *= 1.0 - 0.82 * rhCrack;
-diffuseColor.rgb = mix( diffuseColor.rgb * ( 1.0 - 0.65 * rhRim ), vec3( 0.012, 0.01, 0.009 ), rhHole );`,
+diffuseColor.rgb = mix( diffuseColor.rgb * ( 1.0 - 0.65 * rhRim ), vec3( 0.012, 0.01, 0.009 ), rhHole );
+float rhSnow = 0.0;
+float rhSn2 = 0.0;
+if ( uRhSnow > 0.0 ) {
+  float rhSn = texture2D( uDmg, vRhP.xz * 0.9 + 0.13 ).a;
+  rhSn2 = texture2D( map, vRhP.xz * 3.7 ).a;
+  rhSnow = smoothstep( 0.55, 0.85, rhUp + ( rhSn2 - 0.5 ) * 0.08 );
+  // thinner where occluded (under ledges, against walls) and a soft wind-blown unevenness
+  rhSnow *= uRhSnow * rhSnowK * surfK * ( 1.0 - smoothstep( 0.2, 0.7, vWear.z ) * 0.85 ) * ( 1.0 - rhHole ) * ( 1.0 - scorch * 0.7 );
+  rhSnow = clamp( rhSnow * ( 0.74 + 0.26 * smoothstep( 0.0, 0.6, rhSn ) ), 0.0, 1.0 );
+}`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        // [STRUCT] colour replacements go after the vertex colour is applied: bare steel in paint chips, snow
+        `#include <color_fragment>
+// camouflage: blotches of a dark shade and a light tone (sand, or snow white in winter) over the team paint
+if ( rhCamoF > 0.5 ) {
+  vec2 rhCu = vMapUv * 0.3;
+  float rhB1 = texture2D( uDmg, rhCu + 0.21 ).a;
+  float rhB2 = texture2D( map, rhCu * 0.55 + 0.63 ).a;
+  float rhCk = vPbr.z * surfK;
+  float rhDark = smoothstep( 0.46, 0.52, rhB1 ) * rhCk;
+  float rhLight = smoothstep( 0.5, 0.56, rhB2 ) * ( 1.0 - rhDark ) * rhCk;
+  vec3 rhLightTone = mix( vec3( 0.42, 0.37, 0.26 ), vec3( 0.62, 0.65, 0.68 ), clamp( uRhSnow, 0.0, 1.0 ) );
+  diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * 0.42, rhDark );
+  diffuseColor.rgb = mix( diffuseColor.rgb, rhLightTone * detail, rhLight );
+}
+// mud (winter: grey slush) caked on the lower hull with splatter above the line; exhaust soot
+float rhMudK = 0.0;
+float rhSootK = 0.0;
+if ( rhMudF > 0.5 ) {
+  float rhMn = texture2D( uDmg, vMapUv * 0.9 + 0.4 ).a;
+  float rhMline = 0.07 + 0.06 * rhMn;
+  rhMudK = ( 1.0 - smoothstep( rhMline - 0.03, rhMline, vRhP.y ) ) * surfK;
+  rhMudK = max( rhMudK, step( 0.62, texture2D( map, vMapUv * 2.6 ).a ) * ( 1.0 - smoothstep( 0.1, 0.22, vRhP.y ) ) * 0.8 * surfK );
+  vec3 rhMudC = mix( vec3( 0.16, 0.12, 0.08 ), vec3( 0.42, 0.44, 0.47 ), clamp( uRhSnow, 0.0, 1.0 ) );
+  diffuseColor.rgb = mix( diffuseColor.rgb, rhMudC * ( 0.8 + 0.4 * rhMn ), rhMudK * 0.85 );
+}
+if ( rhSootF > 0.5 ) {
+  rhSootK = ( 0.55 + 0.45 * texture2D( map, vMapUv * 1.7 + 0.2 ).a ) * surfK;
+  diffuseColor.rgb *= 1.0 - 0.85 * rhSootK;
+}
+diffuseColor.rgb = mix( diffuseColor.rgb, mix( diffuseColor.rgb * 1.35 + 0.025, vec3( 0.42, 0.42, 0.43 ) * detail, rhMetal ), rhChip );
+diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.76, 0.8, 0.87 ) * ( 0.93 + 0.1 * rhSn2 ), rhSnow );`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         // the commented include is a hook: chained patches (weather gloss / snow cover) insert their code after it
-        `float roughnessFactor = clamp( vPbr.y * ( 1.45 - 0.45 * detail ) + scorch * 0.35 + dmgT.b * 0.08 * ( 1.0 - rhUp ) + rhHole + rhCrack * 0.3, 0.04, 1.0 );
+        `float roughnessFactor = clamp( rhRough * ( 1.45 - 0.45 * detail ) + scorch * 0.35 + dmgT.b * 0.08 * ( 1.0 - rhUp ) + rhHole + rhCrack * 0.3, 0.04, 1.0 );
+roughnessFactor = mix( roughnessFactor, mix( 0.62, 0.38, rhMetal ), rhChip * 0.8 );
+roughnessFactor = clamp( roughnessFactor + ( rhSeed - 0.5 ) * 0.1 * surfK, 0.04, 1.0 );
+roughnessFactor = mix( roughnessFactor, 0.95, max( rhMudK, rhSootK ) );
+roughnessFactor = mix( roughnessFactor, 0.8, rhSnow );
 // #include <roughnessmap_fragment>`,
       )
-      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.x * ( 1.0 - scorch * 0.8 ) * ( 1.0 - rhHole );')
+      .replace(
+        '#include <metalnessmap_fragment>',
+        'float metalnessFactor = mix( vPbr.x * ( 1.0 - scorch * 0.8 ) * ( 1.0 - rhHole ), 0.88, rhChip * rhMetal ) * ( 1.0 - rhSnow ) * ( 1.0 - 0.8 * max( rhMudK, rhSootK ) );',
+      )
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
+#ifndef RH_LOW
 {
   // panel seams, rivets, concrete joints and cracks as a screen-space-derivative bump of the detail map;
   // fades out where the map is minified (far away) so it never shimmers
   vec2 rhDu = dFdx( vMapUv ), rhDv = dFdy( vMapUv );
   float rhTexel = max( dot( rhDu, rhDu ), dot( rhDv, rhDv ) ) * 65536.0;
-  float rhFade = ( 1.0 - smoothstep( 1.0, 9.0, rhTexel ) ) * surfK;
+  float rhFade = ( 1.0 - smoothstep( 1.0, 9.0, rhTexel ) ) * surfK * ( 1.0 - rhSnow * 0.8 );
   float rhH = ( detail - rhCrack * 0.6 - rhHole * 0.4 ) * 0.0035 * rhFade;
   vec2 dHdxy = vec2( dFdx( rhH ), dFdy( rhH ) );
   vec3 rhSx = dFdx( -vViewPosition ), rhSy = dFdy( -vViewPosition );
   vec3 rhR1 = cross( rhSy, normal ), rhR2 = cross( normal, rhSx );
   float rhDet = dot( rhSx, rhR1 ) * faceDirection;
   normal = normalize( abs( rhDet ) * normal - sign( rhDet ) * ( dHdxy.x * rhR1 + dHdxy.y * rhR2 ) );
-}`,
+}
+#endif`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-totalEmissiveRadiance += uFlash + vColor.rgb * emisK * uEmissive * ( 1.0 - scorch );
+// [STRUCT] baked emissive animation (Glow.a): 1 blink, 2 pulse, 3 fire flicker, 4 strobe
+float rhEA = 1.0;
+if ( emisK > 0.0 && vWear.x > 0.5 ) {
+  float rhMode = floor( vWear.x );
+  float rhPh = fract( vWear.x ) * 6.2832 + vRhPh;
+  if ( rhMode < 1.5 ) rhEA = fract( uBodyTime * 0.625 + rhPh * 0.159 ) < 0.3 ? 1.0 : 0.05;
+  else if ( rhMode < 2.5 ) rhEA = 0.45 + 0.55 * ( 0.5 + 0.5 * sin( uBodyTime * 2.4 + rhPh ) );
+  else if ( rhMode < 3.5 ) rhEA = 0.7 + 0.3 * sin( uBodyTime * 13.0 + rhPh ) * sin( uBodyTime * 7.3 + rhPh * 1.7 );
+  else rhEA = fract( uBodyTime * 1.4 + rhPh * 0.159 ) < 0.08 ? 1.6 : 0.03;
+}
+totalEmissiveRadiance += uFlash + vColor.rgb * emisK * uEmissive * rhEA * ( 1.0 - scorch );
 if ( uEmber > 0.0 ) {
   float rhFl = 0.55 + 0.45 * sin( uBodyTime * 6.3 + dmgT.a * 31.0 + dTex.a * 17.0 );
   totalEmissiveRadiance += vec3( 1.7, 0.42, 0.08 ) * ( rhRim * rhRim * 0.9 + rhCrack * 0.15 * rhHoleK ) * rhFl * uEmber;
 }`,
       );
   };
-  mat.customProgramCacheKey = () => 'rh-body-v4';
+  mat.customProgramCacheKey = () => (bodyDetail ? 'rh-body-v5' : 'rh-body-v5-low');
   mat.name = `body-${teamHex.toString(16)}-${variant}${powered ? '' : '-off'}`;
   return mat;
 }
@@ -493,6 +633,28 @@ export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Norm
     bodyCache.set(key, m);
   }
   return m;
+}
+
+const instCache = new Map<number, THREE.MeshStandardMaterial>();
+
+/**
+ * [STRUCT] Body material for instanced meshes (walls): same shader and team colour as bodyMaterial, but its
+ * own material object (three re-resolves the program when one material alternates instanced / plain).
+ */
+export function bodyMaterialInstanced(teamHex: number): THREE.MeshStandardMaterial {
+  let m = instCache.get(teamHex);
+  if (!m) {
+    m = applyLitPatch(makeBodyMaterial(teamHex, BodyVariant.Normal, true));
+    m.name += '-inst';
+    instCache.set(teamHex, m);
+    bodyCache.set(-2 - instCache.size, m);
+  }
+  return m;
+}
+
+/** [STRUCT] A fresh, uncached body material (for previews that dispose their materials). */
+export function freshBodyMaterial(teamHex: number): THREE.MeshStandardMaterial {
+  return makeBodyMaterial(teamHex, BodyVariant.Normal, true);
 }
 
 let debrisMat: THREE.MeshStandardMaterial | null = null;

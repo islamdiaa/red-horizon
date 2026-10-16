@@ -22,6 +22,21 @@ const UNLOCKS: Partial<Record<Step, string[]>> = {
   assault: ['2tnk', 'jeep', 'gun'],
 };
 
+/**
+ * [HUD] Interface elements the Modern HUD makes glow during each drill (CSS selectors inside #ui): the build
+ * cards, their tabs and the order buttons the Sergeant Major is talking about. Purely visual: the drills
+ * themselves are still judged from the simulation.
+ */
+export const BOOT_CAMP_HUD: Partial<Record<string, string[]>> = {
+  deploy: ['.cmd[data-key="D"]'],
+  power: ['.bitem[data-id="powr"]', '.tab[data-tab="building"]'],
+  ore: ['.bitem[data-id="proc"]', '.tab[data-tab="building"]'],
+  infantry: ['.bitem[data-id="tent"]', '.bitem[data-id="e1"]', '.tab[data-tab="infantry"]'],
+  defend: ['.bitem[data-id="pbox"]', '.tab[data-tab="defense"]'],
+  armour: ['.bitem[data-id="weap"]', '.bitem[data-id="1tnk"]', '.tab[data-tab="vehicle"]'],
+  assault: ['.cmd[data-key="A"]'],
+} satisfies Partial<Record<Step, string[]>>;
+
 function goTo(m: MissionRuntime, step: Step) {
   m.flags.step = step;
   const allowed: string[] = (m.flags.allowed ??= []);
@@ -45,7 +60,7 @@ export const BOOT_CAMP: MissionDef = {
   tips: [
     'Left-drag to box-select, right-click to move or attack.',
     'Arrow keys, the screen edge or right-drag scroll the map; the mouse wheel zooms.',
-    'The sidebar on the right builds structures and trains units.',
+    'The build bar at the bottom (the sidebar on the right in the Classic layout) builds structures and trains units.', // [HUD]
   ],
   map: { size: 56, seed: 1201, players: 2, water: 0.2, trees: 0.45, ore: 0.8, climate: 'temperate', hour: 10.5, dayCycle: false, weather: 'clear' },
   players: [
@@ -127,7 +142,7 @@ export const BOOT_CAMP: MissionDef = {
           m.complete('deploy');
           goTo(m, 'power');
           m.objective('power', 'Build a Power Plant');
-          say(m, SGT, 'That is your Construction Yard. Everything else needs power. Click the Power Plant card in the sidebar; when it reads READY, click the ground next to your yard to place it.');
+          say(m, SGT, 'That is your Construction Yard. Everything else needs power. Click the Power Plant card in the build panel; when it reads READY, click the ground next to your yard to place it.'); // [HUD] either layout
         }
         break;
       }

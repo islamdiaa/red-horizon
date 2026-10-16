@@ -2,6 +2,18 @@ import * as THREE from 'three';
 import { clamp, lerp } from '../core/util';
 
 /**
+ * [LOOK] Camera composition constants: a lower, closer, slightly telephoto view (the "full screen" RTS look).
+ * Pitch runs from PITCH_NEAR (fully zoomed in) to PITCH_FAR (fully zoomed out) radians above the horizon;
+ * the vertical field of view is a little narrower than before (38 deg), so the default zoom frames closer
+ * while MAX_DIST grows to keep the zoomed-out view (a whole base) as wide as it was.
+ */
+export const CAMERA_FOV = 32;
+export const PITCH_NEAR = 0.66; // ~38 deg
+export const PITCH_FAR = 0.96; // ~55 deg
+export const MIN_DIST = 9;
+export const MAX_DIST = 64;
+
+/**
  * RTS camera: orbits a ground focus point at a fixed yaw (north up, like the original),
  * with smooth zoom, keyboard / edge / drag panning and a little cinematic tilt when zoomed in.
  */
@@ -13,8 +25,8 @@ export class RTSCamera {
   /** Distance from focus point. */
   dist = 26;
   targetDist = 26;
-  minDist = 9;
-  maxDist = 52;
+  minDist = MIN_DIST; // [LOOK]
+  maxDist = MAX_DIST; // [LOOK] was 52 at a 38-degree FOV (same zoomed-out footprint)
   yaw = 0;
   targetYaw = 0;
   private vx = 0;
@@ -32,7 +44,7 @@ export class RTSCamera {
   yawDamp = 0.001;
 
   constructor(private mapW: number, private mapH: number, aspect: number) {
-    this.camera = new THREE.PerspectiveCamera(38, aspect, 0.5, 400);
+    this.camera = new THREE.PerspectiveCamera(CAMERA_FOV, aspect, 0.5, 400); // [LOOK] was 38
     this.x = mapW / 2;
     this.y = mapH / 2;
   }
@@ -40,7 +52,8 @@ export class RTSCamera {
   /** Pitch angle in radians from horizontal (steeper when zoomed out). */
   get pitch(): number {
     const t = (this.dist - this.minDist) / (this.maxDist - this.minDist);
-    return lerp(0.82, 1.05, clamp(t, 0, 1));
+    // [LOOK] lower, more cinematic: ~38 deg zoomed in, ~42 at the default zoom (20), ~55 fully out (was 47..60)
+    return lerp(PITCH_NEAR, PITCH_FAR, clamp(t, 0, 1));
   }
 
   /** New map size (map editor resizes): keeps the focus inside it. */
@@ -128,6 +141,7 @@ export class RTSCamera {
 
   /** Approximate half-width of the view in cells (for audio attenuation). */
   get viewRadius(): number {
+    // [LOOK] unchanged on purpose: the lower pitch sees further up-screen what the narrower lens loses at the sides
     return this.dist * 0.75;
   }
 }

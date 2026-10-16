@@ -5,14 +5,47 @@
 import * as THREE from 'three';
 import { NB, makeTemplate, type AnimFn, type Ctx, type ModelTemplate } from './builder';
 import type { ModelAnimState } from './types';
-import { M, G, alliedStar, barrel, foundation, hazard, lathe, prismXY, prismXZ, ringGeo, sandbags, sovietStar, faceRot, pipe, antenna } from './parts';
+import {
+  M,
+  G,
+  S,
+  FSTYLE,
+  alliedStar,
+  barrel,
+  foundation,
+  hazard,
+  lathe,
+  prismXY,
+  prismXZ,
+  ringGeo,
+  sandbags,
+  sovietStar,
+  faceRot,
+  pipe,
+  antenna,
+  emblem,
+  grille,
+  warnLight,
+  stencilText,
+  floodlight,
+  mergeChild,
+  pipeRun,
+  crateStack,
+  drums,
+  railLine,
+  lampPost,
+  banner,
+} from './parts';
 import { blink, dtOf, healthVariant, recoil } from './anim';
+import { setBodyTime } from './materials';
 
 const AO = { h: 0.25, min: 0.52 };
 
 function root(sx: number, sz: number): NB {
   const r = new NB('root');
   r.ao = AO;
+  r.snow = 1; // [STRUCT]
+  r.cavity = true;
   foundation(r, sx, sz, 0.04, 0.05, M.concreteDark);
   return r;
 }
@@ -20,6 +53,7 @@ function root(sx: number, sz: number): NB {
 function dAnim(extra?: (c: Ctx, s: ModelAnimState) => void): AnimFn {
   return (c, s) => {
     healthVariant(c, s);
+    setBodyTime(s.time); // [STRUCT] baked light animation clock
     if (c.v.seed === undefined) c.v.seed = Math.random() * 3;
     c.setPowered(s.powered);
     c.setGlow('glow:blink', s.powered ? (blink(s.time + c.v.seed, 1.4, 0.3) ? 1 : 0.06) : 0.04);
@@ -43,9 +77,18 @@ function polygon(n: number, rad: number, rot = 0): [number, number][] {
 function pillbox(): ModelTemplate {
   const r = root(1, 1);
   const y0 = 0.04;
-  r.add(prismXZ(polygon(6, 0.4, Math.PI / 6), 0.22, 0.04), M.concrete, { p: [0, y0, 0] });
-  r.add(prismXZ(polygon(6, 0.34, Math.PI / 6), 0.06, 0.03), M.concreteLight, { p: [0, y0 + 0.22, 0] });
-  r.add(prismXZ(polygon(6, 0.22, Math.PI / 6), 0.03, 0.01), M.team, { p: [0, y0 + 0.28, 0] });
+  r.add(prismXZ(polygon(6, 0.42, Math.PI / 6), 0.05, 0.015), S.allWallDark, { p: [0, y0, 0] });
+  r.add(prismXZ(polygon(6, 0.4, Math.PI / 6), 0.22, 0.04), S.allWall, { p: [0, y0 + 0.02, 0] });
+  r.add(prismXZ(polygon(6, 0.37, Math.PI / 6), 0.025, 0.006), M.team, { p: [0, y0 + 0.22, 0] });
+  r.add(prismXZ(polygon(6, 0.34, Math.PI / 6), 0.06, 0.03), M.concreteLight, { p: [0, y0 + 0.24, 0] });
+  // [STRUCT] roof: hatch, periscope, sandbag ring, floodlight
+  r.cyl(M.gun, 0.06, 0.065, 0.025, 0.08, y0 + 0.31, 0.06, { seg: 10 });
+  r.box(M.dark, 0.03, 0.06, 0.03, -0.1, y0 + 0.33, -0.08, { b: 0.004 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.5;
+    sandbags(r, 0.12, 1, [Math.cos(a) * 0.27, y0 + 0.3, Math.sin(a) * 0.27], [0, -a + Math.PI / 2, 0]);
+  }
+  floodlight(r, [-0.14, y0 + 0.32, 0.16], 0.6, 0.6, 0.035);
   // gun slits on every face, glowing faintly inside
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
@@ -60,7 +103,8 @@ function pillbox(): ModelTemplate {
   // sandbags around the back
   sandbags(r, 0.4, 1, [-0.3, y0, -0.36], [0, 0.6, 0]);
   sandbags(r, 0.36, 1, [0.32, y0, -0.36], [0, -0.6, 0]);
-  alliedStar(r, 0.06, [0, y0 + 0.31, 0]);
+  emblem(r, 'allies', 0.05, [0, y0 + 0.13, 0.35], [0, 0, 0], true);
+  crateStack(r, -0.36, y0, 0.3, 0.07, 2, 0.3);
   r.node('m0', [0.3, y0 + 0.15, 0]);
 
   return makeTemplate({ root: r, height: 0.4, radius: 0.5, muzzles: ['m0'], glow: { glow: 2 }, anim: dAnim() });
@@ -76,6 +120,9 @@ function gunTurret(): ModelTemplate {
   r.add(prismXZ(polygon(8, 0.42, Math.PI / 8), 0.18, 0.035), M.concrete, { p: [0, y0, 0] });
   r.add(prismXZ(polygon(8, 0.34, Math.PI / 8), 0.06, 0.02), M.gun, { p: [0, y0 + 0.18, 0] });
   hazard(r, 0.3, 0.035, [0, y0 + 0.1, 0.39], [0, 0, 0]);
+  sandbags(r, 0.3, 2, [-0.3, y0, 0.38], [0, 0.4, 0]); // [STRUCT]
+  drums(r, 0.34, y0, 0.3, 2);
+  warnLight(r, [0.36, y0 + 0.22, -0.22], false, 0.016);
   r.cyl(M.dark, 0.22, 0.24, 0.03, 0, y0 + 0.255, 0, { seg: 20 });
   const t = r.node('turret', [0, y0 + 0.27, 0]);
   t.add(
@@ -93,7 +140,25 @@ function gunTurret(): ModelTemplate {
       0.13,
       0.025,
     ),
+    FSTYLE.allies.steel,
+  );
+  t.add(
+    prismXZ(
+      [
+        [0.205, -0.104],
+        [0.205, 0.104],
+        [0.083, 0.206],
+        [-0.165, 0.206],
+        [-0.247, 0.124],
+        [-0.247, -0.124],
+        [-0.165, -0.206],
+        [0.083, -0.206],
+      ],
+      0.03,
+      0.004,
+    ),
     M.team,
+    { p: [0, 0.07, 0] },
   );
   t.add(
     prismXZ(
@@ -108,7 +173,7 @@ function gunTurret(): ModelTemplate {
       0.03,
       0.01,
     ),
-    M.teamDark,
+    FSTYLE.allies.steelLight,
     { p: [0, 0.13, 0] },
   );
   t.box(M.gun, 0.07, 0.08, 0.12, 0.21, 0.065, 0, { b: 0.015 });
@@ -118,7 +183,7 @@ function gunTurret(): ModelTemplate {
   const b0 = t.node('b0', [0.23, 0.065, 0]);
   barrel(b0, 0.38, 0.02, { brake: true });
   t.node('m0', [0.62, 0.065, 0]);
-  r.sph(G.red, 0.015, -0.32, y0 + 0.2, 0.2, { seg: 6, slot: 'glow:blink' });
+  warnLight(r, [-0.32, y0 + 0.21, 0.2], false, 0.015);
 
   return makeTemplate({
     root: r,
@@ -126,7 +191,7 @@ function gunTurret(): ModelTemplate {
     radius: 0.5,
     turret: 'turret',
     muzzles: ['m0'],
-    glow: { glow: 2, 'glow:blink': 4 },
+    glow: { glow: 2 },
     anim: dAnim((c, s) => recoil(c, s, ['b0'], 0.07)),
   });
 }
@@ -152,8 +217,9 @@ function aaGun(): ModelTemplate {
   }
   const t = r.node('turret', [0, y0 + 0.05, 0]);
   t.cyl(M.gun, 0.2, 0.22, 0.06, 0, 0.03, 0, { seg: 16 });
-  t.box(M.team, 0.18, 0.15, 0.26, -0.03, 0.135, 0, { b: 0.025 });
-  t.box(M.teamDark, 0.03, 0.16, 0.3, 0.07, 0.17, 0, { b: 0.01 });
+  t.box(FSTYLE.allies.steel, 0.18, 0.15, 0.26, -0.03, 0.135, 0, { b: 0.025 });
+  t.box(M.team, 0.185, 0.03, 0.265, -0.03, 0.17, 0, { b: 0.006 });
+  t.box(FSTYLE.allies.steelLight, 0.03, 0.16, 0.3, 0.07, 0.17, 0, { b: 0.01 });
   // gunner seat + sight
   t.box(M.dark, 0.05, 0.04, 0.05, -0.1, 0.2, 0.14, { b: 0.01 });
   t.box(M.dark, 0.02, 0.06, 0.02, -0.05, 0.25, 0.14, { b: 0.004 });
@@ -170,7 +236,8 @@ function aaGun(): ModelTemplate {
   // ammo feed boxes
   t.box(M.oliveDark, 0.06, 0.06, 0.05, -0.04, 0.09, -0.15, { b: 0.008 });
   t.box(M.oliveDark, 0.06, 0.06, 0.05, -0.04, 0.09, 0.15, { b: 0.008 });
-  r.sph(G.red, 0.014, 0.3, y0 + 0.17, -0.3, { seg: 6, slot: 'glow:blink' });
+  warnLight(r, [0.3, y0 + 0.19, -0.3], false, 0.015);
+  crateStack(r, 0.34, y0, 0.34, 0.07, 2, 0.6);
 
   return makeTemplate({
     root: r,
@@ -178,7 +245,7 @@ function aaGun(): ModelTemplate {
     radius: 0.5,
     turret: 'turret',
     muzzles: ['m0', 'm1'],
-    glow: { 'glow:blink': 4 },
+    glow: { glow: 2 },
     anim: dAnim((c, s) => recoil(c, s, ['b0', 'b1'], 0.05)),
   });
 }
@@ -235,6 +302,11 @@ function flameTower(): ModelTemplate {
     r.box(G.fire, 0.05, 0.02, 0.008, Math.cos(a) * 0.2, y0 + 0.48, Math.sin(a) * 0.2, { b: 0, r: [0, -a + Math.PI / 2, 0], slot: 'glow:pilot' });
   }
   sovietStar(r, 0.07, [0, y0 + 0.28, 0.315], [-0.32, 0, 0]);
+  // [STRUCT] dressing: warning lights, fuel drums, a stencil
+  warnLight(r, [0.2, y0 + 0.47, 0.18], false, 0.015);
+  warnLight(r, [-0.2, y0 + 0.47, -0.18], false, 0.015);
+  drums(r, 0.3, y0, 0.3, 3, M.red);
+  stencilText(r, 'ОГОНЬ', [0, y0 + 0.13, 0.36], [-0.08, 0, 0], 0.045, S.stencilYellow);
   r.node('m0', [0, y0 + 0.66, 0]);
 
   return makeTemplate({
@@ -255,62 +327,96 @@ function flameTower(): ModelTemplate {
 // =============================================================================================
 
 function teslaCoil(): ModelTemplate {
+  const fs = FSTYLE.soviet;
   const r = root(1, 2);
   const y0 = 0.04;
-  const tz = -0.28;
-  // concrete plinth
-  r.add(prismXZ(polygon(8, 0.42, Math.PI / 8), 0.12, 0.03), M.concrete, { p: [0, y0, tz] });
-  r.add(ringGeo(0.33, 0.4, 0.002, 8), M.team, { p: [0, y0 + 0.121, tz] });
-  // lattice legs (pyramid frame)
+  const tz = -0.42;
+  // ---- armoured octagonal plinth with hazard band and a star
+  r.add(prismXZ(polygon(8, 0.46, Math.PI / 8), 0.08, 0.02), fs.wallDark, { p: [0, y0, tz] });
+  r.add(prismXZ(polygon(8, 0.41, Math.PI / 8), 0.24, 0.03), fs.wall, { p: [0, y0 + 0.08, tz] });
+  r.add(prismXZ(polygon(8, 0.415, Math.PI / 8), 0.05, 0.006), M.black, { p: [0, y0 + 0.2, tz] });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8 + Math.PI / 8;
+    const n = new NB('_hzb', [Math.cos(a) * 0.383, y0 + 0.225, tz + Math.sin(a) * 0.383], [0, -a + Math.PI / 2, 0]);
+    hazard(n, 0.3, 0.045, [0, 0, 0.004], [0, 0, 0], 0.035);
+    mergeChild(r, n);
+  }
+  r.add(prismXZ(polygon(8, 0.36, Math.PI / 8), 0.04, 0.012), fs.steel, { p: [0, y0 + 0.32, tz] });
+  r.add(ringGeo(0.31, 0.35, 0.012, 8), M.team, { p: [0, y0 + 0.362, tz], r: [0, Math.PI / 8, 0] });
+  emblem(r, 'soviet', 0.07, [0, y0 + 0.15, tz + 0.385]);
+  // ---- lattice tower: four legs converging on the coil column, cross bracing
+  const L0 = 0.28;
+  const L1 = 0.1;
+  const ty = y0 + 0.34;
+  const th = 1.18;
+  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    pipe(r, [L0 * sx, ty, tz + L0 * sz], [L1 * sx, ty + th, tz + L1 * sz], 0.022, M.darker, 5);
+  }
   for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const x = Math.cos(a);
-    const z = Math.sin(a);
-    pipe(r, [x * 0.3, y0 + 0.12, tz + z * 0.3], [x * 0.1, y0 + 0.9, tz + z * 0.1], 0.022, M.dark, 6);
+    const f0 = i / 4;
+    const f1 = (i + 1) / 4;
+    const w0 = L0 + (L1 - L0) * f0;
+    const w1 = L0 + (L1 - L0) * f1;
+    const y1 = ty + th * f0;
+    const y2 = ty + th * f1;
+    for (const s of [-1, 1]) {
+      pipe(r, [-w0, y1, tz + w0 * s], [w1, y2, tz + w1 * s], 0.007, M.dark, 3);
+      pipe(r, [w0 * s, y1, tz - w0], [w1 * s, y2, tz + w1], 0.007, M.dark, 3);
+    }
+    r.add(ringGeo(w1 * 1.36, w1 * 1.46, 0.016, 4), i % 2 ? M.team : M.dark, { p: [0, y2, tz], r: [0, Math.PI / 4, 0] });
   }
   // central coil column: copper windings as alternating bands
-  r.cyl(M.dark, 0.11, 0.13, 0.5, 0, y0 + 0.37, tz, { seg: 8 });
-  for (let i = 0; i < 7; i++) {
-    r.cyl(i % 2 ? M.dark : M.copper, 0.09, 0.09, 0.15, 0, y0 + 0.66 + i * 0.15, tz, { seg: 8, open: true });
-  }
-  // stacked coil rings (decreasing radius)
+  r.cyl(M.dark, 0.1, 0.12, 0.5, 0, ty + 0.25, tz, { seg: 10 });
+  for (let i = 0; i < 9; i++) r.cyl(i % 2 ? M.dark : M.copper, 0.085, 0.085, 0.13, 0, ty + 0.56 + i * 0.13, tz, { seg: 10, open: true });
+  // stacked coil discs (decreasing radius) with blue glow underneath and red team rims
   const rings: [number, number][] = [
-    [0.82, 0.3],
-    [1.12, 0.25],
-    [1.4, 0.205],
-    [1.66, 0.165],
+    [0.62, 0.3],
+    [0.94, 0.25],
+    [1.24, 0.205],
+    [1.5, 0.165],
   ];
   for (const [h, rad] of rings) {
-    r.add(new THREE.TorusGeometry(rad, 0.032, 3, 10), M.gun, { p: [0, y0 + h, tz], r: [Math.PI / 2, 0, Math.PI / 10] });
-    r.add(new THREE.RingGeometry(rad - 0.014, rad + 0.014, 10), M.team, { p: [0, y0 + h + 0.025, tz], r: [-Math.PI / 2, 0, Math.PI / 10] });
-    r.box(M.dark, rad * 2 - 0.05, 0.012, 0.012, 0, y0 + h, tz, { b: 0, r: [0, Math.PI / 4, 0] });
-    r.box(M.dark, rad * 2 - 0.05, 0.012, 0.012, 0, y0 + h, tz, { b: 0, r: [0, -Math.PI / 4, 0] });
-    r.add(new THREE.RingGeometry(rad - 0.03, rad + 0.012, 10), G.tesla, { p: [0, y0 + h - 0.03, tz], r: [Math.PI / 2, 0, Math.PI / 10], slot: 'glow:coil' });
+    r.add(new THREE.TorusGeometry(rad, 0.034, 4, 12), M.gun, { p: [0, ty + h, tz], r: [Math.PI / 2, 0, Math.PI / 12] });
+    r.add(new THREE.RingGeometry(rad - 0.012, rad + 0.016, 12), M.team, { p: [0, ty + h + 0.026, tz], r: [-Math.PI / 2, 0, Math.PI / 12] });
+    r.box(M.dark, rad * 2 - 0.05, 0.014, 0.014, 0, ty + h, tz, { b: 0, r: [0, Math.PI / 4, 0] });
+    r.box(M.dark, rad * 2 - 0.05, 0.014, 0.014, 0, ty + h, tz, { b: 0, r: [0, -Math.PI / 4, 0] });
+    r.add(new THREE.RingGeometry(rad - 0.03, rad + 0.012, 12), G.tesla, { p: [0, ty + h - 0.034, tz], r: [Math.PI / 2, 0, Math.PI / 12], slot: 'glow:coil' });
   }
-  // top cap + orb
-  r.add(lathe([[0.1, 0], [0.13, 0.04], [0.09, 0.09], [0.0, 0.1]], 16), M.gun, { p: [0, y0 + 1.78, tz] });
-  r.add(new THREE.IcosahedronGeometry(0.15, 1), G.tesla, { p: [0, y0 + 2.02, tz], slot: 'glow:orb' });
-  const halo = r.node('halo', [0, y0 + 2.02, tz]);
-  halo.add(new THREE.PlaneGeometry(0.75, 0.75), M.dark, { slot: 'fx:add:5aa2ff:0.9', keepUv: true, r: [-Math.PI / 2, 0, 0] });
-  r.node('m0', [0, y0 + 2.02, tz]);
-  // generator / capacitor bank at the front
-  const gz = 0.52;
-  r.box(M.concreteLight, 0.6, 0.24, 0.56, 0, y0 + 0.12, gz, { b: 0.02 });
-  r.box(M.team, 0.63, 0.04, 0.59, 0, y0 + 0.25, gz, { b: 0.012 });
+  // top cap: toroid + orb + halo
+  const capY = ty + 1.74;
+  r.add(lathe([[0.1, 0], [0.13, 0.04], [0.09, 0.09], [0.0, 0.1]], 16), M.gun, { p: [0, capY - 0.04, tz] });
+  r.add(new THREE.TorusGeometry(0.16, 0.045, 6, 16), M.dark, { p: [0, capY + 0.05, tz], r: [Math.PI / 2, 0, 0] });
+  r.add(new THREE.TorusGeometry(0.16, 0.012, 3, 16), M.copper, { p: [0, capY + 0.09, tz], r: [Math.PI / 2, 0, 0] });
+  r.add(new THREE.IcosahedronGeometry(0.13, 1), G.tesla, { p: [0, capY + 0.2, tz], slot: 'glow:orb' });
+  const halo = r.node('halo', [0, capY + 0.2, tz]);
+  halo.add(new THREE.PlaneGeometry(0.8, 0.8), M.dark, { slot: 'fx:add:5aa2ff:0.9', keepUv: true, r: [-Math.PI / 2, 0, 0] });
+  r.node('m0', [0, capY + 0.2, tz]);
+  warnLight(r, [0.2, ty + th - 0.02, tz + 0.06], false, 0.016);
+  warnLight(r, [-0.2, ty + th - 0.02, tz - 0.06], false, 0.016);
+  // ---- generator / capacitor bank on the front cell
+  const gz = 0.48;
+  r.box(fs.wallDark, 0.72, 0.06, 0.66, 0, y0 + 0.03, gz, { b: 0.01 });
+  r.box(fs.wall, 0.66, 0.28, 0.58, 0, y0 + 0.2, gz, { b: 0.02 });
+  r.box(fs.steel, 0.68, 0.08, 0.6, 0, y0 + 0.3, gz, { b: 0.008 });
+  r.box(M.team, 0.69, 0.025, 0.61, 0, y0 + 0.345, gz, { b: 0.006 });
+  r.box(fs.roof, 0.62, 0.02, 0.54, 0, y0 + 0.36, gz, { b: 0.004 });
   for (let i = 0; i < 3; i++) {
-    const x = -0.18 + i * 0.18;
-    r.cyl(M.offwhite, 0.04, 0.05, 0.05, x, y0 + 0.29, gz - 0.1, { seg: 10 });
-    r.cyl(M.offwhite, 0.03, 0.036, 0.07, x, y0 + 0.35, gz - 0.1, { seg: 6 });
-    r.box(G.tesla, 0.1, 0.06, 0.006, x, y0 + 0.14, gz + 0.283, { b: 0, slot: 'glow:coil' });
-    r.box(M.dark, 0.12, 0.08, 0.008, x, y0 + 0.14, gz + 0.279, { b: 0 });
+    const x = -0.2 + i * 0.2;
+    for (let k = 0; k < 3; k++) r.cyl(M.offwhite, 0.034 - k * 0.004, 0.038 - k * 0.004, 0.035, x, y0 + 0.39 + k * 0.035, gz - 0.12, { seg: 8 });
+    r.cyl(M.copper, 0.012, 0.012, 0.05, x, y0 + 0.5, gz - 0.12, { seg: 4 });
+    r.box(M.dark, 0.13, 0.09, 0.008, x, y0 + 0.17, gz + 0.293, { b: 0 });
+    r.box({ glow: 0x5aa2ff, i: 1.8, a: 2 + i * 0.3 }, 0.11, 0.07, 0.006, x, y0 + 0.17, gz + 0.297, { b: 0 });
   }
-  pipe(r, [0, y0 + 0.27, gz - 0.25], [0, y0 + 0.5, tz + 0.1], 0.02, M.dark, 6);
-  hazard(r, 0.5, 0.04, [0, y0 + 0.04, gz + 0.283]);
-  sovietStar(r, 0.07, [0.0, y0 + 0.271, gz + 0.12]);
+  grille(r, 0.3, 0.18, [0.0, y0 + 0.372, gz + 0.12], 4);
+  for (const x of [-0.2, 0, 0.2]) pipe(r, [x, y0 + 0.52, gz - 0.12], [x * 0.4, ty + 0.2, tz + 0.12], 0.008, M.dark, 3);
+  hazard(r, 0.6, 0.04, [0, y0 + 0.07, gz + 0.293]);
+  stencilText(r, 'ОПАСНО', [0, y0 + 0.27, gz + 0.3], [0, 0, 0], 0.045, S.stencilYellow);
+  warnLight(r, [0.3, y0 + 0.39, gz + 0.26], false, 0.016);
+  warnLight(r, [-0.3, y0 + 0.39, gz + 0.26], false, 0.016);
 
   return makeTemplate({
     root: r,
-    height: 2.2,
+    height: 2.3,
     radius: 0.75,
     muzzles: ['m0'],
     glow: { 'glow:orb': 3.6, 'glow:coil': 3 },
@@ -380,7 +486,8 @@ function samSite(): ModelTemplate {
   hazard(r, 0.5, 0.04, [-0.6, y0 + 0.08, 0.402]);
   hazard(r, 0.5, 0.04, [0.6, y0 + 0.08, 0.402]);
   // radar van (right)
-  r.box(M.teamDark, 0.28, 0.18, 0.36, 0.6, y0 + 0.09, -0.12, { b: 0.015 });
+  r.box(FSTYLE.soviet.steel, 0.28, 0.18, 0.36, 0.6, y0 + 0.09, -0.12, { b: 0.015 });
+  r.box(M.team, 0.285, 0.025, 0.365, 0.6, y0 + 0.16, -0.12, { b: 0.005 });
   const radar = r.node('radar', [0.6, y0 + 0.18, -0.12]);
   radar.cyl(M.dark, 0.01, 0.01, 0.06, 0, 0.03, 0, { seg: 6 });
   radar.box(M.gun, 0.03, 0.12, 0.2, 0.0, 0.1, 0, { b: 0.006, r: [0, 0, 0.3] });
@@ -392,9 +499,10 @@ function samSite(): ModelTemplate {
   r.cyl(M.dark, 0.2, 0.22, 0.04, 0, y0 + 0.02, 0, { seg: 18 });
   const t = r.node('turret', [0, y0 + 0.04, 0]);
   t.cyl(M.gun, 0.16, 0.18, 0.08, 0, 0.04, 0, { seg: 16 });
-  t.box(M.team, 0.22, 0.12, 0.2, -0.04, 0.13, 0, { b: 0.02 });
-  t.box(M.teamDark, 0.06, 0.18, 0.04, 0.0, 0.2, -0.12, { b: 0.01 });
-  t.box(M.teamDark, 0.06, 0.18, 0.04, 0.0, 0.2, 0.12, { b: 0.01 });
+  t.box(FSTYLE.soviet.steel, 0.22, 0.12, 0.2, -0.04, 0.13, 0, { b: 0.02 });
+  t.box(M.team, 0.225, 0.025, 0.205, -0.04, 0.16, 0, { b: 0.005 });
+  t.box(FSTYLE.soviet.steelLight, 0.06, 0.18, 0.04, 0.0, 0.2, -0.12, { b: 0.01 });
+  t.box(FSTYLE.soviet.steelLight, 0.06, 0.18, 0.04, 0.0, 0.2, 0.12, { b: 0.01 });
   const e = t.node('elev', [0.0, 0.26, 0], [0, 0, 0.55]);
   e.box(M.gun, 0.46, 0.02, 0.24, 0.12, -0.03, 0, { b: 0.006 });
   e.box(M.dark, 0.06, 0.06, 0.26, -0.02, 0, 0, { b: 0.01 });
@@ -406,7 +514,11 @@ function samSite(): ModelTemplate {
     samMissile(ms, z);
     e.node(`m${i}`, [0.46, 0.012, z]);
   }
-  r.sph(G.red, 0.014, -0.86, y0 + 0.14, -0.36, { seg: 6, slot: 'glow:blink' });
+  warnLight(r, [-0.86, y0 + 0.15, -0.36], false, 0.015);
+  warnLight(r, [0.86, y0 + 0.15, -0.36], false, 0.015);
+  banner(r, 'soviet', 0.14, 0.12, [-0.2, y0 + 0.12, -0.31], 0);
+  stencilText(r, 'ПВО', [0.25, y0 + 0.06, -0.315], [0, 0, 0], 0.06, S.stencilWhite);
+  drums(r, -0.35, y0, 0.15, 2, M.oliveDark);
 
   return makeTemplate({
     root: r,
@@ -414,7 +526,7 @@ function samSite(): ModelTemplate {
     radius: 1.0,
     turret: 'turret',
     muzzles: ['m0', 'm1'],
-    glow: { 'glow:blink': 4 },
+    glow: { glow: 2 },
     anim: dAnim((c, s) => {
       if (s.powered) c.n.radar.rotation.y += dtOf(s) * 2;
       // fired missile disappears briefly (reload)

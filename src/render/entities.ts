@@ -6,7 +6,7 @@ import type { Player } from '../sim/player';
 import { DT, type GameEvent } from '../sim/types';
 import type { World } from '../sim/world';
 import type { Projectile } from '../sim/combat';
-import { createModel } from './models';
+import { createModel, modelKey } from './models';
 import type { ModelAnimState, ModelInstance } from './models/types';
 import { bodyMaterial, BodyVariant, setLitMaterialPatch } from './models/materials';
 import type { Effects } from './effects';
@@ -18,6 +18,7 @@ import { cloakHidden, contentAnim, perceived } from './contentview';
 import { PARACHUTE_SECONDS } from '../sim/powers';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
 import { Destruction } from './destruction'; // [DEST]
+import { applyVisualScale, patchModelRim } from './scale'; // [LOOK] render-only unit scale + rim light
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -86,7 +87,7 @@ const _sphere = new THREE.Sphere();
  * copied in per frame (binding a match's own uniforms would leave the next match's models dry).
  */
 const WX: WeatherSurfaceUniforms = { uWxWet: { value: 0 }, uWxSnow: { value: 0 }, uWxSky: { value: new THREE.Color() } };
-const patchWx = (m: THREE.MeshStandardMaterial) => patchMaterialForWeather(m, WX);
+const patchWx = (m: THREE.MeshStandardMaterial) => { patchMaterialForWeather(m, WX); patchModelRim(m); }; // [LOOK] + rim light
 
 /** Camera height above which infantry stop casting shadows (a couple of pixels at that zoom). */
 const SMALL_SHADOW_HEIGHT = 34;
@@ -203,7 +204,7 @@ export class EntityRenderer {
     const seenAs = e instanceof Unit ? perceived(this.world, this.local, e) : { type: e.type.id, owner: e.owner };
     const model: ModelInstance = e instanceof Building && e.bt.wall
       ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
-      : createModel(seenAs.type, this.teamColor(seenAs.owner));
+      : createModel(seenAs.type, this.teamColor(seenAs.owner), seenAs.owner.faction); // [STRUCT] faction dressing
     this.scene.add(model.root);
     const wx = !!this.wxSource;
     model.root.traverse((o) => {
@@ -233,13 +234,14 @@ export class EntityRenderer {
       seen: false, fogged: false, ghostDead: false, wasExplored: this.primed && e instanceof Building && this.buildingExplored(e),
       inView: true, animSkipped: false, ptype: seenAs.type, powner: seenAs.owner.id, trails: null,
     };
+    if (e instanceof Unit) v.baseScale = applyVisualScale(model, e.kind, seenAs.type); // [LOOK] render-only unit scale
     if (e instanceof Building) {
       // surfaceAt: structures built on water (shipyard, sub pen) stand on the surface, not the lake bed
       model.root.position.set(e.x, this.world.map.surfaceAt(e.x, e.y), e.y);
       if (e.buildAnim < 1) this.effects.constructionBurst(new THREE.Vector3(e.x, this.world.map.surfaceAt(e.x, e.y), e.y), Math.max(e.w, e.h));
     }
     this.views.set(e.id, v);
-    if (e instanceof Building && !e.bt.wall) this.destruction.prepare(seenAs.type, [e.w, e.h]); // [DEST] bake its fracture in idle time
+    if (e instanceof Building && !e.bt.wall) this.destruction.prepare(modelKey(seenAs.type, seenAs.owner.faction), [e.w, e.h]); // [DEST] bake its fracture in idle time ([STRUCT] per faction dressing)
     return v;
   }
 
@@ -249,7 +251,8 @@ export class EntityRenderer {
     v.powner = owner.id;
     const pos = v.model.root.position.clone();
     v.model.dispose();
-    v.model = createModel(type, this.teamColor(owner));
+    v.model = createModel(type, this.teamColor(owner), owner.faction); // [STRUCT]
+    if (v.ent instanceof Unit) v.baseScale = applyVisualScale(v.model, v.ent.kind, type); // [LOOK] render-only unit scale
     v.model.root.position.copy(pos);
     this.scene.add(v.model.root);
     for (const c of v.chimneys) c.dispose();
@@ -332,7 +335,7 @@ export class EntityRenderer {
           this.effects.explosion(p.clone().setY(p.y + 0.3), 'building', Math.max(e.w, e.h));
           this.effects.scorch(p, Math.max(e.w, e.h) * 1.1);
           // [DEST] the structure breaks apart into physics-driven chunks
-          if (e.buildAnim >= 1 && e.selling < 0) v.collapsed = this.destruction.collapse(e.id, v.ptype, this.teamColor(e.owner).getHex(), v.model, [e.w, e.h]);
+          if (e.buildAnim >= 1 && e.selling < 0) v.collapsed = this.destruction.collapse(e.id, modelKey(v.ptype, e.owner.faction), this.teamColor(e.owner).getHex(), v.model, [e.w, e.h]); // [STRUCT] modelKey
         } else if (e.kind === 'vehicle' || e.kind === 'aircraft') {
           const u = e as Unit;
           this.destruction.onImpact(p.x, p.z, p.y, 'large', 1); // [DEST] crater under the wreck
@@ -346,7 +349,7 @@ export class EntityRenderer {
         } else {
           if (ev.how === 'crushed') {
             this.effects.bloodSplat(p);
-            v.model.root.scale.set(1.2, 0.08, 1.2);
+            v.model.root.scale.set(1.2 * v.baseScale, 0.08 * v.baseScale, 1.2 * v.baseScale); // [LOOK] keep the visual scale
           } else if (ev.how === 'burn' || ev.how === 'electro') {
             this.effects.scorch(p, 0.35);
           } else if (ev.how === 'blown') {
@@ -646,7 +649,7 @@ export class EntityRenderer {
       const t = b.buildAnim;
       sy = Math.max(0.02, 1 - Math.pow(1 - t, 2.2));
       if (!v.holo && root.visible && !b.bt.wall) {
-        v.holo = createModel(b.bt.id, this.teamColor(b.owner));
+        v.holo = createModel(b.bt.id, this.teamColor(b.owner), b.owner.faction); // [STRUCT]
         v.holo.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = (m as THREE.SkinnedMesh).isSkinnedMesh ? this.holoMatSk : this.holoMat; m.castShadow = false; m.receiveShadow = false; } });
         v.holo.root.position.set(b.x, g, b.y);
         this.scene.add(v.holo.root);
@@ -697,7 +700,7 @@ export class EntityRenderer {
       for (const c of v.chimneys) c.setIntensity(on);
     }
     this.damageEmitters(v, b.healthFrac, root.visible && b.buildAnim >= 1, _e.set(b.x, g + v.model.height * 0.8, b.y), 1 + Math.max(b.w, b.h) * 0.3);
-    if (!b.bt.wall) this.destruction.buildingDamage(b.id, v.ptype, [b.w, b.h], b.x, g, b.y, b.healthFrac, root.visible && b.buildAnim >= 1 && b.selling < 0, v.model, anim); // [DEST] roof fires / smoke, steam vents
+    if (!b.bt.wall) this.destruction.buildingDamage(b.id, modelKey(v.ptype, b.owner.faction), [b.w, b.h], b.x, g, b.y, b.healthFrac, root.visible && b.buildAnim >= 1 && b.selling < 0, v.model, anim); // [DEST] roof fires / smoke, steam vents
   }
 
   private damageEmitters(v: View, hf: number, visible: boolean, pos: THREE.Vector3, size: number) {

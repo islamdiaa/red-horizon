@@ -17,9 +17,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ModelAnimState, ModelInstance } from './types';
-import { bodyMaterial, fxMaterial, glowMaterial, shadowDepthMaterial, trackMaterial } from './materials';
+import { bodyMaterial, fxMaterial, glowMaterial, setBodyDetail, shadowDepthMaterial, trackMaterial } from './materials';
 
 export type V3 = [number, number, number];
+
+/** [STRUCT] Owner faction a template is dressed for (banners, emblems, slogans, lights). */
+export type ModelFaction = 'allies' | 'soviet';
 
 /** Surface description for body parts. c = sRGB hex, m = metalness, r = roughness,
  *  t = team mask 0..1, d = detail channel (0 metal, 1 concrete, 2 fabric, 3 none), uv = detail density. */
@@ -30,12 +33,42 @@ export interface Mat {
   t?: number;
   d?: number;
   uv?: number;
+  /**
+   * [STRUCT] Weathering controls (see materials.ts, 'wear' attribute):
+   *   w    = edge wear on chamfered edges: paint chipped to bare metal / scuffed concrete (default by material)
+   *   g    = rust / grime streaks running down vertical faces from the part's top edge (default by material)
+   *   snow = how much snow settles on its up-facing faces in winter (0..1, default 1; scaled by NB.snow)
+   */
+  w?: number;
+  g?: number;
+  snow?: number;
+  /**
+   * [STRUCT] Material flags (packed into pbr.y above the roughness, read by the body shader):
+   *   camo = disruptive camouflage blotches over the team paint (dark shade + sand / winter white)
+   *   mud  = mud (winter: grey slush) caked on the lower hull, below ~0.13 model units, with splatter
+   *   soot = exhaust scorch: mottled black soot, matte (exhaust plates, gun ports, burner nozzles)
+   */
+  camo?: boolean;
+  mud?: boolean;
+  soot?: boolean;
 }
+
+/** [STRUCT] pbr.y = roughness + MAT_FLAG_STEP * flags (bit 1 camo, 2 mud, 4 soot). */
+export const MAT_FLAG_STEP = 2;
+export const MAT_CAMO = 1;
+export const MAT_MUD = 2;
+export const MAT_SOOT = 4;
 
 /** Emissive description: colour hex and relative brightness multiplier. */
 export interface Glow {
   glow: number;
   i?: number;
+  /**
+   * [STRUCT] Shader-driven animation of emissive parts baked into the body (free: no extra draw call):
+   * 1 = blink (warning lights), 2 = slow pulse, 3 = fire flicker, 4 = fast strobe. The fractional part is a
+   * phase offset; every instance also gets its own phase from its world position.
+   */
+  a?: number;
 }
 
 export type Surface = Mat | Glow;
@@ -176,6 +209,7 @@ function prepGeometry(src: THREE.BufferGeometry, matrix: THREE.Matrix4, surf: Su
     }
     const span = maxY - minY;
     const gMin = span > 0.02 ? PART_GRADIENT : 1;
+    const matFlags = (surf.camo ? MAT_CAMO : 0) | (surf.mud ? MAT_MUD : 0) | (surf.soot ? MAT_SOOT : 0);
     for (let i = 0; i < n; i++) {
       const t = span > 0 ? (P[i * 3 + 1] - minY) / span : 1;
       const k = gMin + (1 - gMin) * Math.sqrt(t);
@@ -183,14 +217,56 @@ function prepGeometry(src: THREE.BufferGeometry, matrix: THREE.Matrix4, surf: Su
       col[i * 3 + 1] = _col.g * k;
       col[i * 3 + 2] = _col.b * k;
       pbr[i * 4] = surf.m;
-      pbr[i * 4 + 1] = surf.r;
+      pbr[i * 4 + 1] = surf.r + MAT_FLAG_STEP * matFlags;
       pbr[i * 4 + 2] = surf.t ?? 0;
       pbr[i * 4 + 3] = surf.d ?? 0;
     }
   }
   out.setAttribute('color', new THREE.BufferAttribute(col, 3));
   out.setAttribute('pbr', new THREE.BufferAttribute(pbr, 4));
+  out.setAttribute('wear', new THREE.BufferAttribute(wearAttr(src, P, N, n, surf), 4)); // [STRUCT]
   out.userData.lod = lodClass(out, surf, lod);
+  return out;
+}
+
+/** [STRUCT] Streak length (world units): rust / grime fades out this far below the top edge of a part. */
+const STREAK_LEN = 0.32;
+let partSeed = 0x2545f491;
+
+/**
+ * [STRUCT] Per-vertex weathering ('wear', vec4), read by the body material:
+ *   surfaces: x = edge wear (chamfer facets), y = streak strength (from the part's top edge down),
+ *             z = cavity occlusion (baked later for structures), w = snow steps (0..7) + part seed (0..1)
+ *   emissive: x = animation mode + phase (see Glow.a)
+ * Geometry without the attribute (fracture chunks) reads (0, 0, 0, 1): plain, no wear, light snow.
+ */
+function wearAttr(src: THREE.BufferGeometry, P: Float32Array, N: Float32Array, n: number, surf: Surface): Float32Array {
+  const out = new Float32Array(n * 4);
+  partSeed = Math.imul(partSeed ^ (partSeed >>> 15), 0x2c1b3c6d) + 0x9e3779b9;
+  const seed = ((partSeed >>> 8) & 0xffff) / 65536;
+  if (isGlow(surf)) {
+    const a = surf.a ?? 0;
+    for (let i = 0; i < n; i++) {
+      out[i * 4] = a;
+      out[i * 4 + 3] = 7 + seed * 0.99;
+    }
+    return out;
+  }
+  const d = surf.d ?? 0;
+  // painted metal chips most, concrete scuffs, glass / chrome / decals (d 3) and fabric barely
+  const wAmt = surf.w ?? (d === 0 ? 1 : d === 1 ? 0.7 : d === 2 ? 0.15 : 0.25);
+  const gAmt = surf.g ?? (d === 0 ? 1 : d === 1 ? 0.9 : d === 2 ? 0.3 : 0.15);
+  const snowQ = Math.round(Math.max(0, Math.min(1, surf.snow ?? 1)) * 7);
+  const edge = src.getAttribute('edge') as THREE.BufferAttribute | undefined;
+  let maxY = -Infinity;
+  for (let i = 0; i < n; i++) maxY = Math.max(maxY, P[i * 3 + 1]);
+  for (let i = 0; i < n; i++) {
+    out[i * 4] = edge ? edge.getX(i) * wAmt : 0;
+    // only side faces streak (the shader also masks by the normal)
+    const side = 1 - Math.abs(N[i * 3 + 1]);
+    out[i * 4 + 1] = gAmt * side * Math.exp(-(maxY - P[i * 3 + 1]) / STREAK_LEN);
+    out[i * 4 + 3] = snowQ + seed * 0.99;
+  }
   return out;
 }
 
@@ -246,6 +322,19 @@ export class NB {
   visible = true;
   /** Ground-AO parameters (root only; applied to the merged body in model space). */
   ao?: { h: number; min: number };
+  /** [STRUCT] Root only: snow multiplier for the whole model (default 0.3: units get a light dusting). */
+  snow?: number;
+  /** [STRUCT] Root only: bake cavity occlusion (crevices, under ledges, contact shadows) into the body. */
+  cavity?: boolean;
+  /** [STRUCT] Root only: mud / slush on the lower hull of every part (sets Mat.mud on the whole model). */
+  mud?: boolean;
+  /** [STRUCT] Root only: camouflage on every team-painted part (sets Mat.camo where the team mask >= 0.5). */
+  camo?: boolean;
+  /**
+   * [STRUCT] Default level of detail of the non-emissive parts added to this node (AddOpts.lod overrides).
+   * Greeble helpers build into a child node with lod 0 (close-up only) and merge it in.
+   */
+  lod?: 0 | 1;
 
   constructor(
     public name: string,
@@ -256,7 +345,7 @@ export class NB {
   add(geo: THREE.BufferGeometry, surf: Surface, o: AddOpts = {}): this {
     const slot = normSlot(o.slot);
     const m = composeMatrix(o.p, o.r, o.s);
-    const g = prepGeometry(geo, m, surf, !!o.keepUv, slot, o.lod);
+    const g = prepGeometry(geo, m, surf, !!o.keepUv, slot, o.lod ?? (isGlow(surf) ? undefined : this.lod));
     let list = this.parts.get(slot);
     if (!list) this.parts.set(slot, (list = []));
     list.push(g);
@@ -264,11 +353,22 @@ export class NB {
   }
 
   box(surf: Surface, w: number, h: number, d: number, x: number, y: number, z: number, o: BoxOpts = {}): this {
-    return this.add(boxGeo(w, h, d, o.b ?? 0.012), surf, { p: [x, y, z], r: o.r, slot: o.slot });
+    const g = boxGeo(w, h, d, o.b ?? 0.012);
+    // [STRUCT] chamfered boxes (44 triangles) show up close; the distant body gets a plain 12-triangle box
+    if (this.lod === undefined && !isGlow(surf) && normSlot(o.slot) === 'body' && g.getAttribute('edge')) {
+      this.add(g, surf, { p: [x, y, z], r: o.r, slot: o.slot, lod: 0 });
+      return this.add(boxGeo(w, h, d, 0), surf, { p: [x, y, z], r: o.r, slot: o.slot, lod: 1 });
+    }
+    return this.add(g, surf, { p: [x, y, z], r: o.r, slot: o.slot });
   }
 
   cyl(surf: Surface, rt: number, rb: number, h: number, x: number, y: number, z: number, o: CylOpts = {}): this {
     const seg = Math.min(o.seg ?? 8, maxSeg(Math.max(rt, rb)));
+    // [STRUCT] round parts: fewer sides in the distant body
+    if (this.lod === undefined && seg > 6 && !isGlow(surf) && normSlot(o.slot) === 'body') {
+      this.add(cylGeo(rt, rb, h, seg, !!o.open), surf, { p: [x, y, z], r: o.r, s: o.s, slot: o.slot, lod: 0 });
+      return this.add(cylGeo(rt, rb, h, Math.max(6, Math.round(seg * 0.6)), !!o.open), surf, { p: [x, y, z], r: o.r, s: o.s, slot: o.slot, lod: 1 });
+    }
     return this.add(cylGeo(rt, rb, h, seg, !!o.open), surf, { p: [x, y, z], r: o.r, s: o.s, slot: o.slot });
   }
 
@@ -317,6 +417,8 @@ function chamferBox(w: number, h: number, d: number, b: number): THREE.BufferGeo
   const pos: number[] = [];
   const nrm: number[] = [];
   const idx: number[] = [];
+  const edg: number[] = []; // [STRUCT] 1 on bevel facets (edge wear / catch-light)
+  let isEdge = 0;
   // vertex of a corner (signs) lying on the face perpendicular to axis a
   const fv = (s: number[], a: number): number[] => [0, 1, 2].map((k) => s[k] * (k === a ? H[k] : H[k] - b));
   const poly = (pts: number[][]) => {
@@ -334,6 +436,7 @@ function chamferBox(w: number, h: number, d: number, b: number): THREE.BufferGeo
     for (const p of pts) {
       pos.push(p[0], p[1], p[2]);
       nrm.push(n[0] / len, n[1] / len, n[2] / len);
+      edg.push(isEdge);
     }
     for (let i = 1; i < pts.length - 1; i++) idx.push(base, base + i, base + i + 1);
   };
@@ -358,6 +461,7 @@ function chamferBox(w: number, h: number, d: number, b: number): THREE.BufferGeo
       );
     }
   }
+  isEdge = 1;
   for (let a = 0; a < 3; a++) {
     const bb = (a + 1) % 3;
     const c = (a + 2) % 3;
@@ -378,6 +482,7 @@ function chamferBox(w: number, h: number, d: number, b: number): THREE.BufferGeo
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('edge', new THREE.Float32BufferAttribute(edg, 1));
   g.setIndex(idx);
   return g;
 }
@@ -453,10 +558,153 @@ export interface TemplateSpec {
 }
 
 const DUST = [0.11, 0.085, 0.055];
+/** [STRUCT] Snow multiplier of templates that do not set NB.snow (units: a light dusting). */
+const DEFAULT_SNOW = 0.3;
+
+/**
+ * [STRUCT] Cavity occlusion baked into wear.z: the parts are splatted into a coarse voxel grid and every
+ * vertex marches a few short rays over its hemisphere. Darkens crevices, the feet of roof clutter, pipes
+ * against walls and the undersides of ledges (and keeps snow out of them). Costs a few ms per structure.
+ */
+function bakeCavity(parts: THREE.BufferGeometry[]): void {
+  const C = 0.055;
+  const box = new THREE.Box3();
+  for (const g of parts) {
+    g.computeBoundingBox();
+    box.union(g.boundingBox!);
+  }
+  const R = 0.26;
+  const ox = box.min.x - R, oy = box.min.y - R, oz = box.min.z - R;
+  const nx = Math.ceil((box.max.x - box.min.x + 2 * R) / C) + 1;
+  const ny = Math.ceil((box.max.y - box.min.y + 2 * R) / C) + 1;
+  const nz = Math.ceil((box.max.z - box.min.z + 2 * R) / C) + 1;
+  if (nx * ny * nz > 4e6) return;
+  const occ = new Uint8Array(nx * ny * nz);
+  const mark = (x: number, y: number, z: number) => {
+    const i = ((x - ox) / C) | 0, j = ((y - oy) / C) | 0, k = ((z - oz) / C) | 0;
+    occ[(j * nz + k) * nx + i] = 1;
+  };
+  // the ground (slab top and below) is solid: fill those layers directly instead of splatting the slab
+  const FLOOR = 0.035;
+  const jFloor = Math.max(0, Math.min(ny, Math.floor((FLOOR - oy) / C) + 1));
+  occ.fill(1, 0, jFloor * nz * nx);
+  for (const g of parts) {
+    // the distant body's shapes are enough for occupancy (close-up twins and greebles add nothing)
+    if (g.userData.lod === 0) continue;
+    const W = g.getAttribute('pbr').array as Float32Array;
+    const P = g.getAttribute('position').array as Float32Array;
+    const I = g.index!.array as ArrayLike<number>;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+      if (W[I[t] * 4 + 3] >= EMISSIVE_BASE - 0.5) continue;
+      if (P[a + 1] < FLOOR && P[b + 1] < FLOOR && P[c + 1] < FLOOR + 0.012) continue;
+      // scan lines parallel to the longest edge, stepping toward the opposite vertex (skinny bevel strips
+      // and rails cost a handful of samples instead of a square grid)
+      const lab = Math.hypot(P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]);
+      const lbc = Math.hypot(P[c] - P[b], P[c + 1] - P[b + 1], P[c + 2] - P[b + 2]);
+      const lca = Math.hypot(P[a] - P[c], P[a + 1] - P[c + 1], P[a + 2] - P[c + 2]);
+      let p0 = a, p1 = b, p2 = c, L = lab;
+      if (lbc >= lab && lbc >= lca) { p0 = b; p1 = c; p2 = a; L = lbc; }
+      else if (lca >= lab && lca >= lbc) { p0 = c; p1 = a; p2 = b; L = lca; }
+      const area2 = Math.hypot(
+        (P[p1 + 1] - P[p0 + 1]) * (P[p2 + 2] - P[p0 + 2]) - (P[p1 + 2] - P[p0 + 2]) * (P[p2 + 1] - P[p0 + 1]),
+        (P[p1 + 2] - P[p0 + 2]) * (P[p2] - P[p0]) - (P[p1] - P[p0]) * (P[p2 + 2] - P[p0 + 2]),
+        (P[p1] - P[p0]) * (P[p2 + 1] - P[p0 + 1]) - (P[p1 + 1] - P[p0 + 1]) * (P[p2] - P[p0]),
+      );
+      const hgt = L > 1e-6 ? area2 / L : 0;
+      const nv = Math.max(1, Math.ceil(hgt / (C * 0.8)));
+      for (let i = 0; i <= nv; i++) {
+        const t = i / nv;
+        const ax = P[p0] + (P[p2] - P[p0]) * t, ay = P[p0 + 1] + (P[p2 + 1] - P[p0 + 1]) * t, az = P[p0 + 2] + (P[p2 + 2] - P[p0 + 2]) * t;
+        const bx = P[p1] + (P[p2] - P[p1]) * t, by = P[p1 + 1] + (P[p2 + 1] - P[p1 + 1]) * t, bz = P[p1 + 2] + (P[p2 + 2] - P[p1 + 2]) * t;
+        const k = Math.max(1, Math.ceil(((1 - t) * L) / (C * 0.8)));
+        for (let j = 0; j <= k; j++) {
+          const f = j / k;
+          mark(ax + (bx - ax) * f, ay + (by - ay) * f, az + (bz - az) * f);
+        }
+      }
+    }
+  }
+  // fixed hemisphere directions (z-up), rotated onto each normal
+  const DIRS: number[][] = [];
+  for (let k = 0; k < 8; k++) {
+    const th = Math.acos(Math.sqrt(1 - (k + 0.5) / 8));
+    const ph = k * 2.39996;
+    DIRS.push([Math.sin(th) * Math.cos(ph), Math.sin(th) * Math.sin(ph), Math.cos(th)]);
+  }
+  const steps = Math.ceil(R / C);
+  const t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), nv = new THREE.Vector3();
+  // vertices starting in the same voxel with the same dominant normal share one result (chamfer corners,
+  // close-up / distant twins of the same part)
+  const cache = new Map<number, number>();
+  for (const g of parts) {
+    const P = g.getAttribute('position').array as Float32Array;
+    const N = g.getAttribute('normal').array as Float32Array;
+    const W = g.getAttribute('pbr').array as Float32Array;
+    const wear = g.getAttribute('wear').array as Float32Array;
+    const n = P.length / 3;
+    for (let i = 0; i < n; i++) {
+      if (W[i * 4 + 3] >= EMISSIVE_BASE - 0.5) continue;
+      nv.set(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
+      if (nv.lengthSq() < 0.5) continue;
+      const sx = P[i * 3] + nv.x * C * 1.6, sy = P[i * 3 + 1] + nv.y * C * 1.6, sz = P[i * 3 + 2] + nv.z * C * 1.6;
+      const ax = Math.abs(nv.x), ay = Math.abs(nv.y), az = Math.abs(nv.z);
+      const axis = ax >= ay && ax >= az ? (nv.x > 0 ? 0 : 1) : ay >= az ? (nv.y > 0 ? 2 : 3) : nv.z > 0 ? 4 : 5;
+      const key = ((((sy - oy) / C) | 0) * nz + (((sz - oz) / C) | 0)) * nx + (((sx - ox) / C) | 0);
+      const hit = cache.get(key * 6 + axis);
+      if (hit !== undefined) {
+        wear[i * 4 + 2] = hit;
+        continue;
+      }
+      t1.set(ax < 0.9 ? 1 : 0, ax < 0.9 ? 0 : 1, 0).cross(nv).normalize();
+      t2.crossVectors(nv, t1);
+      let occl = 0;
+      for (const [dx, dy, dz] of DIRS) {
+        const rx = t1.x * dx + t2.x * dy + nv.x * dz;
+        const ry = t1.y * dx + t2.y * dy + nv.y * dz;
+        const rz = t1.z * dx + t2.z * dy + nv.z * dz;
+        for (let s = 1; s <= steps; s++) {
+          const d = s * C;
+          const ci = ((sx + rx * d - ox) / C) | 0, cj = ((sy + ry * d - oy) / C) | 0, ck = ((sz + rz * d - oz) / C) | 0;
+          if (ci < 0 || cj < 0 || ck < 0 || ci >= nx || cj >= ny || ck >= nz) break;
+          if (occ[(cj * nz + ck) * nx + ci]) {
+            occl += 1 - (s - 1) / steps;
+            break;
+          }
+        }
+      }
+      const v = Math.min(1, (occl / DIRS.length) * 1.35);
+      cache.set(key * 6 + axis, v);
+      wear[i * 4 + 2] = v;
+    }
+  }
+}
 /** The distant body is used only if it has fewer than this share of the close-up body's triangles. */
 const LOD_MIN_SAVING = 0.9;
-/** Camera distance (world units) beyond which models switch to their distant body. */
+/** Camera distance (world units) beyond which models switch to their distant body (Medium preset). */
 export const LOD_DISTANCE = 17;
+/** [STRUCT] High preset: the default camera sits about 20 away, so close-up bodies reach a little further. */
+export const LOD_DISTANCE_HIGH = 21.5;
+
+/**
+ * [STRUCT] Model detail: 2 = High (close-up bodies within LOD_DISTANCE_HIGH), 1 = Medium (LOD_DISTANCE),
+ * 0 = Low (distant body only, cheaper body shader).
+ */
+let modelDetail: 0 | 1 | 2 = 1;
+
+/**
+ * [STRUCT] Select the model detail level by quality preset (call before models are created, e.g. when a
+ * match starts): 0 Low, 1 Medium, 2 High.
+ */
+export function setModelDetail(level: 0 | 1 | 2): void {
+  modelDetail = level;
+  setBodyDetail(level);
+}
+
+/** [STRUCT] Camera distance at which models switch to their distant body for the current detail level. */
+export function lodDistance(): number {
+  return modelDetail >= 2 ? LOD_DISTANCE_HIGH : LOD_DISTANCE;
+}
 
 function applyGroundAO(g: THREE.BufferGeometry, h: number, min: number) {
   const P = g.getAttribute('position').array as Float32Array;
@@ -526,6 +774,31 @@ export function makeTemplate(spec: TemplateSpec): ModelTemplate {
     };
   };
   const root = walk(spec.root, new THREE.Matrix4());
+
+  // [STRUCT] model-wide snow multiplier and baked cavity occlusion (both shared by the hi and lo bodies)
+  const snowMul = spec.root.snow ?? DEFAULT_SNOW;
+  if (snowMul !== 1) {
+    for (const g of bodyParts) {
+      const w = g.getAttribute('wear').array as Float32Array;
+      for (let i = 3; i < w.length; i += 4) {
+        const q = Math.floor(w[i] + 1e-4);
+        w[i] = Math.min(7, Math.round(q * snowMul)) + (w[i] - q);
+      }
+    }
+  }
+  if (spec.root.cavity && bodyParts.length) bakeCavity(bodyParts);
+  if (spec.root.mud || spec.root.camo) {
+    for (const g of bodyParts) {
+      const W = g.getAttribute('pbr').array as Float32Array;
+      for (let i = 0; i < W.length; i += 4) {
+        if (W[i + 3] >= EMISSIVE_BASE - 0.5) continue;
+        const f = Math.floor(W[i + 1] / MAT_FLAG_STEP + 1e-4);
+        const r = W[i + 1] - f * MAT_FLAG_STEP;
+        const nf = f | (spec.root.mud ? MAT_MUD : 0) | (spec.root.camo && W[i + 2] >= 0.5 ? MAT_CAMO : 0);
+        W[i + 1] = r + MAT_FLAG_STEP * nf;
+      }
+    }
+  }
 
   let skin: SkinT | null = null;
   if (bodyParts.length) {
@@ -708,15 +981,17 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
       ctx.bodies.push(mesh);
       return mesh;
     };
-    const hi = mk(skin.geo, 'body');
-    if (skin.geoLo) {
+    if (skin.geoLo && modelDetail === 0) {
+      // [STRUCT] Low preset: the lighter body everywhere (no close-up greebles)
+      root.add(mk(skin.geoLo, 'body-lo'));
+    } else if (skin.geoLo) {
       // close-up detail near the camera, the lighter body further out: still one draw call either way
       const lod = new THREE.LOD();
       lod.name = 'lod';
-      lod.addLevel(hi, 0, 0.08);
-      lod.addLevel(mk(skin.geoLo, 'body-lo'), LOD_DISTANCE, 0.08);
+      lod.addLevel(mk(skin.geo, 'body'), 0, 0.08);
+      lod.addLevel(mk(skin.geoLo, 'body-lo'), lodDistance(), 0.08);
       root.add(lod);
-    } else root.add(hi);
+    } else root.add(mk(skin.geo, 'body'));
   }
   tpl.init?.(ctx);
   const anim = tpl.anim;

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { BUILDINGS, UNITS } from '../data/rules';
-import { createModel } from './models';
+import { createModel, guessFaction, type ModelFaction } from './models';
 import { WallRenderer } from './walls';
+import { getModelSnow, setBodyTime, setModelSnow } from './models/materials';
 
 interface ThumbStage { renderer: THREE.WebGLRenderer; scene: THREE.Scene; canvas: HTMLCanvasElement }
 let stage: ThumbStage | null = null;
@@ -33,7 +34,7 @@ function getStage(w: number, h: number): ThumbStage {
 }
 
 /** Renders sidebar portraits of the real 3D models (once per type), returning data URLs. */
-export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 128): Map<string, string> {
+export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 128, faction?: ModelFaction): Map<string, string> {
   const out = new Map<string, string>();
   const { renderer, scene, canvas } = getStage(w, h);
   // baked per call: game teardown releases every GPU resource (see gpuregistry), render targets included
@@ -42,6 +43,11 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
   scene.environment = env.texture;
   const cam = new THREE.PerspectiveCamera(30, w / h, 0.05, 100);
   const color = new THREE.Color(teamColor);
+  const fac = faction ?? guessFaction(color); // [STRUCT] Soviet / Allied dressing of shared structures
+  // [STRUCT] clean portraits: no winter snow, baked blinkers lit
+  const snow = getModelSnow();
+  setModelSnow(0);
+  setBodyTime(0.1);
   const box = new THREE.Box3();
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
@@ -49,8 +55,8 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
   for (const id of ids) {
     try {
       const m = BUILDINGS[id]?.wall
-        ? (() => { const root = WallRenderer.preview(id); root.rotation.y = 0.5; return { root, update() {}, dispose() { root.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); } } as unknown as ReturnType<typeof createModel>; })()
-        : createModel(id, color);
+        ? (() => { const root = WallRenderer.preview(id, teamColor, fac); root.rotation.y = 0.5; return { root, update() {}, dispose() { root.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); } } as unknown as ReturnType<typeof createModel>; })()
+        : createModel(id, color, fac);
       const isBld = id in BUILDINGS;
       const unit = UNITS[id];
       if (!isBld) m.root.rotation.y = -Math.PI * 0.18 - Math.PI / 2 + Math.PI; // face the viewer, three-quarter
@@ -61,8 +67,9 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
       box.setFromObject(m.root);
       box.getSize(size);
       box.getCenter(center);
-      const radius = Math.max(size.x, size.y * 1.2, size.z) * 0.62 + 0.02;
-      const dist = radius / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * (isBld ? 1.05 : 1.15);
+      // helicopters: the rotor disc dominates the bounding box, frame the airframe instead
+      const radius = Math.max(size.x, size.y * 1.2, size.z) * 0.62 * (unit?.vtol ? 0.72 : 1) + 0.02;
+      const dist = radius / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * (isBld ? 1.05 : 1.0);
       const dir = new THREE.Vector3(0.55, 0.62, 1).normalize();
       cam.position.copy(center).addScaledVector(dir, dist);
       cam.lookAt(center.x, center.y - size.y * 0.05, center.z);
@@ -74,6 +81,7 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
       console.warn('thumbnail failed', id, e);
     }
   }
+  setModelSnow(snow); // [STRUCT]
   scene.environment = null;
   env.dispose();
   pmrem.dispose();

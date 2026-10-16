@@ -529,6 +529,7 @@ export function pipe(nb: NB, a: V3, b: V3, r: number, mat: Mat = M.steel, seg = 
 /** Ladder on a wall facing +Z (rails + rungs), base at p. */
 export function ladder(nb: NB, h: number, p: V3, rotY = 0): void {
   const n = new NB('_lad', p, [0, rotY, 0]);
+  n.lod = 0; // [STRUCT] close-up detail
   n.box(M.steel, 0.008, h, 0.008, -0.03, h / 2, 0, { b: 0 });
   n.box(M.steel, 0.008, h, 0.008, 0.03, h / 2, 0, { b: 0 });
   for (let y = 0.04; y < h; y += 0.05) n.box(M.steel, 0.06, 0.006, 0.006, 0, y, 0, { b: 0 });
@@ -669,4 +670,614 @@ export function hatch(nb: NB, r: number, p: V3, mat: Mat = M.teamDark): void {
   nb.cyl(mat, r, r * 1.05, 0.01, p[0], p[1] + 0.005, p[2], { seg: 10 });
   nb.box(M.steel, r * 0.9, 0.006, 0.006, p[0], p[1] + 0.013, p[2], { b: 0, slot: undefined });
   rivets(nb, [p[0] - r * 0.7, p[1] + 0.011, p[2] - r * 0.7], [p[0] + r * 0.7, p[1] + 0.011, p[2] - r * 0.7], 3, 0.004);
+}
+
+// =============================================================================================
+// [STRUCT] Structure kit: faction styles, stencil text, banners, emblems, lights, catwalks, roof clutter
+// =============================================================================================
+
+export type Fac = 'allies' | 'soviet';
+
+/** Structure palette additions (heavy concrete, dark steel, roofing, signage). */
+export const S = {
+  /** Soviet: heavy, darker concrete and gunmetal steel */
+  sovWall: { c: 0x8a867e, m: 0, r: 0.9, d: 1 },
+  sovWallDark: { c: 0x66635d, m: 0, r: 0.92, d: 1 },
+  sovSteel: { c: 0x4c5056, m: 0.55, r: 0.5, d: 0 },
+  sovSteelLight: { c: 0x6c7076, m: 0.55, r: 0.46, d: 0 },
+  /** Allied: clean light concrete, steel cladding and glass */
+  allWall: { c: 0xc0bcb1, m: 0, r: 0.86, d: 1 },
+  allWallDark: { c: 0x95918a, m: 0, r: 0.9, d: 1 },
+  allSteel: { c: 0x87909a, m: 0.7, r: 0.36, d: 0 },
+  allSteelLight: { c: 0xa9b1b9, m: 0.7, r: 0.34, d: 0 },
+  roofTar: { c: 0x3b3c3f, m: 0.05, r: 0.92, d: 1, uv: 1.6 },
+  roofSteel: { c: 0x5a6066, m: 0.6, r: 0.5, d: 0 },
+  grating: { c: 0x33363a, m: 0.6, r: 0.55, d: 0, uv: 6 },
+  rust: { c: 0x6e4128, m: 0.35, r: 0.82, d: 0 },
+  brick: { c: 0x7a4636, m: 0, r: 0.92, d: 1, uv: 2.4 },
+  signRed: { c: 0xa31f19, m: 0.1, r: 0.6, d: 3 },
+  signBlue: { c: 0x1d3b78, m: 0.1, r: 0.55, d: 3 },
+  stencilWhite: { c: 0xd8d4c8, m: 0.05, r: 0.7, d: 3, w: 0 },
+  stencilYellow: { c: 0xe8b51a, m: 0.1, r: 0.6, d: 3, w: 0 },
+  cloth: { c: 0xffffff, m: 0, r: 0.85, t: 1, d: 2, snow: 0.2 },
+  clothDark: { c: 0x6a6a6a, m: 0, r: 0.88, t: 1, d: 2, snow: 0.2 },
+} satisfies Record<string, Mat>;
+
+/** Faction look of a structure: wall / steel / roof materials, railing paint, light colours. */
+export interface FStyle {
+  fac: Fac;
+  wall: Mat;
+  wallDark: Mat;
+  steel: Mat;
+  steelLight: Mat;
+  roof: Mat;
+  rail: Mat;
+  /** steady accent light (Soviet red, Allied white) */
+  accent: Glow;
+  /** window glow */
+  win: Glow;
+}
+
+export const FSTYLE: Record<Fac, FStyle> = {
+  soviet: {
+    fac: 'soviet',
+    wall: S.sovWall,
+    wallDark: S.sovWallDark,
+    steel: S.sovSteel,
+    steelLight: S.sovSteelLight,
+    roof: S.roofTar,
+    rail: { c: 0x3a3c40, m: 0.6, r: 0.5, d: 0 },
+    accent: { glow: 0xff2414, i: 1.6 },
+    win: { glow: 0xffb35c, i: 0.75 },
+  },
+  allies: {
+    fac: 'allies',
+    wall: S.allWall,
+    wallDark: S.allWallDark,
+    steel: S.allSteel,
+    steelLight: S.allSteelLight,
+    roof: S.roofSteel,
+    rail: M.yellow,
+    accent: { glow: 0xe8f2ff, i: 1.5 },
+    win: { glow: 0xcfe6ff, i: 0.7 },
+  },
+};
+
+// ---------------------------------------------------------------------------------------------
+// Stencil text: a stroke font (Latin capitals, digits, a few Cyrillic letters) as flat quads
+// ---------------------------------------------------------------------------------------------
+
+type Stroke = number[][];
+const O_: Stroke = [[1, 0], [0, 1], [0, 5], [1, 6], [3, 6], [4, 5], [4, 1], [3, 0], [1, 0]];
+const P_: Stroke = [[0, 0], [0, 6], [3, 6], [4, 5], [4, 3.8], [3, 2.8], [0, 2.8]];
+const B1_: Stroke = [[0, 0], [0, 6], [3, 6], [4, 5], [4, 4.1], [3, 3.2], [0, 3.2]];
+const B2_: Stroke = [[3, 3.2], [4, 2.3], [4, 1], [3, 0], [0, 0]];
+const GLYPHS: Record<string, Stroke[]> = {
+  A: [[[0, 0], [0, 4.5], [1.4, 6], [2.6, 6], [4, 4.5], [4, 0]], [[0, 2.7], [4, 2.7]]],
+  B: [B1_, B2_],
+  C: [[[4, 6], [1, 6], [0, 5], [0, 1], [1, 0], [4, 0]]],
+  D: [[[0, 0], [0, 6], [2.6, 6], [4, 4.6], [4, 1.4], [2.6, 0], [0, 0]]],
+  E: [[[4, 6], [0, 6], [0, 0], [4, 0]], [[0, 3.1], [3, 3.1]]],
+  F: [[[4, 6], [0, 6], [0, 0]], [[0, 3.1], [3, 3.1]]],
+  G: [[[4, 6], [1, 6], [0, 5], [0, 1], [1, 0], [4, 0], [4, 2.8], [2.2, 2.8]]],
+  H: [[[0, 0], [0, 6]], [[4, 0], [4, 6]], [[0, 3.1], [4, 3.1]]],
+  I: [[[2, 0], [2, 6]], [[0.8, 6], [3.2, 6]], [[0.8, 0], [3.2, 0]]],
+  J: [[[4, 6], [4, 1], [3, 0], [1, 0], [0, 1]]],
+  K: [[[0, 0], [0, 6]], [[4, 6], [0.5, 3], [4, 0]]],
+  L: [[[0, 6], [0, 0], [4, 0]]],
+  M: [[[0, 0], [0, 6], [2, 3.2], [4, 6], [4, 0]]],
+  N: [[[0, 0], [0, 6], [4, 0], [4, 6]]],
+  O: [O_],
+  P: [P_],
+  Q: [O_, [[2.6, 1.4], [4.2, -0.3]]],
+  R: [P_, [[2, 2.8], [4, 0]]],
+  S: [[[4, 6], [1, 6], [0, 5], [0, 4], [1, 3.1], [3, 3.1], [4, 2.1], [4, 1], [3, 0], [0, 0]]],
+  T: [[[0, 6], [4, 6]], [[2, 6], [2, 0]]],
+  U: [[[0, 6], [0, 1], [1, 0], [3, 0], [4, 1], [4, 6]]],
+  V: [[[0, 6], [2, 0], [4, 6]]],
+  W: [[[0, 6], [0.8, 0], [2, 3.4], [3.2, 0], [4, 6]]],
+  X: [[[0, 6], [4, 0]], [[4, 6], [0, 0]]],
+  Y: [[[0, 6], [2, 3]], [[4, 6], [2, 3], [2, 0]]],
+  Z: [[[0, 6], [4, 6], [0, 0], [4, 0]]],
+  '0': [O_, [[0.6, 1.2], [3.4, 4.8]]],
+  '1': [[[0.8, 4.8], [2.2, 6], [2.2, 0]], [[0.8, 0], [3.6, 0]]],
+  '2': [[[0, 5], [1, 6], [3, 6], [4, 5], [4, 4], [0, 0], [4, 0]]],
+  '3': [[[0, 6], [3, 6], [4, 5], [4, 4.1], [3, 3.1], [1.2, 3.1]], [[3, 3.1], [4, 2.2], [4, 1], [3, 0], [0, 0]]],
+  '4': [[[3, 0], [3, 6], [0, 2], [4, 2]]],
+  '5': [[[4, 6], [0, 6], [0, 3.3], [3, 3.3], [4, 2.3], [4, 1], [3, 0], [0, 0]]],
+  '6': [[[4, 6], [1, 6], [0, 5], [0, 1], [1, 0], [3, 0], [4, 1], [4, 2.3], [3, 3.3], [0, 3.3]]],
+  '7': [[[0, 6], [4, 6], [1.4, 0]]],
+  '8': [[[1, 3.1], [0, 4], [0, 5], [1, 6], [3, 6], [4, 5], [4, 4], [3, 3.1], [1, 3.1], [0, 2.2], [0, 1], [1, 0], [3, 0], [4, 1], [4, 2.2], [3, 3.1]]],
+  '9': [[[0, 0], [3, 0], [4, 1], [4, 5], [3, 6], [1, 6], [0, 5], [0, 3.7], [1, 2.7], [4, 2.7]]],
+  '-': [[[0.8, 3], [3.2, 3]]],
+  '.': [[[2, 0], [2, 0.7]]],
+  '!': [[[2, 6], [2, 1.8]], [[2, 0.7], [2, 0]]],
+  '/': [[[0, 0], [4, 6]]],
+  // Cyrillic (С Р В А Е О Т Н К М map onto Latin glyphs)
+  Л: [[[0, 0], [0.8, 0.6], [1.4, 6], [4, 6], [4, 0]]],
+  И: [[[0, 6], [0, 0], [4, 6], [4, 0]]],
+  Я: [[[4, 0], [4, 6], [1, 6], [0, 5], [0, 3.8], [1, 2.8], [4, 2.8]], [[2, 2.8], [0, 0]]],
+  Г: [[[0, 0], [0, 6], [4, 6]]],
+  П: [[[0, 0], [0, 6], [4, 6], [4, 0]]],
+  Д: [[[0.4, 0], [1.2, 6], [3.6, 6], [3.6, 0]], [[-0.4, -1], [-0.4, 0], [4.4, 0], [4.4, -1]]],
+  У: [[[0, 6], [0, 3.6], [1, 2.6], [4, 2.6]], [[4, 6], [4, 1], [3, 0], [0.4, 0]]],
+  З: [[[0, 6], [3, 6], [4, 5], [4, 4.1], [3, 3.1], [1.2, 3.1]], [[3, 3.1], [4, 2.2], [4, 1], [3, 0], [0, 0]]],
+  Ь: [[[0, 6], [0, 0], [3, 0], [4, 1], [4, 2.2], [3, 3.2], [0, 3.2]]],
+  Э: [[[0, 6], [3, 6], [4, 5], [4, 1], [3, 0], [0, 0]], [[1.2, 3.1], [4, 3.1]]],
+  Ф: [[[2, 0], [2, 6]], [[1, 5], [0, 4], [0, 3], [1, 2], [3, 2], [4, 3], [4, 4], [3, 5], [1, 5]]],
+};
+const CYR_ALIAS: Record<string, string> = { С: 'C', Р: 'P', В: 'B', А: 'A', Е: 'E', О: 'O', Т: 'T', Н: 'H', К: 'K', М: 'M', Х: 'X' };
+
+const textCache = new Map<string, THREE.BufferGeometry>();
+
+/**
+ * Flat stencil-text geometry in the XY plane facing +Z, centred on the origin, letter height `h`.
+ * `bold` = stroke weight relative to the letter height. One merged geometry (two triangles per stroke).
+ */
+export function stencilTextGeo(text: string, h: number, bold = 0.16, spacing = 0.32): THREE.BufferGeometry {
+  const key = `${text}|${h.toFixed(4)}|${bold}|${spacing}`;
+  const hit = textCache.get(key);
+  if (hit) return hit;
+  const u = h / 6;
+  const t = h * bold;
+  const adv = 4 * u + spacing * h;
+  const chars = [...text];
+  const total = chars.length * adv - spacing * h;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  let x0 = -total / 2;
+  for (const ch0 of chars) {
+    const ch = CYR_ALIAS[ch0] ?? ch0;
+    const g = GLYPHS[ch] ?? GLYPHS[ch.toUpperCase()];
+    if (g) {
+      for (const line of g) {
+        for (let k = 0; k < line.length - 1; k++) {
+          const ax = x0 + line[k][0] * u, ay = line[k][1] * u - h / 2;
+          const bx = x0 + line[k + 1][0] * u, by = line[k + 1][1] * u - h / 2;
+          const dx = bx - ax, dy = by - ay;
+          const len = Math.hypot(dx, dy) || 1;
+          const ex = (dx / len) * t * 0.5, ey = (dy / len) * t * 0.5; // square caps: joints overlap
+          const nx = -ey, ny = ex;
+          const base = pos.length / 3;
+          pos.push(ax - ex + nx, ay - ey + ny, 0, ax - ex - nx, ay - ey - ny, 0, bx + ex - nx, by + ey - ny, 0, bx + ex + nx, by + ey + ny, 0);
+          idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        }
+      }
+    }
+    x0 += adv;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  // winding may vary per stroke: force +Z normals and fix the order
+  const P = geo.getAttribute('position').array as Float32Array;
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+    const cz = (P[b] - P[a]) * (P[c + 1] - P[a + 1]) - (P[b + 1] - P[a + 1]) * (P[c] - P[a]);
+    if (cz < 0) {
+      const tmp = idx[i + 1];
+      idx[i + 1] = idx[i + 2];
+      idx[i + 2] = tmp;
+    }
+  }
+  geo.setIndex(idx);
+  const nrm = new Float32Array(pos.length);
+  for (let i = 2; i < nrm.length; i += 3) nrm[i] = 1;
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  textCache.set(key, geo);
+  return geo;
+}
+
+/** Width of a stencil text line (same metrics as stencilTextGeo). */
+export function stencilTextWidth(text: string, h: number, spacing = 0.32): number {
+  const n = [...text].length;
+  return n * ((4 / 6) * h + spacing * h) - spacing * h;
+}
+
+/**
+ * Stencilled text on a vertical face facing +Z (rotate with r), centred at p, letter height h.
+ * Big slogans keep showing from afar (lod -1); small labels are close-up detail.
+ */
+export function stencilText(nb: NB, text: string, p: V3, r: V3 = [0, 0, 0], h = 0.06, mat: Mat = S.stencilWhite, bold = 0.16): void {
+  nb.add(stencilTextGeo(text, h, bold), mat, { p, r, keepUv: false, lod: h >= 0.05 ? undefined : 0 });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Emblems
+// ---------------------------------------------------------------------------------------------
+
+let eagleCache: THREE.BufferGeometry | null = null;
+
+/** Heraldic spread eagle silhouette in the XY plane facing +Z, about 2 wide x 1.2 tall (unit scale). */
+export function eagleGeo(): THREE.BufferGeometry {
+  if (eagleCache) return eagleCache;
+  const half: P2[] = [
+    [0.0, 0.72], [0.09, 0.69], [0.12, 0.6], [0.2, 0.52], [0.48, 0.66], [0.82, 0.84], [1.0, 0.82],
+    [0.9, 0.66], [0.98, 0.6], [0.82, 0.48], [0.9, 0.4], [0.72, 0.31], [0.77, 0.21], [0.56, 0.18],
+    [0.4, 0.2], [0.22, 0.1], [0.17, -0.1], [0.32, -0.42], [0.13, -0.34], [0.0, -0.46],
+  ];
+  const pts: P2[] = [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y] as P2)];
+  // the head looks to the viewer's left: a small beak
+  const beak: P2[] = [[-0.04, 0.68], [-0.22, 0.63], [-0.06, 0.58]];
+  const g1 = new THREE.ShapeGeometry(shapeFrom(pts.reverse()));
+  const g2 = new THREE.ShapeGeometry(shapeFrom(beak.reverse()));
+  const merged = mergeGeoms([g1, g2]);
+  merged.translate(0, -0.13, 0);
+  eagleCache = merged;
+  return merged;
+}
+
+function mergeGeoms(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  for (const g of list) {
+    const base = pos.length / 3;
+    const p = g.getAttribute('position');
+    for (let i = 0; i < p.count; i++) pos.push(p.getX(i), p.getY(i), p.getZ(i));
+    const ia = g.index ? (g.index.array as ArrayLike<number>) : [...Array(p.count).keys()];
+    for (let i = 0; i < ia.length; i++) idx.push(base + ia[i]);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const nrm = new Float32Array(pos.length);
+  for (let i = 2; i < nrm.length; i += 3) nrm[i] = 1;
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  out.setIndex(idx);
+  return out;
+}
+
+/**
+ * Faction emblem on a vertical face facing +Z (rotate with r): Soviet = red star with a gold rim,
+ * Allied = white eagle (or a white star in a blue roundel when `roundel`).
+ */
+export function emblem(nb: NB, fac: Fac, size: number, p: V3, r: V3 = [0, 0, 0], roundel = false): void {
+  const n = new NB('_emb', p, r);
+  if (fac === 'soviet') {
+    n.add(starGeo(size * 1.2), S.stencilYellow, { r: faceRot('+z') });
+    n.add(starGeo(size), M.red, { p: [0, 0, 0.002], r: faceRot('+z') });
+  } else if (roundel) {
+    n.add(discGeo(size * 1.15, 0.001, 12), M.navy, { r: [Math.PI / 2, 0, 0] });
+    n.add(starGeo(size, 0, 0.4), M.white, { p: [0, 0, 0.002], r: faceRot('+z') });
+  } else {
+    n.add(eagleGeo(), M.white, { s: [size, size, 1] });
+  }
+  mergeChild(nb, n);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Banners, slogan boards
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Cloth banner hanging from a rod, front facing +Z after rotY, top centre at p (just off the wall).
+ * Team-coloured cloth with a darker border, swallowtail end and the faction emblem (Soviet gold-rimmed star,
+ * Allied white eagle). `free` = also a back face (flags and banners hanging in the open).
+ */
+export function banner(nb: NB, fac: Fac, w: number, h: number, p: V3, rotY = 0, free = false): void {
+  const n = new NB('_ban', p, [0, rotY, 0]);
+  n.cyl(M.dark, 0.008, 0.008, w + 0.05, 0, 0, 0, { r: [0, 0, Math.PI / 2], seg: 5 });
+  n.sph(M.brass, 0.012, -(w / 2 + 0.03), 0, 0, { seg: 4 });
+  n.sph(M.brass, 0.012, w / 2 + 0.03, 0, 0, { seg: 4 });
+  const notch = fac === 'soviet' ? h * 0.12 : 0;
+  const cloth: P2[] = [
+    [-w / 2, -0.01],
+    [w / 2, -0.01],
+    [w / 2, -h],
+    [0, -h + notch],
+    [-w / 2, -h],
+  ];
+  const border: P2[] = cloth.map(([x, y]) => [x * 1.0, y] as P2);
+  // darker border cloth behind, main cloth inset in front
+  n.add(new THREE.ShapeGeometry(shapeFrom(border)), S.clothDark, { p: [0, 0, 0.004] });
+  const inset = Math.min(w, h) * 0.07;
+  const inner: P2[] = [
+    [-w / 2 + inset, -0.01 - inset * 0.6],
+    [w / 2 - inset, -0.01 - inset * 0.6],
+    [w / 2 - inset, -h + inset * 1.4],
+    [0, -h + notch + inset * 1.2],
+    [-w / 2 + inset, -h + inset * 1.4],
+  ];
+  n.add(new THREE.ShapeGeometry(shapeFrom(inner)), S.cloth, { p: [0, 0, 0.007] });
+  const ey = -h * 0.36;
+  const es = Math.min(w * 0.36, h * 0.3);
+  const e = new NB('_be', [0, ey, 0.009]);
+  emblem(e, fac, es, [0, 0, 0]);
+  mergeChild(n, e);
+  if (fac === 'soviet') {
+    // gold bars under the star
+    n.box(S.stencilYellow, w * 0.56, h * 0.025, 0.002, 0, -h * 0.68, 0.009, { b: 0 });
+    n.box(S.stencilYellow, w * 0.56, h * 0.025, 0.002, 0, -h * 0.73, 0.009, { b: 0 });
+  }
+  if (free) n.add(new THREE.ShapeGeometry(shapeFrom(border)), S.clothDark, { p: [0, 0, 0.001], r: [0, Math.PI, 0] });
+  mergeChild(nb, n);
+}
+
+/**
+ * Slogan board: framed panel with stencilled text (Soviet red board, Allied navy board) facing +Z after
+ * rotY, centred at p. Optional emblem at the right end.
+ */
+export function sloganBoard(nb: NB, fac: Fac, text: string, w: number, h: number, p: V3, rotY = 0, withEmblem = true, lines?: string[]): void {
+  const n = new NB('_slg', p, [0, rotY, 0]);
+  n.box(M.dark, w + 0.03, h + 0.03, 0.02, 0, 0, 0, { b: 0.005 });
+  n.box(fac === 'soviet' ? M.teamDark : S.signBlue, w, h, 0.02, 0, 0, 0.006, { b: 0.003 });
+  const em = withEmblem ? h * 0.36 : 0;
+  const textW = w - (withEmblem ? h * 0.95 : 0) - h * 0.2;
+  const rows = lines ?? [text];
+  const lh = Math.min((h * 0.72) / rows.length, (h * 0.62) / Math.max(1, rows.length - 0.3));
+  for (let i = 0; i < rows.length; i++) {
+    const tw = stencilTextWidth(rows[i], lh * 0.78);
+    const scale = Math.min(1, textW / tw);
+    const y = ((rows.length - 1) / 2 - i) * lh;
+    // faintly self-lit lettering: reads at night, dims with the power
+    n.add(stencilTextGeo(rows[i], lh * 0.78 * scale), { glow: 0xfff0e0, i: 0.3 }, {
+      p: [withEmblem ? -h * 0.45 : 0, y, 0.0175],
+    });
+  }
+  if (withEmblem) emblem(n, fac, em, [w / 2 - h * 0.5, 0, 0.0175]);
+  // sign lamps on short arms above the board
+  for (const sx of w > 0.5 ? [-0.3, 0.3] : [0]) {
+    n.box(M.dark, 0.008, 0.008, 0.06, sx * w, h / 2 + 0.03, 0.03, { b: 0 });
+    n.box(M.dark, 0.05, 0.016, 0.03, sx * w, h / 2 + 0.03, 0.06, { b: 0 });
+    n.add(quadGeo(0.044, 0.024), { glow: 0xffe2b0, i: 2 }, { p: [sx * w, h / 2 + 0.02, 0.076], r: [0.5, 0, 0] });
+  }
+  mergeChild(nb, n);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Lights
+// ---------------------------------------------------------------------------------------------
+
+/** Red warning light with a dark housing (baked into the body; blinks in the shader unless steady). */
+export function warnLight(nb: NB, p: V3, steady = false, size = 0.02, glow: Glow = { glow: 0xff2414, i: 2.2 }): void {
+  nb.box(M.dark, size * 1.6, size * 0.8, size * 1.6, p[0], p[1] - size * 0.7, p[2], { b: 0 });
+  nb.add(new THREE.OctahedronGeometry(size * 0.8, 0), { ...glow, a: steady ? 0 : 1 + ((p[0] * 7.3 + p[2] * 3.1 + 10) % 1) * 0.99 }, { p, s: [1, 1.2, 1] });
+}
+
+/** Ring of steady red lights around the rim of a stack (the glowing red crowns of the reference art). */
+export function lightRing(nb: NB, x: number, y: number, z: number, rad: number, n = 6, glow: Glow = { glow: 0xff2414, i: 2.4 }): void {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    nb.add(new THREE.OctahedronGeometry(0.014, 0), glow, { p: [x + Math.cos(a) * rad, y, z + Math.sin(a) * rad] });
+  }
+}
+
+/**
+ * Floodlight: bracket + angled housing with a glowing lens, mounted at p, aiming toward local +Z after yaw,
+ * tilted down by pitch.
+ */
+export function floodlight(nb: NB, p: V3, yaw = 0, pitch = 0.6, size = 0.04, glow: Glow = { glow: 0xf4f6ff, i: 2.6 }): void {
+  const n = new NB('_fl', p, [0, yaw, 0]);
+  n.box(M.dark, size * 0.25, size * 0.25, size * 0.9, 0, 0, -size * 0.3, { b: 0 });
+  const h = new NB('_flh', [0, 0, size * 0.15], [pitch, 0, 0]);
+  h.box(M.gun, size * 1.2, size * 0.8, size * 0.6, 0, 0, 0, { b: size * 0.1 });
+  h.add(quadGeo(size * 1.0, size * 0.62), glow, { p: [0, 0, size * 0.305] });
+  mergeChild(n, h);
+  mergeChild(nb, n);
+}
+
+/** Lamp post with a hooded lamp (body-baked glow) at (x, y0, z), lamp hanging toward +Z after rotY. */
+export function lampPost(nb: NB, x: number, y0: number, z: number, h = 0.42, rotY = 0, glow: Glow = { glow: 0xffd49a, i: 2.2 }): void {
+  const n = new NB('_lp', [x, y0, z], [0, rotY, 0]);
+  n.cyl(M.dark, 0.008, 0.012, h, 0, h / 2, 0, { seg: 5 });
+  n.lod = 0;
+  n.box(M.dark, 0.012, 0.012, 0.08, 0, h - 0.01, 0.035, { b: 0 });
+  n.box(M.gun, 0.04, 0.018, 0.05, 0, h - 0.02, 0.075, { b: 0.004 });
+  n.add(quadGeo(0.032, 0.04), glow, { p: [0, h - 0.0295, 0.075], r: [Math.PI / 2, 0, 0] });
+  mergeChild(nb, n);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Catwalks, railings, pipes, stairs
+// ---------------------------------------------------------------------------------------------
+
+/** Railing between two points at the same height (posts every ~0.1, top and mid rails). */
+export function railLine(nb: NB, a: V3, b: V3, h = 0.07, mat: Mat = M.yellow): void {
+  if (nb.lod === undefined) {
+    const d = detailNode(nb);
+    railLine(d, a, b, h, mat);
+    mergeChild(nb, d);
+    return;
+  }
+  const dx = b[0] - a[0], dz = b[2] - a[2];
+  const len = Math.hypot(dx, dz);
+  if (len < 0.01) return;
+  const yaw = -Math.atan2(dz, dx);
+  const cx = (a[0] + b[0]) / 2, cz = (a[2] + b[2]) / 2;
+  const n = new NB('_rl', [cx, a[1], cz], [0, yaw, 0]);
+  n.lod = nb.lod;
+  const k = Math.max(1, Math.round(len / 0.11));
+  for (let i = 0; i <= k; i++) n.box(mat, 0.007, h, 0.007, -len / 2 + (len * i) / k, h / 2, 0, { b: 0 });
+  n.box(mat, len, 0.008, 0.008, 0, h, 0, { b: 0 });
+  n.box(mat, len, 0.006, 0.006, 0, h * 0.52, 0, { b: 0 });
+  mergeChild(nb, n);
+}
+
+/**
+ * Catwalk along X at height y, centred at (x, z): grating deck, brackets into the wall behind (-Z) and a
+ * railing on the open side (+Z) after rotY.
+ */
+export function catwalk(nb: NB, x: number, y: number, z: number, len: number, depth = 0.09, rotY = 0, rail: Mat = M.yellow): void {
+  const n = new NB('_cw', [x, y, z], [0, rotY, 0]);
+  n.box(S.grating, len, 0.012, depth, 0, 0, 0, { b: 0 });
+  n.lod = 0; // [STRUCT] brackets and railing: close-up
+  n.box(M.dark, len, 0.02, 0.012, 0, -0.008, depth / 2, { b: 0 });
+  const k = Math.max(1, Math.round(len / 0.3));
+  for (let i = 0; i <= k; i++) {
+    const bx = -len / 2 + (len * i) / k;
+    n.box(M.dark, 0.012, 0.05, depth * 0.9, bx, -0.03, -depth * 0.05, { b: 0, r: [0.5, 0, 0] });
+  }
+  railLine(n, [-len / 2, 0.006, depth / 2 - 0.006], [len / 2, 0.006, depth / 2 - 0.006], 0.07, rail);
+  mergeChild(nb, n);
+}
+
+/** Pipe through a list of points with flanged joints at the bends and clamps (supports) at the ends. */
+export function pipeRun(nb: NB, pts: V3[], r: number, mat: Mat = M.steel, seg = 6): void {
+  // thin pipes are close-up detail; big ones keep their runs in the distant body, joints only close up
+  const main = r < 0.025 ? detailNode(nb) : nb;
+  for (let i = 0; i < pts.length - 1; i++) pipe(main, pts[i], pts[i + 1], r, mat, seg);
+  const j = detailNode(nb);
+  for (let i = 1; i < pts.length - 1; i++) j.sph(mat, r * 1.35, pts[i][0], pts[i][1], pts[i][2], { seg: 6 });
+  for (const q of [pts[0], pts[pts.length - 1]]) j.sph(M.dark, r * 1.5, q[0], q[1], q[2], { seg: 5 });
+  if (main !== nb) mergeChild(nb, main);
+  mergeChild(nb, j);
+}
+
+/** [STRUCT] Temporary child node for close-up-only detail (merge it back with mergeChild). */
+export function detailNode(nb: NB): NB {
+  const n = new NB('_det');
+  n.lod = nb.lod === 1 ? 1 : 0;
+  return n;
+}
+
+/** External stair (stringers + treads) from (x, y0, z) rising toward +X after rotY by `rise` over `run`. */
+export function stairs(nb: NB, x: number, y0: number, z: number, run: number, rise: number, w = 0.12, rotY = 0, mat: Mat = M.gun): void {
+  const n = new NB('_st', [x, y0, z], [0, rotY, 0]);
+  n.lod = 0;
+  const len = Math.hypot(run, rise);
+  const ang = Math.atan2(rise, run);
+  for (const s of [-1, 1]) n.box(mat, len, 0.03, 0.01, run / 2, rise / 2, (s * w) / 2, { b: 0, r: [0, 0, ang] });
+  const k = Math.max(2, Math.round(rise / 0.045));
+  for (let i = 1; i < k; i++) n.box(S.grating, run / k, 0.006, w, (run * i) / k, (rise * i) / k, 0, { b: 0 });
+  railLine(n, [0, 0, w / 2], [0, 0, w / 2], 0.07);
+  pipe(n, [0, 0.08, w / 2], [run, rise + 0.08, w / 2], 0.004, M.yellow, 3);
+  mergeChild(nb, n);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Roof clutter
+// ---------------------------------------------------------------------------------------------
+
+/** Box AC unit / blower on a roof at (x, y, z): casing, fan grille on top, side louvres. */
+export function acUnit(nb: NB, x: number, y: number, z: number, rotY = 0, s = 1): void {
+  const n = new NB('_ac', [x, y, z], [0, rotY, 0]);
+  n.box(M.offwhite, 0.2 * s, 0.1 * s, 0.14 * s, 0, 0.05 * s, 0, { b: 0.01 * s });
+  n.lod = 0; // fan, louvres: close-up
+  n.add(discGeo(0.045 * s, 0.004, 10), M.darker, { p: [-0.045 * s, 0.1 * s, 0] });
+  n.box(M.steel, 0.09 * s, 0.006, 0.006, -0.045 * s, 0.104 * s, 0, { b: 0 });
+  n.box(M.steel, 0.006, 0.006, 0.09 * s, -0.045 * s, 0.104 * s, 0, { b: 0 });
+  for (let i = 0; i < 4; i++) n.box(M.dark, 0.06 * s, 0.006, 0.004, 0.05 * s, 0.025 * s + i * 0.018 * s, 0.071 * s, { b: 0 });
+  n.box(M.dark, 0.21 * s, 0.012, 0.15 * s, 0, 0.006, 0, { b: 0 });
+  mergeChild(nb, n);
+}
+
+/** Mushroom roof vent / extractor. */
+export function roofVent(nb: NB, x: number, y: number, z: number, r = 0.04): void {
+  const n = new NB('_rv');
+  n.cyl(M.gun, r * 0.7, r * 0.75, r * 1.6, x, y + r * 0.8, z, { seg: 8 });
+  n.cyl(M.dark, r * 1.3, r * 0.9, r * 0.5, x, y + r * 1.75, z, { seg: 8 });
+  mergeChild(nb, n);
+}
+
+/** Stack of crates (and a tarp) on a roof or yard. */
+export function crateStack(nb: NB, x: number, y: number, z: number, s = 0.1, n = 3, rotY = 0): void {
+  const mats = [M.olive, M.wood, M.oliveDark, M.khaki];
+  const pts: V3[] = [
+    [0, 0, 0],
+    [s * 1.08, 0, 0.01],
+    [s * 0.5, s, 0.0],
+    [0.02, 0, s * 1.06],
+  ];
+  const g = new NB('_cs', [x, y, z], [0, rotY, 0]);
+  for (let i = 0; i < Math.min(n, pts.length); i++) {
+    const [px, py, pz] = pts[i];
+    const m = mats[i % mats.length];
+    g.box(m, s, s * 0.9, s, px, py + s * 0.45, pz, { b: s * 0.08, r: [0, (i * 0.37) % 0.4, 0] });
+    g.box(M.dark, s * 1.02, s * 0.1, s * 1.02, px, py + s * 0.45, pz, { b: 0, r: [0, (i * 0.37) % 0.4, 0] });
+  }
+  mergeChild(nb, g);
+}
+
+/** Cluster of oil drums. */
+export function drums(nb0: NB, x: number, y: number, z: number, n = 3, mat: Mat = { c: 0x5a2a20, m: 0.4, r: 0.6, d: 0 }): void {
+  const nb = new NB('_dr');
+  const off: [number, number][] = [
+    [0, 0],
+    [0.07, 0.02],
+    [0.03, 0.065],
+    [-0.05, 0.05],
+  ];
+  for (let i = 0; i < Math.min(n, off.length); i++) {
+    const m = i % 2 ? { ...mat, c: 0x3e4a2e } : mat;
+    nb.cyl(m, 0.032, 0.032, 0.09, x + off[i][0], y + 0.045, z + off[i][1], { seg: 8 });
+    nb.cyl(M.dark, 0.033, 0.033, 0.006, x + off[i][0], y + 0.06, z + off[i][1], { seg: 8 });
+  }
+  mergeChild(nb0, nb);
+}
+
+/** Parabolic dish antenna on a short stand at (x, y, z), facing yaw, tilted up by tilt. */
+export function dish(nb: NB, x: number, y: number, z: number, rad = 0.12, yaw = 0, tilt = 0.7, mat: Mat = M.offwhite): void {
+  const n = new NB('_dsh', [x, y, z], [0, yaw, 0]);
+  n.cyl(M.gun, 0.012, 0.016, rad * 0.9, 0, rad * 0.45, 0, { seg: 6 });
+  const d = new NB('_dd', [0, rad * 0.95, 0], [tilt - Math.PI / 2, 0, 0]);
+  d.add(lathe([[0.0, 0.0], [rad * 0.45, rad * 0.06], [rad * 0.8, rad * 0.2], [rad, rad * 0.34]], 12), mat);
+  d.cyl(M.dark, 0.004, 0.004, rad * 0.7, 0, rad * 0.35, 0, { seg: 3 });
+  d.sph(M.gun, rad * 0.08, 0, rad * 0.7, 0, { seg: 4 });
+  mergeChild(n, d);
+  mergeChild(nb, n);
+}
+
+/** Lattice radio mast with crossbars and a blinking red light on top. */
+export function radioMast(nb: NB, x: number, y: number, z: number, h: number, mat: Mat = M.dark): void {
+  nb.cyl(mat, 0.006, 0.012, h, x, y + h / 2, z, { seg: 4 });
+  for (let k = 1; k <= 3; k++) nb.box(mat, 0.1 - k * 0.02, 0.006, 0.006, x, y + (h * k) / 4, z, { b: 0 });
+  pipe(nb, [x, y + h * 0.8, z], [x + 0.12, y, z + 0.06], 0.0025, M.steel, 3);
+  pipe(nb, [x, y + h * 0.8, z], [x - 0.1, y, z - 0.08], 0.0025, M.steel, 3);
+  warnLight(nb, [x, y + h + 0.012, z], false, 0.014);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Walls & facades
+// ---------------------------------------------------------------------------------------------
+
+/** Vertical pilasters / ribs along a facade (face toward +Z after rotY), from x0 to x1, base y0, height h. */
+export function ribs(nb: NB, mat: Mat, x0: number, x1: number, y0: number, h: number, z: number, n: number, w = 0.04, depth = 0.03, rotY = 0): void {
+  const g = new NB('_rb', [0, 0, 0], [0, rotY, 0]);
+  for (let i = 0; i < n; i++) {
+    const x = n === 1 ? (x0 + x1) / 2 : x0 + ((x1 - x0) * i) / (n - 1);
+    g.box(mat, w, h, depth, x, y0 + h / 2, z + depth / 2, { b: 0.006 });
+  }
+  mergeChild(nb, g);
+}
+
+/** Low parapet wall around a flat roof (w x d at height y, centred at x, z) with a cap. */
+export function parapet(nb: NB, mat: Mat, w: number, d: number, y: number, x = 0, z = 0, h = 0.05, t = 0.035): void {
+  nb.box(mat, w, h, t, x, y + h / 2, z - d / 2 + t / 2, { b: 0.006 });
+  nb.box(mat, w, h, t, x, y + h / 2, z + d / 2 - t / 2, { b: 0.006 });
+  nb.box(mat, t, h, d - 2 * t, x - w / 2 + t / 2, y + h / 2, z, { b: 0.006 });
+  nb.box(mat, t, h, d - 2 * t, x + w / 2 - t / 2, y + h / 2, z, { b: 0.006 });
+}
+
+/** Corrugated roof sheet along X on top of y: a dark sheet with raised ribs (team trims belong elsewhere). */
+export function corrugated(nb: NB, mat: Mat, w: number, d: number, y: number, x = 0, z = 0, step = 0.07, alongZ = false): void {
+  nb.box(mat, w, 0.014, d, x, y + 0.007, z, { b: 0.004 });
+  const span = alongZ ? w : d;
+  const k = Math.max(2, Math.floor(span / step));
+  for (let i = 0; i < k; i++) {
+    const o = -span / 2 + (span * (i + 0.5)) / k;
+    if (alongZ) nb.box(mat, 0.012, 0.012, d, x + o, y + 0.018, z, { b: 0 });
+    else nb.box(mat, w, 0.012, 0.012, x, y + 0.018, z + o, { b: 0 });
+  }
+}
+
+/**
+ * Industrial chimney: tapered stack with bands, ladder, a dark rim and (Soviet) a crown of red lights;
+ * adds the smoke node `name` at the top. Returns the top y.
+ */
+export function chimney(nb: NB, name: string, x: number, z: number, y0: number, h: number, r0: number, r1: number, fac: Fac, mat: Mat = S.sovSteelLight): number {
+  const top = y0 + h;
+  nb.cyl(mat, r1, r0, h, x, y0 + h / 2, z, { seg: 14 });
+  nb.cyl(M.dark, r0 * 1.08, r0 * 1.12, 0.05, x, y0 + 0.025, z, { seg: 14 });
+  // bands: team colour high up, dark rings lower
+  nb.cyl(M.team, r1 * 1.07, r1 * 1.08 + (r0 - r1) * 0.12, h * 0.1, x, top - h * 0.12, z, { seg: 14 });
+  nb.cyl(fac === 'soviet' ? M.team : M.white, r1 * 1.07 + (r0 - r1) * 0.25, r1 * 1.07 + (r0 - r1) * 0.3, h * 0.05, x, top - h * 0.27, z, { seg: 14 });
+  for (const f of [0.35, 0.6]) {
+    const rr = r0 + (r1 - r0) * f;
+    nb.cyl(M.dark, rr * 1.04, rr * 1.04, 0.018, x, y0 + h * f, z, { seg: 14 });
+  }
+  nb.cyl(M.darker, r1 * 1.1, r1 * 1.12, 0.035, x, top - 0.0175, z, { seg: 14 });
+  nb.cyl(M.darker, r1 * 0.88, r1 * 0.88, 0.004, x, top + 0.001, z, { seg: 12 });
+  if (fac === 'soviet') lightRing(nb, x, top - 0.045, z, r1 * 1.14, 6);
+  else warnLight(nb, [x + r1 * 1.1, top - 0.03, z], false, 0.016);
+  ladder(nb, h * 0.92, [x, y0 + 0.04, z + r0 * 0.98], 0);
+  nb.node(name, [x, top + 0.03, z]);
+  return top;
 }

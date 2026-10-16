@@ -137,7 +137,7 @@ export class AmbientLife {
       this.birds.instanceMatrix.needsUpdate = true;
     }
     // fireflies hover over meadows near the camera focus
-    this.flies.visible = this.uNight.value > 0.01;
+    this.flies.visible = this.uNight.value > 0.01 && this.map.climate !== 'winter'; // [ENV] no fireflies over snow
     if (this.flies.visible) {
       const pos = this.flies.geometry.attributes.position as THREE.BufferAttribute;
       const arr = pos.array as Float32Array;

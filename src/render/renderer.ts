@@ -21,6 +21,7 @@ import { VolumetricPass } from './volumetrics';
 import { TemporalPass } from './temporal';
 import { CinematicPass } from './cinematicfx';
 import { PhotoLens } from './photo';
+import { RIM_UNIFORMS } from './scale'; // [LOOK]
 
 export type Quality = 'low' | 'medium' | 'high';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
@@ -45,26 +46,32 @@ interface LightPreset {
   shafts: number; mist: number;
 }
 
+// [LOOK] crisp grade: a warmer, stronger key against a bluer, weaker sky fill (cool blue shadows), more contrast
+// and saturation, less mist; dusk / night keep a readable moonlit fill and let the emissives bloom
 const PRESETS: Record<TimeOfDay, LightPreset> = {
   day: {
-    sunColor: 0xffeedd, sunIntensity: 2.5, elevation: 0.86, azimuth: 2.35, hemiSky: 0xb0c8ef, hemiGround: 0x5a4a32, hemiIntensity: 0.75, env: 0.25, exposure: 0.92, bg: 0x05070b, bloom: 0.45, tint: [1, 1, 1], haze: 0x9db0c2,
-    sat: 1.1, con: 1.04, lo: [0.93, 0.98, 1.07], hi: [1.05, 1.0, 0.93], shafts: 0.06, mist: 0.0,
+    sunColor: 0xfff0dc, sunIntensity: 2.8, elevation: 0.86, azimuth: 2.35, hemiSky: 0x98b9f6, hemiGround: 0x4a4034, hemiIntensity: 0.62, env: 0.16, exposure: 0.9, bg: 0x05070b, bloom: 0.5, tint: [1, 1, 1], haze: 0xa4b8cf,
+    sat: 1.14, con: 1.1, lo: [0.87, 0.95, 1.13], hi: [1.05, 1.0, 0.94], shafts: 0.05, mist: 0.0,
   },
   dusk: {
-    sunColor: 0xffa868, sunIntensity: 2.6, elevation: 0.42, azimuth: 2.6, hemiSky: 0x8a98c8, hemiGround: 0x4a3426, hemiIntensity: 0.65, env: 0.22, exposure: 1.0, bg: 0x05070b, bloom: 0.62, tint: [1.04, 0.99, 0.94], haze: 0xb98f78,
-    sat: 1.1, con: 1.07, lo: [0.88, 0.92, 1.12], hi: [1.07, 1.0, 0.91], shafts: 0.32, mist: 0.3,
+    sunColor: 0xffa060, sunIntensity: 2.75, elevation: 0.42, azimuth: 2.6, hemiSky: 0x7c90cc, hemiGround: 0x45302a, hemiIntensity: 0.58, env: 0.2, exposure: 1.0, bg: 0x05070b, bloom: 0.85, tint: [1.04, 0.99, 0.94], haze: 0xb08a78,
+    sat: 1.12, con: 1.1, lo: [0.86, 0.93, 1.12], hi: [1.08, 1.0, 0.9], shafts: 0.3, mist: 0.24,
   },
   night: {
-    sunColor: 0x86a0ff, sunIntensity: 0.85, elevation: 0.95, azimuth: 2.0, hemiSky: 0x22335c, hemiGround: 0x0a0908, hemiIntensity: 0.42, env: 0.1, exposure: 1.05, bg: 0x020305, bloom: 1.05, tint: [0.72, 0.84, 1.12], haze: 0x0c1322,
-    sat: 0.86, con: 1.06, lo: [0.84, 0.93, 1.15], hi: [1.03, 1.0, 0.96], shafts: 0.12, mist: 0.25,
+    sunColor: 0x8ca6ff, sunIntensity: 1.0, elevation: 0.95, azimuth: 2.0, hemiSky: 0x2a3e6c, hemiGround: 0x0c0b0a, hemiIntensity: 0.5, env: 0.1, exposure: 1.1, bg: 0x020305, bloom: 1.6, tint: [0.72, 0.88, 1.1], haze: 0x0c1426,
+    sat: 0.9, con: 1.1, lo: [0.82, 0.92, 1.18], hi: [1.04, 1.0, 0.95], shafts: 0.12, mist: 0.2,
   },
 };
 
 /** Dawn: like dusk but cooler and pinker, with morning mist in the low ground. */
 const DAWN: LightPreset = {
-  sunColor: 0xffc2a0, sunIntensity: 2.3, elevation: 0.3, azimuth: 0, hemiSky: 0x93a3d0, hemiGround: 0x4a3a30, hemiIntensity: 0.6, env: 0.2, exposure: 1.0, bg: 0x05070b, bloom: 0.66, tint: [1.02, 0.97, 1.0], haze: 0xb0a0a8,
-  sat: 1.06, con: 1.05, lo: [0.9, 0.94, 1.1], hi: [1.07, 1.0, 0.95], shafts: 0.38, mist: 0.75,
+  sunColor: 0xffc09c, sunIntensity: 2.45, elevation: 0.3, azimuth: 0, hemiSky: 0x8a9ed2, hemiGround: 0x4a3a30, hemiIntensity: 0.56, env: 0.18, exposure: 1.0, bg: 0x05070b, bloom: 0.85, tint: [1.02, 0.97, 1.0], haze: 0xb0a0a8,
+  sat: 1.08, con: 1.09, lo: [0.86, 0.92, 1.14], hi: [1.07, 1.0, 0.95], shafts: 0.34, mist: 0.55,
 };
+
+/** [LOOK] Bloom soft threshold (scene-linear HDR): by day only lamps, glints and fire bloom, not sunlit snow. */
+const BLOOM_THRESHOLD_DAY = 1.9;
+const BLOOM_THRESHOLD_NIGHT = 0.75;
 
 /** Keyframes over a 24h day: [hour, preset]. */
 const DAY_KEYS: [number, LightPreset][] = [
@@ -73,10 +80,11 @@ const DAY_KEYS: [number, LightPreset][] = [
 ];
 
 /** Per-climate look on top of the time of day: saturation / contrast multipliers and an overall tint. */
-const CLIMATE_GRADE: Record<'temperate' | 'winter' | 'desert', { sat: number; con: number; tint: [number, number, number] }> = {
-  temperate: { sat: 1.0, con: 1.0, tint: [1, 1, 1] },
-  winter: { sat: 0.9, con: 1.05, tint: [0.96, 0.99, 1.06] },
-  desert: { sat: 1.06, con: 1.07, tint: [1.06, 1.0, 0.9] },
+// [LOOK] exp: exposure multiplier (bright snow and sand would otherwise clip to white)
+const CLIMATE_GRADE: Record<'temperate' | 'winter' | 'desert', { sat: number; con: number; tint: [number, number, number]; exp: number }> = {
+  temperate: { sat: 0.93, con: 1.0, tint: [1, 1, 1], exp: 1 },
+  winter: { sat: 1.0, con: 1.05, tint: [0.95, 0.99, 1.07], exp: 0.8 },
+  desert: { sat: 1.04, con: 1.04, tint: [1.05, 1.0, 0.91], exp: 0.93 },
 };
 
 const _ca = new THREE.Color(), _cb = new THREE.Color(), _haze = new THREE.Color();
@@ -84,6 +92,11 @@ const _v3 = new THREE.Vector3(), _right = new THREE.Vector3(), _up = new THREE.V
 const _ndc = new THREE.Vector3();
 const _v2 = new THREE.Vector2();
 const RECEIVER_HEIGHTS = [-0.7, 3.2];
+/** [LOOK] Rim light strength from the sky light and from the sun (see scale.ts patchModelRim). */
+const RIM_SKY = 0.55;
+const RIM_SUN = 0.07;
+/** [LOOK] Local-contrast ("clarity") strength in the final pass (high preset: it shares the SHARPEN variant). */
+const CLARITY = 0.3;
 function mixHex(a: number, b: number, t: number, out: THREE.Color) {
   return out.copy(_ca.setHex(a)).lerp(_cb.setHex(b), t);
 }
@@ -110,6 +123,7 @@ const FinalShader = {
     tBloom: { value: null as THREE.Texture | null },
     uBloom: { value: 0 },
     uSharpen: { value: 0 },
+    uClarity: { value: 0 },
   },
   vertexShader: /* glsl */ `
     precision highp float;
@@ -121,7 +135,7 @@ const FinalShader = {
     precision highp float;
     uniform sampler2D tDiffuse, tBloom;
     uniform vec2 uRes;
-    uniform float uTilt, uFocus, uTime, uVignette, uSaturation, uContrast, uFlash, uBloom, uSharpen;
+    uniform float uTilt, uFocus, uTime, uVignette, uSaturation, uContrast, uFlash, uBloom, uSharpen, uClarity;
     uniform vec3 uTint, uLo, uHi;
     #include <tonemapping_pars_fragment>
     #include <colorspace_pars_fragment>
@@ -139,6 +153,16 @@ const FinalShader = {
           vec3 amp = sqrt(clamp(min(mn, 1.0 - min(mx, 1.0)) / max(mx, 1e-4), 0.0, 1.0));
           vec3 sharp = base + (base * 4.0 - (n + so + e + w)) * amp * 0.2 * uSharpen;
           base = clamp(sharp, mn, mx);
+        }
+        // [LOOK] clarity: a gentle luminance unsharp mask at a ~3 px radius (local contrast on panels, greebles
+        // and terrain detail), relative so it behaves the same in shadows and on sunlit snow, clamped against halos
+        if (uClarity > 0.0) {
+          vec2 q = 3.0 / uRes;
+          const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+          float lb = 0.25 * (dot(texture2D(tDiffuse, vUv + vec2(q.x, q.y)).rgb, LW) + dot(texture2D(tDiffuse, vUv + vec2(-q.x, q.y)).rgb, LW)
+                           + dot(texture2D(tDiffuse, vUv + vec2(q.x, -q.y)).rgb, LW) + dot(texture2D(tDiffuse, vUv - q).rgb, LW));
+          float lc = dot(base, LW);
+          base *= 1.0 + uClarity * clamp((lc - lb) / (lb + 0.06), -0.6, 0.6);
         }
       #endif
       vec3 c = base;
@@ -162,7 +186,7 @@ const FinalShader = {
       float r2 = dot(d, d);
       #ifdef TILT
         // subtle chromatic aberration towards the edges (where the image is in focus)
-        vec2 off = d * r2 * 0.006;
+        vec2 off = d * r2 * (0.0015 + 0.0045 * uTilt); // [LOOK] barely-there fringes unless the miniature lens is on
         float ca = 1.0 - min(1.0, amt * 3.0);
         c.r += (texture2D(tDiffuse, vUv + off).r - base.r) * ca;
         c.b += (texture2D(tDiffuse, vUv - off).b - base.b) * ca;
@@ -282,6 +306,10 @@ class BloomPass extends Pass {
       blending: THREE.AdditiveBlending,
     });
     this.quad = new FullScreenQuad(this.down);
+  }
+  /** [LOOK] Soft-knee brightness threshold (scene-linear). */
+  setThreshold(t: number) {
+    this.down.uniforms.uThreshold.value = t;
   }
   /** Accumulated bloom at the first mip level. */
   get texture(): THREE.Texture {
@@ -406,7 +434,7 @@ export class GameRenderer {
   private trash: (() => void)[] = [];
   readonly fogPass: FogPass;
   readonly weather: Weather;
-  private baseFogDensity = 0.0042;
+  private baseFogDensity = 0.0026; // [LOOK] less distance haze (was 0.0042)
   private composer: EffectComposer;
   private scenePass: SceneRenderPass;
   private bloom: BloomPass | null = null;
@@ -435,8 +463,13 @@ export class GameRenderer {
   photoFocus = -1;
   private photo: PhotoLens | null = null;
   private readonly climateGrade: (typeof CLIMATE_GRADE)['temperate'];
-  /** 0..1 user preference for the miniature lens. */
-  tiltShiftAmount = 1;
+  /**
+   * 0..1 user preference for the miniature lens in normal play. [LOOK] Off by default (it smeared the
+   * busy, detailed scene); photo mode and cinematics still get the full miniature look.
+   */
+  tiltShiftAmount = 0;
+  /** [LOOK] Photo mode is on (keeps the miniature lens available there). */
+  private photoOn = false;
   private preset: LightPreset;
   /** Current time of day in hours (0..24) and how dark it is (0 = day, 1 = night). */
   hours = 12;
@@ -483,7 +516,7 @@ export class GameRenderer {
 
     this.cam = new RTSCamera(map.w, map.h, window.innerWidth / window.innerHeight);
     this.scene.background = new THREE.Color(this.preset.haze);
-    this.scene.fog = new THREE.FogExp2(this.preset.haze, 0.0042);
+    this.scene.fog = new THREE.FogExp2(this.preset.haze, this.baseFogDensity); // [LOOK]
     // the main camera, for renderers that cull against it (see EntityRenderer.preRender)
     this.scene.userData.mainCamera = this.cam.camera;
     this.scene.userData.sunDir = this.sunDir;
@@ -544,8 +577,9 @@ export class GameRenderer {
       const gtao = new GTAOPass(this.scene, this.cam.camera, Math.round(size.x / 2), Math.round(size.y / 2));
       // reuse the scene depth (normals reconstructed from depth): no extra geometry pass
       gtao.setGBuffer(scenePass.depth as THREE.DepthTexture, undefined);
-      gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 2.0, scale: 2.0, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
-      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      // [LOOK] tighter, stronger contact AO (was radius 0.9, thickness 2, scale 2, denoise radius 6)
+      gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.7, thickness: 1.5, scale: 2.6, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, rings: 2, samples: 12 });
       this.aoPass = new SceneAOPass(gtao, sceneDepth, () => scenePass.target);
       this.composer.addPass(this.aoPass);
       const vol = new VolumetricPass(this.cam.camera);
@@ -736,7 +770,8 @@ export class GameRenderer {
       this.taa.reset = true;
     }
     this.final.uniforms.uRes.value.set(size.x, size.y);
-    this.final.uniforms.uSharpen.value = this.taa ? (s < 0.99 ? 1 : 0.5) : 0;
+    this.final.uniforms.uSharpen.value = this.taa ? (s < 0.99 ? 1.2 : 0.85) : 0; // [LOOK] crisper (was 1 / 0.5)
+    this.final.uniforms.uClarity.value = this.taa ? CLARITY : 0; // [LOOK]
     this.fxaa?.uniforms.resolution.value.set(1 / size.x, 1 / size.y);
     this.water.setSize(rw, rh);
   };
@@ -797,9 +832,9 @@ export class GameRenderer {
     mixHex(a.hemiGround, b.hemiGround, t, this.hemi.groundColor);
     this.hemi.intensity = L(a.hemiIntensity, b.hemiIntensity);
     this.scene.environmentIntensity = L(a.env, b.env);
-    this.renderer.toneMappingExposure = L(a.exposure, b.exposure);
-    this.bloomBase = L(a.bloom, b.bloom);
     const cg = this.climateGrade;
+    this.renderer.toneMappingExposure = L(a.exposure, b.exposure) * cg.exp; // [LOOK] climate exposure
+    this.bloomBase = L(a.bloom, b.bloom);
     const u = this.final.uniforms;
     u.uTint.value.set(L(a.tint[0], b.tint[0]) * cg.tint[0], L(a.tint[1], b.tint[1]) * cg.tint[1], L(a.tint[2], b.tint[2]) * cg.tint[2]);
     u.uLo.value.set(L(a.lo[0], b.lo[0]), L(a.lo[1], b.lo[1]), L(a.lo[2], b.lo[2]));
@@ -814,13 +849,14 @@ export class GameRenderer {
     // night factor from the keyframes (night preset weight)
     const nightW = (p: LightPreset) => (p === PRESETS.night ? 1 : p === PRESETS.dusk || p === DAWN ? 0.35 : 0);
     this.night = L(nightW(a), nightW(b));
+    this.bloom?.setThreshold(BLOOM_THRESHOLD_DAY + (BLOOM_THRESHOLD_NIGHT - BLOOM_THRESHOLD_DAY) * Math.min(1, this.night * 1.6)); // [LOOK]
     // sun path: rises in the east (+X), passes south (+Z, behind the camera) and sets in the west.
     // At night the moon takes over from the opposite side of the sky.
     const dayT = (hours - 6) / 12; // 0 at sunrise, 1 at sunset
     let az: number, elev: number;
     if (dayT >= 0 && dayT <= 1) {
       az = dayT * Math.PI;
-      elev = 0.18 + Math.sin(dayT * Math.PI) * 0.85;
+      elev = 0.2 + Math.sin(dayT * Math.PI) * 0.62; // [LOOK] lower sun (max ~47 deg, was ~59): longer, readable shadows
       this.sun.intensity = L(a.sunIntensity, b.sunIntensity) * Math.min(1, 0.35 + Math.sin(dayT * Math.PI) * 1.4);
     } else {
       const nt = ((hours + 6) % 24) / 12; // moon arc
@@ -832,7 +868,8 @@ export class GameRenderer {
     const tw = (h: number) => { const d = Math.min(1, Math.abs(hours - h) / 0.45); return d * d * (3 - 2 * d); };
     this.sun.intensity *= 0.08 + 0.92 * Math.min(tw(6), tw(18));
     // keep shadows pointing away from the camera a little: bias the azimuth towards the south
-    const ax = Math.cos(az), az2 = 0.35 + Math.sin(az) * 0.65;
+    // [LOOK] a little more side light than before (0.35 + 0.65 sin): faces model instead of flat front light
+    const ax = Math.cos(az), az2 = 0.3 + Math.sin(az) * 0.5;
     this.sunDir.set(ax * Math.cos(elev), Math.sin(elev) + 0.15, az2 * Math.cos(elev)).normalize();
   }
 
@@ -864,12 +901,15 @@ export class GameRenderer {
     fu.uHemiSky.value.copy(this.hemi.color).multiplyScalar(this.hemi.intensity);
     fu.uHemiGround.value.copy(this.hemi.groundColor).multiplyScalar(this.hemi.intensity);
     fu.uEnvIrr.value = this.scene.environmentIntensity * 0.5;
+    // [LOOK] model rim light: a little sky (and sun) light on grazing surfaces, scaled with the scene light
+    RIM_UNIFORMS.uRimColor.value.copy(this.hemi.color).multiplyScalar(this.hemi.intensity * RIM_SKY)
+      .add(_ca.copy(this.sun.color).multiplyScalar(this.sun.intensity * RIM_SUN));
     // clouds drift with the wind; cover follows the overcast
     const lv = w.levels;
     this.cloudOff.x -= (w.wind.x * 0.6 + 0.3) * dt;
     this.cloudOff.y -= (w.wind.y * 0.6 + 0.12) * dt;
     const cover = Math.min(1, 0.22 + 0.68 * oc + 0.1 * lv.storm);
-    fu.uCloud.value.set(cover, 17, 5, 0.42 * (1 - 0.4 * oc));
+    fu.uCloud.value.set(cover, 17, 5, 0.3 * (1 - 0.4 * oc)); // [LOOK] lighter cloud shadows (were 0.42): no grey blotches on a clear day
     fu.uCloudOff.value.copy(this.cloudOff);
     // weather fog layer: fog banks, storm / rain haze, snow and sand in the air
     const fogD = 0.026 * lv.fog + 0.01 * lv.storm + 0.005 * lv.rain + 0.008 * lv.snow + 0.012 * lv.dust;
@@ -898,6 +938,7 @@ export class GameRenderer {
 
   /** Photo mode (U) on / off: shows the depth-of-field panel (medium / high). */
   setPhotoMode(on: boolean) {
+    this.photoOn = on; // [LOOK]
     if (!this.lens) return;
     if (!this.photo) this.photo = new PhotoLens(this);
     this.photo.set(on);
@@ -989,7 +1030,10 @@ export class GameRenderer {
     u.uFlash.value = Math.min(1, this.flash);
     // stronger miniature look when zoomed in, subtle when zoomed out
     const z = (this.cam.dist - this.cam.minDist) / (this.cam.maxDist - this.cam.minDist);
-    u.uTilt.value = this.tiltShiftAmount * (1.0 - Math.min(1, Math.max(0, z)) * 0.65);
+    // [LOOK] the miniature lens is a photo-mode / cinematic look now; normal play uses tiltShiftAmount (0 by default)
+    const cine = this.cinematicDof > 0.01 || this.cinematicBlur > 0.01;
+    const tilt = Math.max(this.tiltShiftAmount, this.photoOn ? 1 : 0, cine ? 0.8 : 0);
+    u.uTilt.value = tilt * (1.0 - Math.min(1, Math.max(0, z)) * 0.65);
     // [FX] bin this frame's dynamic lights; cinematic lens on demand; jittered projection for TAA
     this.dynLights.prepare(this.cam.camera);
     const lens = this.lens;

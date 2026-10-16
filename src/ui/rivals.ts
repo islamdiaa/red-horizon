@@ -83,8 +83,13 @@ const CSS = `
 .rv-tx { position: absolute; left: 12px; bottom: 14px; width: 440px; z-index: 7; pointer-events: none; display: flex; gap: 12px;
   background: linear-gradient(180deg, rgba(34,16,14,0.92), rgba(11,8,8,0.9)); border: 1px solid rgba(255,90,70,0.25); border-radius: 12px; padding: 12px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.55); transform: translateY(20px); opacity: 0; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.35s, bottom 0.3s ease; font-family: var(--font, sans-serif); }
-body:has(#selpanel.on) .rv-tx, body:has(#groups.on) .rv-tx { bottom: calc(var(--dock-h, 128px) + 22px); }
-body:has(#selpanel.on):has(#groups.on) .rv-tx { bottom: 182px; }
+body:not(.hud-modern):has(#selpanel.on) .rv-tx, body:not(.hud-modern):has(#groups.on) .rv-tx { bottom: calc(var(--dock-h, 128px) + 22px); }
+body:not(.hud-modern):has(#selpanel.on):has(#groups.on) .rv-tx { bottom: 182px; }
+/* [HUD] Modern layout: above the minimap / build bar, sized with the HUD */
+body.hud-modern .rv-tx { left: var(--edge, 0.7rem); bottom: calc(var(--dock-h, 16rem) + var(--edge, 0.7rem) * 2 + var(--bot, 0px)); width: min(29rem, calc(100vw - 2 * var(--edge, 0.7rem))); gap: 0.75rem; padding: 0.75rem; border-radius: 0.8rem; }
+body.hud-modern .rv-tx .pt { width: 4.6rem; height: 5.4rem; border-radius: 0.5rem; }
+body.hud-modern .rv-tx .sp { font-size: 0.68rem; }
+body.hud-modern .rv-tx .tt { font-size: 0.92rem; }
 .rv-tx.on { transform: none; opacity: 1; }
 .rv-tx .pt { width: 74px; height: 86px; flex-shrink: 0; border-radius: 8px; overflow: hidden; background: radial-gradient(ellipse at 50% 30%, rgba(255,90,70,0.35), #05080c 75%); border: 1px solid rgba(255,90,70,0.4); }
 .rv-tx .pt svg { width: 100%; height: 100%; }

@@ -3,6 +3,7 @@ import { lerp } from '../core/util';
 import type { World } from '../sim/world';
 import type { EntityRenderer } from './entities';
 import type { DynamicLights } from './dynlights';
+import { visualScale } from './scale'; // [LOOK]
 
 /**
  * Fake light pools on the ground (one instanced draw call): warm floodlights around
@@ -53,8 +54,10 @@ export class LightPools {
         if (!u.alive || u.kind !== 'vehicle' || !this.ents.isShown(u.id)) continue;
         const x = lerp(u.prevX, u.x, alpha), y = lerp(u.prevY, u.y, alpha);
         const h = u.heading, c = Math.cos(h), sn = Math.sin(h);
-        const ahead = u.ut.radius * 0.9;
-        dyn.add(x + c * ahead, map.surfaceAt(x, y) + 0.42, y + sn * ahead, 0xdce6ff, 0.9 * strength, 3.6, 0, { priority: 0.4, spot: { x: c, y: -0.32, z: sn, angle: 0.9 } });
+        // [LOOK] from the front of the (visually scaled) hull
+        const vs = visualScale('vehicle', u.type.id);
+        const ahead = u.ut.radius * 0.9 * vs;
+        dyn.add(x + c * ahead, map.surfaceAt(x, y) + 0.42 * vs, y + sn * ahead, 0xdce6ff, 0.9 * strength, 3.6, 0, { priority: 0.4, spot: { x: c, y: -0.32, z: sn, angle: 0.9 } });
       }
       return;
     }
@@ -83,7 +86,7 @@ export class LightPools {
       if (!u.alive || u.kind !== 'vehicle' || !this.ents.isShown(u.id)) continue;
       const x = lerp(u.prevX, u.x, alpha), y = lerp(u.prevY, u.y, alpha);
       const h = u.heading;
-      const ahead = 0.75 + u.ut.radius;
+      const ahead = 0.75 + u.ut.radius * visualScale('vehicle', u.type.id); // [LOOK] scaled hull
       push(x + Math.cos(h) * ahead, y + Math.sin(h) * ahead, 0.75, 1.3, -h + Math.PI / 2, 0.3, 0.32, 0.36);
     }
     this.mesh.count = n;

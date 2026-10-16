@@ -11,12 +11,13 @@ import type { World } from '../sim/world';
 import type { AudioSystem } from '../audio';
 import { Minimap } from './minimap';
 import { ICONS, rankBadge } from './icons';
-import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtml } from './dom';
+import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtml, type TipSide } from './dom';
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
 import { RANK_NAMES, factionTypes, missingRequirements, statLines, xpThresholds } from './tech';
-import { applyUiSettings } from './settings';
+import { applyUiSettings, hudLayoutOf, loadSettings, onSettingsChanged, type HudLayout } from './settings';
 import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui'; // [CTRL]
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
+import { BOOT_CAMP_HUD } from '../missions/tutorial'; // [HUD] Boot Camp drill highlights
 
 export interface HudHost {
   world: World;
@@ -52,10 +53,14 @@ export interface HudHost {
 }
 
 /**
- * Sidebar tabs, data-driven from CATEGORIES (sidebar order). Conditional categories (naval, and any
- * category added later without an entry here) only get a tab once the player can build them or owns
- * a structure that produces them.
+ * Build tabs. Classic (the right-hand sidebar) has one tab per production category, data-driven from
+ * CATEGORIES (sidebar order). Modern (the bottom build bar) splits the tech / support structures (radar,
+ * service depot, tech centres, superweapons, decoys) off the structures into a "Support" tab, and only
+ * shows Aircraft and Naval once they can be built. Conditional tabs (naval, and any category added later
+ * without an entry here) only appear once the player can build them or owns a structure that produces them.
  */
+type TabId = Category | 'support';
+interface TabDef { id: TabId; cat: Category; icon: string; title: string; conditional: boolean }
 const CAT_META: Partial<Record<Category, { icon: string; title: string; conditional?: boolean }>> = {
   building: { icon: ICONS.building, title: 'Structures' },
   defense: { icon: ICONS.defense, title: 'Defenses' },
@@ -64,11 +69,23 @@ const CAT_META: Partial<Record<Category, { icon: string; title: string; conditio
   aircraft: { icon: ICONS.aircraft, title: 'Aircraft' },
   naval: { icon: ICONS.naval, title: 'Naval', conditional: true },
 };
-const TABS: { cat: Category; icon: string; title: string; conditional: boolean }[] = CATEGORIES.map((cat) => {
+const TABS: TabDef[] = CATEGORIES.map((cat) => {
   const m = CAT_META[cat];
-  return { cat, icon: m?.icon ?? ICONS.building, title: m?.title ?? cat.charAt(0).toUpperCase() + cat.slice(1), conditional: m ? !!m.conditional : true };
+  return { id: cat, cat, icon: m?.icon ?? ICONS.building, title: m?.title ?? cat.charAt(0).toUpperCase() + cat.slice(1), conditional: m ? !!m.conditional : true };
 });
 const CAT_ICON: Record<Category, string> = Object.fromEntries(TABS.map((t) => [t.cat, t.icon])) as Record<Category, string>;
+/** [HUD] Modern build bar tabs: Structures, Infantry, Vehicles, Defences, Support, then Aircraft / Naval once available. */
+const MODERN_ORDER: TabId[] = ['building', 'infantry', 'vehicle', 'defense', 'support', 'aircraft', 'naval'];
+const MODERN_TITLES: Partial<Record<TabId, string>> = { defense: 'Defences', support: 'Support' };
+const SUPPORT_TAB: TabDef = { id: 'support', cat: 'building', icon: ICONS.radar, title: 'Support', conditional: false };
+const MODERN_TABS: TabDef[] = [
+  ...MODERN_ORDER.map((id) => (id === 'support' ? SUPPORT_TAB : TABS.find((t) => t.id === id))).filter((t): t is TabDef => !!t)
+    .map((t) => ({ ...t, title: MODERN_TITLES[t.id] ?? t.title, conditional: t.conditional || t.id === 'aircraft' })),
+  ...TABS.filter((t) => !MODERN_ORDER.includes(t.id)),
+];
+const TAB_ICON = (id: TabId): string => (id === 'support' ? SUPPORT_TAB.icon : CAT_ICON[id]);
+/** Tech and support structures (no factory, no power output, no ore storage): radar, depot, tech centres, superweapons, decoys. */
+const isSupportStructure = (t: TypeDef): boolean => isBuildingType(t) && t.category === 'building' && !t.factory && !(t.power > 0) && !t.storage;
 
 /** Superweapons and support powers, in SUPER_KINDS order. Aiming follows SUPER_TARGET. */
 const SUPER_INFO: Record<SuperKind, { icon: string; name: string; desc: string }> = {
@@ -159,13 +176,23 @@ interface Card {
 
 type CardState = 'idle' | 'build' | 'hold' | 'nofunds' | 'queued' | 'ready' | 'busy';
 
+/** [HUD] Build-card hotkeys of the Modern layout: B arms them, then 1–9 / 0 picks the Nth card of the open tab. */
+const CARD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+
 export class Hud {
   private detachListeners: (() => void) | null = null;
+  /** [HUD] The HUD on screen: a new one (replays rebuild theirs per viewed player) retires the previous one. */
+  private static live: Hud | null = null;
 
-  /** Detach document-level listeners (the DOM itself is cleared with the UI root). */
+  /** Detach document-level listeners and the layout's body state (the DOM itself is cleared with the UI root). */
   dispose() {
+    if (Hud.live === this) Hud.live = null;
     this.detachListeners?.();
     this.detachListeners = null;
+    window.clearTimeout(this.armTimer);
+    // [HUD] the next screen (menus, another battle's HUD) starts from a clean body
+    document.body.classList.remove('hud-modern');
+    for (const v of ['--dock-h', '--tl-h', '--bb-h']) document.body.style.removeProperty(v);
   }
   readonly root: HTMLElement;
   readonly minimap: Minimap;
@@ -180,7 +207,7 @@ export class Hud {
   private powerBox: HTMLElement;
   private pw: Record<'out' | 'load' | 'deficit' | 'use' | 'num' | 'state', HTMLElement>;
   private radar: HTMLElement;
-  private tabEls = new Map<Category, HTMLButtonElement>();
+  private tabEls = new Map<TabId, HTMLButtonElement>();
   private tabInd: HTMLElement;
   private catTitle: HTMLElement;
   private catStatus: HTMLElement;
@@ -198,7 +225,7 @@ export class Hud {
   private speedBtns: HTMLButtonElement[] = [];
   private sellBtn: HTMLButtonElement;
   private repairBtn: HTMLButtonElement;
-  private activeTab: Category = 'building';
+  private activeTab: TabId = 'building';
   private tabUserChosen = false;
   private shownCredits = 0;
   private lastCredits = -1;
@@ -219,9 +246,44 @@ export class Hud {
   private newUntil = new Map<string, number>();
   private hoverCard: Card | null = null;
 
+  // ---- [HUD] layout: the same widgets mounted as the Classic sidebar or the Modern corner panels
+  private layout: HudLayout = 'classic';
+  private ui: HTMLElement;
+  private sbHead: HTMLElement;
+  private tabsEl: HTMLElement;
+  private catHead: HTMLElement;
+  private topbar: HTMLElement;
+  private topright: HTMLElement;
+  private menuBtn: HTMLButtonElement;
+  private speedEl: HTMLElement;
+  private fsBtn: HTMLButtonElement | null = null;
+  private logPanel: HTMLElement | null;
+  /** Modern-only containers and widgets (detached in Classic). */
+  private mmPanel: HTMLElement;
+  private bbSide: HTMLElement;
+  private bbMain: HTMLElement;
+  private bbTop: HTMLElement;
+  private rbRes: HTMLElement;
+  private rbTime: HTMLElement;
+  private rbBtns: HTMLElement;
+  private unitsEl: HTMLElement;
+  private settingsBtn: HTMLButtonElement;
+  private objPanel: HTMLElement;
+  private objPanelKey = '';
+  private unitsKey = '';
+  private visibleTabs: TabId[] = [];
+  /** Unlocked cards of the open tab in hotkey order (1–9, 0). */
+  private keyCards: Card[] = [];
+  private armed = false;
+  private armTimer = 0;
+  private tutKey = '';
+
   constructor(private host: HudHost) {
+    Hud.live?.dispose(); // [HUD] its widgets are about to be cleared with the UI root; drop its listeners too
+    Hud.live = this;
     const ui = document.getElementById('ui')!;
     this.root = ui;
+    this.ui = ui;
     ui.innerHTML = '';
     ui.classList.toggle('spectator', !!host.spectator);
     applyUiSettings();
@@ -235,6 +297,7 @@ export class Hud {
     ui.appendChild(sb);
 
     const head = el('div', 'sb-head');
+    this.sbHead = head;
     this.creditsBox = el('div', 'credits', `<span class="cr-ic">$</span><div class="cr-body"><span class="cr-lbl">Credits</span></div><span class="cr-delta"></span><span class="cr-store"><i></i></span>`);
     this.creditsBox.querySelector('.cr-body')!.appendChild(this.odo.el);
     this.deltaEl = this.creditsBox.querySelector('.cr-delta')!;
@@ -245,62 +308,61 @@ export class Hud {
     this.sellBtn.dataset.tip = tipHtml('Sell mode', 'Click a structure to sell it for a partial refund.', [['Z', 'Toggle']]);
     this.repairBtn.onclick = () => { if (host.spectator) return; this.sound.play('click'); host.setMode(host.getMode() === 'repair' ? 'normal' : 'repair'); };
     this.sellBtn.onclick = () => { if (host.spectator) return; this.sound.play('click'); host.setMode(host.getMode() === 'sell' ? 'normal' : 'sell'); };
-    head.append(this.creditsBox, this.repairBtn, this.sellBtn);
-    sb.appendChild(head);
 
     this.powerBox = el('div', 'power', `<div class="pw-head"><span class="pw-ic">${ICONS.boltSolid}</span><span class="pw-lbl">Power</span><span class="pw-state"></span><span class="pw-num"></span></div>
       <div class="pw-bar"><i class="pw-out"></i><i class="pw-load"></i><i class="pw-deficit"></i><i class="pw-segs"></i><i class="pw-use"></i></div>`);
     const q = (s: string) => this.powerBox.querySelector(s) as HTMLElement;
     this.pw = { out: q('.pw-out'), load: q('.pw-load'), deficit: q('.pw-deficit'), use: q('.pw-use'), num: q('.pw-num'), state: q('.pw-state') };
-    sb.appendChild(this.powerBox);
 
     this.radar = el('div', 'radar');
-    sb.appendChild(this.radar);
     this.minimap = new Minimap(this.radar, host.world, host.local, (x, y, b, d) => host.minimapPoint(x, y, b, d));
     this.radar.insertAdjacentHTML('beforeend', `<div class="radar-sweep"></div><div class="radar-grid"></div><div class="radar-frame"><i></i><i></i><i></i><i></i></div>
       <div class="offline"><span class="off-ic">${ICONS.radar}</span><b>Radar offline</b><span>Build a Radar Dome</span></div>`);
 
     const tabs = el('div', 'tabs');
-    TABS.forEach((t, i) => {
-      const b = el('button', 'tab', `${t.icon}<span class="tab-prog"><i></i></span><span class="badge"></span>`);
+    this.tabsEl = tabs;
+    for (const t of [...TABS, SUPPORT_TAB]) {
+      const modernTitle = MODERN_TABS.find((m) => m.id === t.id)?.title ?? t.title;
+      // the label only shows in the Modern build bar (Classic tabs are icon-only)
+      const b = el('button', 'tab', `${t.icon}<span class="tab-l">${modernTitle}</span><span class="tab-prog"><i></i></span><span class="badge"></span>`);
       b.dataset.tip = tipHtml(t.title);
-      b.dataset.i = String(i);
-      b.onclick = () => {
-        if (this.activeTab !== t.cat) this.sound.play('tab');
-        this.activeTab = t.cat;
-        this.tabUserChosen = true;
-        this.gridKey = '';
-        this.slowT = 0;
-      };
-      this.tabEls.set(t.cat, b);
-      tabs.appendChild(b);
-    });
+      b.dataset.tab = t.id;
+      b.onclick = () => this.pickTab(t.id);
+      this.tabEls.set(t.id, b);
+    }
     this.tabInd = el('span', 'tab-ind');
-    tabs.appendChild(this.tabInd);
-    sb.appendChild(tabs);
 
     const ch = el('div', 'cat-head', `<span class="cat-title"></span><span class="cat-line"></span><span class="cat-status"></span>`);
+    this.catHead = ch;
     this.catTitle = ch.querySelector('.cat-title')!;
     this.catStatus = ch.querySelector('.cat-status')!;
-    sb.appendChild(ch);
     this.grid = el('div', 'build-grid');
     // reading scroll metrics forces a layout, so only on scroll / resize / grid rebuild (not every frame)
     this.grid.addEventListener('scroll', () => this.updateScrollFade(), { passive: true });
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.updateScrollFade()).observe(this.grid);
-    sb.appendChild(this.grid);
+    // [HUD] the Modern build bar is one row of cards: the mouse wheel scrolls it sideways
+    this.grid.addEventListener('wheel', (e) => {
+      if (this.layout !== 'modern' || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const g = this.grid;
+      if (g.scrollWidth <= g.clientWidth + 1) return;
+      e.preventDefault();
+      g.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 30 : 1);
+    }, { passive: false });
     this.supers = el('div', 'supers');
-    sb.appendChild(this.supers);
-    this.tip.bind(sb, 'left');
+    this.bindTips(sb, () => (this.layout === 'modern' ? 'top' : 'left'));
     this.sound.bind(sb, 'button:not(:disabled), .bitem');
 
     // ======================================================== top bar
     const tb = el('div');
     tb.id = 'topbar';
+    this.topbar = tb;
     const menuBtn = el('button', 'tb-btn tb-menu', `${ICONS.menu}<span>Menu</span><kbd>Esc</kbd>`);
+    this.menuBtn = menuBtn;
     menuBtn.onclick = () => { this.sound.play('click'); host.openPauseMenu(); };
     this.clock = el('div', 'tb-chip tb-clock', `${ICONS.clock}<span class="tb-time">00:00</span>`);
     this.clock.dataset.tip = tipHtml('Mission time');
     const speed = el('div', 'speed-ctl tb-chip');
+    this.speedEl = speed;
     for (const [n, s, label] of [[1, 1, 'Normal'], [2, 1.5, 'Fast'], [3, 2.2, 'Fastest']] as [number, number, string][]) {
       const b = el('button', '', `<span class="chev">${'<i></i>'.repeat(n)}</span>`);
       b.dataset.tip = tipHtml(`${label} speed`, '', [[`×${s}`, 'game speed']]);
@@ -311,18 +373,19 @@ export class Hud {
     }
     this.objEl = el('div', 'tb-chip tb-obj', `<span class="obj-ic">${ICONS.target}</span><span class="obj-txt"><small>Objective</small><b>Destroy all enemy forces</b></span><span class="obj-pips"></span>`);
     this.intelEl = el('div', 'tb-chip tb-intel');
-    tb.append(menuBtn, this.clock, speed, this.objEl, this.intelEl);
     ui.appendChild(tb);
     this.tip.bind(tb, 'bottom');
     this.sound.bind(tb, 'button');
 
     const tr = el('div');
     tr.id = 'topright';
+    this.topright = tr;
     this.fpsEl = el('div', 'tb-chip tb-fps');
     this.fpsEl.id = 'fps';
     tr.appendChild(this.fpsEl);
     if (fullscreenSupported()) {
       const fsBtn = el('button', 'tb-btn tb-fs', ICONS.scatter);
+      this.fsBtn = fsBtn;
       const sync = (on: boolean) => {
         fsBtn.classList.toggle('on', on);
         fsBtn.dataset.tip = tipHtml(on ? 'Leave fullscreen' : 'Fullscreen', on ? 'Hold <kbd>Esc</kbd> or press <kbd>Alt</kbd>+<kbd>Enter</kbd>.' : 'Edge scrolling works best fullscreen. <kbd>Alt</kbd>+<kbd>Enter</kbd>');
@@ -335,19 +398,13 @@ export class Hud {
     }
     ui.appendChild(tr);
     this.toasts = new Toasts(ui, tr, () => host.world.time, this.sound);
+    this.logPanel = tr.querySelector('.notif-log');
     this.tip.bind(tr, 'bottom');
     this.sound.bind(tr, 'button');
 
     // ======================================================== bottom dock: control groups + selection
     this.dock = el('div');
     this.dock.id = 'dock';
-    // radios (mission, rival) sit above the unit panel; it changes height with what is selected
-    if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(() => document.body.style.setProperty('--dock-h', `${this.dock.offsetHeight}px`));
-      ro.observe(this.dock);
-      const prev = this.detachListeners;
-      this.detachListeners = () => { prev?.(); ro.disconnect(); };
-    }
     this.groupsBar = el('div');
     this.groupsBar.id = 'groups';
     this.selpanel = el('div', 'panel');
@@ -357,19 +414,202 @@ export class Hud {
     this.tip.bind(this.dock, 'top');
     this.sound.bind(this.dock, 'button');
 
+    // ======================================================== [HUD] Modern-only widgets
+    this.mmPanel = el('div', 'panel');
+    this.mmPanel.id = 'minimap-panel';
+    this.bbSide = el('div', 'bb-side');
+    this.bbTop = el('div', 'bb-top');
+    this.bbMain = el('div', 'bb-main');
+    this.rbRes = el('div', 'rb-grp rb-res');
+    this.rbTime = el('div', 'rb-grp rb-time');
+    this.rbBtns = el('div', 'rb-grp rb-btns');
+    this.unitsEl = el('div', 'tb-chip rb-units', `${ICONS.people}<b>0</b>`);
+    this.settingsBtn = el('button', 'tb-btn rb-gear', ICONS.gear);
+    this.settingsBtn.dataset.tip = tipHtml('Settings', 'Graphics, audio, controls and the interface layout (the game pauses).');
+    this.settingsBtn.onclick = () => {
+      this.sound.play('click');
+      host.openPauseMenu();
+      // straight to the settings page of the pause menu (Back returns to the pause menu)
+      document.querySelector<HTMLElement>('.pause-panel [data-act="settings"]')?.click();
+    };
+    this.objPanel = el('div', 'obj-panel panel');
+    this.tip.bind(this.mmPanel, 'right');
+
+    // radios (mission, rival) sit above the bottom panels; they change height with what is selected
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => this.measure());
+      for (const e of [this.dock, this.mmPanel, sb, tb]) ro.observe(e);
+      const prev = this.detachListeners;
+      this.detachListeners = () => { prev?.(); ro.disconnect(); };
+    }
+
     // HUD buttons must not keep keyboard focus: Space / Enter are game hotkeys and would re-click them.
     const noFocus = (e: MouseEvent) => { if ((e.target as HTMLElement).closest('button')) e.preventDefault(); };
-    for (const c of [sb, tb, tr, this.dock]) c.addEventListener('mousedown', noFocus);
+    for (const c of [sb, tb, tr, this.dock, this.mmPanel]) c.addEventListener('mousedown', noFocus);
     const label = (b: HTMLElement, l: string) => b.setAttribute('aria-label', l);
     label(this.repairBtn, 'Repair mode');
     label(this.sellBtn, 'Sell mode');
     label(menuBtn, 'Menu');
+    label(this.settingsBtn, 'Settings');
     label(this.toasts.bell, 'Event log');
     this.speedBtns.forEach((b) => label(b, `Game speed ${b.dataset.speed}x`));
-    TABS.forEach((t) => label(this.tabEls.get(t.cat)!, t.title));
+
+    // [HUD] build-bar hotkeys (Modern) and live layout switching from the settings screen
+    window.addEventListener('keydown', this.onKeyDown, true);
+    const offSettings = onSettingsChanged((s) => { const l = hudLayoutOf(s); if (l !== this.layout && this.sidebar.isConnected) this.mount(l); });
+    const prev = this.detachListeners;
+    this.detachListeners = () => { prev?.(); offSettings(); window.removeEventListener('keydown', this.onKeyDown, true); };
+
+    this.mount(hudLayoutOf(loadSettings()));
 
     this.shownCredits = host.local.credits;
     this.odo.set(this.shownCredits);
+  }
+
+  // ---------------------------------------------------------------------------
+  // [HUD] Layout
+  // ---------------------------------------------------------------------------
+  /** The tabs of the current layout. */
+  private tabDefs(): TabDef[] {
+    return this.layout === 'modern' ? MODERN_TABS : TABS;
+  }
+
+  /** The tab a type is listed under (Modern files tech / support structures under "Support"). */
+  private tabOf(id: string): TabId {
+    const t = getType(id);
+    return this.layout === 'modern' && isSupportStructure(t) ? 'support' : t.category;
+  }
+
+  /**
+   * Arrange the widgets for a layout. Classic rebuilds exactly the original DOM (sidebar on the right, top bar,
+   * bottom dock); Modern moves the same elements into the corner panels and the bottom build bar. Elements other
+   * modules add to #topbar / #ui (mode chips, mission objectives, radios, hints) are left where they are.
+   */
+  private mount(layout: HudLayout) {
+    this.layout = layout;
+    const modern = layout === 'modern';
+    const body = document.body;
+    body.classList.toggle('hud-modern', modern);
+    const sb = this.sidebar, tb = this.topbar, tr = this.topright;
+    this.tabsEl.replaceChildren(...this.tabDefs().map((t) => this.tabEls.get(t.id)!), this.tabInd);
+    for (const t of this.tabDefs()) this.tabEls.get(t.id)!.setAttribute('aria-label', t.title);
+    const mission = this.ui.querySelector<HTMLElement>('.mh-obj');
+    if (modern) {
+      sb.id = 'buildbar';
+      this.bbSide.replaceChildren(this.repairBtn, this.sellBtn);
+      this.bbTop.replaceChildren(this.tabsEl, this.catHead);
+      this.bbMain.replaceChildren(this.bbTop, this.grid);
+      sb.replaceChildren(this.bbSide, this.bbMain, this.supers);
+      this.sbHead.remove();
+      this.mmPanel.replaceChildren(this.radar);
+      if (!this.mmPanel.isConnected) this.ui.insertBefore(this.mmPanel, this.dock.nextSibling);
+      this.rbRes.replaceChildren(this.creditsBox, this.powerBox, this.unitsEl);
+      this.rbTime.replaceChildren(this.clock, this.speedEl);
+      this.rbBtns.replaceChildren(...[this.fsBtn, this.toasts.bell, this.settingsBtn, this.menuBtn].filter((b): b is HTMLButtonElement => !!b));
+      tr.replaceChildren(this.fpsEl, this.rbRes, this.rbTime, this.rbBtns, ...(this.logPanel ? [this.logPanel] : []));
+      this.objEl.remove();
+      tb.prepend(...(mission ? [mission] : []), this.objPanel, this.intelEl);
+    } else {
+      sb.id = 'sidebar';
+      this.sbHead.replaceChildren(this.creditsBox, this.repairBtn, this.sellBtn);
+      sb.replaceChildren(this.sbHead, this.powerBox, this.radar, this.tabsEl, this.catHead, this.grid, this.supers);
+      this.mmPanel.remove();
+      tr.replaceChildren(this.fpsEl, ...[this.fsBtn, this.toasts.bell, this.logPanel].filter((b): b is HTMLElement => !!b));
+      this.objPanel.remove();
+      tb.prepend(this.menuBtn, this.clock, this.speedEl, this.objEl, this.intelEl);
+      if (mission) this.ui.appendChild(mission);
+    }
+    this.setArmed(false);
+    // everything re-renders for the new arrangement on the next update
+    this.gridKey = ''; this.tabsKey = ''; this.superKey = ''; this.objKey = ''; this.objPanelKey = ''; this.tutKey = '';
+    if (this.selKey) { this.selKey = ''; this.selpanel.classList.remove('on'); }
+    this.grid.scrollTop = 0; this.grid.scrollLeft = 0;
+    this.slowT = 0;
+    this.measure();
+  }
+
+  /** Publish the HUD's footprint for the panels other modules position around it (radios, hints, replay bar). */
+  private measure() {
+    const s = document.body.style;
+    if (this.layout === 'modern') {
+      s.setProperty('--dock-h', `${Math.max(this.mmPanel.offsetHeight, this.sidebar.offsetHeight)}px`);
+      s.setProperty('--tl-h', `${this.topbar.offsetHeight}px`);
+      s.setProperty('--bb-h', `${this.sidebar.offsetHeight}px`);
+    } else {
+      s.setProperty('--dock-h', `${this.dock.offsetHeight}px`);
+      s.removeProperty('--tl-h');
+      s.removeProperty('--bb-h');
+    }
+  }
+
+  /** Tooltip delegation whose default side follows the layout (sidebar: left of it; build bar: above). */
+  private bindTips(root: HTMLElement, side: () => TipSide) {
+    root.addEventListener('pointerover', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tip]');
+      if (!t || !root.contains(t) || this.tip.isFor(t)) return;
+      this.tip.show(t, t.dataset.tip!, (t.dataset.tipSide as TipSide) ?? side());
+    });
+    root.addEventListener('pointerout', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tip]');
+      if (t && !t.contains(e.relatedTarget as Node)) this.tip.hide(t);
+    });
+  }
+
+  private pickTab(id: TabId) {
+    if (this.activeTab !== id) this.sound.play('tab');
+    this.activeTab = id;
+    this.tabUserChosen = true;
+    this.gridKey = '';
+    this.slowT = 0;
+  }
+
+  /** [HUD] Keyboard for the Modern build bar: Tab / Shift+Tab switch tabs, B then 1–9 / 0 builds the Nth card. */
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (this.layout !== 'modern' || this.host.spectator || e.ctrlKey || e.metaKey || e.altKey || !this.sidebar.isConnected) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (document.querySelector('.screen, .rv, .chx')) return; // a menu is open (the game is paused)
+    const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    if (e.key === 'Tab') {
+      stop();
+      this.cycleTab(e.shiftKey ? -1 : 1);
+      return;
+    }
+    if (e.code === 'KeyB') {
+      stop();
+      if (!e.repeat) this.setArmed(!this.armed);
+      return;
+    }
+    if (!this.armed) return;
+    if (e.key === 'Escape') { stop(); this.setArmed(false); return; }
+    const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code)?.[1];
+    if (digit === undefined) return;
+    stop();
+    if (!this.gridKey) this.updateTabs(this.host.local); // a tab switch since the last HUD update: build its cards first
+    const card = this.keyCards[CARD_KEYS.indexOf(digit)];
+    if (card?.el.isConnected) {
+      this.clickItem(card, e.shiftKey);
+      replay(card.el, 'keyhit', 350);
+    } else this.sound.play('error');
+    this.setArmed(false);
+  };
+
+  private setArmed(on: boolean) {
+    this.armed = on;
+    window.clearTimeout(this.armTimer);
+    this.sidebar.classList.toggle('armed', on);
+    if (on) {
+      this.sound.play('tab');
+      this.armTimer = window.setTimeout(() => this.setArmed(false), 3500);
+    }
+  }
+
+  private cycleTab(d: number) {
+    const vis = this.visibleTabs;
+    if (!vis.length) return;
+    const i = vis.indexOf(this.activeTab);
+    this.pickTab(vis[(Math.max(0, i) + d + vis.length) % vis.length]);
+    if (this.armed) this.setArmed(true);
   }
 
   /** Show a notification toast. `kind` overrides the style inferred from the text. */
@@ -412,6 +652,11 @@ export class Hud {
     this.updateGroups();
     this.updateObjective();
     this.updateIntel();
+    if (this.layout === 'modern') {
+      this.updateUnits(p);
+      this.updateObjPanel();
+      this.updateTutorial();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -481,57 +726,70 @@ export class Hud {
     this.tip.refresh(this.powerBox, tip);
   }
 
+  /** [HUD] Army size in the Modern resource bar (own units by kind in the tooltip). */
+  private updateUnits(p: Player) {
+    let inf = 0, veh = 0, air = 0, sea = 0, blds = 0;
+    for (const u of this.host.world.units) {
+      if (!u.alive || u.owner !== p) continue;
+      if (u.kind === 'infantry') inf++;
+      else if (u.kind === 'aircraft') air++;
+      else if (u.kind === 'naval') sea++;
+      else veh++;
+    }
+    for (const b of this.host.world.buildings) if (b.alive && b.owner === p && !b.bt.wall && !b.bt.mine) blds++;
+    const key = `${inf}|${veh}|${air}|${sea}|${blds}`;
+    if (key === this.unitsKey) return;
+    this.unitsKey = key;
+    (this.unitsEl.lastElementChild as HTMLElement).textContent = String(inf + veh + air + sea);
+    const tip = tipHtml('Army', `Infantry <b>${inf}</b> · vehicles <b>${veh}</b>${air ? ` · aircraft <b>${air}</b>` : ''}${sea ? ` · ships <b>${sea}</b>` : ''}<br>Structures <b>${blds}</b>`, [['E', 'select every combat unit']]);
+    this.unitsEl.dataset.tip = tip;
+    this.tip.refresh(this.unitsEl, tip);
+  }
+
   // ---------------------------------------------------------------------------
-  /** Structures and defenses share one queue; returns the queue + whether the head belongs to `cat`. */
-  private queueFor(p: Player, cat: Category): ProductionQueue {
-    const kind = cat === 'building' || cat === 'defense' ? 'structure' : cat;
+  /** Structures, defences and support share one queue; units have one queue per category. */
+  private queueFor(p: Player, tab: TabId): ProductionQueue {
+    const kind = tab === 'building' || tab === 'defense' || tab === 'support' ? 'structure' : tab;
     return p.queues[kind];
   }
 
   private updateTabs(p: Player) {
-    const avail = new Map<Category, string[]>();
+    const avail = new Map<TabId, string[]>();
+    const add = (id: string) => {
+      const tab = this.tabOf(id);
+      const list = avail.get(tab) ?? [];
+      if (!list.includes(id)) list.push(id);
+      avail.set(tab, list);
+    };
     const opts = p.buildOptions();
-    for (const id of opts) {
-      const t = getType(id);
-      const list = avail.get(t.category) ?? [];
-      list.push(id);
-      avail.set(t.category, list);
-    }
+    for (const id of opts) add(id);
     // keep items that are in progress visible even if tech was lost
     for (const qq of Object.values(p.queues)) {
-      for (const it of qq.items) {
-        const t = getType(it.type);
-        const list = avail.get(t.category) ?? [];
-        if (!list.includes(it.type)) list.push(it.type);
-        avail.set(t.category, list);
-      }
-      if (qq.ready) {
-        const t = getType(qq.ready);
-        const list = avail.get(t.category) ?? [];
-        if (!list.includes(t.id)) list.push(t.id);
-        avail.set(t.category, list);
-      }
+      for (const it of qq.items) add(it.type);
+      if (qq.ready) add(qq.ready);
     }
     // "NEW" flags for freshly unlocked options
     const now = performance.now();
     if (!this.known) this.known = new Set(opts);
     else for (const id of opts) if (!this.known.has(id)) { this.known.add(id); this.newUntil.set(id, now + 14000); }
 
+    const defs = this.tabDefs();
     if (!(avail.get(this.activeTab)?.length) && !this.tabUserChosen) {
-      const first = TABS.find((t) => avail.get(t.cat)?.length);
-      if (first && first.cat !== this.activeTab) { this.activeTab = first.cat; this.gridKey = ''; }
+      const first = defs.find((t) => avail.get(t.id)?.length);
+      if (first && first.id !== this.activeTab) { this.activeTab = first.id; this.gridKey = ''; }
     }
     if (avail.get(this.activeTab)?.length) this.tabUserChosen = false;
 
     // conditional tabs (naval, …) appear once the category can be built or a producer is owned
-    const visible = TABS.filter((t) => !t.conditional || (avail.get(t.cat)?.length ?? 0) > 0 || ownsProducer(p, t.cat));
-    if (!visible.some((t) => t.cat === this.activeTab)) { this.activeTab = visible[0].cat; this.gridKey = ''; }
-    const vkey = visible.map((t) => t.cat).join(',');
+    const visible = defs.filter((t) => !t.conditional || (avail.get(t.id)?.length ?? 0) > 0 || ownsProducer(p, t.cat));
+    if (!visible.some((t) => t.id === this.activeTab)) { this.activeTab = visible[0].id; this.gridKey = ''; }
+    this.visibleTabs = visible.map((t) => t.id);
+    const vkey = this.layout + ':' + visible.map((t) => t.id).join(',');
     if (vkey !== this.tabsKey) {
-      const grew = this.tabsKey && visible.length > this.tabsKey.split(',').length;
+      const grew = this.tabsKey && this.tabsKey.split(':')[0] === this.layout && visible.length > this.tabsKey.split(':')[1].split(',').length;
       this.tabsKey = vkey;
-      for (const t of TABS) {
-        const b = this.tabEls.get(t.cat)!;
+      for (const t of defs) {
+        const b = this.tabEls.get(t.id)!;
         const show = visible.includes(t);
         b.style.display = show ? '' : 'none';
         if (show && grew && t.conditional) replay(b, 'pop', 650);
@@ -539,22 +797,22 @@ export class Hud {
       (this.tabInd.parentElement as HTMLElement).style.gridTemplateColumns = `repeat(${visible.length}, 1fr)`;
       this.tabInd.style.width = `calc((100% - ${((visible.length - 1) * 0.3).toFixed(1)}rem) / ${visible.length})`;
     }
-    const vi = Math.max(0, visible.findIndex((t) => t.cat === this.activeTab));
+    const vi = Math.max(0, visible.findIndex((t) => t.id === this.activeTab));
     const tr = `translateX(calc(${vi * 100}% + ${(vi * 0.3).toFixed(1)}rem))`;
     if (this.tabInd.style.transform !== tr) this.tabInd.style.transform = tr;
 
-    TABS.forEach((t, i) => {
-      const b = this.tabEls.get(t.cat)!;
-      const n = avail.get(t.cat)?.length ?? 0;
-      const q = this.queueFor(p, t.cat);
+    for (const t of defs) {
+      const b = this.tabEls.get(t.id)!;
+      const n = avail.get(t.id)?.length ?? 0;
+      const q = this.queueFor(p, t.id);
       const isStruct = q.kind === 'structure';
-      const ready = isStruct && !!q.ready && getType(q.ready).category === t.cat;
-      const mine = q.items.filter((it) => getType(it.type).category === t.cat);
+      const ready = isStruct && !!q.ready && this.tabOf(q.ready) === t.id;
+      const mine = q.items.filter((it) => this.tabOf(it.type) === t.id);
       const head = mine.length && q.items[0] === mine[0] ? mine[0] : null;
-      const hasNew = [...(avail.get(t.cat) ?? [])].some((id) => (this.newUntil.get(id) ?? 0) > now);
+      const hasNew = [...(avail.get(t.id) ?? [])].some((id) => (this.newUntil.get(id) ?? 0) > now);
       b.classList.toggle('empty', n === 0);
-      b.classList.toggle('active', t.cat === this.activeTab);
-      b.classList.toggle('has-new', hasNew && t.cat !== this.activeTab);
+      b.classList.toggle('active', t.id === this.activeTab);
+      b.classList.toggle('has-new', hasNew && t.id !== this.activeTab);
       const badge = b.querySelector('.badge') as HTMLElement;
       const txt = ready ? '' : mine.length ? String(mine.length) : '';
       badge.className = 'badge' + (ready ? ' on ready' : mine.length ? ' on' : '');
@@ -564,15 +822,16 @@ export class Hud {
       prog.classList.toggle('hold', !!head?.paused);
       (prog.firstElementChild as HTMLElement).style.transform = `scaleX(${ready ? 1 : head ? head.progress.toFixed(3) : 0})`;
       const status = ready ? '<span class="tt-ok">Ready to place</span>' : head ? `${head.paused ? 'On hold' : 'Producing'}: <b>${getType(head.type).name}</b> ${Math.floor(head.progress * 100)}%` + (mine.length > 1 ? ` · ${mine.length - 1} queued` : '') : n ? `${n} available` : 'Nothing available yet';
-      const tip = tipHtml(t.title, status);
+      const tip = tipHtml(t.title, status, this.layout === 'modern' ? [['Tab', 'next tab']] : []);
       if (b.dataset.tip !== tip) { b.dataset.tip = tip; this.tip.refresh(b, tip); }
-    });
+    }
 
     // grid
     // cheapest first, decoy structures last (they would otherwise top the list at $50)
     const decoy = (id: string) => (BUILDINGS[id]?.fakeOf ? 1 : 0);
     const list = (avail.get(this.activeTab) ?? []).sort((a, b) => decoy(a) - decoy(b) || getType(a).cost - getType(b).cost);
-    const locked = factionTypes(p.faction, this.activeTab).filter((id) => !list.includes(id)).sort((a, b) => decoy(a) - decoy(b));
+    const tabCat = this.activeTab === 'support' ? 'building' : this.activeTab;
+    const locked = factionTypes(p.faction, tabCat).filter((id) => !list.includes(id) && this.tabOf(id) === this.activeTab).sort((a, b) => decoy(a) - decoy(b));
     const key = this.activeTab + ':' + list.join(',') + '|' + locked.join(',');
     if (key !== this.gridKey) { this.rebuildGrid(list, locked, key); this.updateScrollFade(); }
     for (const c of this.cards.values()) c.el.classList.toggle('is-new', (this.newUntil.get(c.id) ?? 0) > now);
@@ -583,20 +842,28 @@ export class Hud {
   /** Fade the grid edges only where more cards are hidden by scrolling. */
   private updateScrollFade() {
     const g = this.grid;
+    if (this.layout === 'modern') {
+      // one row of cards: fade the sides instead
+      g.classList.toggle('more-right', g.scrollWidth - g.clientWidth - g.scrollLeft > 4);
+      g.classList.toggle('more-left', g.scrollLeft > 4);
+      g.classList.remove('more-below', 'more-above');
+      return;
+    }
+    g.classList.remove('more-right', 'more-left');
     g.classList.toggle('more-below', g.scrollHeight - g.clientHeight - g.scrollTop > 4);
     g.classList.toggle('more-above', g.scrollTop > 4);
   }
 
   private updateCatHeader(p: Player, list: string[], locked: string[]) {
-    const tab = TABS.find((t) => t.cat === this.activeTab)!;
+    const tab = this.tabDefs().find((t) => t.id === this.activeTab) ?? this.tabDefs()[0];
     this.catTitle.textContent = tab.title;
     const q = this.queueFor(p, this.activeTab);
-    const mine = q.items.filter((it) => getType(it.type).category === this.activeTab);
+    const mine = q.items.filter((it) => this.tabOf(it.type) === this.activeTab);
     const head = mine.length && q.items[0] === mine[0] ? mine[0] : null;
     let html: string, cls = '';
     if (q.kind === 'structure' && q.ready) {
       const t = getType(q.ready);
-      if (t.category === this.activeTab) { html = `Place ${esc(shortName(t))}`; cls = 'ok'; }
+      if (this.tabOf(t.id) === this.activeTab) { html = `Place ${esc(shortName(t))}`; cls = 'ok'; }
       else { html = 'Yard busy'; cls = 'muted'; }
     } else if (head) {
       const pct = Math.floor(head.progress * 100);
@@ -622,6 +889,7 @@ export class Hud {
     this.gridKey = key;
     this.grid.innerHTML = '';
     this.cards.clear();
+    this.keyCards = [];
     if (this.hoverCard) { this.tip.hide(this.hoverCard.el); this.hoverCard = null; }
     let i = 0;
     for (const id of list) this.grid.appendChild(this.makeCard(id, false, i++));
@@ -629,11 +897,12 @@ export class Hud {
       this.grid.appendChild(el('div', 'grid-sep', `${ICONS.lock}<span>Requires tech</span><i></i>`));
       for (const id of locked) this.grid.appendChild(this.makeCard(id, true, i++));
     }
-    if (!list.length && !locked.length) this.grid.appendChild(el('div', 'grid-empty', `${CAT_ICON[this.activeTab]}<span>Nothing to build here yet</span>`));
+    if (!list.length && !locked.length) this.grid.appendChild(el('div', 'grid-empty', `${TAB_ICON(this.activeTab)}<span>Nothing to build here yet</span>`));
     this.grid.classList.remove('stagger', 'stagger-soft');
     void this.grid.offsetWidth;
     this.grid.classList.add(tabChanged ? 'stagger' : 'stagger-soft');
-    if (tabChanged) this.grid.scrollTop = 0;
+    if (tabChanged) { this.grid.scrollTop = 0; this.grid.scrollLeft = 0; }
+    this.tutKey = '';
     this.updateCards();
   }
 
@@ -642,6 +911,10 @@ export class Hud {
     const img = this.host.thumbs.get(id);
     const c = el('div', 'bitem' + (locked ? ' locked' : ''));
     c.style.setProperty('--i', String(i));
+    c.dataset.id = id;
+    // [HUD] build hotkey (Modern: B, then the digit); hidden in the Classic sidebar
+    const keyIdx = locked ? -1 : this.keyCards.length;
+    const hk = keyIdx >= 0 && keyIdx < CARD_KEYS.length ? CARD_KEYS[keyIdx] : '';
     c.innerHTML = `<div class="bi-tilt">
         <div class="bi-img">${img ? `<img src="${img}" alt="" draggable="false">` : `<span class="bi-fallback">${CAT_ICON[t.category]}</span>`}</div>
         <div class="bi-shade"></div>
@@ -651,16 +924,17 @@ export class Hud {
         <span class="bi-name">${esc(shortName(t))}</span>
         <span class="bi-count"></span>
         ${locked ? `<span class="bi-lock">${ICONS.lock}</span>` : ''}
-        <span class="bi-new">New</span>${modCardTag(id)}
+        <span class="bi-new">New</span>${modCardTag(id)}${hk ? `<kbd class="bi-key">${hk}</kbd>` : ''}
         <div class="bi-glare"></div><div class="bi-shine"></div>
       </div>`;
     const card: Card = {
       id, el: c, locked, state: '', pct: -1, count: -1, poor: false,
       arc: c.querySelector('.arc') as SVGCircleElement, label: c.querySelector('.bi-label')!, countEl: c.querySelector('.bi-count')!,
     };
+    if (!locked) this.keyCards.push(card);
     c.addEventListener('click', (ev) => this.clickItem(card, ev.shiftKey));
     c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); this.rightClickItem(card); });
-    c.addEventListener('pointerenter', () => { this.hoverCard = card; this.tip.show(c, this.cardTip(card), 'left'); });
+    c.addEventListener('pointerenter', () => { this.hoverCard = card; this.tip.show(c, this.cardTip(card), this.layout === 'modern' ? 'top' : 'left'); });
     c.addEventListener('pointerleave', () => { if (this.hoverCard === card) this.hoverCard = null; this.tip.hide(c); });
     bindTilt(c, 10);
     this.cards.set(id, card);
@@ -722,7 +996,8 @@ export class Hud {
       const secs = buildSeconds(w, p, card.id);
       const poor = p.credits < t.cost;
       foot = `<div class="tt-meta"><span>${ICONS.clock}${Math.ceil(secs)}s build</span>${poor ? `<span class="tt-bad">${ICONS.coin}Need $${(t.cost - p.credits).toLocaleString('en-US')} more</span>` : ''}${p.lowPower ? `<span class="tt-bad">${ICONS.bolt}Low power: slower</span>` : ''}</div>`;
-      foot += `<div class="tt-keys"><span><kbd>LMB</kbd>${isBuildingType(t) ? 'Build / place' : 'Train'}</span>${isBuildingType(t) ? '' : '<span><kbd>Shift</kbd>×5</span>'}<span><kbd>RMB</kbd>Hold / cancel</span></div>`;
+      const hk = this.layout === 'modern' ? CARD_KEYS[this.keyCards.indexOf(card)] : undefined;
+      foot += `<div class="tt-keys"><span><kbd>LMB</kbd>${isBuildingType(t) ? 'Build / place' : 'Train'}</span>${isBuildingType(t) ? '' : '<span><kbd>Shift</kbd>×5</span>'}<span><kbd>RMB</kbd>Hold / cancel</span>${hk ? `<span><kbd>B</kbd><kbd>${hk}</kbd>Hotkey</span>` : ''}</div>`;
     }
     return `<div class="tt-head"><b>${esc(t.name)}</b><span class="tt-cost">$${t.cost.toLocaleString('en-US')}</span></div>
       <div class="tt-sub">${cap(t.category === 'building' ? 'structure' : t.category)}${isBuildingType(t) ? ` · ${t.size[0]}×${t.size[1]}` : ''}</div>
@@ -813,7 +1088,8 @@ export class Hud {
       const offline = !ready && p.lowPower;
       b.classList.toggle('ready', ready);
       b.classList.toggle('offline', offline);
-      const compact = this.supers.classList.contains('compact');
+      // [HUD] the Modern support row is always compact: just the timer under each power
+      const compact = this.layout === 'modern' || this.supers.classList.contains('compact');
       const sub = ready ? 'Ready' : offline ? 'Offline' : compact ? formatTime(Math.max(0, full - p.superCharge[k])) : `${Math.floor(frac * 100)}% · ${formatTime(Math.max(0, full - p.superCharge[k]))}`;
       const small = b.querySelector('small')!;
       if (small.textContent !== sub) small.textContent = sub;
@@ -966,6 +1242,7 @@ export class Hud {
       if (fm) sp.appendChild(fm);
     }
     replay(sp, wasOpen ? 'swap' : 'pop', 500);
+    this.tutKey = '';
   }
 
   private chip(icon: string, value: string, sub: string, tip: string, k = ''): string {
@@ -1189,6 +1466,8 @@ export class Hud {
     const add = (icon: string, key: string, title: string, desc: string, cls = '') => {
       const b = el('button', 'cmd ' + cls, `${icon}<kbd>${key}</kbd>`);
       b.dataset.tip = tipHtml(title, desc, [[key, 'hotkey']]);
+      b.dataset.key = key;
+      b.setAttribute('aria-label', title);
       b.onclick = () => { this.sound.play('click'); this.host.keyCommand(key.toLowerCase(), true); };
       box.appendChild(b);
     };
@@ -1316,6 +1595,51 @@ export class Hud {
     this.objEl.dataset.tip = tipHtml('Objectives', objs.map((o) => `<span class="tt-foe${o.state !== 'active' ? ' dead' : ''}"><i></i>${esc(o.text)} <small>${o.primary ? 'primary' : 'optional'}${o.state === 'done' ? ' · complete' : o.state === 'failed' ? ' · failed' : ''}</small></span>`).join(''));
     this.tip.refresh(this.objEl, this.objEl.dataset.tip);
     if (!first) replay(this.objEl, 'flash', 1600);
+  }
+
+  /**
+   * [HUD] Modern objectives checklist (top left) for skirmish: the goal, the opponents still standing, and a
+   * row per enemy that gets ticked off when it is eliminated. Scripted missions show MissionHud's checklist here.
+   */
+  private updateObjPanel() {
+    const w = this.host.world, me = this.host.local;
+    if (w.mission) {
+      if (this.objPanelKey !== 'mission') { this.objPanelKey = 'mission'; this.objPanel.style.display = 'none'; }
+      return;
+    }
+    const foes = w.players.filter((o) => me.isEnemy(o));
+    const key = foes.map((o) => `${o.id}:${o.defeated ? 1 : 0}`).join(',');
+    if (key === this.objPanelKey) return;
+    const first = !this.objPanelKey;
+    this.objPanelKey = key;
+    this.objPanel.style.display = '';
+    const alive = foes.filter((o) => !o.defeated).length;
+    const done = foes.length > 0 && alive === 0;
+    const row = (cls: string, text: string, pg = '') => `<div class="op-row ${cls}"><i class="op-bx"></i><span class="op-tx">${text}</span>${pg ? `<span class="op-pg">${pg}</span>` : ''}</div>`;
+    this.objPanel.innerHTML = `<div class="op-head"><span class="op-ic">${ICONS.target}</span><b>Objectives</b><span class="op-n">${foes.length - alive}/${foes.length}</span></div>`
+      + row(done ? 'done' : '', 'Destroy all enemy forces', foes.length ? `${alive} left` : '')
+      + foes.map((o) => row(`sub ${o.defeated ? 'done' : ''}`, `<i class="op-dot" style="--c:${hexColor(o.color)}"></i>${esc(o.name)} <small>${o.faction === 'soviet' ? 'Soviet' : 'Allied'}</small>`)).join('');
+    this.objPanel.dataset.tip = this.objEl.dataset.tip ?? '';
+    if (!first) replay(this.objPanel, 'flash', 1600);
+  }
+
+  /** [HUD] Boot Camp: glow the cards / buttons the current drill asks for (missions/tutorial.ts BOOT_CAMP_HUD). */
+  private updateTutorial() {
+    const m = this.host.world.mission;
+    const step = m?.def.id === 'bootcamp' ? String(m.flags.step ?? '') : '';
+    const key = `${step}|${this.activeTab}|${this.gridKey}|${this.selKey}`;
+    if (key === this.tutKey) return;
+    this.tutKey = key;
+    for (const e of this.ui.querySelectorAll('.tut-hl')) e.classList.remove('tut-hl');
+    const sels = BOOT_CAMP_HUD[step];
+    if (!sels?.length) return;
+    for (const s of sels) {
+      for (const e of this.ui.querySelectorAll<HTMLElement>(s)) {
+        // a tab only glows while its card is not on show
+        if (e.classList.contains('tab') && e.classList.contains('active')) continue;
+        e.classList.add('tut-hl');
+      }
+    }
   }
 }
 

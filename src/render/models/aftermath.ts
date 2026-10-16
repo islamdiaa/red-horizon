@@ -12,7 +12,8 @@
  * (The Shock Trooper and Mechanic live in infantry.ts, the Missile Submarine in naval.ts.)
  */
 import * as THREE from 'three';
-import { NB, makeTemplate, type Ctx, type Mat, type ModelTemplate } from './builder';
+import { NB, makeTemplate, type Ctx, type Mat, type ModelFaction, type ModelTemplate } from './builder';
+import { SUPPORT_VEHICLE_BUILDERS } from './vehicles';
 import type { ModelAnimState } from './types';
 import {
   M,
@@ -32,12 +33,12 @@ import {
   sovietStar,
   stencilNumber,
   stowage,
-  tracks,
   trefoil,
   wheel,
 } from './parts';
 import { animTracks, approach, blink, dtOf, healthVariant, recoil } from './anim';
 import { cloakMaterial, fxTime } from './fxmats';
+import { P, camoFace, camoTop, edgePlate, roundHatch, runningGear, skirt as kitSkirt, slopePlate, towHooks, whip } from './unitkit';
 import { MAD_ARM_SECONDS, MAD_PULSES, MAD_TOTAL_SECONDS } from '../../sim/aftermath';
 
 const VEH_AO = { h: 0.12, min: 0.55 };
@@ -85,8 +86,9 @@ function skirt(nb: NB, x0: number, x1: number, y: number, z: number, h: number, 
 
 function teslaTank(): ModelTemplate {
   const r = root();
-  tracks(r, { L: 0.84, H: 0.15, W: 0.13, Z: 0.22, wheels: 6 });
-  r.box(M.dark, 0.76, 0.08, 0.32, 0, 0.095, 0, { b: 0.01 });
+  // [UNITS] olive drab with team panels, road wheels with hubs close up
+  runningGear(r, { L: 0.84, H: 0.15, W: 0.13, Z: 0.22, wheels: 6, wheelK: 0.38 });
+  r.box(P.sovDark, 0.76, 0.08, 0.32, 0, 0.095, 0, { b: 0.01 });
   r.add(
     prismXY(
       [
@@ -100,9 +102,10 @@ function teslaTank(): ModelTemplate {
       0.38,
       0.016,
     ),
-    M.team,
+    P.sov,
   );
-  for (const s of [-1, 1]) skirt(r, -0.42, 0.42, 0.155, 0.285 * s, 0.07);
+  slopePlate(r, M.team, [0.45, 0.165], [0.31, 0.235], 0.3, 0, 0.01, 0.8);
+  for (const s of [-1, 1]) kitSkirt(r, 0.84, 0.07, 0.19, 0.288 * s, 4, P.sov, M.team, 0, P.sovDark);
   // engine deck: grille, cooling fins, exhausts
   grille(r, 0.16, 0.26, [-0.3, 0.241, 0], 7);
   for (const s of [-1, 1]) {
@@ -137,8 +140,9 @@ function teslaTank(): ModelTemplate {
       0.08,
       0.022,
     ),
-    M.team,
+    P.sov,
   );
+  for (const i of [1, 2, 6, 7]) edgePlate(t, M.team, TESLA_TURRET, i, 0.04, 0.05, 0.7, 0.003, 0.012);
   sovietStar(t, 0.03, [0.08, 0.0805, 0.08]);
   hatch(t, 0.03, [-0.11, 0.08, -0.08]);
   antenna(t, -0.16, 0.08, 0.11, 0.2);
@@ -189,10 +193,21 @@ function teslaTank(): ModelTemplate {
 
 const MAD_A = MAD_ARM_SECONDS / MAD_TOTAL_SECONDS;
 
+const TESLA_TURRET: [number, number][] = [
+  [0.17, -0.07],
+  [0.17, 0.07],
+  [0.08, 0.15],
+  [-0.12, 0.15],
+  [-0.19, 0.08],
+  [-0.19, -0.08],
+  [-0.12, -0.15],
+  [0.08, -0.15],
+];
+
 function madTank(): ModelTemplate {
   const r = root();
-  tracks(r, { L: 0.98, H: 0.16, W: 0.15, Z: 0.27, wheels: 6 });
-  r.box(M.dark, 0.9, 0.09, 0.42, 0, 0.1, 0, { b: 0.012 });
+  runningGear(r, { L: 0.98, H: 0.16, W: 0.15, Z: 0.27, wheels: 6, wheelK: 0.38 });
+  r.box(P.sovDark, 0.9, 0.09, 0.42, 0, 0.1, 0, { b: 0.012 });
   r.add(
     prismXY(
       [
@@ -206,9 +221,9 @@ function madTank(): ModelTemplate {
       0.46,
       0.018,
     ),
-    M.team,
+    P.sov,
   );
-  for (const s of [-1, 1]) skirt(r, -0.48, 0.48, 0.165, 0.345 * s, 0.075);
+  for (const s of [-1, 1]) skirt(r, -0.48, 0.48, 0.165, 0.345 * s, 0.075, M.team);
   hazard(r, 0.4, 0.04, [0.46, 0.2, 0], [0, Math.PI / 2, -0.42]);
   headlights(r, 0.49, 0.19, 0.17);
   taillights(r, -0.51, 0.21, 0.18);
@@ -230,7 +245,8 @@ function madTank(): ModelTemplate {
     r.box(M.gun, 0.24, 0.02, 0.02, -0.02, y0 + 0.12, z, { b: 0 });
     pipe(r, [0.1, y0 + 0.02, z], [-0.14, y0 + H - 0.04, z], 0.007, M.dark, 4);
   }
-  r.box(M.teamDark, 0.3, 0.05, 0.3, -0.02, y0 + H, 0, { b: 0.012 });
+  r.box(P.sovDark, 0.3, 0.05, 0.3, -0.02, y0 + H, 0, { b: 0.012 });
+  r.box(M.team, 0.304, 0.016, 0.304, -0.02, y0 + H + 0.012, 0, { b: 0.004 });
   hazard(r, 0.28, 0.03, [-0.02, y0 + H, 0.151]);
   hazard(r, 0.28, 0.03, [-0.02, y0 + H, -0.151], [0, Math.PI, 0]);
   // anvil plate on the deck under the ram
@@ -255,7 +271,7 @@ function madTank(): ModelTemplate {
   // warning beacons on the crown
   lamp(r, G.red, [0.1, y0 + H + 0.04, 0.12], 0.016, 'glow:warn');
   lamp(r, G.red, [-0.14, y0 + H + 0.04, -0.12], 0.016, 'glow:warn');
-  antenna(r, -0.45, 0.25, 0.15, 0.22);
+  whip(r, -0.45, 0.25, 0.15, 0.22, true);
   // outriggers: fold up along the sides, swing down to the ground when deployed
   const legs: [number, number][] = [
     [0.36, 1],
@@ -265,7 +281,7 @@ function madTank(): ModelTemplate {
   ];
   legs.forEach(([x, s], i) => {
     const leg = r.node(`leg${i}`, [x, 0.22, 0.24 * s]);
-    leg.box(M.teamDark, 0.05, 0.03, 0.2, 0, 0, 0.1 * s, { b: 0.006 });
+    leg.box(P.sovDark, 0.05, 0.03, 0.2, 0, 0, 0.1 * s, { b: 0.006 });
     leg.box(M.dark, 0.06, 0.02, 0.07, 0, -0.012, 0.21 * s, { b: 0.004 });
     hazard(leg, 0.16, 0.02, [0, 0.016, 0.1 * s], [-Math.PI / 2, 0, Math.PI / 2]);
   });
@@ -332,8 +348,9 @@ function madAnim(c: Ctx, s: ModelAnimState): void {
 
 function chronoTank(): ModelTemplate {
   const r = root();
-  tracks(r, { L: 0.8, H: 0.13, W: 0.12, Z: 0.205, wheels: 5 });
-  r.box(M.dark, 0.72, 0.07, 0.3, 0, 0.085, 0, { b: 0.01 });
+  // [UNITS] Allied team paint with camouflage
+  runningGear(r, { L: 0.8, H: 0.13, W: 0.12, Z: 0.205, wheels: 5, wheelK: 0.38 });
+  r.box(P.allyDark, 0.72, 0.07, 0.3, 0, 0.085, 0, { b: 0.01 });
   r.add(
     prismXY(
       [
@@ -347,9 +364,14 @@ function chronoTank(): ModelTemplate {
       0.36,
       0.014,
     ),
-    M.team,
+    P.allyTeam,
   );
-  for (const s of [-1, 1]) skirt(r, -0.4, 0.4, 0.145, 0.262 * s, 0.06, M.teamLight);
+  camoTop(r, 0.3, 0.3, [0.08, 0.2235, 0], 3, 81);
+  for (const s of [-1, 1]) {
+    skirt(r, -0.4, 0.4, 0.145, 0.262 * s, 0.06, M.teamDark);
+    camoFace(r, 0.7, 0.05, [0, 0.145, 0.27 * s], s > 0 ? 0 : Math.PI, 3, 82 + s);
+  }
+  towHooks(r, 0.44, 0.12, 0.1, 1);
   headlights(r, 0.42, 0.165, 0.12, 0.012);
   taillights(r, -0.42, 0.18, 0.13);
   alliedStar(r, 0.03, [0.22, 0.2225, 0.1], [0, 0, -0.12]);
@@ -389,9 +411,10 @@ function chronoTank(): ModelTemplate {
       0.07,
       0.02,
     ),
-    M.team,
+    P.allyTeam,
   );
-  hatch(t, 0.026, [-0.06, 0.07, 0.04]);
+  camoTop(t, 0.2, 0.16, [-0.02, 0.0715, 0], 2, 84);
+  roundHatch(t, M.teamDark, 0.026, [-0.06, 0.07, 0.04]);
   t.box(M.glass, 0.02, 0.016, 0.05, 0.12, 0.05, 0, { b: 0.004 });
   antenna(t, -0.13, 0.07, -0.07, 0.18);
   for (const [i, s] of [
@@ -460,21 +483,25 @@ function demoTruck(): ModelTemplate {
       0.32,
       0.016,
     ),
-    M.team,
+    P.sov,
   );
+  for (const s of [-1, 1]) r.box(M.team, 0.11, 0.07, 0.004, 0.3, 0.165, 0.161 * s, { b: 0 });
+  r.box(P.tanker, 0.04, 0.05, 0.06, 0.34, 0.17, -0.07, { b: 0 });
+  r.sph(P.sovDark, 0.02, 0.344, 0.23, -0.07, { seg: 4 });
   r.box(M.glassBlue, 0.07, 0.07, 0.27, 0.42, 0.23, 0, { b: 0.004, r: [0, 0, 0.98] });
   for (const s of [-1, 1]) r.box(M.glassBlue, 0.1, 0.05, 0.004, 0.3, 0.23, 0.161 * s, { b: 0 });
   r.box(M.dark, 0.012, 0.04, 0.2, 0.458, 0.14, 0, { b: 0 });
   headlights(r, 0.46, 0.15, 0.115, 0.012);
-  r.box(M.teamDark, 0.15, 0.012, 0.2, 0.3, 0.285, 0, { b: 0.004 });
+  r.box(P.sovDark, 0.15, 0.012, 0.2, 0.3, 0.285, 0, { b: 0.004 });
+  towHooks(r, 0.46, 0.1, 0.08, 1);
   sovietStar(r, 0.03, [0.3, 0.23, 0.161], faceRot('+z'));
   sovietStar(r, 0.03, [0.3, 0.23, -0.161], faceRot('-z'));
-  for (const s of [-1, 1]) r.box(M.teamDark, 0.15, 0.012, 0.07, 0.3, 0.155, 0.16 * s, { b: 0.004 });
+  for (const s of [-1, 1]) r.box(P.sov, 0.15, 0.012, 0.07, 0.3, 0.155, 0.16 * s, { b: 0.004 });
   // flatbed with side rails
-  r.box(M.teamDark, 0.6, 0.035, 0.32, -0.17, 0.13, 0, { b: 0.008 });
+  r.box(P.sovDark, 0.6, 0.035, 0.32, -0.17, 0.13, 0, { b: 0.008 });
   for (const s of [-1, 1]) {
     r.box(M.gun, 0.6, 0.04, 0.012, -0.17, 0.165, 0.155 * s, { b: 0.003 });
-    for (const x of [-0.11, -0.3]) r.box(M.teamDark, 0.15, 0.012, 0.07, x, 0.158, 0.16 * s, { b: 0.004 });
+    for (const x of [-0.11, -0.3]) r.box(P.sov, 0.15, 0.012, 0.07, x, 0.158, 0.16 * s, { b: 0.004 });
   }
   hazard(r, 0.3, 0.03, [-0.472, 0.13, 0], [0, -Math.PI / 2, 0]);
   taillights(r, -0.472, 0.15, 0.13);
@@ -520,8 +547,8 @@ function demoTruck(): ModelTemplate {
 
 function phaseTransport(): ModelTemplate {
   const r = root();
-  tracks(r, { L: 0.74, H: 0.12, W: 0.11, Z: 0.205, wheels: 5 });
-  r.box(M.dark, 0.68, 0.06, 0.3, 0, 0.08, 0, { b: 0.008 });
+  runningGear(r, { L: 0.74, H: 0.12, W: 0.11, Z: 0.205, wheels: 5, wheelK: 0.38 });
+  r.box(P.allyDark, 0.68, 0.06, 0.3, 0, 0.08, 0, { b: 0.008 });
   // faceted hull
   r.add(
     prismXY(
@@ -537,8 +564,9 @@ function phaseTransport(): ModelTemplate {
       0.38,
       0.018,
     ),
-    M.team,
+    P.allyTeam,
   );
+  camoTop(r, 0.3, 0.3, [-0.2, 0.2715, 0], 3, 91);
   for (const s of [-1, 1]) {
     r.add(
       prismXY(
@@ -551,9 +579,10 @@ function phaseTransport(): ModelTemplate {
         0.02,
         0.005,
       ),
-      M.teamLight,
+      M.teamDark,
       { p: [0, 0, 0.2 * s] },
     );
+    camoFace(r, 0.55, 0.05, [-0.02, 0.14, 0.2105 * s], s > 0 ? 0 : Math.PI, 3, 92 + s);
     rivets(r, [-0.3, 0.15, 0.211 * s], [0.25, 0.15, 0.211 * s], 6, 0.004);
   }
   // rear doors
@@ -628,7 +657,12 @@ function phaseTransport(): ModelTemplate {
   });
 }
 
-export const AFTERMATH_BUILDERS: Record<string, () => ModelTemplate> = {
+/**
+ * [UNITS] The minelayer / mobile gap generator / radar jammer rebuilt in vehicles.ts ride along here: index.ts
+ * spreads AFTERMATH_BUILDERS after SUPPORT_BUILDERS, so these supersede the support.ts versions.
+ */
+export const AFTERMATH_BUILDERS: Record<string, (fac?: ModelFaction) => ModelTemplate> = {
+  ...SUPPORT_VEHICLE_BUILDERS,
   ttnk: teslaTank,
   qtnk: madTank,
   ctnk: chronoTank,

@@ -2,6 +2,7 @@ import type { MissionEvent, MissionRuntime, Objective, Portrait } from '../sim/m
 import { formatTime } from '../core/util';
 import { castPortrait } from './campaign';
 import { esc } from './dom';
+import { ICONS } from './icons'; // [HUD]
 
 const CSS = `
 .mh-obj { position: absolute; top: calc(var(--rem, 1px) * 0 + 58px); left: 12px; width: 330px; z-index: 6; pointer-events: none;
@@ -33,7 +34,7 @@ const CSS = `
   background: linear-gradient(180deg, rgba(14,20,28,0.92), rgba(8,11,16,0.9)); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.55); transform: translateY(20px); opacity: 0; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.35s, bottom 0.3s ease; }
 /* lift the radio above the unit panel / group bar when they are on screen (they share the bottom-left) */
-body:has(#selpanel.on) .mh-tx, body:has(#groups.on) .mh-tx { bottom: calc(var(--dock-h, 128px) + 22px); }
+body:not(.hud-modern):has(#selpanel.on) .mh-tx, body:not(.hud-modern):has(#groups.on) .mh-tx { bottom: calc(var(--dock-h, 128px) + 22px); }
 .mh-tx.on { transform: none; opacity: 1; }
 .mh-tx .pt { width: 74px; height: 86px; flex-shrink: 0; border-radius: 8px; overflow: hidden; position: relative;
   background: radial-gradient(ellipse at 50% 30%, rgba(var(--accent-rgb, 90,180,255),0.35), #05080c 75%); border: 1px solid rgba(var(--accent-rgb, 90,180,255),0.4); }
@@ -50,6 +51,38 @@ body:has(#selpanel.on) .mh-tx, body:has(#groups.on) .mh-tx { bottom: calc(var(--
 .mh-score.on { display: block; }
 .mh-score small { display: block; font-family: var(--font, sans-serif); font-size: 10px; letter-spacing: 0.3em; color: #c8b070; }
 body.cine-active .mh-obj, body.cine-active .mh-tx, body.cine-active .mh-timer, body.cine-active .mh-score { opacity: 0 !important; }
+/* [HUD] Modern layout: the checklist is the objectives panel of the top-left column (countdown and score inline),
+   the radio sits above the minimap, the big countdown only appears for the final minute */
+.mh-ic, .mh-trow, .mh-srow { display: none; }
+body.hud-modern .mh-obj { position: relative; top: auto; left: auto; width: 100%; z-index: auto; padding: 0.55rem 0.75rem 0.6rem; border-radius: 0.7rem;
+  border: 1px solid var(--line-2, rgba(255,255,255,0.13)); border-left: 1px solid var(--line-2, rgba(255,255,255,0.13)); background: linear-gradient(180deg, rgba(16,24,34,0.8), rgba(8,12,18,0.74));
+  box-shadow: 0 0.6rem 1.8rem rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+body.hud-modern .mh-obj.empty { display: none; }
+body.hud-modern .mh-obj h5 { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.35rem; font-size: 0.74rem; letter-spacing: 0.22em; color: #fff; }
+body.hud-modern .mh-obj h5 + .mh-row { margin-top: 0; }
+body.hud-modern .mh-obj h5.opt { margin-top: 0.45rem; font-size: 0.62rem; color: var(--muted, #7d8c9d); }
+body.hud-modern .mh-ic { display: flex; font-size: 0.95rem; color: rgb(var(--accent-rgb, 90,180,255)); filter: drop-shadow(0 0 4px rgba(var(--accent-rgb, 90,180,255),0.6)); }
+body.hud-modern .mh-row { gap: 0.5rem; font-size: 0.86rem; line-height: 1.25; margin: 0.28rem 0; padding: 0.06rem 0.15rem; border-radius: 0.3rem; }
+body.hud-modern .mh-row .bx { width: 0.9rem; height: 0.9rem; margin-top: 0.1rem; border-radius: 0.2rem; border-width: 1.5px; }
+body.hud-modern .mh-row.done .bx::after { left: 0.24rem; top: 0.02rem; width: 0.26rem; height: 0.5rem; }
+body.hud-modern .mh-row.secondary { font-size: 0.8rem; }
+body.hud-modern .mh-row .pg { font-size: 0.76rem; }
+body.hud-modern .mh-trow.on, body.hud-modern .mh-srow.on { display: flex; align-items: center; gap: 0.45rem; margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.8rem; color: #dfe8f2; }
+body.hud-modern .mh-trow svg, body.hud-modern .mh-srow svg { font-size: 0.9rem; color: #ffb0a0; flex-shrink: 0; }
+body.hud-modern .mh-trow .lb, body.hud-modern .mh-srow .lb { flex: 1; min-width: 0; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.7rem; color: #ffb0a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.hud-modern .mh-trow .tm, body.hud-modern .mh-srow .tm { font-family: var(--mono, monospace); font-size: 1rem; color: #fff; }
+body.hud-modern .mh-trow.urgent .tm { color: #ff6a5a; animation: mhPulse 0.8s infinite alternate; }
+body.hud-modern .mh-srow svg, body.hud-modern .mh-srow .lb { color: #c8b070; }
+body.hud-modern .mh-srow .tm { color: #ffd34d; }
+body.hud-modern .mh-timer { top: calc(var(--edge, 0.7rem) + 0.2rem); transform: translateX(-50%); }
+body.hud-modern .mh-timer:not(.soon), body.hud-modern .mh-score { display: none !important; }
+@media (max-width: 1100px) { body.hud-modern .mh-timer { top: calc(var(--edge, 0.7rem) + 3.4rem); } }
+body.hud-modern .mh-timer .lb { font-size: 0.7rem; }
+body.hud-modern .mh-timer .tm { font-size: 2.2rem; }
+body.hud-modern .mh-tx { left: var(--edge, 0.7rem); bottom: calc(var(--dock-h, 16rem) + var(--edge, 0.7rem) * 2 + var(--bot, 0px)); width: min(29rem, calc(100vw - 2 * var(--edge, 0.7rem))); gap: 0.75rem; padding: 0.75rem; border-radius: 0.8rem; }
+body.hud-modern .mh-tx .pt { width: 4.6rem; height: 5.4rem; border-radius: 0.5rem; }
+body.hud-modern .mh-tx .sp { font-size: 0.68rem; }
+body.hud-modern .mh-tx .tt { font-size: 0.92rem; }
 `;
 
 /** On-screen mission UI: objectives, radio transmissions, countdown and score. */
@@ -65,6 +98,11 @@ export class MissionHud {
   private full = '';
   private textEl: HTMLElement | null = null;
   private timerLabel = '';
+  /** [HUD] The checklist, and the Modern layout's inline countdown / score rows. */
+  private list: HTMLElement;
+  private trow: HTMLElement;
+  private srow: HTMLElement;
+  private trowKey = '';
 
   constructor(private runtime: MissionRuntime, private sound: (k: 'tab' | 'ready_ping' | 'click') => void) {
     if (!document.getElementById('mh-style')) {
@@ -76,6 +114,14 @@ export class MissionHud {
     const ui = document.getElementById('ui')!;
     this.obj = document.createElement('div');
     this.obj.className = 'mh-obj';
+    // [HUD] list + inline countdown / score (the rows only show in the Modern layout)
+    this.list = document.createElement('div');
+    this.list.className = 'mh-list';
+    this.trow = document.createElement('div');
+    this.trow.className = 'mh-trow';
+    this.srow = document.createElement('div');
+    this.srow.className = 'mh-srow';
+    this.obj.append(this.list, this.trow, this.srow);
     this.tx = document.createElement('div');
     this.tx.className = 'mh-tx';
     this.timer = document.createElement('div');
@@ -83,6 +129,9 @@ export class MissionHud {
     this.scoreEl = document.createElement('div');
     this.scoreEl.className = 'mh-score';
     ui.append(this.obj, this.tx, this.timer, this.scoreEl);
+    // [HUD] Modern: the checklist heads the top-left column (the HUD moves it back if the layout changes)
+    const col = document.getElementById('topbar');
+    if (col && document.body.classList.contains('hud-modern')) col.prepend(this.obj);
     this.renderObjectives();
   }
 
@@ -102,17 +151,20 @@ export class MissionHud {
       case 'score':
         this.scoreEl.classList.add('on');
         this.scoreEl.innerHTML = `${Math.round(ev.value).toLocaleString('en-US')}<small>${esc(ev.label.toUpperCase())}</small>`;
+        this.srow.classList.add('on'); // [HUD]
+        this.srow.innerHTML = `${ICONS.trophy}<span class="lb">${esc(ev.label)}</span><span class="tm">${Math.round(ev.value).toLocaleString('en-US')}</span>`;
         break;
     }
   }
 
   private renderObjectives(flashId?: string) {
     const list = this.runtime.objectives;
+    this.obj.classList.toggle('empty', !list.length); // [HUD] Modern drops the empty panel from the column
     if (!list.length) { this.obj.style.opacity = '0'; return; }
     this.obj.style.opacity = '1';
     const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${esc(o.text)}</span>${o.progress ? `<span class="pg">${esc(String(o.progress))}</span>` : ''}</div>`;
     const prim = list.filter((o) => o.primary), sec = list.filter((o) => !o.primary);
-    this.obj.innerHTML = `<h5>OBJECTIVES</h5>${prim.map(row).join('')}${sec.length ? `<h5 style="margin-top:8px">OPTIONAL</h5>${sec.map(row).join('')}` : ''}`;
+    this.list.innerHTML = `<h5><span class="mh-ic">${ICONS.target}</span>OBJECTIVES</h5>${prim.map(row).join('')}${sec.length ? `<h5 class="opt" style="margin-top:8px">OPTIONAL</h5>${sec.map(row).join('')}` : ''}`;
   }
 
   update(dt: number) {
@@ -148,9 +200,19 @@ export class MissionHud {
     if (this.timerLabel && t !== null) {
       this.timer.classList.add('on');
       this.timer.classList.toggle('urgent', t < 30);
+      this.timer.classList.toggle('soon', t < 60); // [HUD] Modern shows the big countdown for the final minute only
       this.timer.innerHTML = `<div class="lb">${esc(this.timerLabel.toUpperCase())}</div><div class="tm">${formatTime(Math.ceil(t))}</div>`;
+      // [HUD] inline countdown row of the Modern checklist
+      const tk = `${this.timerLabel}|${Math.ceil(t)}`;
+      if (tk !== this.trowKey) {
+        this.trowKey = tk;
+        this.trow.classList.add('on');
+        this.trow.classList.toggle('urgent', t < 30);
+        this.trow.innerHTML = `${ICONS.clock}<span class="lb">${esc(this.timerLabel)}</span><span class="tm">${formatTime(Math.ceil(t))}</span>`;
+      }
     } else {
       this.timer.classList.remove('on');
+      if (this.trowKey) { this.trowKey = ''; this.trow.classList.remove('on'); }
     }
   }
 

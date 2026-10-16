@@ -16,8 +16,9 @@
 import * as THREE from 'three';
 import { NB, makeTemplate, instantiate, type Mat, type ModelTemplate } from './models/builder';
 import type { ModelAnimState, ModelInstance } from './models/types';
-import { M, G, prismXY, prismXZ, lamp } from './models/parts';
+import { M, G, prismXY, prismXZ, lamp, railLine, warnLight } from './models/parts';
 import { healthVariant } from './models/anim';
+import { setModelSnow } from './models/materials';
 import { WATER_LEVEL } from '../sim/map';
 import type { Effects } from './effects';
 import type { EmitterHandle } from './effects/types';
@@ -113,6 +114,8 @@ export class BridgeRenderer {
     this.wl = opts.waterLevel ?? WATER_LEVEL;
     this.style = STYLES[opts.climate ?? 'temperate'];
     this.fx = opts.effects ?? null;
+    // [STRUCT] the bridge renderer is created per map with its climate: winter maps get snow on every model
+    setModelSnow(opts.climate === 'winter' ? 1 : 0);
     this.group.name = 'bridges';
   }
 
@@ -301,6 +304,7 @@ export class BridgeRenderer {
     const st = this.style;
 
     const r = new NB('root');
+    r.snow = 1; // [STRUCT] bridges collect snow in winter
     const segs: string[] = [];
     const rails: string[] = [];
     const segN = Math.max(1, Math.round(L));
@@ -474,6 +478,8 @@ export class BridgeRenderer {
       rl.box(st.stone, len, 0.075, 0.055, 0, 0.037, sd * (halfW - 0.03), { b: 0.01 });
       rl.box(st.road, len + 0.004, 0.018, 0.07, 0, 0.083, sd * (halfW - 0.03), { b: 0.005 });
     }
+    // [STRUCT] iron railing on the parapets
+    for (const sd of [-1, 1]) railLine(rl, [-hx, 0.092, sd * (halfW - 0.03)], [hx, 0.092, sd * (halfW - 0.03)], 0.045, M.dark);
     // pedestrian refuge bays over the cutwaters at the pier end, with lamp posts
     if (refuge) {
       for (const sd of [-1, 1]) {
@@ -492,10 +498,9 @@ export class BridgeRenderer {
           { p: [len / 2, -0.04, sd * (halfW - 0.01)], r: [0, sd > 0 ? 0 : Math.PI, 0] },
         );
         sg.box(st.road, 0.2, 0.016, 0.1, len / 2, 0.088, sd * (halfW + 0.05), { b: 0.004 });
-        if ((i + (sd > 0 ? 0 : 1)) % 2 === 0) {
-          sg.cyl(M.dark, 0.008, 0.011, 0.24, len / 2, 0.2, sd * (halfW + 0.06), { seg: 5 });
-          lamp(sg, G.warm, [len / 2, 0.33, sd * (halfW + 0.06)], 0.02);
-        }
+        sg.cyl(M.dark, 0.008, 0.011, 0.24, len / 2, 0.2, sd * (halfW + 0.06), { seg: 5 });
+        sg.box(M.dark, 0.05, 0.012, 0.012, len / 2, 0.31, sd * (halfW + 0.06), { b: 0 });
+        lamp(sg, G.warm, [len / 2, 0.33, sd * (halfW + 0.06)], 0.02);
       }
     }
     // weathering: moss line near the water
@@ -531,6 +536,24 @@ export class BridgeRenderer {
     sg.box(STEEL, 0.03, 0.03, halfW * 2, -hx + 0.02, H, 0, { b: 0.004 });
     const dz = Math.hypot(len, halfW * 2);
     rl.box(STEEL_DARK, dz, 0.02, 0.02, 0, H, 0, { b: 0, r: [0, Math.atan2(halfW * 2, len), 0] });
-    if (i === 0) sg.sph(G.red, 0.014, -hx, H + 0.05, halfW, { seg: 4 });
+    if (i === 0) warnLight(sg, [-hx, H + 0.05, halfW], false, 0.016);
+    // [STRUCT] Warren web with mid verticals, gusset plates, a pedestrian railing inside the truss and lamps
+    for (const sd of [-1, 1]) {
+      const z = sd * halfW;
+      const ang2 = Math.atan2(H, len / 2);
+      const dl2 = Math.hypot(len / 2, H);
+      rl.box(STEEL_DARK, dl2, 0.018, 0.018, -len / 4, H / 2, z, { b: 0, r: [0, 0, i % 2 ? -ang2 : ang2] });
+      rl.box(STEEL_DARK, dl2, 0.018, 0.018, len / 4, H / 2, z, { b: 0, r: [0, 0, i % 2 ? ang2 : -ang2] });
+      for (const x of [-hx + 0.02, 0]) {
+        sg.box(STEEL_DARK, 0.07, 0.07, 0.008, x, 0.03, z + sd * 0.022, { b: 0 });
+        sg.box(STEEL_DARK, 0.07, 0.07, 0.008, x, H - 0.01, z + sd * 0.022, { b: 0 });
+      }
+      railLine(sg, [-hx, 0.012, sd * (halfW - 0.1)], [hx, 0.012, sd * (halfW - 0.1)], 0.07, STEEL_DARK);
+      if ((i + (sd > 0 ? 0 : 1)) % 2 === 0) {
+        sg.cyl(M.dark, 0.007, 0.01, H - 0.04, 0, (H - 0.04) / 2, sd * (halfW - 0.05), { seg: 5 });
+        sg.box(M.dark, 0.012, 0.012, 0.08, 0, H - 0.05, sd * (halfW - 0.09), { b: 0 });
+        lamp(sg, { glow: 0xffd49a, i: 1.4 }, [0, H - 0.07, sd * (halfW - 0.13)], 0.018);
+      }
+    }
   }
 }

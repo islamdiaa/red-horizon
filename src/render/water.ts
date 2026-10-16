@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GameMap, WATER_LEVEL } from '../sim/map';
-import { hash2 } from '../core/rng';
+import { hash2, Noise2D } from '../core/rng';
 import { getDummyShadowTexture, getNoiseTexture, TNOISE_GLSL } from './terrain';
 import type { Weather } from './weather';
 import { RippleSim } from './watersim';
@@ -13,6 +13,7 @@ import { RippleSim } from './watersim';
 export const WATER_SURFACE_Y = WATER_LEVEL;
 
 const MAX_RIPPLES = 24;
+const _floeTint = new THREE.Color();
 /** Gerstner wave trains (open sea). */
 const NWAVES = 5;
 
@@ -120,6 +121,8 @@ export class Water {
   private nWaves = NWAVES;
   /** Interactive heightfield ripples (high). */
   private ripples3: RippleSim | null = null;
+  /** [ENV] Ice floes drifting on open winter water (one instanced draw call; medium / high). */
+  private floes: THREE.InstancedMesh | null = null;
 
   constructor(map: GameMap, heightAt: (x: number, y: number) => number, sunDir: THREE.Vector3, frozen = false, quality: 'low' | 'medium' | 'high' = 'high') {
     // height texture (one texel per 0.5 cell) used for shoreline foam and the low-quality depth tint
@@ -179,6 +182,9 @@ export class Water {
     if (refract && quality === 'high') defines.SSR = '';
     if (quality !== 'low') defines.SHADOWS = '';
     if (frozen) defines.ICE = '';
+    // [ENV] open winter water (a sea, so not frozen): shelf ice along the banks and drifting floes
+    const winterOpen = !frozen && map.climate === 'winter';
+    if (winterOpen) defines.WINTER = '';
     if (quality === 'low') defines.LOW = '';
     if (this.waves) { defines.WAVES = ''; defines.NWAVES = String(quality === 'high' ? NWAVES : 3); }
     if (this.ripples3) defines.RIPPLE_SIM = '';
@@ -353,17 +359,45 @@ export class Water {
 
           #ifdef ICE
           {
-            // frozen lake: pale blue ice with cracks, snow drifts and a glossy glint
+            // [ENV] frozen lake / river: a mosaic of ice plates (jittered cells) welded by dark refrozen leads,
+            // clear blue-green ice in the middle, wind-blown snow drifts, a snow-covered shelf along the banks
             if (depthV < -0.02) discard;
             float d = clamp(depthV / 0.5, 0.0, 1.0);
-            float cr = abs(tn_noise(p * 2.2) - 0.5);
-            float crack = smoothstep(0.03, 0.0, cr) * 0.6 + smoothstep(0.02, 0.0, abs(tn_noise(p * 5.0 + 3.0) - 0.5)) * 0.3;
-            vec3 ice = mix(vec3(0.42, 0.58, 0.68), vec3(0.72, 0.82, 0.88), smoothstep(0.0, 0.6, d) * 0.4 + tn_fbm(p * 0.8) * 0.6);
-            ice = mix(ice, vec3(0.92, 0.95, 0.98), smoothstep(0.55, 0.8, tn_fbm(p * 1.4 + 7.0)));
-            ice *= 1.0 - crack * 0.45;
+            vec2 q = p * 0.85 + vec2(tn_noise(p * 1.3), tn_noise(p * 1.3 + 9.0)) * 0.35;
+            vec2 ip = floor(q), fp = fract(q);
+            float d1 = 8.0, d2 = 8.0;
+            vec2 cid = vec2(0.0);
+            for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+              vec2 g = vec2(float(i), float(j));
+              vec2 o = vec2(rh(ip + g), rh(ip + g + 17.3)) * 0.8 + 0.1;
+              vec2 r = g + o - fp;
+              float dd = dot(r, r);
+              if (dd < d1) { d2 = d1; d1 = dd; cid = ip + g; } else if (dd < d2) d2 = dd;
+            }
+            float seamD = sqrt(d2) - sqrt(d1);
+            float seam = smoothstep(0.09, 0.015, seamD);
+            float plate = rh(cid);
+            float drift = smoothstep(0.42, 0.72, tn_fbm(p * 0.55 + 3.0) * 0.8 + plate * 0.35 - d * 0.25);
+            vec3 clearIce = mix(vec3(0.2, 0.42, 0.5), vec3(0.42, 0.6, 0.68), plate * 0.6 + tn_noise(p * 3.0) * 0.4);
+            vec3 frost = vec3(0.78, 0.85, 0.9) * (0.94 + 0.06 * tn_noise(p * 5.0));
+            vec3 ice = mix(clearIce, frost, max(drift, 0.35 * (1.0 - d)));
+            // fine cracks inside the plates
+            float cr = abs(tn_noise(p * 2.6 + cid * 3.1) - 0.5);
+            ice *= 1.0 - smoothstep(0.02, 0.0, cr) * 0.3 * (1.0 - drift);
+            // leads between the plates: dark, refrozen; snow fills some of them
+            ice = mix(ice, vec3(0.05, 0.12, 0.17), seam * (1.0 - drift * 0.8) * 0.85);
+            ice = mix(ice, vec3(0.88, 0.92, 0.96), seam * drift * 0.5);
+            // the bank shelf: snow piled on the ice
+            float shelf = smoothstep(0.14, 0.02, depthV + (tn_noise(p * 2.0) - 0.5) * 0.08);
+            ice = mix(ice, vec3(0.86, 0.9, 0.95), shelf * 0.85);
             vec3 H = normalize(uSunDir + V);
             float dif = max(uSunDir.y, 0.0);
-            vec3 col = ice * (0.45 + 0.55 * dif) * (0.35 + 0.65 * uSunColor) + uSunColor * pow(max(dot(vec3(0.0, 1.0, 0.0), H), 0.0), 120.0) * 1.5;
+            float gloss = (1.0 - drift) * (1.0 - shelf) * (1.0 - seam * 0.5);
+            vec3 col = ice * (0.45 + 0.55 * dif) * (0.35 + 0.65 * uSunColor);
+            // sky reflection and a sharp glint on the clear ice
+            vec3 Ri = reflect(-V, vec3(0.0, 1.0, 0.0));
+            col = mix(col, mix(uHorizon, uSky, smoothstep(0.0, 0.8, Ri.y)) * 1.1, gloss * 0.22 * (0.04 + 0.96 * pow(1.0 - max(dot(V, vec3(0.0, 1.0, 0.0)), 0.0), 5.0)) + gloss * 0.08);
+            col += uSunColor * pow(max(H.y, 0.0), 160.0) * 1.6 * gloss;
             float a = smoothstep(-0.02, 0.04, depthV);
             gl_FragColor = vec4(col, a);
             return;
@@ -537,6 +571,32 @@ export class Water {
           vec3 foamCol = vec3(0.82, 0.86, 0.88) * mix(light, vec3(dot(light, vec3(0.33))), 0.5) * 0.9;
           col = mix(col, foamCol, foam);
 
+          #ifdef WINTER
+          {
+            // [ENV] shelf ice: shallow water along the banks freezes (further out in calm water), ragged edge,
+            // snow on it and a bright broken rim
+            float shelfLine = 0.14 + 0.16 * (1.0 - vSea);
+            float ragged = (tn_noise(p * 1.7) - 0.5) * 0.12 + (tn_noise(p * 6.0) - 0.5) * 0.04;
+            float sd = depthV + ragged - shelfLine;
+            float shelf = smoothstep(0.012, -0.012, sd);
+            // snow-covered further in, bare blue-grey ice towards the open water, cracks and pressure lines
+            float snowy = smoothstep(0.38, 0.8, tn_fbm(p * 0.9) * 0.65 + (-sd) * 1.4 + 0.08);
+            vec3 sCol = mix(mix(vec3(0.24, 0.42, 0.5), vec3(0.5, 0.64, 0.7), tn_noise(p * 2.4)), vec3(0.8, 0.85, 0.9), snowy);
+            // cracks and pressure ridges (darker, bluish)
+            float crk = smoothstep(0.03, 0.0, abs(tn_noise(p * 3.3) - 0.5)) + 0.6 * smoothstep(0.02, 0.0, abs(tn_noise(p * 1.4 + 7.0) - 0.5));
+            sCol = mix(sCol, vec3(0.2, 0.34, 0.42), clamp(crk, 0.0, 1.0) * 0.45 * (1.0 - snowy * 0.5));
+            sCol *= (0.45 + 0.55 * max(uSunDir.y, 0.0)) * (0.35 + 0.65 * uSunColor);
+            sCol = max(sCol, light * 0.5);
+            // a lighter broken rim where the shelf meets the water
+            sCol *= 1.0 + smoothstep(-0.03, 0.0, sd) * 0.2;
+            col = mix(col, sCol, shelf);
+            // slush and broken ice just beyond the edge
+            col = mix(col, vec3(0.72, 0.8, 0.84) * light * 1.4, smoothstep(0.06, 0.0, sd) * (1.0 - shelf) * 0.55 * smoothstep(0.3, 0.7, tn_noise(p * 8.0)));
+            #ifndef REFRACT
+              foam = max(foam, shelf);
+            #endif
+          }
+          #endif
           #ifdef REFRACT
             gl_FragColor = vec4(col, 1.0);
           #else
@@ -547,6 +607,7 @@ export class Water {
         }`,
     });
     this.mesh = new THREE.Mesh(geo, this.material);
+    if (winterOpen && quality !== 'low') this.floes = this.buildFloes(map, data, tw, res, quality, defines);
     // opaque water is drawn after every other opaque object (it copies them first); the low-quality
     // transparent version keeps its place among the transparent objects
     this.mesh.renderOrder = refract ? 1000 : 1;
@@ -566,6 +627,117 @@ export class Water {
       };
     }
     Water.current = this;
+  }
+
+  /**
+   * [ENV] Ice floes on open winter water: irregular slabs scattered in drifting clusters beyond the shelf ice.
+   * They ride the same Gerstner swell as the surface (shared uniforms) and drift slowly around their spot.
+   */
+  private buildFloes(map: GameMap, h: Float32Array, tw: number, res: number, quality: 'medium' | 'high', defines: Record<string, string>): THREE.InstancedMesh | null {
+    const noise = new Noise2D(map.seed + 4242);
+    const spots: [number, number, number, number][] = [];
+    const cap = quality === 'high' ? 520 : 260;
+    for (let cy = 0; cy < map.h && spots.length < cap; cy++) {
+      for (let cx = 0; cx < map.w && spots.length < cap; cx++) {
+        const x = cx + 0.25 + hash2(cx, cy, 61) * 0.5, y = cy + 0.25 + hash2(cx, cy, 62) * 0.5;
+        const depth = WATER_LEVEL - h[Math.round(y * res) * tw + Math.round(x * res)];
+        if (!(depth > 0.36)) continue;
+        const sea = this.seaFactor(x, y);
+        const cluster = noise.fbm(cx * 0.14, cy * 0.14, 3);
+        const p = cluster > 0.5 ? 0.6 : cluster > 0.4 ? 0.22 : 0.05;
+        if (hash2(cx, cy, 63) > p * (1 - sea * 0.5)) continue;
+        spots.push([x, y, 0.14 + Math.pow(hash2(cx, cy, 64), 2) * 0.4 + (cluster > 0.58 ? 0.12 : 0), hash2(cx, cy, 65)]);
+        // brash: a couple of small chunks around the bigger floes
+        if (cluster > 0.5 && hash2(cx, cy, 68) < 0.5 && spots.length < cap) spots.push([x + (hash2(cx, cy, 69) - 0.5) * 0.9, y + (hash2(cx, cy, 70) - 0.5) * 0.9, 0.06 + hash2(cx, cy, 71) * 0.06, hash2(cx, cy, 72)]);
+      }
+    }
+    if (!spots.length) return null;
+    // slab: a jagged polygon, snowy top, blue-green flanks (mostly under water)
+    const n = 9, pos: number[] = [], col: number[] = [];
+    const ring: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + (hash2(i, 3, 66) - 0.5) * 0.45;
+      const r = 0.5 * (0.55 + hash2(i, 4, 66) * 0.6) * (i % 3 === 1 ? 0.8 : 1);
+      ring.push([Math.cos(a) * r, Math.sin(a) * r]);
+    }
+    const top = 0.03, bot = -0.06;
+    const snow = [0.78, 0.84, 0.88], snowEdge = [0.5, 0.66, 0.74], flank = [0.3, 0.5, 0.58], deep = [0.1, 0.26, 0.32];
+    for (let i = 0; i < n; i++) {
+      const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % n];
+      pos.push(0, top + 0.012, 0, bx, top, bz, ax, top, az);
+      col.push(...snow, ...snowEdge, ...snowEdge);
+      pos.push(ax, top, az, bx, top, bz, bx, bot, bz, ax, top, az, bx, bot, bz, ax * 0.9, bot, az * 0.9);
+      col.push(...flank, ...flank, ...deep, ...flank, ...deep, ...deep);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0 });
+    const u = this.material.uniforms;
+    const waves = 'WAVES' in defines;
+    mat.defines = waves ? { RH_FLOE_WAVES: '', NWAVES: defines.NWAVES } : {};
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, { uTime: u.uTime, uWaveAmp: u.uWaveAmp, tSea: u.tSea, uWaveA: u.uWaveA, uWaveB: u.uWaveB, uMapSize: u.uMapSize });
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', `#include <common>
+          uniform float uTime, uWaveAmp;
+          uniform vec2 uMapSize;
+          #ifdef RH_FLOE_WAVES
+            uniform sampler2D tSea;
+            uniform vec4 uWaveA[NWAVES];
+            uniform vec4 uWaveB[NWAVES];
+          #endif`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vec3 floeOff = vec3(0.0);
+          {
+            vec2 ip = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+            float ph = fract(sin(dot(ip, vec2(12.9898, 78.233))) * 43758.5453) * 6.283;
+            vec2 drift = vec2(sin(uTime * 0.07 + ph), cos(uTime * 0.05 + ph * 1.3)) * 0.16;
+            floeOff.xz = drift;
+            #ifdef RH_FLOE_WAVES
+              vec2 wp = ip + drift;
+              float amp = texture2D(tSea, wp / uMapSize).r * uWaveAmp;
+              for (int i = 0; i < NWAVES; i++) {
+                vec4 a = uWaveA[i], b = uWaveB[i];
+                float th = a.z * dot(a.xy, wp) - b.x * uTime + b.y;
+                float A = a.w * amp;
+                floeOff.xz += b.z * A * a.xy * cos(th);
+                floeOff.y += A * sin(th);
+              }
+            #endif
+          }`)
+        .replace('#include <project_vertex>', `
+          vec4 mvPosition = vec4(transformed, 1.0);
+          #ifdef USE_INSTANCING
+            mvPosition = instanceMatrix * mvPosition;
+          #endif
+          mvPosition.xyz += floeOff;
+          mvPosition = modelViewMatrix * mvPosition;
+          gl_Position = projectionMatrix * mvPosition;`);
+    };
+    mat.customProgramCacheKey = () => 'rh-floe' + (waves ? '-w' + defines.NWAVES : '');
+    const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    const d = new THREE.Object3D();
+    spots.forEach(([x, y, r, k], i) => {
+      d.position.set(x, WATER_LEVEL, y);
+      d.rotation.set(0, k * 6.283, 0);
+      d.scale.set(r * (0.75 + hash2(i, 1, 67) * 0.5) * 2, 1, r * (0.75 + hash2(i, 2, 67) * 0.5) * 2);
+      d.updateMatrix();
+      mesh.setMatrixAt(i, d.matrix);
+      // some floes are bare, glassy ice, most carry snow
+      const t = hash2(i, 3, 67);
+      mesh.setColorAt(i, _floeTint.setRGB(0.75 + t * 0.25, 0.8 + t * 0.2, 0.86 + t * 0.14));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    mesh.matrixAutoUpdate = false;
+    mesh.name = 'ice-floes';
+    mesh.raycast = () => {};
+    this.mesh.add(mesh);
+    return mesh;
   }
 
   /** Copy the opaque scene (colour + depth) the water refracts and reflects. One blit, no draw call. */
@@ -734,6 +906,7 @@ export class Water {
     this.normalTex.dispose();
     this.seaTex.dispose();
     this.ripples3?.dispose();
+    if (this.floes) { this.floes.geometry.dispose(); (this.floes.material as THREE.Material).dispose(); this.floes.dispose(); }
     this.material.dispose();
     this.mesh.geometry.dispose();
   }

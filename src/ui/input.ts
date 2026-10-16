@@ -26,6 +26,7 @@ import { toggleFullscreen } from '../platform/fullscreen';
 import { FORMATION_INFO, OrderViz, injectCtrlStyles } from './orderui';
 import { TouchController } from './touch';
 import { attachGamepad, gamepadFrame } from './gamepad';
+import { visualScale } from '../render/scale'; // [LOOK]
 
 export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines'
   /** [CTRL] click patrol waypoints (Shift: more) / click a unit or structure to guard / click to plan a structure. */
@@ -234,7 +235,7 @@ export class InputController {
       const wy = map.surfaceAt(x, y) + top * 0.5 + (u.kind === 'aircraft' ? u.altitude : 0);
       const [px, py] = this.project(x, wy, y);
       const depth = cam.position.distanceTo(_v.set(x, wy, y));
-      const rpx = Math.max(10 * slack, (u.ut.radius * 1.5 + 0.1) * focal / depth * slack);
+      const rpx = Math.max(10 * slack, (u.ut.radius * visualScale(u.kind, u.type.id) * 1.5 + 0.1) * focal / depth * slack); // [LOOK] units are drawn larger than their sim radius
       const d = Math.hypot(px - sx, py - sy);
       if (d < rpx && d < bestD) { bestD = d; best = u; }
     }
@@ -262,6 +263,7 @@ export class InputController {
   /** Width of the right-hand sidebar (it scales with the viewport), so "on screen" means the map area. */
   /** Width of the sidebar; measured on resize only (reading offsetWidth every frame forces a layout). */
   private sidebarW(): number {
+    if (document.body.classList.contains('hud-modern')) return 0; // [HUD] the Modern layout floats over the map: the whole width is "on screen"
     if (this.sidebarWidth < 0) {
       const el = document.getElementById('sidebar');
       if (!el) return 312;

@@ -720,6 +720,7 @@ export class Menus {
     gfx.appendChild(settingRow(ICONS.monitor, 'Quality', 'Applies to the next battle', seg<Quality>([['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], this.settings.quality, (v) => { this.settings.quality = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.gauge, 'Performance overlay', 'FPS and renderer stats in the top bar', toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.motion, 'Reduce motion', 'Calmer UI animations', toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.map, 'Interface layout', 'Modern: build bar at the bottom, panels in the corners · Classic: the sidebar on the right', seg<'modern' | 'classic'>([['modern', 'Modern'], ['classic', 'Classic']], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); }))); // [HUD]
     const aud = sec(ICONS.volume, 'Audio');
     const vols = this.audio.getVolumes();
     const VOL: Record<string, [string, string]> = { master: ['Master', ICONS.volume], sfx: ['Effects', ICONS.bolt], music: ['Music', ICONS.music], voice: ['Voices', ICONS.mic], ambience: ['Ambience', ICONS.tree] };
@@ -768,6 +769,7 @@ export class Menus {
         ['Z / R / P', 'Sell · repair · primary factory'], ['LMB', 'Sidebar: build (Shift ×5) · place'], ['RMB', 'Sidebar: hold / cancel'],
         ['RMB', 'Factory selected: set rally point · on a unit: new units join it'],
         ['Shift + LMB', 'Place, then plan more of the same'], ['LMB card (yard busy)', 'Plan a structure: built and placed in order when affordable'],
+        ['Tab / B, 1–9', 'Modern layout: next build tab · build the card with that number'], // [HUD]
       ]],
       ['Camera', ICONS.eye, [
         ['Arrows', 'Scroll (or touch the screen edge)'], ['MMB / RMB drag', 'Pan the battlefield'], ['Wheel', 'Zoom'],
@@ -836,6 +838,7 @@ export class Menus {
     const list = h('div', 'pp-list');
     const mk = (label: string, icon: string, fn: () => void, cls = '') => {
       const b = h('button', 'pp-btn ' + cls, `<span class="pp-bic">${icon}</span><span>${label}</span>${cls.includes('primary') ? '<kbd>Esc</kbd>' : ICONS.chevR}`);
+      b.dataset.act = label.toLowerCase(); // [HUD] the HUD's settings button opens "settings" directly
       b.onclick = fn;
       list.appendChild(b);
     };

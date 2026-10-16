@@ -81,7 +81,7 @@ export function setupScenario(world: World, name: string) {
       const mid = { x: world.map.w / 2, y: world.map.h / 2 };
       const ax = s.x + (mid.x - s.x) * 0.62, ay = s.y + (mid.y - s.y) * 0.62;
       ARMIES[p.faction].forEach((t, k) => {
-        const [x, y] = world.findFreeSpot(ax + (k % 6) * 0.9 - 2.5, ay + Math.floor(k / 6) * 0.9 - 1, 4);
+        const [x, y] = world.findFreeSpot(ax + (k % 6) * 1.15 - 2.9, ay + Math.floor(k / 6) * 1.15 - 1.2, 4);
         const u = world.addUnit(t, p, x, y);
         u.heading = u.prevHeading = u.turret = u.prevTurret = toward;
         if (u.kind === 'aircraft') u.altitude = u.ut.vtol ? 1.55 : 2.3;

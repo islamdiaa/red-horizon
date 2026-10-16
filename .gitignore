@@ -24,3 +24,7 @@ tools/nsslibs/
 coverage/
 *.cpuprofile
 *.heapsnapshot
+
+# per-agent dev servers (copies of tools/vite.test.config.ts)
+tools/vite.*.config.ts
+!tools/vite.test.config.ts
