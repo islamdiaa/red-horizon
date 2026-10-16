@@ -4,3 +4,6 @@ reference/
 *.log
 .DS_Store
 screenshots/
+
+# local headless-Chromium system libraries (extracted .debs; machine-specific)
+tools/nsslibs/
