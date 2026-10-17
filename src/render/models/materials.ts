@@ -420,6 +420,49 @@ export function conditionTeamColor(hex: number): THREE.Color {
   return team;
 }
 
+// [META] Cosmetic paint schemes (render only; src/meta/unlocks.ts, applied by src/meta/cosmetics.ts): the local
+// player's units can wear a paint scheme (Arctic White, Desert Tan, Night Black, Parade Gloss...) with a hint of
+// the team colour showing through. Body materials (procedural and HD) read their team colour and gloss from
+// shared values per team colour, so a scheme change repaints existing materials in place: no recompile.
+export interface PaintScheme { base: [number, number, number] | null; keep: number; gain: number; gloss: number }
+const teamColorVals = new Map<string, THREE.Color>();
+const teamGlossVals = new Map<number, { value: number }>();
+let paintHex = -1;
+let paintNow: PaintScheme | null = null;
+function paintTeamColor(out: THREE.Color, hex: number, scale: number): THREE.Color {
+  out.copy(conditionTeamColor(hex));
+  const p = hex === paintHex ? paintNow : null;
+  if (p) {
+    out.multiplyScalar(p.gain);
+    if (p.base) out.setRGB(p.base[0] + (out.r - p.base[0]) * p.keep, p.base[1] + (out.g - p.base[1]) * p.keep, p.base[2] + (out.b - p.base[2]) * p.keep);
+  }
+  return out.multiplyScalar(scale);
+}
+/** [META] The shared uTeam value of a team colour (`scale`: HD bodies divide out their baked grey). */
+export function teamUniform(hex: number, scale = 1): { value: THREE.Color } {
+  const key = `${hex}|${scale}`;
+  let c = teamColorVals.get(key);
+  if (!c) teamColorVals.set(key, (c = paintTeamColor(new THREE.Color(), hex, scale)));
+  return { value: c };
+}
+/** [META] The shared gloss uniform of a team colour (0 = as modelled, 1 = polished paint). */
+export function teamGlossUniform(hex: number): { value: number } {
+  let u = teamGlossVals.get(hex);
+  if (!u) teamGlossVals.set(hex, (u = { value: hex === paintHex && paintNow ? paintNow.gloss : 0 }));
+  return u;
+}
+/** [META] Repaint the models of one team colour with a scheme (null: factory colours). One scheme at a time. */
+export function setPaintScheme(hex: number, scheme: PaintScheme | null): void {
+  const prev = paintHex;
+  paintHex = scheme ? hex : -1;
+  paintNow = scheme;
+  for (const [key, c] of teamColorVals) {
+    const [h, sc] = key.split('|').map(Number);
+    if (h === prev || h === hex) paintTeamColor(c, h, sc);
+  }
+  for (const [h, u] of teamGlossVals) u.value = h === paintHex && paintNow ? paintNow.gloss : 0;
+}
+
 function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -430,7 +473,8 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
   });
   if (!bodyDetail) mat.defines = { RH_LOW: '' };
   const uniforms = {
-    uTeam: { value: conditionTeamColor(teamHex) },
+    uTeam: teamUniform(teamHex), // [META] shared per team colour (paint schemes)
+    uRhGloss: teamGlossUniform(teamHex), // [META]
     uScorch: { value: VARIANT_SCORCH[variant] ?? 0 },
     uEmber: { value: VARIANT_EMBER[variant] ?? 0 },
     uFlash: { value: variant === BodyVariant.Electro ? new THREE.Color(0.9, 1.4, 3.2) : new THREE.Color(0, 0, 0) },
@@ -468,6 +512,7 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
         '#include <common>',
         `#include <common>
 uniform vec3 uTeam;
+uniform float uRhGloss;
 uniform float uScorch;
 uniform float uEmber;
 uniform vec3 uFlash;
@@ -580,6 +625,9 @@ roughnessFactor = mix( roughnessFactor, mix( 0.62, 0.38, rhMetal ), rhChip * 0.8
 roughnessFactor = clamp( roughnessFactor + ( rhSeed - 0.5 ) * 0.1 * surfK, 0.04, 1.0 );
 roughnessFactor = mix( roughnessFactor, 0.95, max( rhMudK, rhSootK ) );
 roughnessFactor = mix( roughnessFactor, 0.8, rhSnow );
+#ifndef RH_LOW
+roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.35, uRhGloss * vPbr.z * surfK ); // [META] parade gloss (not on Low)
+#endif
 // #include <roughnessmap_fragment>`,
       )
       .replace(

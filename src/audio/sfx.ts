@@ -86,6 +86,33 @@ function explosion(s: Synth, dest: AudioNode, t: number, size: number, verb: IrK
   }
 }
 
+/** [JUICE] Metal groan: a resonant, band-passed saw bending down (a hull creaking and settling). */
+function groan(s: Synth, dest: AudioNode, t: number, len: number, f: number, level: number): void {
+  const o = s.osc('sawtooth', f, t, len + 0.4);
+  s.sweep(o.frequency, t, f * 1.08, t + len, f * 0.72);
+  const bp = s.filter('bandpass', f * 3.2, 6);
+  s.sweep(bp.frequency, t, f * 3.6, t + len, f * 2.1);
+  const env = s.gain(0);
+  s.lin(env.gain, [[t, 0], [t + 0.12, 1], [t + len * 0.6, 0.7], [t + len, 0]]);
+  const trem = s.gain(0.7);
+  s.jitter(trem.gain, t, len, 0.4, 1, 0.045);
+  s.chain(o, bp, trem, env, s.shaper(1.8), s.gain(level), dest);
+  s.metal(dest, t + len * 0.3, s.r(300, 420), [1, 1.73, 2.9], 0.12, level * 0.35);
+}
+
+/** [JUICE] Debris raining back down: a dense, then thinning clatter of stones and metal bits. */
+function debrisTail(s: Synth, dest: AudioNode, t: number, span: number, level: number): void {
+  const n = Math.round(26 * span);
+  for (let i = 0; i < n; i++) {
+    const u = Math.pow(s.rng(), 0.7);
+    const tt = t + u * span;
+    const fall = 1 - 0.8 * u;
+    if (s.rng() < 0.3) s.metal(dest, tt, s.r(900, 2600), [1, 1.6, 2.4], s.r(0.015, 0.04), s.r(0.03, 0.08) * fall * level);
+    else s.noiseHit(dest, tt, { color: 'pink', type: 'bandpass', f0: s.r(250, 1800), q: s.r(1.5, 3), attack: 0.0008, tau: s.r(0.004, 0.016), level: s.r(0.06, 0.15) * fall * level });
+  }
+  s.noiseHit(dest, t, { color: 'pink', type: 'highpass', f0: 2500, attack: 0.2, hold: span * 0.3, tau: span * 0.3, level: 0.05 * level });
+}
+
 /** Short brassy note (saw + square, filter "blat" and pitch scoop). */
 function brassNote(s: Synth, dest: AudioNode, t: number, f: number, len: number, level: number): void {
   const o = s.osc('sawtooth', f, t, len + 0.5);
@@ -762,6 +789,75 @@ export const RECIPES: Record<AnyKey, Recipe> = {
       const dry = bus(s, 'outdoor', 0.25);
       s.metal(dry, t + 0.02, s.r(150, 220), [1, 2.32, 4.25, 6.63, 9.38], 0.45, 0.35);
       explosion(s, bus(s, null, 0, s.out, 0.5), t + s.r(0.3, 0.42), 0.1, 'outdoor', 0.2);
+    },
+  },
+
+  // [JUICE] kill punches: a sub drop under the blast, the hull ringing and groaning, debris raining back
+  kill_armor: {
+    dur: 3.4, peak: -4, vars: 3, range: 1.3, maxVoices: 3,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.28);
+      s.thump(dry, t, s.vary(62, 0.06), 26, 0.35, 0.3, 1.0, 2.2);
+      s.thump(dry, t, s.vary(180, 0.08), 60, 0.06, 0.06, 0.6, 3, 'triangle');
+      s.crack(dry, t, 0.55, 0.02, 600, 5);
+      s.noiseHit(dry, t, { color: 'pink', type: 'lowpass', f0: 4000, f1: 300, sweep: 0.4, attack: 0.002, tau: 0.18, level: 0.85, drive: 4 });
+      s.metal(dry, t + 0.01, s.r(110, 160), [1, 2.32, 4.25, 6.63], 0.55, 0.32);
+      groan(s, dry, t + s.r(0.35, 0.55), s.r(0.9, 1.3), s.r(85, 120), 0.3);
+      debrisTail(s, dry, t + 0.28, 1.6, 0.9);
+    },
+  },
+  kill_heavy: {
+    dur: 4.4, peak: -3, vars: 2, range: 1.5, maxVoices: 2,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.32);
+      s.thump(dry, t, s.vary(52, 0.05), 22, 0.5, 0.45, 1.0, 2.5);
+      s.thump(dry, t, s.vary(150, 0.08), 50, 0.08, 0.08, 0.6, 3, 'triangle');
+      s.crack(dry, t, 0.6, 0.03, 500, 6);
+      s.noiseHit(dry, t, { color: 'pink', type: 'lowpass', f0: 3500, f1: 220, sweep: 0.6, attack: 0.002, tau: 0.3, level: 0.9, drive: 4.5 });
+      const r = s.noiseHit(dry, t + 0.03, { color: 'pink', type: 'lowpass', f0: 160, q: 1, attack: 0.08, tau: 1.0, level: 0.6, drive: 2 });
+      s.jitter(r.gain, t + 0.08, 2, 0.3, 0.6, 0.1);
+      // ammunition cooking off
+      for (let i = 0; i < 4; i++) {
+        const tt = t + 0.35 + i * s.r(0.18, 0.32);
+        s.thump(dry, tt, s.r(140, 200), 60, 0.04, 0.05, 0.45, 2.5);
+        s.crack(dry, tt, 0.35, 0.012, 1400, 3);
+      }
+      s.metal(dry, t + 0.02, s.r(80, 120), [1, 2.32, 4.25, 6.63, 9.38], 0.7, 0.34);
+      groan(s, dry, t + s.r(0.6, 0.9), s.r(1.3, 1.7), s.r(65, 90), 0.34);
+      debrisTail(s, dry, t + 0.3, 2.2, 1);
+    },
+  },
+  metal_groan: {
+    dur: 2.4, peak: -10, vars: 3, maxVoices: 2,
+    build(s, t) { groan(s, bus(s, 'outdoor', 0.3), t, s.r(1.0, 1.6), s.r(70, 120), 0.6); },
+  },
+  debris_rain: {
+    dur: 2.6, peak: -12, vars: 3, maxVoices: 3,
+    build(s, t) { debrisTail(s, bus(s, 'outdoor', 0.22), t, 1.8, 1); },
+  },
+  flak_burst: {
+    dur: 1.4, peak: -9, vars: 3, range: 1.4, maxVoices: 4,
+    build(s, t) {
+      const dry = bus(s, 'outdoor', 0.4);
+      s.thump(dry, t, s.vary(170, 0.1), 60, 0.05, 0.06, 0.8, 3);
+      s.crack(dry, t, 0.8, 0.012, 1600, 4);
+      s.noiseHit(dry, t, { color: 'pink', type: 'lowpass', f0: 2400, f1: 280, sweep: 0.25, attack: 0.001, tau: 0.09, level: 0.7, drive: 3 });
+      s.grains(dry, t + 0.03, 0.5, 10, { fMin: 1500, fMax: 5000, q: 2, dMin: 0.002, dMax: 0.008, level: 0.12, decay: 1.5 });
+    },
+  },
+  milestone: {
+    dur: 2.8, peak: -7, vars: 1, maxVoices: 1,
+    build(s, t) {
+      // a short brass fanfare (G4 C5 E5 → G5 held) over a timpani-like thump and a shimmer
+      const dry = bus(s, 'hall', 0.35);
+      s.thump(dry, t, 110, 70, 0.08, 0.25, 0.5, 1.5);
+      const notes: [number, number, number][] = [[0, 392, 0.1], [0.12, 523.25, 0.1], [0.24, 659.25, 0.1], [0.38, 783.99, 0.9]];
+      for (const [dt, f, len] of notes) {
+        brassNote(s, dry, t + dt, f, len, 0.5);
+        brassNote(s, dry, t + dt, f / 2, len, 0.28);
+      }
+      s.thump(dry, t + 0.38, 98, 62, 0.08, 0.35, 0.6, 1.5);
+      s.grains(dry, t + 0.38, 1.0, 26, { fMin: 4500, fMax: 9500, q: 6, dMin: 0.002, dMax: 0.008, level: 0.1, decay: 1.2 });
     },
   },
 

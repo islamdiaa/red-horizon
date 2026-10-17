@@ -10,6 +10,9 @@ import { star } from '../meta/art';
 import { UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
 import { showRivals } from './rivals'; // [AI]
+import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, fmtContractValue, profileWithContracts, rerollContractNow, unlockContext, unseenUnlocks, type Cadence } from '../meta'; // [META]
+import { commanderLook } from '../meta/cosmetics'; // [META] portrait, banner, title
+import { showLocker } from './locker'; // [META]
 
 type PlayKey = 'click' | 'tab' | 'hover';
 
@@ -64,6 +67,43 @@ const CSS = `
 .pf-ladder span.cur { transform: scale(1.32); filter: drop-shadow(0 0 .35rem rgba(255,207,63,.8)); }
 .pf-ladder span:hover { opacity: 1; transform: scale(1.4); filter: none; }
 .pf-ladder svg { width: 100%; height: 100%; display: block; }
+
+/* [META] banner, portrait, title, Commendations */
+.pf-cmd { --banner: none; }
+.pf-cmd::before { content: ''; position: absolute; inset: 0; background: var(--banner); opacity: .42; pointer-events: none; }
+.pf-cmd > * { position: relative; }
+.pf-por { position: relative; width: 6.2rem; height: 7.2rem; flex-shrink: 0; border-radius: .7rem; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 .6rem 1.4rem rgba(0,0,0,.5); }
+.pf-por > svg { width: 100%; height: 100%; display: block; border-radius: .7rem; }
+.pf-por .pf-ins { position: absolute; right: -.9rem; bottom: -.7rem; width: 3.4rem; height: 3.4rem; }
+.pf-title { font-size: .86rem; letter-spacing: .1em; color: #ffe7a0; margin-top: .1rem; }
+.pf-cmdn { display: flex; align-items: center; gap: .35rem; margin-top: .55rem; font-family: var(--mono, monospace); font-size: .82rem; color: #ffe27a; }
+.pf-cmdn small { font-family: var(--font, sans-serif); font-size: .6rem; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: #b89a52; }
+.pf-favs .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; margin-top: .12rem; }
+.pf-favs .cols > span { display: flex; flex-direction: column; gap: .12rem; min-width: 0; }
+.pf-favs .cols b { font-size: .8rem; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-favs .cols u { display: block; height: .22rem; border-radius: 1rem; background: rgba(255,255,255,.07); overflow: hidden; }
+.pf-favs .cols u i { display: block; height: 100%; border-radius: 1rem; background: linear-gradient(90deg, #a8741a, #ffcf3f); }
+.pf-favs .cols em { font-style: normal; font-family: var(--mono, monospace); font-size: .7rem; color: #ffe27a; }
+.pf-mode { display: inline-flex; border-radius: .45rem; overflow: hidden; border: 1px solid rgba(255,255,255,.12); }
+.pf-mode button { height: 1.9rem; padding: 0 .8rem; border: 0; cursor: pointer; font: inherit; font-size: .7rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: #9fb0c2; background: rgba(255,255,255,.03); }
+.pf-mode button.on { color: #fff; background: rgba(var(--accent-rgb, 90,180,255), .25); }
+.pf-ct { position: relative; display: flex; flex-direction: column; gap: .3rem; padding: .65rem .75rem; border-radius: .7rem; background: linear-gradient(135deg, rgba(var(--accent-rgb, 90,180,255), .08), rgba(255,255,255,.015) 55%); border: 1px solid rgba(255,255,255,.08); animation: pfUp .45s calc(var(--i) * 30ms) both; }
+.pf-ct.done { border-color: rgba(77,255,154,.4); background: linear-gradient(135deg, rgba(77,255,154,.1), rgba(255,255,255,.015) 55%); }
+.pf-ct-t { display: flex; align-items: center; gap: .45rem; font-size: .95rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.pf-ct-t .mx-ic { font-size: 1.2rem; color: rgb(var(--accent-rgb, 90,180,255)); }
+.pf-ct.done .pf-ct-t .mx-ic { color: #8dffb0; }
+.pf-ct-t em { margin-left: auto; font-style: normal; font-size: .56rem; letter-spacing: .2em; color: var(--muted, #7d8c9d); }
+.pf-ct p { margin: 0; font-size: .8rem; color: var(--text-2, #b6c3d1); }
+.pf-ct .tr { height: .32rem; border-radius: 1rem; background: rgba(255,255,255,.07); overflow: hidden; }
+.pf-ct .tr i { display: block; height: 100%; border-radius: 1rem; background: rgb(var(--accent-rgb, 90,180,255)); }
+.pf-ct.done .tr i { background: #4dff9a; }
+.pf-ct-f { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-family: var(--mono, monospace); font-size: .74rem; color: var(--muted, #7d8c9d); white-space: nowrap; }
+.pf-ct-f b { font-weight: 400; color: #ffe27a; }
+.pf-ct-rr { position: absolute; top: .5rem; right: .55rem; display: inline-flex; align-items: center; gap: .25rem; height: 1.45rem; padding: 0 .45rem; border-radius: .35rem; border: 1px solid rgba(255,255,255,.16); background: rgba(8,12,18,.85); color: #b6c3d1; cursor: pointer; font: inherit; font-size: .6rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.pf-ct-rr:hover, .pf-ct-rr:focus-visible { color: #fff; border-color: rgba(var(--accent-rgb, 90,180,255), .7); }
+.pf-ct:has(.pf-ct-rr) .pf-ct-t em { visibility: hidden; }
+.pf-ct-h { grid-column: 1 / -1; font-size: .62rem; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: var(--muted, #7d8c9d); margin-top: .2rem; }
+.pf-btn .dot { width: .45rem; height: .45rem; border-radius: 50%; background: #4dff9a; box-shadow: 0 0 .4rem #4dff9a; }
 
 /* service record */
 .pf-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
@@ -231,6 +271,25 @@ function barRow(label: string, wins: number, games: number, color: string, max: 
   return `<div class="pf-br" style="--c:${color}"><span>${label}</span><span class="tr"><u style="width:${((games / max) * 100).toFixed(1)}%"></u><i style="width:${((wins / max) * 100).toFixed(1)}%"></i></span><b>${wins}/${games}</b></div>`;
 }
 
+/** [META] Daily and weekly contracts with progress, rewards and the free daily reroll. */
+function contractsGrid(p: Profile): string {
+  const reroll = canReroll(p.contracts, Date.now());
+  const card = (cad: Cadence, i: number) => {
+    const s = (cad === 'daily' ? p.contracts.daily : p.contracts.weekly)[i];
+    const def = CONTRACT_BY_ID[s.id];
+    const r = contractReward(s.id, cad);
+    return `<div class="pf-ct${s.done ? ' done' : ''}" style="--i:${i + (cad === 'weekly' ? 3 : 0)}">
+      <div class="pf-ct-t">${picto(s.done ? 'untouchable' : def?.picto ?? 'target')}<span>${esc(def?.title ?? s.id)}</span><em>${cad}</em></div>
+      <p>${esc(contractDesc(s))}</p>
+      <div class="tr"><i style="width:${((s.p / Math.max(1, s.n)) * 100).toFixed(1)}%"></i></div>
+      <div class="pf-ct-f"><span>${s.done ? 'Complete' : `${fmtContractValue(def, s.p)} / ${fmtContractValue(def, s.n)}`}</span><b>+${fmt(r.xp)} XP · +${r.cmd} ${picto('medal')}</b></div>
+      ${!s.done && reroll ? `<button class="pf-ct-rr" data-rr="${cad}:${i}" title="Swap for another contract (one free reroll a day)">${picto('history')} Reroll</button>` : ''}</div>`;
+  };
+  return `<div class="pf-grid"><div class="pf-ct-h">Today's orders</div>${p.contracts.daily.map((_, i) => card('daily', i)).join('')}
+    <div class="pf-ct-h">This week</div>${p.contracts.weekly.map((_, i) => card('weekly', i)).join('')}
+    <div class="pf-ct-h">${reroll ? 'One free reroll a day: swap an unfinished contract for another.' : 'Reroll used today. New orders arrive with the date; nothing is lost by skipping a day.'}</div></div>`;
+}
+
 /** Full-screen commander profile. Returns a close function. */
 export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): () => void {
   if (!document.getElementById('pf-style')) {
@@ -243,10 +302,15 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
   root.className = 'pf';
   document.body.appendChild(root);
   let filter: 'all' | 'earned' | 'progress' | 'locked' = 'all';
+  let view: 'medals' | 'contracts' = 'medals'; // [META]
   let p: Profile = loadProfile();
 
   const render = () => {
-    p = loadProfile();
+    p = profileWithContracts(); // [META] (today's orders in place)
+    const uctx = unlockContext(p); // [META]
+    const look = commanderLook(uctx); // [META]
+    const topUnits = Object.entries(p.stats.killsByUnit).filter(([id, k]) => UNITS[id] && k > 0).sort((a, b) => b[1] - a[1]).slice(0, 3); // [META] career: favourite units
+    const freshLocker = unseenUnlocks(uctx).length; // [META]
     const rp = rankProgress(p.xp, p.faction);
     const st = p.stats;
     const states = allAchievementStates(p);
@@ -265,13 +329,14 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
 
     root.innerHTML = `
     <div class="pf-col pf-left">
-      <div class="pf-panel pf-cmd">
+      <div class="pf-panel pf-cmd" style="--banner:${look.banner}">
         <div class="pf-cmd-top">
-          <div class="pf-ins">${insigniaSvg(rp.index, p.faction)}</div>
+          <div class="pf-por">${look.portrait}<div class="pf-ins">${insigniaSvg(rp.index, p.faction)}</div></div>
           <div class="pf-id">
             <div class="pf-kick">Commander · rank ${rp.index + 1} of ${RANKS.length}</div>
             <div class="pf-rank">${esc(rp.name)}</div>${ru ? `<div class="pf-ru">${esc(ru)}</div>` : ''}
-            <div class="pf-name" data-act="rename" title="Rename commander"><span>${esc(p.name)}</span>${picto('pencil')}</div>
+            <div class="pf-name" data-act="rename" title="Rename commander"><span>${esc(p.name)}</span>${picto('pencil')}</div>${look.title ? `<div class="pf-title">${esc(look.title)}</div>` : ''}
+            <div class="pf-cmdn">${picto('medal')}${fmt(p.commendations)}<small>Commendations</small></div>
           </div>
         </div>
         <div class="pf-xp">
@@ -294,7 +359,8 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
           <div class="pf-tile"><small>${picto('streak')}Daily streak</small><b>${p.daily.streak}<em>best ${p.daily.longest}</em></b></div>
           <div class="pf-tile"><small>${picto('stopwatch')}Fastest win</small><b>${st.fastestWin ? formatTime(st.fastestWin) : '–'}</b></div>
         </div>
-        <div class="pf-fav">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite unit</small><b>${fav ? esc(fav.name) : 'None yet'}</b></span>${fav ? `<i>${fmt(fav.kills)} kills</i>` : ''}</div>
+        ${topUnits.length > 1 ? `<div class="pf-fav pf-favs">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite units · kills</small><span class="cols">${topUnits.map(([id, k]) => `<span title="${esc(UNITS[id].name)}: ${fmt(k)} kills"><b>${esc(UNITS[id].name)}</b><u><i style="width:${((k / topUnits[0][1]) * 100).toFixed(1)}%"></i></u><em>${fmt(k)}</em></span>`).join('')}</span></span></div>` // [META] career: favourite units
+          : `<div class="pf-fav">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite unit</small><b>${fav ? esc(fav.name) : 'None yet'}</b></span>${fav ? `<i>${fmt(fav.kills)} kills</i>` : ''}</div>`}
       </div>
       <div class="pf-panel">
         <div class="pf-h2">${picto('target')}<span>Victories</span><i class="sp"></i></div>
@@ -302,16 +368,18 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
           <div><h5>By faction</h5>${barRow('Allies', st.winsByFaction.allies, st.gamesByFaction.allies, '#5ab4ff', maxF)}${barRow('Soviet', st.winsByFaction.soviet, st.gamesByFaction.soviet, '#ff5a46', maxF)}</div>
           <div><h5>By AI difficulty</h5>${barRow('Easy', st.winsByDifficulty.easy, st.gamesByDifficulty.easy, '#4dff9a', maxD)}${barRow('Normal', st.winsByDifficulty.normal, st.gamesByDifficulty.normal, '#5ab4ff', maxD)}${barRow('Hard', st.winsByDifficulty.hard, st.gamesByDifficulty.hard, '#ffb43c', maxD)}${barRow('Brutal', st.winsByDifficulty.brutal, st.gamesByDifficulty.brutal, '#ff4a3a', maxD)}</div>
         </div>
+
       </div>
-      <div class="pf-foot"><button class="pf-btn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button><button class="pf-btn" data-act="rivals">${picto('skull')}<span>Rivals</span></button></div>
+      <div class="pf-foot"><button class="pf-btn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button><button class="pf-btn" data-act="rivals">${picto('skull')}<span>Rivals</span></button><button class="pf-btn" data-act="locker">${picto('tank')}<span>Locker</span>${freshLocker ? '<i class="dot"></i>' : ''}</button></div>
     </div>
     <div class="pf-col pf-right">
       <div class="pf-panel pf-case">
-        <div class="pf-case-head"><div class="pf-h2">${picto('medal')}<span>Medal case</span><i class="sp"></i><small>${totals.earned} / ${totals.total} medals</small></div>
-          <div class="pf-tabs">${(['all', 'earned', 'progress', 'locked'] as const).map((k) => `<button class="pf-tab${k === filter ? ' on' : ''}" data-f="${k}">${k === 'progress' ? 'In progress' : k}</button>`).join('')}</div></div>
-        <div class="pf-sum">${ring(totals.earned / totals.total)}<div><b>${totals.complete} / ${totals.achievements}</b><small>Commendations complete</small></div>
+        <div class="pf-case-head"><span class="pf-mode"><button class="${view === 'medals' ? 'on' : ''}" data-view="medals">Medals</button><button class="${view === 'contracts' ? 'on' : ''}" data-view="contracts">Contracts</button></span>
+          <div class="pf-h2">${view === 'medals' ? `${picto('medal')}<span>Medal case</span><i class="sp"></i><small>${totals.earned} / ${totals.total} medals</small>` : `${picto('target')}<span>Contracts</span><i class="sp"></i><small>${fmt(p.contracts.completed)} completed · ${fmt(p.contracts.earned)} Commendations earned</small>`}</div>
+          ${view === 'medals' ? `<div class="pf-tabs">${(['all', 'earned', 'progress', 'locked'] as const).map((k) => `<button class="pf-tab${k === filter ? ' on' : ''}" data-f="${k}">${k === 'progress' ? 'In progress' : k}</button>`).join('')}</div>` : ''}</div>
+        ${view === 'contracts' ? contractsGrid(p) : `<div class="pf-sum">${ring(totals.earned / totals.total)}<div><b>${totals.complete} / ${totals.achievements}</b><small>Medals complete</small></div>
           <div class="cnt"><span style="--c:#d08a4e"><i></i>${byRarity('common')}<em>common</em></span><span style="--c:#a0cdff"><i></i>${byRarity('rare')}<em>rare</em></span><span style="--c:#ffcf3f"><i></i>${byRarity('epic')}<em>epic</em></span><span style="--c:#be96ff"><i></i>${byRarity('legendary')}<em>legendary</em></span></div></div>
-        <div class="pf-grid">${list.length ? list.map(medalCard).join('') : `<div class="pf-empty">${picto('medal')}<span>Nothing here yet.</span></div>`}</div>
+        <div class="pf-grid">${list.length ? list.map(medalCard).join('') : `<div class="pf-empty">${picto('medal')}<span>Nothing here yet.</span></div>`}</div>`}
       </div>
       <div class="pf-panel pf-histp">
         <div class="pf-h2">${picto('history')}<span>Recent operations</span><i class="sp"></i><small>last ${Math.min(20, p.history.length)}</small></div>
@@ -322,6 +390,13 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
     root.querySelectorAll<HTMLElement>('[data-f]').forEach((b) => (b.onclick = () => { filter = b.dataset.f as typeof filter; opts.play('tab'); render(); }));
     (root.querySelector('[data-act="back"]') as HTMLElement).onclick = () => { opts.play('click'); close(); opts.onBack(); };
     (root.querySelector('[data-act="rivals"]') as HTMLElement).onclick = () => { opts.play('click'); showRivals({ play: opts.play, onBack: () => {} }); }; // [AI] rivals board
+    // [META] Locker, medals / contracts switch, the free daily reroll
+    (root.querySelector('[data-act="locker"]') as HTMLElement).onclick = () => { opts.play('click'); showLocker({ play: opts.play, onBack: () => { if (root.isConnected) render(); } }); };
+    root.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => (b.onclick = () => { view = b.dataset.view as typeof view; opts.play('tab'); render(); }));
+    root.querySelectorAll<HTMLElement>('[data-rr]').forEach((b) => (b.onclick = () => {
+      const [cad, i] = (b.dataset.rr ?? '').split(':');
+      if (rerollContractNow(cad as Cadence, Number(i))) { opts.play('click'); render(); }
+    }));
     const nameEl = root.querySelector('[data-act="rename"]') as HTMLElement;
     nameEl.onclick = () => {
       if (nameEl.querySelector('input')) return;
@@ -349,7 +424,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !root.isConnected || document.querySelector('.rv')) return; // [AI] (the rivals board closes first)
+    if (e.key !== 'Escape' || !root.isConnected || document.querySelector('.rv, .rh-locker')) return; // [AI] (the rivals board closes first) · [META] and the Locker
     e.preventDefault();
     e.stopPropagation();
     opts.play('click');

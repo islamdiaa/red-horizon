@@ -8,6 +8,12 @@
  * passes while alive) layered on explosions, fires and splashes; light flashes become dynamic lights
  * (render/dynlights.ts, hundreds at once, no THREE.Light); ctx.terrain digs persistent craters / ruts.
  *
+ * [JUICE] Game-feel layers on top (spectacle.ts, director in juice.ts): explosion variety and flak air bursts,
+ * hit flashes, heavy-vehicle cook-offs, smoke columns ('column' emitters), richer tesla bolts, MG tracer bursts,
+ * calibre-scaled muzzle lights, veterancy / milestone bursts. No new draw calls; skipped off-screen (lodAt),
+ * scaled by quality (`juice`: Low 0 = the original cost, Medium 0.65, High 1) and off with ?juice=0. Shake is
+ * attenuated by the distance from the camera focus (setFocus) before it reaches `shake`.
+ *
  * Usage:
  *   const fx = new Effects({ scene, camera, renderer, getHeight });
  *   // every frame, before rendering:
@@ -28,7 +34,10 @@ import { LightPool } from './lights';
 import { ShellPool } from './shells';
 import { explosion as explode } from './explosions';
 import { spawnProjectile } from './projectiles';
-import { muzzleFlash, tracer, teslaBolt, flameStream } from './weapons';
+import { muzzleFlash, tracer, teslaBolt, flameStream, tracerBurst, setTeslaStyle } from './weapons';
+import { explosionExtras, flakField, heavyDeath, hitFlash, milestoneBurst, promotionBurst } from './spectacle'; // [JUICE]
+import { shakeFalloff } from './juicelogic'; // [JUICE]
+import { JUICE } from './juiceflags'; // [JUICE]
 import { healPulse, dust, constructionBurst, chronoFlash, ironCurtainPulse, oreSparkle, orderMarker, AmbientMotes } from './misc';
 import { Emitter } from './emitters';
 import { rnd, range } from './rand';
@@ -72,6 +81,12 @@ const BEAM_CAPACITY = 8192;
 const SPRITE_CAPACITY = 768;
 const DECAL_CAPACITY = 200;
 const LIGHT_COUNT = 6;
+/** [JUICE] Spectacle level per quality preset (Low keeps the original cost: no extra layers). */
+const JUICE_LEVEL: Record<'low' | 'medium' | 'high', number> = { low: 0, medium: 0.65, high: 1 };
+// [JUICE] reused light options (no allocation per shot)
+const MUZZLE_BIG = { attack: 0.006, flicker: 0, priority: 0.8 };
+const MUZZLE_SMALL = { attack: 0.004, flicker: 0.35, priority: 0.45 };
+const _lod = new THREE.Vector3();
 
 export class Effects implements EffectsApi {
   /** Accumulated camera shake; the engine reads and decays it. */
@@ -124,6 +139,17 @@ export class Effects implements EffectsApi {
   /** The game renderer runs the GPU particle simulation itself (inside its frame, counted in its stats). */
   private simHook = false;
   private scene: THREE.Scene;
+  // [JUICE] camera focus (shake falloff), the position of the effect being spawned, spectacle level
+  private camera: THREE.PerspectiveCamera;
+  private focusX = 0;
+  private focusZ = 0;
+  private focusR = 0;
+  private shX = 0;
+  private shZ = 0;
+  private shAt = false;
+  /** [JUICE] 0 = no spectacle layers (Low preset or ?juice=0), 0.65 medium, 1 high (see setJuice). */
+  juice: number;
+  private juiceLevel = 1;
 
   constructor(opts: EffectsOptions) {
     this.tex = createEffectTextures();
@@ -142,10 +168,14 @@ export class Effects implements EffectsApi {
     this.lights = new LightPool(opts.scene, LIGHT_COUNT);
     this.bodies = new BodyPool(0);
     this.scene = opts.scene;
+    this.camera = opts.camera;
     // [FX] GPU particles (float MRT) and the renderer's terrain for collisions and craters
     const ud = opts.scene.userData;
     const terrain = (ud.terrain as TerrainMesh | undefined) ?? null;
     const quality = (ud.fxQuality as 'low' | 'medium' | 'high' | undefined) ?? 'high';
+    this.juiceLevel = JUICE_LEVEL[quality] ?? 1; // [JUICE]
+    this.juice = JUICE.on ? this.juiceLevel : 0;
+    setTeslaStyle(this.juice > 0 ? 1.5 : 1);
     if (gpuParticlesSupported(opts.renderer)) {
       try {
         const [w, h, dens] = GPU_SIZE[quality] ?? GPU_SIZE.high;
@@ -204,6 +234,9 @@ export class Effects implements EffectsApi {
         self.cueP.push(x, y, z);
       },
       addShake(amount: number, delay = 0) {
+        // [JUICE] scaled by how close to the view centre the effect is (off-screen blasts don't rock the view)
+        if (self.shAt && self.focusR > 0 && JUICE.on) amount *= shakeFalloff(self.shX - self.focusX, self.shZ - self.focusZ, self.focusR);
+        if (!(amount > 0)) return;
         if (delay <= 0) self.shake += amount;
         else {
           self.shakeT.push(self.now + delay);
@@ -296,7 +329,13 @@ export class Effects implements EffectsApi {
   explosion(pos: THREE.Vector3, kind: ExplosionKind, scale = 1): void {
     const s = scale > 0 ? scale : 1;
     const dug = this.deformCalls;
+    this.shakeAt(pos.x, pos.z); // [JUICE]
     explode(this.ctx, kind, pos.x, pos.y, pos.z, s);
+    if (this.juice > 0 && kind !== 'none' && kind !== 'nuke') {
+      const lod = this.lodAt(pos.x, pos.y, pos.z);
+      if (lod > 0) explosionExtras(this.ctx, kind, pos.x, pos.y, pos.z, this.ctx.getHeight(pos.x, pos.z), s, lod * this.juice);
+    }
+    this.shAt = false;
     if (this.autoCraters && this.deformCalls === dug) this.autoCrater(kind, pos, s);
     const gpu = this.gpuP;
     if (gpu && kind !== 'none') {
@@ -325,15 +364,32 @@ export class Effects implements EffectsApi {
 
   muzzleFlash(pos: THREE.Vector3, dir: THREE.Vector3, size = 1): void {
     muzzleFlash(this.ctx, pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, size);
-    this.ctx.dyn?.add(pos.x + dir.x * 0.25, pos.y + 0.12, pos.z + dir.z * 0.25, 0xffc27a, 2.4 * size, 2.4 + 1.6 * size, 0.09, { attack: 0.008, flicker: 0, priority: 0.7 });
+    const dyn = this.ctx.dyn;
+    if (!dyn) return;
+    if (this.juice > 0) {
+      // [JUICE] guns light their surroundings by calibre: cannons throw a warm, punchy flash; small arms flicker
+      if (this.lodAt(pos.x, pos.y, pos.z) <= 0) return;
+      if (size >= 0.95) dyn.add(pos.x + dir.x * 0.3, pos.y + 0.15, pos.z + dir.z * 0.3, 0xffb066, 4.2 * size, 3 + 2.2 * size, 0.12, MUZZLE_BIG);
+      else dyn.add(pos.x + dir.x * 0.2, pos.y + 0.1, pos.z + dir.z * 0.2, 0xffd08a, 1.7 * size, 1.6 + 1.4 * size, 0.06, MUZZLE_SMALL);
+      return;
+    }
+    dyn.add(pos.x + dir.x * 0.25, pos.y + 0.12, pos.z + dir.z * 0.25, 0xffc27a, 2.4 * size, 2.4 + 1.6 * size, 0.09, MUZZLE_BIG);
   }
 
-  tracer(from: THREE.Vector3, to: THREE.Vector3, color?: number): void {
+  /** `burst` [JUICE]: extra machine-gun rounds drawn a few tens of ms apart (visual only). */
+  tracer(from: THREE.Vector3, to: THREE.Vector3, color?: number, burst = 0): void {
     tracer(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z, color);
+    if (burst > 0 && this.juice > 0) {
+      const lod = this.lodAt(to.x, to.y, to.z);
+      const n = Math.round(burst * Math.min(1, lod * this.juice + 0.2));
+      if (lod > 0 && n > 0) tracerBurst(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z, n, color);
+    }
   }
 
   teslaBolt(from: THREE.Vector3, to: THREE.Vector3): void {
+    this.shakeAt(to.x, to.z); // [JUICE]
     teslaBolt(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z);
+    this.shAt = false;
     this.ctx.dyn?.add(from.x, from.y + 0.2, from.z, 0x8fb4ff, 10, 6.5, 0.35, { attack: 0.01, flicker: 0.5 });
     this.gpuP?.burst(GK.SPARK, to.x, to.y + 0.05, to.z, 24, 4, { life: [0.2, 0.6], size0: 0.02, up: 0.6, ramp: R.TESLA });
   }
@@ -410,17 +466,94 @@ export class Effects implements EffectsApi {
   }
 
   // -------------------------------------------------------------------------------------------
+  // [JUICE] game feel: hit flashes, flak, heavy deaths, progress moments, LOD and shake focus
+
+  /**
+   * Where the camera looks (map x / z in world units) and half the visible width: explosion shake fades with
+   * the distance from here. Call every frame (the director does).
+   */
+  setFocus(x: number, z: number, viewRadius: number): void {
+    this.focusX = x;
+    this.focusZ = z;
+    this.focusR = viewRadius;
+  }
+
+  /**
+   * Level of detail for an optional effect layer at a point: 0 = off-screen (skip it), else 0.35..1 falling
+   * with the camera distance. Uses last frame's camera matrices.
+   */
+  lodAt(x: number, y: number, z: number): number {
+    const v = _lod.set(x, y, z).project(this.camera);
+    if (v.z > 1 || v.x < -1.15 || v.x > 1.15 || v.y < -1.2 || v.y > 1.2) return 0;
+    const c = this.camera.position;
+    const d = Math.hypot(c.x - x, c.y - y, c.z - z);
+    return Math.max(0.35, Math.min(1, 1.3 - d / 80));
+  }
+
+  /** A unit takes a heavy blow: flare on the hull, a light that catches the model, sparks / dust. `k` 0..1. */
+  hitFlash(pos: THREE.Vector3, radius: number, k: number, metal: boolean): void {
+    if (this.juice <= 0) return;
+    const lod = this.lodAt(pos.x, pos.y, pos.z);
+    if (lod > 0) hitFlash(this.ctx, pos.x, pos.y, pos.z, radius, k, metal, lod * this.juice);
+  }
+
+  /** Flak salvo around an aim point in the sky: `n` near-miss air bursts (the sim's hit adds its own). */
+  flakBurst(pos: THREE.Vector3, n = 2): void {
+    if (this.juice <= 0) return;
+    const lod = this.lodAt(pos.x, pos.y, pos.z);
+    if (lod > 0) flakField(this.ctx, pos.x, pos.y, pos.z, Math.max(1, Math.round(n * Math.min(1, lod * this.juice + 0.25))), lod * this.juice);
+  }
+
+  /** Big vehicle destroyed: ammo cook-off, hatch fire jet, fuel fireball, chunky debris. `size` ≈ 0.8 … 1.6. */
+  heavyDeath(pos: THREE.Vector3, size: number): void {
+    if (this.juice <= 0) return;
+    const lod = this.lodAt(pos.x, pos.y, pos.z);
+    if (lod <= 0) return;
+    this.shakeAt(pos.x, pos.z);
+    heavyDeath(this.ctx, pos.x, this.ctx.getHeight(pos.x, pos.z), pos.z, size, lod * this.juice);
+    this.shAt = false;
+  }
+
+  /** Veterancy promotion burst over a unit (`height` = model height, `rank` 1 veteran, 2 elite). */
+  promotionBurst(pos: THREE.Vector3, height: number, rank: number): void {
+    if (this.juice <= 0) return;
+    if (this.lodAt(pos.x, pos.y, pos.z) > 0) promotionBurst(this.ctx, pos.x, this.ctx.getHeight(pos.x, pos.z), pos.z, height, rank);
+  }
+
+  /** A big build is finished (superweapon online, first Mammoth): golden pillar, rings, sparks. */
+  milestoneBurst(pos: THREE.Vector3, size: number): void {
+    if (this.juice <= 0) return;
+    milestoneBurst(this.ctx, pos.x, this.ctx.getHeight(pos.x, pos.z), pos.z, size);
+  }
+
+  /** [JUICE] Switch the spectacle layers on (at this quality's level) or off at runtime (A/B benches). */
+  setJuice(on: boolean): void {
+    this.juice = on ? this.juiceLevel : 0;
+    setTeslaStyle(this.juice > 0 ? 1.5 : 1);
+  }
+
+  private shakeAt(x: number, z: number): void {
+    this.shX = x;
+    this.shZ = z;
+    this.shAt = true;
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Round 4: naval, support powers
 
   /** Something lands in open water. pos.y is ignored (the water surface is used). size 1 = tank shell, 2 = 8-inch shell, 0.3 = bullets. */
   waterSplash(pos: THREE.Vector3, size = 1): void {
+    this.shakeAt(pos.x, pos.z); // [JUICE]
     waterSplash(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
+    this.shAt = false;
     this.gpuP?.burst(GK.SPRAY, pos.x, this.ctx.waterLevel + 0.02, pos.z, 26 * size, 2.6 * Math.sqrt(size), { life: [0.5, 1.1], size0: 0.06 * size, size1: 0.22 * size, alpha: 0.6, up: 0.95, radius: 0.1 * size });
   }
 
   /** Underwater detonation (depth charge, torpedo hit): flash under the surface, bulge, tall water column, foam slick. */
   underwaterBlast(pos: THREE.Vector3, size = 1): void {
+    this.shakeAt(pos.x, pos.z); // [JUICE]
     underwaterBlast(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
+    this.shAt = false;
   }
 
   /** Sonar pulse rings racing over the water from pos (radius in cells). */
@@ -440,8 +573,10 @@ export class Effects implements EffectsApi {
    */
   mineBlast(pos: THREE.Vector3, kind: 'ap' | 'at', withExplosion = true): void {
     const gy = this.ctx.getHeight(pos.x, pos.z);
+    this.shakeAt(pos.x, pos.z); // [JUICE]
     if (withExplosion) explode(this.ctx, kind === 'at' ? 'medium' : 'small', pos.x, gy + 0.08, pos.z, kind === 'at' ? 1.2 : 0.9);
     if (!this.ctx.isWater(pos.x, pos.z)) mineBlast(this.ctx, pos.x, gy, pos.z, kind === 'at');
+    this.shAt = false;
   }
 
   /** Bow spray for a moving ship (Wakes calls this). dir = heading (unit, XZ), amount 0..1 ~ speed. */

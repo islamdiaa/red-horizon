@@ -2,6 +2,7 @@ import { BUILDINGS, UNITS, getType, isBuildingType, type Faction, type TypeDef }
 import type { AnnouncerKey } from '../audio/types';
 import type { PlanItem, QueueKind } from './types';
 import type { SuperKind } from './superweapons';
+import type { PlayerCmd } from './doctrine'; // [DOCTRINE]
 
 export interface QueueItem {
   type: string;
@@ -119,6 +120,14 @@ export class Player {
   yardLostTick = -1e9;
   /** [CTRL] Planned build order (orders.ts): built and placed in order by the Construction Yard. */
   buildPlan: (PlanItem & { started?: boolean; placing?: number; wait?: number })[] = [];
+  /** [ARMY] Repeat production (sim/repeat.ts): unit types that keep being built while money allows, in the order switched on. */
+  repeat: string[] = [];
+  /**
+   * [DOCTRINE] Commander rules state (doctrine modifiers, command points, power effects; sim/doctrine.ts). Undefined
+   * under Classic rules. A non-enumerable property set by sim/commander.ts (`declare`: no class field is emitted),
+   * so Classic players and saves are exactly as before.
+   */
+  declare cmd?: PlayerCmd;
 
   constructor(opts: { id: number; name: string; faction: Faction; color: number; team: number; isHuman: boolean; cash: number; mapCells: number }) {
     this.id = opts.id;
@@ -145,7 +154,8 @@ export class Player {
   }
 
   isEnemy(other: Player): boolean {
-    return other !== this && other.team !== this.team;
+    // [VARIETY] the neutral pseudo-player (id -1: tech structures, convoys, sim/events.ts) is nobody's enemy
+    return other !== this && other.team !== this.team && (this.id | other.id) >= 0;
   }
 
   has(typeId: string): boolean {

@@ -173,6 +173,9 @@ export class MusicEngine {
   target = 0;
   /** Debug/diagnostics: when set, only these instruments sound (e.g. ['kick', 'bass']). */
   only: Set<string> | null = null;
+  /** [JUICE] 0..1 big-battle "battle theme" layer on top of the battle layer (taiko, brass, choir pad). */
+  clash = 0;
+  private clashTarget = 0;
 
   private readonly rng: Rng;
   private readonly fade: GainNode;
@@ -320,11 +323,17 @@ export class MusicEngine {
     }
   }
 
+  /** [JUICE] Battle theme level 0..1 (eases in over ~2 s, out over ~5 s). */
+  setClash(v: number): void {
+    this.clashTarget = clamp(Number.isFinite(v) ? v : 0, 0, 1);
+  }
+
   /** Smooth intensity towards its target (fast attack, slow release) and push layer gains. */
   smooth(dt: number): void {
     this.lastSmoothWall = performance.now();
     if (!this.running) return;
     const d = clamp(dt, 0, 0.5);
+    this.clash += (this.clashTarget - this.clash) * (1 - Math.exp(-d / (this.clashTarget > this.clash ? 2 : 5))); // [JUICE]
     const tau = this.target > this.intensity ? 1.6 : 4.5;
     this.intensity += (this.target - this.intensity) * (1 - Math.exp(-d / tau));
     if (Math.abs(this.intensity - this.applied) > 0.006) this.applyLevels(this.ctx.currentTime, 0.12);
@@ -505,7 +514,29 @@ export class MusicEngine {
     const audible = (i: number) => Math.max(this.layers[i].value, this.layers[i].target) > 0.003;
     if (audible(0)) this.calm(sec, secBar, s16, t, chord);
     if (audible(1)) this.build(sec, step, secBar, s16, t, chord);
-    if (audible(2)) this.battle(sec, secBar, s16, t, chord);
+    if (audible(2)) {
+      this.battle(sec, secBar, s16, t, chord);
+      if (this.clash > 0.05) this.anthem(sec, secBar, s16, t, chord); // [JUICE]
+    }
+  }
+
+  /**
+   * [JUICE] Battle theme for big clashes, layered over the battle layer: a taiko ostinato, brass stabs on the
+   * chord changes, a wide choir-like pad, crashes on the phrase and the lead doubled an octave up.
+   */
+  private anthem(sec: Section, secBar: number, s16: number, t: number, chord: number): void {
+    const L = this.layers[2];
+    const c = this.clash;
+    const barDur = this.stepDur * 16;
+    const TAIKO = 'x..x..x.x.x.x..x';
+    if (TAIKO[s16] === 'x') this.tom(L, t, s16 % 8 === 0 ? 82 : s16 % 4 === 2 ? 140 : 100, (s16 % 8 === 0 ? 0.9 : 0.6) * c);
+    if (s16 === 0 || s16 === 10) this.stab(L, t, this.chordMidis(sec, chord, sec.key + 48, 3), this.stepDur * (s16 === 0 ? 3 : 2), (s16 === 0 ? 0.85 : 0.6) * c);
+    if (s16 === 0 && secBar % 2 === 0) this.pad(L, t, this.chordMidis(sec, chord, sec.key + 48, 4), barDur * 2 + 0.1, 0.035 * c);
+    if (s16 === 0 && secBar % 4 === 0) this.crash(L, t, 0.55 * c);
+    if (sec.lead) {
+      const n = sec.lead.get(secBar * 16 + s16);
+      if (n) this.lead(L, t, n.midi + 12, n.len * this.stepDur * 0.9, n.vel * 0.3 * c);
+    }
   }
 
   private chordMidis(sec: Section, chord: number, base: number, n: number): number[] {

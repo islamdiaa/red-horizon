@@ -9,7 +9,7 @@
 import { BUILDINGS, UNITS } from '../data/rules';
 import type { Entity } from '../sim/entities';
 import type { PlayerStats } from '../sim/player';
-import type { GameEvent } from '../sim/types';
+import { TICK_HZ, type GameEvent } from '../sim/types';
 import type { World } from '../sim/world';
 import { campaignMissions, getMission } from '../missions';
 import { loadProgress, recordResult, type MissionRecord } from '../missions/progress';
@@ -19,10 +19,17 @@ import {
   ACHIEVEMENTS, ACH_BY_ID, BY_COUNTER, MAX_COUNTERS, TIER_NAMES, achievementDesc, achievementMetal, achievementRarity, achievementXp, isTiered, tierCount,
   type AchievementDef,
 } from './achievements';
-import { insigniaSvg, medalSvg } from './art';
+import { insigniaSvg, medalSvg, picto } from './art';
 import { MAX_RANK, RANKS, rankIndexFor, rankName, rankProgress } from './ranks';
-import { defaultStorage, loadProfile, saveProfile, type DiffKey, type FactionKey, type KV, type MatchRecord, type Profile } from './profile';
+import { MAX_COMMENDATIONS, defaultStorage, loadProfile, saveProfile, type DiffKey, type FactionKey, type KV, type MatchRecord, type Profile } from './profile';
 import { showAchievementToast, showXpSummary, type ToastInfo, type XpSummary } from './toast';
+import {
+  CONTRACT_BY_ID, applyContractEvent, cadenceOf, contractDesc, contractProgressList, contractReward, refreshContracts, rerollContract, type Cadence, type ContractMode,
+  type ContractSlot,
+} from './contracts'; // [META] contracts
+import { SLOT_LABEL, SLOT_PICTO, nextUnlock, unlockStatus, unannouncedUnlocks, COSMETIC_BY_ID, type UnlockCtx } from './unlocks'; // [META] unlocks
+import { loadMeta as loadConquestMeta } from '../conquest/storage'; // [META] Conquest renown gates some unlocks
+import { parseCoopId } from '../missions/special'; // [META] co-op survival counts as survival for contracts
 
 export * from './achievements';
 export * from './ranks';
@@ -30,6 +37,8 @@ export * from './daily';
 export { insigniaSvg, medalSvg, picto, PICTO } from './art';
 export { loadProfile, saveProfile, defaultProfile, normalizeProfile, PROFILE_KEY, PROFILE_VERSION, type Profile, type MatchRecord, type LifetimeStats } from './profile';
 export { showAchievementToast, showXpSummary, setToastSound, type ToastInfo, type XpSummary } from './toast';
+export * from './contracts'; // [META]
+export * from './unlocks'; // [META]
 
 export type GameMode = 'skirmish' | 'mission';
 
@@ -46,6 +55,8 @@ export interface GameStartInfo {
   /** Optional extras; climate is otherwise read from world.map on the first event. */
   climate?: string;
   weather?: string;
+  /** [META] Number of rival commanders among the opponents (contracts: "beat a rival"). */
+  rivals?: number;
 }
 
 export interface EventContext {
@@ -82,12 +93,30 @@ export interface MatchSummary extends XpSummary {
   record: MatchRecord;
 }
 
+/** [META] What the battle report sampler (src/meta/report.ts) tells the tracker every 10 s of battle. */
+export interface LiveSample {
+  world: World;
+  local: number;
+  /** Value of the local player's combat units. */
+  army: number;
+}
+
 const TANKS = new Set(['1tnk', '2tnk', '3tnk', '4tnk']);
 const DIFF_XP: Record<string, number> = { easy: 0.5, normal: 1, hard: 1.6, brutal: 2.5 };
 const DIFF_ORDER = ['easy', 'normal', 'hard', 'brutal'];
 const CLIMATES = ['temperate', 'winter', 'desert'];
 
 interface FireInfo { st: string; sk: string; vt: string; vk: string; vo: number }
+
+/** [META] Which kind of battle a match is, for contracts. Custom (editor) missions count as 'other'. */
+function contractModeOf(info: Pick<GameStartInfo, 'missionId'>): ContractMode {
+  const id = info.missionId;
+  if (!id) return 'skirmish';
+  if (id === 'conquest') return 'conquest';
+  if (id === 'daily') return 'daily';
+  if (SURVIVAL_VARIANTS.some((v) => v.id === id) || parseCoopId(id)) return 'survival';
+  return getMission(id) ? 'campaign' : 'other';
+}
 
 interface Match {
   info: GameStartInfo;
@@ -117,9 +146,56 @@ interface Match {
   prior?: MissionRecord;
   dailyDay?: string;
   world?: World;
+  // [META] contracts
+  cmode: ContractMode;
+  contractsBefore: Map<string, number>;
+  cmd: number;
+  contractsDone: string[];
+  harvestCounted: number;
+  builtCounted: number;
+  ceasefireDone: boolean;
+  rivals: number;
+  teaserStart: { id: string; frac: number } | null;
 }
 
 const LIVE = new Set<MetaTracker>();
+
+/** [META] Re-read the stored profile in every idle tracker (after the Locker or a reroll changed it). */
+export function syncTrackers() {
+  for (const t of LIVE) t.reload();
+}
+
+/** [META] Conquest renown (rh.conquest.meta), sanitised. */
+export function conquestRenown(storage: KV = defaultStorage()): number {
+  try {
+    const r = loadConquestMeta(storage).renown;
+    return typeof r === 'number' && Number.isFinite(r) ? Math.max(0, r) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** [META] Unlock context for a profile (cosmetics, teasers). */
+export function unlockContext(p: Profile = loadProfile(), storage: KV = defaultStorage()): UnlockCtx {
+  return { profile: p, renown: conquestRenown(storage) };
+}
+
+/** [META] The stored profile with today's contracts in place (saved when the orders rotated). */
+export function profileWithContracts(storage: KV = defaultStorage(), now = Date.now()): Profile {
+  const p = loadProfile(storage);
+  if (refreshContracts(p.contracts, now)) { saveProfile(p, storage); syncTrackers(); }
+  return p;
+}
+
+/** [META] Spend today's free reroll on contract `index` of a cadence. Returns the updated profile, or null. */
+export function rerollContractNow(cadence: Cadence, index: number, storage: KV = defaultStorage(), now = Date.now()): Profile | null {
+  const p = loadProfile(storage);
+  refreshContracts(p.contracts, now);
+  if (!rerollContract(p.contracts, cadence, index, now)) return null;
+  saveProfile(p, storage);
+  syncTrackers();
+  return p;
+}
 
 /** Rename the commander (persists, and updates live trackers so a later save cannot undo it). */
 export function setCommanderName(name: string, storage: KV = defaultStorage()): string {
@@ -179,7 +255,16 @@ export class MetaTracker {
       info: { ...info, difficulty }, local: 0, xpAtStart: this.profile.xp, climate: info.climate, storm: info.weather === 'storm', factLost: false,
       killXp: 0, xp: 0, lines: new Map(), medals: [], kills: 0, structures: 0, nukeTick: -1, nukeX: 0, nukeY: 0, nukeKills: 0, boomTick: -1, boomX: 0, boomY: 0,
       wallParent: new Map(), wallSize: new Map(), lastSaveTick: 0, dirty: false,
+      cmode: contractModeOf(info), contractsBefore: new Map(), cmd: 0, contractsDone: [], harvestCounted: 0, builtCounted: 0, ceasefireDone: false, rivals: info.rivals ?? 0, // [META]
+      teaserStart: null,
     };
+    // [META] today's orders, and where they stood when the battle began (the results screen ticks them up)
+    if (refreshContracts(this.profile.contracts, this.now())) this.save();
+    for (const sl of [...this.profile.contracts.daily, ...this.profile.contracts.weekly]) this.match.contractsBefore.set(sl.id, sl.p);
+    try {
+      const t = nextUnlock(this.unlockCtx());
+      if (t) this.match.teaserStart = { id: t.def.id, frac: t.status.frac };
+    } catch { /* cosmetic teaser only */ }
     if (info.faction === 'allies' || info.faction === 'soviet') this.profile.faction = info.faction;
     if (info.missionId) {
       try { this.match.prior = loadProgress()[info.missionId]; } catch { /* no storage */ }
@@ -224,6 +309,7 @@ export class MetaTracker {
         if (ev.player !== local) return;
         if (ev.kind === 'spy') this.bump('infiltrations');
         else this.bump('stolen', ev.amount);
+        this.progress('infiltrate'); // [META]
         break;
       case 'power':
         if (ev.player === local && (ev.kind === 'paratroopers' || ev.kind === 'parabombs' || ev.kind === 'spyplane')) this.bump('airPowers');
@@ -237,13 +323,22 @@ export class MetaTracker {
         break;
       }
       case 'promoted':
-        if (ev.rank >= 2 && world.getEntity(ev.id)?.owner.id === local) this.bump('elite');
+        if (ev.rank >= 2 && world.getEntity(ev.id)?.owner.id === local) { this.bump('elite'); this.progress('elite'); } // [META]
         break;
       case 'captured':
-        if (ev.to === local && ev.from !== local) this.bump('captures');
+        if (ev.to === local && ev.from !== local) { this.bump('captures'); this.progress('captures'); } // [META]
         break;
       case 'crate':
-        if (ev.player === local) this.bump('crates');
+        if (ev.player === local) { this.bump('crates'); this.progress('crates'); } // [META]
+        break;
+      // [META] superweapons launched (contracts): the atomic strike announces itself, the Iron Curtain lands on our own forces
+      case 'announce':
+        if (ev.player !== local || ev.key !== 'nuke_launched') return;
+        this.progress('superweapon');
+        break;
+      case 'ironcurtain':
+        if (!this.localUnitNear(world, local, ev.x, ev.y, 1.8, () => true) && !this.localBuildingAt(world, local, ev.x, ev.y)) return;
+        this.progress('superweapon');
         break;
       case 'placed': {
         const b = world.getEntity(ev.id);
@@ -252,6 +347,7 @@ export class MetaTracker {
       }
       case 'teleport': {
         const u = world.getEntity(ev.id);
+        if (u && u.owner.id === local) this.progress('superweapon'); // [META] Chronosphere
         if (u && u.owner.id === local && u.kind === 'vehicle' && u.weapons.length && this.enemyBaseNear(world, local, ev.x, ev.y, 7)) this.unlock('out-of-time');
         break;
       }
@@ -315,19 +411,23 @@ export class MetaTracker {
     if (vKind === 'building') {
       m.structures++;
       this.bump('structures');
+      this.progress('structures'); // [META]
       this.killXp(8 + (BUILDINGS[vType]?.cost ?? 0) / 150);
     } else {
       m.kills++;
       this.bump('kills');
+      this.progress('kills'); // [META]
       this.killXp(2 + (UNITS[vType]?.cost ?? 0) / 200);
-      if (TANKS.has(vType)) this.bump('tanks');
+      if (TANKS.has(vType)) { this.bump('tanks'); this.progress('tanks'); } // [META]
       if (vType === '4tnk') this.bump('mammoths');
-      if (vKind === 'aircraft') this.bump('aircraft');
+      if (vKind === 'aircraft') { this.bump('aircraft'); this.progress('aircraft'); } // [META]
       if (vKind === 'naval') {
         this.bump('ships');
+        this.progress('ships'); // [META]
         if (kType === 'ss') this.bump('subKills');
       }
       if (vKind === 'infantry') {
+        this.progress('infantry'); // [META]
         if (ev.how === 'crushed') this.bump('crushed');
         if (kType === 'e7') this.bump('commando');
         if (kType === 'dog') this.bump('dogs');
@@ -369,6 +469,16 @@ export class MetaTracker {
       if (e && e.alive && e.kind === 'building' && !BUILDINGS[e.type.id]?.wall && me.isEnemy(e.owner)) return true;
     }
     return false;
+  }
+
+  /** [META] A live structure of the local player on the cell at (x, y). */
+  private localBuildingAt(world: World, local: number, x: number, y: number): boolean {
+    const map = world.map;
+    const cx = Math.floor(x), cy = Math.floor(y);
+    if (!map.inBounds(cx, cy)) return false;
+    const id = map.occupant[map.idx(cx, cy)];
+    const e = id ? world.getEntity(id) : undefined;
+    return !!e && e.alive && e.kind === 'building' && e.owner.id === local;
   }
 
   /** Union-find over this match's wall cells: tracks the longest connected wall. */
@@ -555,6 +665,42 @@ export class MetaTracker {
       for (const k of keys.slice(0, Math.max(0, keys.length - 60))) delete d.best[k];
     }
 
+    // ---- [META] contracts: the battle's outcome (kills, captures, superweapons... counted live)
+    m.cmode = contractModeOf({ ...info, missionId });
+    this.progress('play');
+    const harvested = Math.round(r.stats.harvested);
+    if (harvested > m.harvestCounted) { this.progress('harvest', harvested - m.harvestCounted); m.harvestCounted = harvested; }
+    if (r.stats.unitsBuilt > m.builtCounted) { this.progress('built', r.stats.unitsBuilt - m.builtCounted); m.builtCounted = r.stats.unitsBuilt; }
+    if (survival) this.progress('waves', waves);
+    if (won) {
+      this.progress('win');
+      this.progress('win.' + faction);
+      this.progress('win.faction', 1, faction);
+      if (climate) { this.progress('win.' + climate); this.progress('win.climate', 1, climate); }
+      if (r.time < 900) this.progress('win.fast');
+      if (r.mode === 'skirmish' && (diff === 'hard' || diff === 'brutal')) this.progress('win.hard');
+      if (r.mode === 'skirmish' && r.stats.buildingsLost === 0) this.progress('win.untouched');
+      if (r.mode === 'skirmish' && m.rivals > 0) this.progress('rival');
+      if (world && world.units.filter((u) => u.alive && u.owner.id === m.local && u.rank >= 2).length >= 5) this.progress('win.elite');
+      if (m.cmode === 'campaign') {
+        this.progress('mission.win');
+        if ((r.stars ?? 0) >= 3) this.progress('stars3');
+      }
+    }
+    if (m.cmode === 'conquest') this.progress('conquest');
+    if (daily) this.progress('daily', 1, m.dailyDay ?? currentDailyDay());
+
+    // ---- [META] cosmetics earned by this battle (rank, wins, medals...): announced once
+    const uctx = this.unlockCtx();
+    const fresh = unannouncedUnlocks(uctx);
+    for (const d of fresh) p.cosmetics.announced.push(d.id);
+    fresh.slice(0, fresh.length > 2 ? 1 : 2).forEach((d) => this.notify({ kind: 'unlock', id: d.id, title: d.name, desc: d.desc, xp: 0, icon: picto(SLOT_PICTO[d.slot]), tier: SLOT_LABEL[d.slot] }));
+    if (fresh.length > 2) this.notify({ kind: 'unlock', title: `${fresh.length - 1} more unlocks`, desc: 'Open the Locker to see everything you earned.', xp: 0, icon: picto('medal') });
+    const next = nextUnlock(uctx);
+    const ts = m.teaserStart;
+    const tsDef = ts ? COSMETIC_BY_ID[ts.id] : undefined;
+    const tsNow = tsDef ? unlockStatus(tsDef, uctx) : null;
+
     // ---- history & summary
     const record: MatchRecord = {
       at: this.now(), mode: r.mode, missionId, title: this.titleFor(info), faction, difficulty: info.difficulty, opponents: info.opponents, won, time: r.time,
@@ -569,10 +715,67 @@ export class MetaTracker {
       rankBefore: before.index, rankAfter: after.index, rankName: after.name, nextName: after.next ? rankName(after.next.index, p.faction) : null,
       fracBefore: before.frac, fracAfter: after.frac, intoAfter: after.into, spanAfter: after.span, faction: p.faction, medals: m.medals.length, won,
       dailyScore, medalIds: [...m.medals], record,
+      // [META] contracts, Commendations, unlocks and the next unlock to chase
+      contracts: contractProgressList(p.contracts, m.contractsBefore, m.contractsDone), commendations: m.cmd, commendationBalance: p.commendations,
+      unlocks: fresh.map((d) => ({ id: d.id, name: d.name, slot: SLOT_LABEL[d.slot] })),
+      unlockedTeaser: ts && tsDef && tsNow?.unlocked ? { id: ts.id, name: tsDef.name, slot: SLOT_LABEL[tsDef.slot] } : null,
+      teaser: next ? { id: next.def.id, text: next.text, frac: next.status.frac, before: ts && ts.id === next.def.id ? ts.frac : next.status.frac } : null,
     };
     this.match = null;
     this.save();
     return summary;
+  }
+
+  // ===========================================================================
+  // [META] Contracts
+  // ===========================================================================
+  /**
+   * Report a contract metric (see CONTRACTS in contracts.ts). Contracts it completes pay their XP and
+   * Commendations exactly once, with a "Contract complete" toast.
+   */
+  progress(metric: string, amount = 1, key?: string, mode?: ContractMode) {
+    if (!(amount > 0)) return;
+    const done = applyContractEvent(this.profile.contracts, { metric, amount, key, mode: mode ?? this.match?.cmode ?? 'other' }, this.now());
+    for (const slot of done) this.completeContract(slot);
+  }
+
+  private completeContract(slot: ContractSlot) {
+    const st = this.profile.contracts;
+    const cadence = cadenceOf(st, slot);
+    const { xp, cmd } = contractReward(slot.id, cadence);
+    const def = CONTRACT_BY_ID[slot.id];
+    st.completed++;
+    st.earned += cmd;
+    this.profile.commendations = Math.min(MAX_COMMENDATIONS, this.profile.commendations + cmd);
+    if (this.match) { this.match.cmd += cmd; this.match.contractsDone.push(slot.id); }
+    this.notify({
+      kind: 'contract', id: slot.id, title: def?.title ?? slot.id, desc: `${contractDesc(slot)} +${cmd} Commendation${cmd === 1 ? '' : 's'}.`, xp, icon: picto(def?.picto ?? 'medal'),
+      tier: cadence === 'weekly' ? 'Weekly' : 'Daily',
+    });
+    this.addXp(xp, 'Contracts');
+    this.save();
+  }
+
+  /** Every 10 s of battle (src/meta/report.ts): army value, ore and production so far, the build-up ceasefire. */
+  onSample(s: LiveSample) {
+    const m = this.match;
+    if (!m) return;
+    this.progress('army', s.army);
+    const me = s.world.players[s.local];
+    if (!me) return;
+    const h = Math.round(me.stats.harvested);
+    if (h > m.harvestCounted) { this.progress('harvest', h - m.harvestCounted); m.harvestCounted = h; }
+    if (me.stats.unitsBuilt > m.builtCounted) { this.progress('built', me.stats.unitsBuilt - m.builtCounted); m.builtCounted = me.stats.unitsBuilt; }
+    // the enemy comes when the build-up time ends: still standing three minutes later
+    const cf = s.world.ceasefireUntil;
+    if (!m.ceasefireDone && cf > 0 && s.world.tick >= cf + 180 * TICK_HZ && !me.defeated) {
+      m.ceasefireDone = true;
+      this.progress('ceasefire');
+    }
+  }
+
+  private unlockCtx(): UnlockCtx {
+    return { profile: this.profile, renown: conquestRenown(this.storage) };
   }
 
   // ===========================================================================
@@ -604,12 +807,16 @@ export class MetaTracker {
   }
   /** [MODES] Count towards a medal from outside a tracked match (challenges, co-op survival); best-value counters keep the max. */
   addCounter(counter: string, value = 1) {
+    if (!this.match) this.reload(); // [META] the Locker may have changed the stored profile since the last battle
     if (MAX_COUNTERS.has(counter)) this.setMax(counter, value);
     else this.bump(counter, value);
+    if (counter === 'challenges') this.progress('challenge', value, undefined, 'challenge'); // [META]
+    if (counter === 'coopWave') this.progress('waves', value, undefined, 'survival'); // [META]
     this.save();
   }
   /** Unlock a single-tier medal by id (no-op when already earned). */
   unlock(id: string) {
+    if (!this.match) this.reload(); // [META] (after the battle: the stored profile is the current one)
     const a = ACH_BY_ID[id];
     if (!a || this.profile.medals[id]) return;
     this.grant(a, 0);

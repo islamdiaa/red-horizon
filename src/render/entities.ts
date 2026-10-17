@@ -68,6 +68,10 @@ interface View {
   hdHold?: string | null;
   /** [HD] hdReadyVersion() when this view last asked for its template. */
   hdVer?: number;
+  /** [JUICE] Tall smoke column over a badly damaged structure / a big burning wreck. */
+  column?: EmitterHandle | null;
+  /** [JUICE] Seconds a wreck keeps burning (bigger vehicles burn longer). */
+  burn?: number;
 }
 
 /** Paratroopers jump from this height above the ground (world units). */
@@ -89,6 +93,7 @@ const _to = new THREE.Vector3();
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
+const _jv = new THREE.Vector3(); // [JUICE] scratch
 
 /**
  * Weather surface uniforms shared by every model material for the lifetime of the page. Model materials
@@ -426,6 +431,7 @@ export class EntityRenderer {
           this.charWreck(v);
           v.fire = this.effects.createEmitter('fire', p.clone().setY(p.y + 0.3));
           v.fire.setIntensity(0.7);
+          this.juiceWreck(v, u, p); // [JUICE] cook-off, longer burn, smoke column
           // [DEST] the wreck bounces and settles, the turret may pop off, parts fly
           this.destruction.vehicleDeath(e.id, v.model, this.teamColor(e.owner).getHex(), ev.how, !!u.ut.tracked, e.kind === 'vehicle' && !u.ut.tracked, e.kind === 'aircraft' ? u.altitude : 0);
         } else {
@@ -505,12 +511,13 @@ export class EntityRenderer {
     switch (w.projectile) {
       case 'bullet':
         this.effects.muzzleFlash(from, dir, w.damage >= 40 ? 0.8 : 0.5);
-        this.effects.tracer(from, to);
+        this.effects.tracer(from, to, undefined, w.report === 'mg' ? 2 : 0); // [JUICE] machine-gun bursts
         if (targetVisible) this.effects.explosion(to, 'piff', 0.6);
         break;
       case 'flak':
         this.effects.muzzleFlash(from, dir, 0.7);
         this.effects.tracer(from, to, 0xffd080);
+        this.effects.flakBurst(to, 2); // [JUICE] flak bursts in the sky
         break;
       case 'tesla':
         this.effects.teslaBolt(from, to);
@@ -571,6 +578,7 @@ export class EntityRenderer {
     v.model.dispose();
     v.smoke?.dispose();
     v.fire?.dispose();
+    v.column?.dispose(); // [JUICE]
     for (const c of v.chimneys) c.dispose();
     for (const t of v.trails ?? []) t.end();
     const r = this.rings.get(id);
@@ -641,6 +649,7 @@ export class EntityRenderer {
         this.updateRing(v, selected.has(id) || hovered === id, selected.has(id));
         continue;
       }
+      if (show && v.inView && !(e instanceof Building)) this.juiceHit(v, e as Unit, anim.health); // [JUICE] hit flash
       anim.health = e.healthFrac;
 
       if (e instanceof Building) this.updateBuilding(v, e, dt);
@@ -786,6 +795,7 @@ export class EntityRenderer {
       for (const c of v.chimneys) c.setIntensity(on);
     }
     this.damageEmitters(v, b.healthFrac, root.visible && b.buildAnim >= 1, _e.set(b.x, g + v.model.height * 0.8, b.y), 1 + Math.max(b.w, b.h) * 0.3);
+    this.juiceColumn(v, b.healthFrac, root.visible && b.buildAnim >= 1 && !b.bt.wall, _e.set(b.x, g + v.model.height * 0.75, b.y), Math.max(b.w, b.h)); // [JUICE] smoke column
     if (!b.bt.wall) this.destruction.buildingDamage(b.id, modelKey(v.ptype, b.owner.faction), [b.w, b.h], b.x, g, b.y, b.healthFrac, root.visible && b.buildAnim >= 1 && b.selling < 0, v.model, anim); // [DEST] roof fires / smoke, steam vents
   }
 
@@ -798,6 +808,44 @@ export class EntityRenderer {
     if (wantFire && !v.fire) v.fire = this.effects.createEmitter('fire', pos);
     if (!wantFire && v.fire) { v.fire.dispose(); v.fire = null; }
     if (v.fire) { v.fire.setPosition(pos); v.fire.setIntensity(size * 0.7); }
+  }
+
+  // [JUICE] ------------------------------------------------------------------------------------
+  /** Hit flash when a unit loses a big chunk of health in one frame (vehicles ≥ 10 %, infantry ≥ 45 %). */
+  private juiceHit(v: View, u: Unit, prev: number | undefined) {
+    if (prev === undefined || this.effects.juice <= 0) return;
+    const drop = prev - u.healthFrac;
+    const metal = u.kind !== 'infantry';
+    if (drop < (metal ? 0.1 : 0.45)) return;
+    const p = v.model.root.position;
+    _jv.set(p.x, p.y + v.model.height * 0.55, p.z);
+    this.effects.hitFlash(_jv, Math.max(0.15, v.model.radius * 0.6), Math.min(1, drop * 2.5), metal);
+  }
+
+  /** Smoke column over a badly damaged structure (fire glow at its base below 25 %). */
+  private juiceColumn(v: View, hf: number, visible: boolean, pos: THREE.Vector3, size: number) {
+    const want = visible && hf < 0.5 && this.effects.juice > 0;
+    if (want && !v.column) v.column = this.effects.createEmitter('column', pos);
+    if (!want && v.column) { v.column.dispose(); v.column = null; }
+    if (!v.column) return;
+    v.column.setPosition(pos);
+    v.column.setIntensity(0.6 + size * (hf < 0.25 ? 0.6 : 0.35));
+    v.column.setHeat?.(hf < 0.25 ? 1 : 0);
+  }
+
+  /** Big vehicle wreck: ammo cook-off and fuel fireball, a longer burn and a smoke column while it burns. */
+  private juiceWreck(v: View, u: Unit, p: THREE.Vector3) {
+    if (this.effects.juice <= 0 || u.kind !== 'vehicle') return;
+    const hp = u.ut.strength ?? 0;
+    if (hp < 250) return;
+    const size = Math.min(1.6, 0.55 + hp / 600 * 0.85);
+    this.effects.heavyDeath(p, size);
+    v.burn = 6 + 8 * Math.max(0, size - 0.7);
+    if (hp >= 400) {
+      v.column = this.effects.createEmitter('column', _jv.set(p.x, p.y + 0.35, p.z));
+      v.column.setIntensity(0.5 + 0.4 * size);
+      v.column.setHeat?.(1);
+    }
   }
 
   private updateUnit(v: View, u: Unit, alpha: number, dt: number) {
@@ -896,7 +944,9 @@ export class EntityRenderer {
     }
     // vehicles: the wreck burns, then smoulders, then sinks away
     if (v.fire) {
-      const k = v.deathT < 6 ? 0.7 : Math.max(0, 0.7 - (v.deathT - 6) * 0.25);
+      const burn = v.burn ?? 6; // [JUICE] heavy wrecks burn longer
+      const k = v.deathT < burn ? 0.7 : Math.max(0, 0.7 - (v.deathT - burn) * 0.25);
+      v.column?.setHeat?.(k / 0.7);
       v.fire.setIntensity(k);
       if (k <= 0) { v.fire.dispose(); v.fire = null; }
     }
@@ -905,6 +955,7 @@ export class EntityRenderer {
       v.smoke.setIntensity(0.45);
     }
     if (v.smoke && v.deathT > this.wreckTime - 4) v.smoke.setIntensity(Math.max(0, (this.wreckTime - 1.5 - v.deathT) / 2.5) * 0.45);
+    if (v.column && v.deathT > this.wreckTime - 8) v.column.setIntensity(Math.max(0, (this.wreckTime - 2 - v.deathT) / 6) * 0.9); // [JUICE] the column thins out
     if (v.deathT > this.wreckTime - 1.5) root.position.y -= dt * 0.3;
     return v.deathT < this.wreckTime;
   }

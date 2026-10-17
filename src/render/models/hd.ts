@@ -24,7 +24,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { ModelAnimState, ModelInstance } from './types';
 import { lodDistance, type ModelFaction, type ModelTemplate, type NodeT } from './builder';
 import {
-  BODY_EMISSIVE_OFF, BODY_EMISSIVE_ON, BODY_SHARED_UNIFORMS, BodyVariant, conditionTeamColor, fxMaterial, getDamageTexture,
+  BODY_EMISSIVE_OFF, BODY_EMISSIVE_ON, BODY_SHARED_UNIFORMS, BodyVariant, conditionTeamColor, fxMaterial, getDamageTexture, teamGlossUniform, teamUniform, // [META] paint schemes
   getDetailTexture, glowMaterial, registerLitMaterial, shadowDepthMaterial, trackMaterial,
 } from './materials';
 
@@ -824,7 +824,8 @@ function hdMaterial(t: HdTemplate, team: number, variant: number, powered: boole
   });
   m.normalScale.set(1, 1);
   const uniforms = {
-    uTeam: { value: conditionTeamColor(team).multiplyScalar(1 / TEAM_GREY) },
+    uTeam: teamUniform(team, 1 / TEAM_GREY), // [META] shared per team colour (paint schemes)
+    uRhGloss: teamGlossUniform(team), // [META]
     uScorch: { value: VARIANT_SCORCH[variant] ?? 0 },
     uEmber: { value: VARIANT_EMBER[variant] ?? 0 },
     uFlash: { value: variant === BodyVariant.Electro ? new THREE.Color(0.9, 1.4, 3.2) : new THREE.Color(0, 0, 0) },
@@ -857,6 +858,7 @@ function hdMaterial(t: HdTemplate, team: number, variant: number, powered: boole
         '#include <common>',
         `#include <common>
 uniform vec3 uTeam;
+uniform float uRhGloss;
 uniform float uScorch;
 uniform float uEmber;
 uniform vec3 uFlash;
@@ -917,6 +919,7 @@ if ( uRhSnow > 0.0 ) {
 #endif
 roughnessFactor = clamp( roughnessFactor + scorch * 0.35 + rhHole + rhCrack * 0.3, 0.04, 1.0 );
 roughnessFactor = mix( roughnessFactor, 0.8, rhSnow );
+roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.35, uRhGloss * rhMask.r * surfK ); // [META] parade gloss
 // #include <roughnessmap_fragment>`,
       )
       .replace(

@@ -6,15 +6,24 @@ import { DT, type QueueKind } from './types';
 import type { World } from './world';
 import { spawnNaval } from './naval';
 import { rallyNewUnit } from './orders'; // [CTRL]
+import { updateRepeat } from './repeat'; // [ARMY]
+import { cmdPower, cmdTimeMul, costOf } from './doctrine'; // [DOCTRINE]
 
 const KINDS: QueueKind[] = ['structure', 'infantry', 'vehicle', 'aircraft', 'naval'];
+
+/**
+ * [ARMY] Items per production queue (World 'build'; loops respect it too). Red Alert builds one item per strip at a
+ * time; here a queue holds up to 25 of any mix of types (Shift-click queues 5), and loops (repeat.ts) cover
+ * longer runs. Kept at 25 so recorded replays that hit the cap still replay identically.
+ */
+export const QUEUE_LIMIT = 25;
 
 /** Recompute power, storage and radar for a player (cheap; called often). */
 export function recalcPlayerEconomy(world: World, p: Player) {
   let out = 0, use = 0, storage = 0, radarBld = false, jammedBld = false;
   for (const b of world.buildings) {
     if (!b.alive || b.owner !== p || b.buildAnim < 1) continue;
-    const pw = b.bt.power;
+    const pw = p.cmd ? cmdPower(b) : b.bt.power; // [DOCTRINE] doctrine power drain, sabotaged power plants
     if (pw > 0) out += pw * (0.5 + 0.5 * b.healthFrac);
     else use -= pw;
     storage += b.bt.storage ?? 0;
@@ -55,10 +64,11 @@ export function factoriesFor(world: World, p: Player, typeId: string): Building[
 
 export function buildSeconds(world: World, p: Player, typeId: string): number {
   const t = getType(typeId);
-  let secs = (t.cost / 1000) * BUILD_SECONDS_PER_1000;
+  let secs = (costOf(p, t) / 1000) * BUILD_SECONDS_PER_1000; // [DOCTRINE] doctrine price (= t.cost under Classic rules)
   const n = Math.min(4, Math.max(1, factoriesFor(world, p, typeId).length));
   secs /= 1 + 0.5 * (n - 1);
   if (p.lowPower) secs *= 1 + (1 - p.powerRatio) * 2;
+  if (p.cmd) secs *= cmdTimeMul(p, t); // [DOCTRINE] doctrine build time
   return Math.max(1.2, secs / p.buildSpeed);
 }
 
@@ -68,7 +78,7 @@ export function updateProduction(world: World, p: Player) {
     if (kind === 'structure' && q.ready) {
       // a finished structure is lost with the last Construction Yard (refunded, as RA abandons production)
       if (!p.hasFactoryFor(q.ready)) {
-        p.refund(getType(q.ready).cost);
+        p.refund(costOf(p, getType(q.ready))); // [DOCTRINE] doctrine price (= cost under Classic rules)
         q.ready = null;
         world.announce(p, 'cancelled', 2);
       }
@@ -95,7 +105,7 @@ export function updateProduction(world: World, p: Player) {
     if (it.paused) continue;
     const inc = DT / buildSeconds(world, p, it.type);
     const step = Math.min(inc, 1 - it.progress);
-    const pay = t.cost * step;
+    const pay = costOf(p, t) * step; // [DOCTRINE] doctrine price (= t.cost under Classic rules)
     if (p.spend(pay)) {
       it.progress += step;
       it.paid += pay;
@@ -118,6 +128,8 @@ export function updateProduction(world: World, p: Player) {
       }
     }
   }
+  // [ARMY] loops queue their next unit (at the end of the tick, so a looping queue is never seen empty while it can pay)
+  updateRepeat(world, p);
 }
 
 /** Create a finished unit at its factory and send it to the rally point. */
@@ -126,13 +138,18 @@ export function spawnProduced(world: World, p: Player, typeId: string): boolean 
   const facs = factoriesFor(world, p, typeId);
   if (!facs.length) return false;
   const f = facs.find((b) => b.primary) ?? facs[0];
-  if (ut.kind === 'naval') return !!spawnNaval(world, p, f, typeId);
+  if (ut.kind === 'naval') {
+    const ship = spawnNaval(world, p, f, typeId);
+    if (ship) world.events.push({ e: 'produced', id: ship.id, building: f.id, player: p.id }); // [ARMY]
+    return !!ship;
+  }
   const [ex, ey] = f.exitCell();
   let u;
   if (ut.kind === 'aircraft') {
     u = world.addUnit(typeId, p, f.x, f.y);
     placeOnPad(u, f);
     if (f.rallyX >= 0) world.setOrder(u, { type: 'move', x: f.rallyX, y: f.rallyY, attackMove: false });
+    world.events.push({ e: 'produced', id: u.id, building: f.id, player: p.id }); // [ARMY]
     return true;
   } else if (ut.kind === 'infantry') {
     u = world.addUnit(typeId, p, ex + 0.5 + (world.rng.next() - 0.5) * 0.3, ey + 0.35);
@@ -145,6 +162,7 @@ export function spawnProduced(world: World, p: Player, typeId: string): boolean 
     f.doorHold = 2.2;
   }
   world.events.push({ e: 'sfx', key: ut.kind === 'infantry' ? 'door' : 'door', x: f.x, y: f.y });
+  world.events.push({ e: 'produced', id: u.id, building: f.id, player: p.id }); // [ARMY] auto-groups, idle-factory watch
   if (ut.harvester) {
     // harvest order already set by addUnit; path out via the exit
     return true;

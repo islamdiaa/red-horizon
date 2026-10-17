@@ -172,6 +172,8 @@ export interface BuildingTypeDef extends BaseTypeDef {
   fakeOf?: string;
   /** Support powers this structure provides (RA: Airfield = spy plane / paratroopers / parabombs, Tech Center = GPS). */
   powers?: ('gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs')[];
+  /** [VARIETY] Neutral tech structure (Commander rules, sim/neutral.ts): any engineer that reaches it captures it. */
+  tech?: 'derrick' | 'hospital' | 'radar' | 'comms';
 }
 
 export type TypeDef = UnitTypeDef | BuildingTypeDef;
@@ -337,6 +339,8 @@ export const UNITS: Record<string, UnitTypeDef> = {
   ctnk: VEH({ id: 'ctnk', name: 'Chrono Tank', cost: 2400, strength: 350, armor: 'light', speed: 9, rot: 5, sight: 5, primary: 'APTusk', chronoShift: 75, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.42, description: 'Anti-armour missile tank that can chronoshift itself anywhere you have explored (recharges).' }),
   stnk: VEH({ id: 'stnk', name: 'Phase Transport', cost: 1350, strength: 200, armor: 'light', speed: 10, rot: 5, sight: 6, primary: 'APTusk', turret: true, passengers: 5, phasing: true, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.42, description: 'Cloaked armoured transport for five infantry. Visible only while firing or with an enemy right next to it.' }),
   msub: NAV({ id: 'msub', name: 'Missile Submarine', cost: 1650, strength: 400, armor: 'light', speed: 5, rot: 7, sight: 6, primary: 'SubSCUD', cloakable: true, owner: ['soviet'], prereq: ['spen', 'stek'], radius: 0.48, description: 'Submarine with long-range missiles for ships and shore targets. Surfaces to fire.' }),
+  // [VARIETY] battlefield events (sim/events.ts): the neutral supply convoy's truck, never built
+  truk: VEH({ id: 'truk', name: 'Supply Truck', cost: 300, strength: 260, armor: 'light', speed: 6, rot: 5, sight: 3, tracked: false, crusher: false, buildable: false, owner: [], prereq: [], radius: 0.4, description: 'Neutral supply convoy. Escort it across the map (right-click it) or force-fire it (Ctrl + right-click) to seize its cargo.' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -397,6 +401,11 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   // land mines (laid by minelayers, never built): enemies can't see them unless right next to one
   minp: BLD({ id: 'minp', name: 'Anti-Personnel Mine', cost: 25, strength: 100, armor: 'heavy', size: [1, 1], power: 0, prereq: [], buildable: false, mine: 'ap', passable: [[0, 0]], sight: 0, category: 'defense', description: 'Blows up enemy infantry that step on it.' }),
   minv: BLD({ id: 'minv', name: 'Anti-Tank Mine', cost: 25, strength: 100, armor: 'heavy', size: [1, 1], power: 0, prereq: [], buildable: false, mine: 'at', passable: [[0, 0]], sight: 0, category: 'defense', description: 'Wrecks enemy vehicles that drive over it.' }),
+  // [VARIETY] neutral tech structures (Commander rules): placed by mapgen, captured by any engineer, never built (sim/neutral.ts)
+  oild: BLD({ id: 'oild', name: 'Oil Derrick', cost: 0, strength: 800, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'derrick', sight: 3, description: 'Neutral tech structure. Capture it with an Engineer: +$50 every 4 seconds.' }),
+  hosp: BLD({ id: 'hosp', name: 'Field Hospital', cost: 0, strength: 800, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'hospital', sight: 4, description: 'Neutral tech structure. Capture it with an Engineer: heals your infantry nearby.' }),
+  rado: BLD({ id: 'rado', name: 'Radar Outpost', cost: 0, strength: 600, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'radar', radar: true, sight: 13, description: 'Neutral tech structure. Capture it with an Engineer: reveals the area around it and gives you radar.' }),
+  comm: BLD({ id: 'comm', name: 'Communications Array', cost: 0, strength: 700, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'comms', sight: 5, description: 'Neutral tech structure. Capture it with an Engineer: superweapons, support and commander powers recharge 10% faster.' }),
 };
 
 export function getType(id: string): TypeDef {

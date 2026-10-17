@@ -29,7 +29,9 @@ const axis = (v: number) => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) 
 
 const FOCUSABLE = 'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), .bitem, .grp, [role="button"]';
 const SIDEBAR_FOCUSABLE = '#sidebar .tab, #sidebar .bitem, #sidebar .supers button, #sidebar .mode-btn, #selpanel button, #groups .grp'
-  + ', #buildbar .tab, #buildbar .bitem, #buildbar .supers button, #buildbar .mode-btn'; // [HUD] the Modern layout's bottom build bar
+  + ', #buildbar .tab, #buildbar .bitem, #buildbar .supers button, #buildbar .mode-btn' // [HUD] the Modern layout's bottom build bar
+  + ', .ar-chip button, #army-panel.on button' // [ARMY] army chip and overview
+  + ', #cmdpanel button'; // [DOCTRINE] commander powers panel
 
 interface Game { input: InputController; h: InputHost }
 
@@ -173,6 +175,7 @@ class GamepadManager {
       if (pressed(B.LB) || pressed(B.RB)) this.switchTab(pressed(B.RB) ? 1 : -1);
       if (pressed(B.A) && this.focusEl) this.click(this.focusEl, this.lb.down);
       if (pressed(B.X) && this.focusEl) this.focusEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
+      if (pressed(B.Y) && this.focusEl) this.focusEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, altKey: true, view: window })); // [ARMY] Y: loop the card
       return;
     }
 

@@ -4,8 +4,14 @@
  * fields written by newer builds are preserved untouched.
  */
 
+import { defaultContracts, normalizeContracts, type ContractsState } from './contracts';
+import { defaultCosmetics, normalizeCosmetics, type CosmeticsState } from './unlocks';
+
 export const PROFILE_KEY = 'rh.profile';
-export const PROFILE_VERSION = 1;
+/** v2: contracts, Commendations and cosmetics (src/meta/contracts.ts, src/meta/unlocks.ts). */
+export const PROFILE_VERSION = 2;
+/** Commendations never exceed this (corrupt or edited profiles are clamped). */
+export const MAX_COMMENDATIONS = 1_000_000;
 
 export interface KV {
   getItem(k: string): string | null;
@@ -106,6 +112,12 @@ export interface Profile {
   daily: { best: Record<string, DailyRecord>; streak: number; longest: number; lastDay: string | null };
   survival: Record<string, { bestScore: number; bestWave: number; runs: number; at: number }>;
   climates: Record<string, number>;
+  /** Daily and weekly contracts (v2). */
+  contracts: ContractsState;
+  /** Commendations: earned from contracts, spent in the Locker; never purchasable (v2). */
+  commendations: number;
+  /** Claimed, equipped and announced cosmetics (v2). */
+  cosmetics: CosmeticsState;
 }
 
 export function defaultStats(): LifetimeStats {
@@ -122,6 +134,7 @@ export function defaultProfile(now = Date.now()): Profile {
   return {
     v: PROFILE_VERSION, name: 'Commander', created: now, faction: 'allies', xp: 0, stats: defaultStats(), counters: {}, medals: {},
     history: [], daily: { best: {}, streak: 0, longest: 0, lastDay: null }, survival: {}, climates: {},
+    contracts: defaultContracts(), commendations: 0, cosmetics: defaultCosmetics(),
   };
 }
 
@@ -157,6 +170,9 @@ const MIGRATIONS: Record<number, (p: Obj) => Obj> = {
     const { rank: _drop, ...rest } = p as Obj & { rank?: unknown };
     return { ...rest, v: 1 };
   },
+  // v1 -> v2: contracts, Commendations and cosmetics start empty (normalizeProfile fills the defaults);
+  // unlocks earned before v2 (rank, wins, medals) are derived from the record, so nothing is lost
+  1: (p) => ({ ...p, v: 2 }),
 };
 
 export function normalizeProfile(raw: unknown, now = Date.now()): Profile {
@@ -213,6 +229,9 @@ export function normalizeProfile(raw: unknown, now = Date.now()): Profile {
     daily: { best, streak: num(dailyRaw.streak), longest: num(dailyRaw.longest), lastDay: typeof dailyRaw.lastDay === 'string' ? dailyRaw.lastDay : null },
     survival,
     climates: numRecord(p.climates),
+    contracts: normalizeContracts(p.contracts),
+    commendations: Math.min(MAX_COMMENDATIONS, Math.max(0, Math.floor(num(p.commendations)))),
+    cosmetics: normalizeCosmetics(p.cosmetics),
   };
 }
 

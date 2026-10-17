@@ -406,3 +406,126 @@ export function floodReach(map: GameMap, sx: number, sy: number): Uint8Array {
   }
   return seen;
 }
+
+// =====================================================================================================
+// [VARIETY] Neutral tech structures (Commander rules, sim/neutral.ts)
+// =====================================================================================================
+
+/** A neutral tech structure to raise: type id and top-left footprint cell. */
+export interface NeutralSite {
+  type: string;
+  cx: number;
+  cy: number;
+}
+
+/**
+ * Symmetric spots for the neutral tech structures, read off a finished map (generated, curated or custom; the map
+ * is not changed). Two players: 180° point symmetry, as generated maps are built; three or four: mirror symmetry.
+ * Every player gets an oil derrick on the way to the centre (large maps: a field hospital too), the line fair to
+ * all bases gets a pair of radar outposts (from medium size), and the centre a communications array. A spot whose
+ * images are not all on open, reachable ground slides (symmetrically) to the nearest one that is, or is dropped.
+ * Deterministic for (map, players, seed).
+ */
+export function neutralSites(map: GameMap, players: number, seed: number): NeutralSite[] {
+  const W = map.w, H = map.h;
+  const starts = map.startPositions;
+  if (starts.length < 2 || players < 2) return [];
+  const rng = new Rng((seed ^ 0x6a09e667) >>> 0);
+  const sym = mapSymmetry(map, players);
+  if (!sym) return [];
+  const four = sym !== 'rot2';
+  const C = { x: W / 2, y: H / 2 };
+  const s0 = starts[0];
+  const reach = floodReach(map, Math.floor(s0.x), Math.floor(s0.y));
+  const size = Math.max(W, H);
+  /** Top-left cells of every symmetric image of a 2x2 footprint at top-left (cx, cy). */
+  const images = (cx: number, cy: number): [number, number][] => {
+    const out: [number, number][] = sym === 'mirror4'
+      ? [[cx, cy], [W - cx - 2, cy], [cx, H - cy - 2], [W - cx - 2, H - cy - 2]]
+      : sym === 'rot4'
+        ? [[cx, cy], [W - 2 - cy, cx], [W - cx - 2, H - cy - 2], [cy, H - 2 - cx]]
+        : [[cx, cy], [W - cx - 2, H - cy - 2]];
+    const uniq = out.filter(([x, y], i) => out.findIndex(([a, b]) => a === x && b === y) === i);
+    if (players === 3) {
+      // nobody starts in the fourth corner: no free structure next to it
+      const corners = [{ x: 0, y: H }, { x: W, y: 0 }, { x: 0, y: 0 }, { x: W, y: H }];
+      const used = starts.slice(0, 3).map((s) => corners.reduce((bi, c, i) => (Math.hypot(c.x - s.x, c.y - s.y) < Math.hypot(corners[bi].x - s.x, corners[bi].y - s.y) ? i : bi), 0));
+      return uniq.filter(([x, y]) => {
+        const near = corners.reduce((bi, c, i) => (Math.hypot(c.x - x - 1, c.y - y - 1) < Math.hypot(corners[bi].x - x - 1, corners[bi].y - y - 1) ? i : bi), 0);
+        return used.includes(near);
+      });
+    }
+    return uniq;
+  };
+  const taken: [number, number][] = [];
+  const clear = (cx: number, cy: number): boolean => {
+    for (let dy = -1; dy <= 2; dy++) for (let dx = -1; dx <= 2; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (!map.inBounds(x, y)) return false;
+      const i = map.idx(x, y);
+      if (!map.terrainPassable(i) || map.occupant[i]) return false;
+      if (dx >= 0 && dx < 2 && dy >= 0 && dy < 2) {
+        const t = map.terrain[i];
+        if ((t !== T.Clear && t !== T.Sand && t !== T.Dirt) || map.ore[i] || map.reserved[i] || !reach[i]) return false;
+      }
+    }
+    for (const s of starts) if (Math.hypot(s.x - cx - 1, s.y - cy - 1) < 13) return false;
+    for (const [tx, ty] of taken) if (Math.abs(tx - cx) < 4 && Math.abs(ty - cy) < 4) return false;
+    return true;
+  };
+  const out: NeutralSite[] = [];
+  const place = (type: string, px: number, py: number, maxR = 7) => {
+    const bx = Math.round(px - 1), by = Math.round(py - 1);
+    for (let r = 0; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const imgs = images(bx + dx, by + dy);
+        if (!imgs.length || !imgs.every(([x, y]) => clear(x, y))) continue;
+        for (const [x, y] of imgs) { out.push({ type, cx: x, cy: y }); taken.push([x, y]); }
+        return;
+      }
+    }
+  };
+  // toward the centre from the first base, off to one side
+  const tx = C.x - s0.x, ty = C.y - s0.y, tl = Math.hypot(tx, ty) || 1;
+  const px = -ty / tl, py = tx / tl;
+  const side = rng.chance(0.5) ? 1 : -1;
+  place('oild', s0.x + tx * 0.45 + px * side * size * 0.1, s0.y + ty * 0.45 + py * side * size * 0.1);
+  if (size > 104) place('hosp', s0.x + tx * 0.62 - px * side * size * 0.12, s0.y + ty * 0.62 - py * side * size * 0.12);
+  if (size > 72) {
+    // the line fair to the bases
+    let ux: number, uy: number;
+    if (!four) {
+      const s1 = starts[1];
+      const ax = s1.x - s0.x, ay = s1.y - s0.y, al = Math.hypot(ax, ay) || 1;
+      ux = -ay / al; uy = ax / al;
+    } else { ux = 1; uy = 0; }
+    const d = size * (0.2 + rng.next() * 0.05);
+    place('rado', C.x + ux * d, C.y + uy * d);
+  }
+  place('comm', C.x, C.y, 9);
+  return out;
+}
+
+/**
+ * [VARIETY] The symmetry a map was built with, read off its terrain: 'rot2' (two players, point symmetry),
+ * 'mirror4' or 'rot4' (three or four players), or null when it has none of them (no neutral structures then).
+ */
+export function mapSymmetry(map: GameMap, players: number): 'rot2' | 'mirror4' | 'rot4' | null {
+  const W = map.w, H = map.h;
+  const score = (f: (x: number, y: number) => [number, number]): number => {
+    let same = 0, n = 0;
+    for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) {
+      const [tx, ty] = f(x, y);
+      if (tx < 0 || ty < 0 || tx >= W || ty >= H) return 0;
+      n++;
+      if (map.terrain[y * W + x] === map.terrain[ty * W + tx]) same++;
+    }
+    return n ? same / n : 0;
+  };
+  const OK = 0.9;
+  if (players <= 2) return score((x, y) => [W - 1 - x, H - 1 - y]) >= OK ? 'rot2' : null;
+  if (score((x, y) => [W - 1 - x, y]) >= OK && score((x, y) => [x, H - 1 - y]) >= OK) return 'mirror4';
+  if (W === H && score((x, y) => [W - 1 - y, x]) >= OK) return 'rot4';
+  return null;
+}

@@ -8,7 +8,8 @@ import { Player, queueKindOf } from './player';
 import { DT, TICK_HZ, type Command, type GameEvent, type Order } from './types';
 import { pickWeapon, updateBuildingWeapons, updateProjectiles, updateUnitWeapons, type Projectile } from './combat';
 import { engineerCanEnter, pathRemaining, resolveCollisions, unitSpeed, updateUnit } from './unitlogic';
-import { updateProduction, recalcPlayerEconomy } from './production';
+import { updateProduction, recalcPlayerEconomy, QUEUE_LIMIT } from './production';
+import { repeatCommand } from './repeat'; // [ARMY]
 import { AIController, type AIDifficulty } from './ai';
 import type { Personality } from './ai-personality'; // [AI]
 import { updateSuperweapons, fireSuperweapon } from './superweapons';
@@ -22,6 +23,9 @@ import { aftermathDeploy, aftermathKilled, aftermathStepUnit, chronoJump } from 
 import { formationMove, newCtrlState, type CtrlState } from './formation'; // [CTRL]
 import { ordersCommand, ordersPreTick } from './orders'; // [CTRL]
 import { CEASEFIRE_WARNING } from './ceasefire';
+import { commanderCommand, commanderKill, commanderSpawn, commanderTick, initCommander, type CommanderState } from './commander'; // [DOCTRINE]
+import { costOf } from './doctrine'; // [DOCTRINE]
+import { initVariety, varietyCommand, varietyTick, type VarietyState } from './events'; // [VARIETY]
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -70,6 +74,17 @@ export interface WorldOptions {
    * whole match, 0 / undefined = none.
    */
   ceasefireUntil?: number;
+  /**
+   * [DOCTRINE] Skirmish rules (sim/commander.ts): 'commander' = doctrines, command points and commander powers;
+   * 'classic' / undefined = pure Red Alert (missions, campaigns, old saves and replays).
+   */
+  rules?: 'classic' | 'commander';
+  /** [DOCTRINE] Doctrine id per player (null: a human plays without one, an AI picks its own; 'none': no doctrine). */
+  doctrines?: (string | null)[];
+  /** [VARIETY] Skirmish mutators (modes/mutators.ts), battlefield events (default on under Commander rules) and dynamic difficulty (sim/events.ts). */
+  mutators?: string[];
+  events?: boolean;
+  dynamicDifficulty?: boolean;
 }
 
 /** Spatial hash of units per map cell (rebuilt every tick). */
@@ -147,6 +162,10 @@ export class World {
   ctrl: CtrlState = newCtrlState();
   /** Build-up time (ceasefire.ts): end tick, -1 = unlimited, 0 = none; saved. */
   ceasefireUntil = 0;
+  /** [DOCTRINE] Commander rules state (sim/commander.ts); null = Classic rules. Saved. */
+  commander: CommanderState | null = null;
+  /** [VARIETY] Mutators, battlefield events, neutral tech structures, dynamic difficulty (sim/events.ts); null = none. Saved. */
+  variety: VarietyState | null = null;
   private nextId = 1;
   /** Projectile ids (their own namespace; renderers key effects by them). */
   nextProjectileId = 1;
@@ -175,7 +194,9 @@ export class World {
       this.players.push(p);
       if (ps.ai) this.ais.push(new AIController(this, p, ps.ai, ps.personality)); // [AI] personality
     });
+    if (opts.rules === 'commander') initCommander(this, opts.doctrines, opts.seed); // [DOCTRINE] before the starting units exist
     this.setupStart(opts.startUnits, opts.startUnitsPer);
+    initVariety(this, { rules: opts.rules, mutators: opts.mutators, events: opts.events, dynamicDifficulty: opts.dynamicDifficulty, seed: opts.seed }); // [VARIETY] (null for Classic without options)
     for (const p of this.players) {
       recalcPlayerEconomy(this, p);
       this.updateVisibility(p);
@@ -231,6 +252,7 @@ export class World {
       u.order = { type: 'harvest' };
       u.hstate = 'seek';
     }
+    if (this.commander) commanderSpawn(this, u); // [DOCTRINE] doctrine weapons / health, Elite Training
     return u;
   }
 
@@ -247,6 +269,7 @@ export class World {
     }
     // tech / factory availability is granted when construction completes (instant: right away)
     if (instant) this.countBuilding(b);
+    if (this.commander) commanderSpawn(this, b); // [DOCTRINE] doctrine weapons / health
     recalcPlayerEconomy(this, owner);
     return b;
   }
@@ -304,6 +327,7 @@ export class World {
     if (!e.alive) return;
     // a mine going off / being shot is no "structure lost"
     if (e instanceof Building && e.bt.mine) how = 'sold';
+    if (this.commander) commanderKill(this, e, how, killer); // [DOCTRINE] command points
     // a dog sniffed out a disguised spy
     if (e instanceof Unit && e.ut.spy && e.disguise >= 0 && killer instanceof Unit && killer.ut.dog) this.announce(killer.owner, 'spy_detected', 4);
     e.alive = false;
@@ -546,7 +570,7 @@ export class World {
           q.items.push({ type: cmd.type, progress: 0, paid: 0, paused: false });
           this.announce(p, 'building', 0);
         } else {
-          for (let k = 0; k < count && q.items.length < 25; k++) {
+          for (let k = 0; k < count && q.items.length < QUEUE_LIMIT; k++) { // [ARMY] (25)
             q.items.push({ type: cmd.type, progress: 0, paid: 0, paused: false });
           }
           const first = q.items.find((it) => it.type === cmd.type);
@@ -570,7 +594,7 @@ export class World {
         const q = p.queues[queueKindOf(t)];
         if (q.ready === cmd.type) {
           q.ready = null;
-          p.refund(t.cost);
+          p.refund(costOf(p, t)); // [DOCTRINE] doctrine price (= t.cost under Classic rules)
           this.announce(p, 'cancelled', 0);
           return;
         }
@@ -603,7 +627,7 @@ export class World {
             if (!this.canPlace(p, cmd.type, x, y)) continue;
             // a friendly unit standing here must be able to step out, or the segment is skipped
             if (!this.canClearCell(x, y)) continue;
-            if (!p.spend(b.bt.cost)) { this.announce(p, 'insufficient_funds', 3); break; }
+            if (!p.spend(costOf(p, b.bt))) { this.announce(p, 'insufficient_funds', 3); break; } // [DOCTRINE] doctrine price
             const w = this.addBuilding(cmd.type, p, x, y);
             p.stats.buildingsBuilt++;
             this.events.push({ e: 'placed', id: w.id });
@@ -669,6 +693,15 @@ export class World {
         break;
       case 'patrol': case 'guard': case 'formation': case 'rallyUnit': case 'queuePlan': // [CTRL] orders.ts
         ordersCommand(this, cmd);
+        break;
+      case 'commanderPower': case 'unlockPower': // [DOCTRINE] commander powers (commander.ts)
+        commanderCommand(this, cmd);
+        break;
+      case 'repeat': // [ARMY] repeat production (repeat.ts)
+        repeatCommand(this, p, cmd);
+        break;
+      case 'battleEvent': // [VARIETY] answer a battlefield event (events.ts)
+        varietyCommand(this, cmd);
         break;
     }
   }
@@ -822,7 +855,7 @@ export class World {
   /** Whether an own structure lies within `gap` cells of the footprint (optionally ignoring walls). */
   isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2, ignoreWalls = false): boolean {
     for (const b of this.buildings) {
-      if (!b.alive || b.owner !== p || b.bt.mine || (ignoreWalls && b.bt.wall)) continue;
+      if (!b.alive || b.owner !== p || b.bt.mine || b.bt.tech || (ignoreWalls && b.bt.wall)) continue; // [VARIETY] captured tech structures don't extend the base
       const gx = Math.max(b.cx - (cx + bt.size[0]), cx - (b.cx + b.w), 0);
       const gy = Math.max(b.cy - (cy + bt.size[1]), cy - (b.cy + b.h), 0);
       if (Math.max(gx, gy) <= gap) return true;
@@ -1091,6 +1124,7 @@ export class World {
     }
     contentPreTick(this);
     ordersPreTick(this); // [CTRL] formations, build plans
+    if (this.commander) commanderTick(this); // [DOCTRINE] command points, timed power effects, barrages
     this.deferDeaths = true;
     for (const b of this.buildings) if (b.alive) this.updateBuilding(b);
     this.processPaths();
@@ -1119,6 +1153,7 @@ export class World {
     if (this.tick % TICK_HZ === 0) this.checkVictory();
     if (this.cratesEnabled) this.updateCrates();
     this.mission?.tick();
+    if (this.variety) { varietyTick(this); this.cleanupDead(); } // [VARIETY] mutators, battlefield events, tech structures, dynamic difficulty (engineers that went in, despawned convoys: off the lists)
   }
 
   /** Timed build-up: the one-minute warning and the end of the ceasefire, announced to the humans. */
@@ -1153,7 +1188,7 @@ export class World {
     for (let k = this.crates.length - 1; k >= 0; k--) {
       const c = this.crates[k];
       let taker: Unit | null = null;
-      this.grid.query(c.x, c.y, 0.8, (u) => { if (!taker && u.alive && !u.isAir && Math.hypot(u.x - c.x, u.y - c.y) < 0.5) taker = u; });
+      this.grid.query(c.x, c.y, 0.8, (u) => { if (!taker && u.alive && !u.isAir && u.owner.id >= 0 && Math.hypot(u.x - c.x, u.y - c.y) < 0.5) taker = u; }); // [VARIETY] (neutral convoys / pilots don't take crates)
       if (!taker) continue;
       this.crates.splice(k, 1);
       this.collectCrate(taker, c.x, c.y);
@@ -1205,7 +1240,7 @@ export class World {
     if (b.selling >= 0) {
       b.selling -= DT;
       if (b.selling < 0) {
-        const refund = Math.floor(b.bt.cost * REFUND_PERCENT);
+        const refund = Math.floor(costOf(b.owner, b.bt) * REFUND_PERCENT); // [DOCTRINE] doctrine price (= bt.cost under Classic rules)
         b.owner.refund(refund);
         b.owner.stats.spent += refund; // refund is not "negative spending" for stats
         this.spawnSurvivors(b, 1);
@@ -1330,7 +1365,7 @@ export class World {
     if (this.gameOver) return;
     for (const p of this.players) {
       if (p.defeated) continue;
-      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !b.bt.mine) || this.units.some((u) => u.alive && u.owner === p);
+      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !b.bt.mine && !b.bt.tech) || this.units.some((u) => u.alive && u.owner === p); // [VARIETY] tech structures don't keep anyone alive
       if (!alive) {
         p.defeated = true;
         this.events.push({ e: 'eliminated', player: p.id });

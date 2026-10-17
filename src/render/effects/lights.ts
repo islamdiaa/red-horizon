@@ -8,7 +8,9 @@
  * count and recompile every material); idle lights simply have intensity 0.
  */
 import * as THREE from 'three';
-import type { DynamicLightApi, DynamicLights } from '../dynlights';
+import type { DynamicLightApi, DynamicLightOptions, DynamicLights } from '../dynlights';
+
+const FLASH_OPTS: DynamicLightOptions = { delay: 0, attack: 0.03, flicker: 0.1 }; // [JUICE]
 
 interface Slot {
   start: number;
@@ -54,7 +56,9 @@ export class LightPool {
   flash(now: number, x: number, y: number, z: number, color: number, intensity: number, radius: number, duration: number, delay = 0, attack = 0.03): void {
     if (this.dyn) {
       this.dyn.now = now;
-      this.dyn.add(x, y, z, color, intensity * this.intensityScale, radius, Math.max(0.02, duration), { delay, attack, flicker: 0.1 });
+      FLASH_OPTS.delay = delay; // [JUICE] reused options: no allocation per flash
+      FLASH_OPTS.attack = attack;
+      this.dyn.add(x, y, z, color, intensity * this.intensityScale, radius, Math.max(0.02, duration), FLASH_OPTS);
       return;
     }
     let best = 0;

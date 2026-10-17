@@ -162,9 +162,9 @@ section('Persistence & migration');
 const again = new MetaTracker({ storage: store, now: () => clock });
 eq(again.profile.xp, meta.profile.xp, 'XP survives a reload');
 eq(again.profile.medals['tank-buster']?.tier, 1, 'medals survive a reload');
-eq(JSON.parse(store.data.get(PROFILE_KEY)!).v, 1, 'version field written');
+eq(JSON.parse(store.data.get(PROFILE_KEY)!).v, 2, 'version field written'); // [META] v2: contracts, Commendations, cosmetics
 const migrated = normalizeProfile({ name: 'Old Timer', xp: 1234, rank: 3, stats: { kills: 'x', wins: 4, winsByFaction: { soviet: 2 } }, medals: { 'first-blood': { tier: 1, at: [5] }, junk: 7 }, history: [{ won: 1, time: 'bad' }], future: { keep: true } }) as any;
-eq(migrated.v, 1, 'v0 -> v1');
+eq(migrated.v, 2, 'v0 -> v2'); // [META]
 eq(migrated.xp, 1234, 'xp kept');
 eq(migrated.rank, undefined, 'dropped legacy field');
 eq(migrated.stats.kills, 0, 'malformed number replaced by default');

@@ -37,6 +37,12 @@ export function worldHash(world: World): string {
   int(world.projectiles.length);
   for (const pr of world.projectiles) { num(pr.x); num(pr.y); num(pr.t); }
   for (const c of w.crates ?? []) { int(c.id); num(c.x); num(c.y); }
+  if (world.commander) for (const c of world.commander.players) { // [DOCTRINE] Commander rules (Classic worlds: nothing)
+    num(c.points); int(c.unlocked.length); int(c.eliteLeft); int(c.rally.size + c.aegis.size + c.offline.size);
+    for (const id of c.unlocked) int(c.ready[id] ?? 0);
+  }
+  const vr = world.variety; // [VARIETY] event schedule and dynamic difficulty (Classic worlds: nothing)
+  if (vr) { int(vr.rng); int(vr.rng2); int(vr.next); int(vr.active.length); int(vr.dd.level); int(vr.captures); }
   const ore = world.map.ore;
   for (let i = 0; i < ore.length; i += 4) int(ore[i] | (ore[i + 1] << 8) | (ore[i + 2] << 16) | (ore[i + 3] << 24));
   return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');

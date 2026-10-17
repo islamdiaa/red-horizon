@@ -17,11 +17,14 @@ import { updateRepairBridge } from './bridges';
 import { formationSteer } from './formation'; // [CTRL]
 import { ordersUnitStep, updateCtrlOrder } from './orders'; // [CTRL]
 import { mayAutoEngage } from './ceasefire';
+import { cmdSpeed } from './doctrine'; // [DOCTRINE]
+import { commanderCaptured } from './commander'; // [DOCTRINE]
 
 const LEASH = 5;
 
 export function unitSpeed(u: Unit): number {
-  return mphToCellsPerSecond(u.ut.speed);
+  const s = mphToCellsPerSecond(u.ut.speed);
+  return u.owner.cmd ? s * cmdSpeed(u) : s; // [DOCTRINE] doctrine speed, Rally Cry
 }
 
 /** Main per-tick behaviour for a unit. */
@@ -372,6 +375,7 @@ export function captureBuilding(world: World, b: Building, by: Unit) {
     now.owned.set(b.bt.id, (now.owned.get(b.bt.id) ?? 0) + 1);
   }
   b.owner = now;
+  if (world.commander) commanderCaptured(world, b, old); // [DOCTRINE] the new owner's doctrine
   b.repairing = false;
   b.target = null;
   b.primary = false;

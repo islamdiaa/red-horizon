@@ -3,6 +3,7 @@
  * Self-contained DOM with injected CSS; safe to call from anywhere (no-ops without a document).
  */
 import { insigniaSvg, picto } from './art';
+import type { ContractProgress } from './contracts'; // [META]
 
 export interface ToastInfo {
   title: string;
@@ -10,7 +11,7 @@ export interface ToastInfo {
   /** Medal or insignia markup (inline SVG). */
   icon: string;
   xp: number;
-  kind?: 'medal' | 'rank';
+  kind?: 'medal' | 'rank' | 'contract' | 'unlock'; // [META] contract complete / cosmetic unlocked
   /** e.g. "Silver" or "Legendary". */
   tier?: string;
   rarity?: 'common' | 'rare' | 'epic' | 'legendary';
@@ -33,6 +34,17 @@ export interface XpSummary {
   medals: number;
   won: boolean;
   dailyScore?: number;
+  // [META] contracts, Commendations and unlocks (src/meta/contracts.ts, unlocks.ts)
+  contracts?: ContractProgress[];
+  /** Commendations earned in this battle / balance after it. */
+  commendations?: number;
+  commendationBalance?: number;
+  /** Cosmetics this battle unlocked. */
+  unlocks?: { id: string; name: string; slot: string }[];
+  /** The unlock that was being chased when the battle began, if this battle earned it. */
+  unlockedTeaser?: { id: string; name: string; slot: string } | null;
+  /** The next unlock to chase ("2 more wins → Arctic White paint"), with progress before / after. */
+  teaser?: { id: string; text: string; frac: number; before: number } | null;
 }
 
 const CSS = `
@@ -49,6 +61,9 @@ const CSS = `
 .rhx-t.legendary { --c: 190, 150, 255; --c2: 110, 210, 255; border-image: linear-gradient(100deg, #b48cff, #7fd3ff, #ffcf3f, #b48cff) 1; }
 .rhx-t.rank { --c: 255, 120, 80; --c2: 255, 207, 63; width: 33rem; padding: .85rem 1.4rem .95rem 1rem;
   background: radial-gradient(ellipse at 14% 50%, rgba(255, 110, 60, .28), transparent 58%), linear-gradient(180deg, rgba(34, 18, 14, .96), rgba(10, 7, 6, .96)); }
+.rhx-t.contract { --c: 110, 235, 170; --c2: 60, 190, 140; }
+.rhx-t.unlock { --c: 120, 200, 255; --c2: 190, 150, 255; }
+.rhx-t.contract .rhx-medal > svg, .rhx-t.unlock .rhx-medal > svg { width: 2.6rem; height: 2.6rem; color: rgb(var(--c)); }
 .rhx-t.out { animation: rhxOut .45s ease-in forwards; }
 @keyframes rhxIn { from { opacity: 0; transform: translateY(-1.8rem) scale(.86); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
 @keyframes rhxOut { to { opacity: 0; transform: translateY(-1.2rem) scale(.95); } }
@@ -110,6 +125,18 @@ const CSS = `
 .rhx-promo { margin-top: .6rem; text-align: center; font-size: .78rem; font-weight: 700; letter-spacing: .34em; text-transform: uppercase; color: #ff8a5a; text-shadow: 0 0 .8rem rgba(255, 110, 60, .6);
   animation: rhxPulse 1.2s 1.8s ease-in-out 3 both; }
 @keyframes rhxPulse { 50% { color: #ffd34d; } }
+.rhx-ct { display: flex; flex-direction: column; gap: .3rem; margin: .7rem 0 .2rem; padding-top: .6rem; border-top: 1px solid rgba(255, 255, 255, .07); }
+.rhx-ct-h { font-size: .6rem; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; color: #6eebaa; display: flex; justify-content: space-between; }
+.rhx-ct-h span:last-child { color: #ffd34d; letter-spacing: .1em; }
+.rhx-ctr { display: grid; grid-template-columns: 1fr auto; gap: .1rem .6rem; font-size: .8rem; color: #b6c3d1; }
+.rhx-ctr b { font-weight: 600; color: #e9f0f7; }
+.rhx-ctr em { font-style: normal; font-family: var(--mono, monospace); font-size: .72rem; color: #7d8c9d; }
+.rhx-ctr.done b, .rhx-ctr.done em { color: #8dffb0; }
+.rhx-ctr i { grid-column: 1 / -1; height: .2rem; border-radius: 1rem; background: rgba(255, 255, 255, .07); position: relative; overflow: hidden; }
+.rhx-ctr i u { position: absolute; inset: 0 auto 0 0; border-radius: 1rem; background: #6eebaa; box-shadow: 0 0 .4rem rgba(110, 235, 170, .7); }
+.rhx-tz { margin-top: .55rem; font-size: .78rem; color: #b6c3d1; display: flex; align-items: center; gap: .45rem; }
+.rhx-tz .mx-ic { color: #7fd3ff; flex-shrink: 0; }
+.rhx-tz b { color: #fff; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .rhx-rays, .rhx-t::before { animation: none; display: none; } }
 `;
 
@@ -155,7 +182,7 @@ function next() {
   const rank = a.kind === 'rank';
   const life = queue.length > 2 ? 2600 : rank ? 5200 : 4300;
   const el = document.createElement('div');
-  el.className = `rhx-t ${rank ? 'rank' : a.rarity ?? 'epic'}`;
+  el.className = `rhx-t ${rank ? 'rank' : a.kind === 'contract' || a.kind === 'unlock' ? a.kind : a.rarity ?? 'epic'}`; // [META]
   el.style.setProperty('--life', `${life}ms`);
   let sparks = '';
   for (let i = 0; i < 9; i++) {
@@ -163,7 +190,7 @@ function next() {
     const r = 2.2 + (i % 3) * 0.9;
     sparks += `<i class="rhx-sp" style="--x:${(Math.cos(ang) * r).toFixed(2)};--y:${(Math.sin(ang) * r).toFixed(2)};--d:${((i % 4) * 0.07).toFixed(2)}"></i>`;
   }
-  const kicker = rank ? 'Promotion' : `Medal unlocked${a.tier ? ' · ' + a.tier : ''}`;
+  const kicker = rank ? 'Promotion' : a.kind === 'contract' ? `Contract complete${a.tier ? ' · ' + a.tier : ''}` : a.kind === 'unlock' ? `Unlocked${a.tier ? ' · ' + a.tier : ''}` : `Medal unlocked${a.tier ? ' · ' + a.tier : ''}`; // [META]
   el.innerHTML = `<div class="rhx-medal"><div class="rhx-rays"></div>${sparks}${a.icon}</div>
     <div class="rhx-txt"><div class="rhx-k"><i></i><span>${escHtml(kicker)}</span></div><div class="rhx-ti">${escHtml(a.title)}</div><div class="rhx-d">${escHtml(a.desc)}</div></div>
     ${a.xp > 0 ? `<div class="rhx-xp">+${a.xp.toLocaleString('en-US')}<small>XP</small></div>` : ''}
@@ -176,9 +203,13 @@ function next() {
   }, life);
 }
 
-/** Post-battle XP card (bottom-right): breakdown, animated rank bar, promotion banner. Click to dismiss. */
+/**
+ * Post-battle XP card (bottom-right): breakdown, animated rank bar, promotion banner, contract progress and the
+ * next unlock. Click to dismiss. Skipped when the full results screen (src/ui/results.ts) already shows it all.
+ */
 export function showXpSummary(s: XpSummary, ms = 11000) {
   if (typeof document === 'undefined') return;
+  if (document.querySelector('.rr-results')) return; // [META] the results screen has it
   ensureCss();
   document.querySelector('.rhx-sum')?.remove();
   const el = document.createElement('div');
@@ -191,11 +222,28 @@ export function showXpSummary(s: XpSummary, ms = 11000) {
     <div class="rhx-rank">${insigniaSvg(s.rankAfter, s.faction === 'soviet' ? 'soviet' : 'allies')}
       <div class="rhx-rk"><div class="rhx-rk-n"><span>${escHtml(s.rankName)}</span><small>${s.nextName ? `${Math.floor(s.intoAfter).toLocaleString('en-US')} / ${s.spanAfter.toLocaleString('en-US')}` : 'MAX'}</small></div>
       <div class="rhx-bar"><i style="--from:${promoted ? 0 : s.fracBefore.toFixed(4)};--to:${s.fracAfter.toFixed(4)}"></i></div></div></div>
-    ${promoted ? `<div class="rhx-promo">${picto('chevrons')} Promoted to ${escHtml(s.rankName)}</div>` : ''}`;
+    ${promoted ? `<div class="rhx-promo">${picto('chevrons')} Promoted to ${escHtml(s.rankName)}</div>` : ''}${contractsHtml(s)}`;
   document.body.appendChild(el);
   requestAnimationFrame(() => requestAnimationFrame(() => el.querySelector('.rhx-bar i')?.classList.add('go')));
   try { sfx?.('xp'); } catch { /* ignore */ }
   const close = () => { el.classList.add('out'); window.setTimeout(() => el.remove(), 420); };
   el.onclick = close;
-  window.setTimeout(close, ms);
+  window.setTimeout(close, ms + (s.contracts?.length ? 3000 : 0));
+}
+
+/** [META] Contracts that moved this battle, Commendations, and the next unlock (XP card). */
+function contractsHtml(s: XpSummary): string {
+  const list = (s.contracts ?? []).filter((c) => c.after > c.before || c.justDone).slice(0, 3);
+  let out = '';
+  if (list.length || s.commendations) {
+    out += `<div class="rhx-ct"><div class="rhx-ct-h"><span>Contracts</span><span>${s.commendations ? `+${s.commendations} Commendations` : ''}</span></div>`;
+    for (const c of list) {
+      const f = (v: number) => (c.money ? `$${Math.round(v / 1000)}k` : String(Math.floor(v)));
+      out += `<div class="rhx-ctr${c.done ? ' done' : ''}"><b>${escHtml(c.title)}</b><em>${c.done ? 'Complete' : `${f(c.after)} / ${f(c.target)}`}</em><i><u style="width:${((c.after / Math.max(1, c.target)) * 100).toFixed(1)}%"></u></i></div>`;
+    }
+    out += '</div>';
+  }
+  if (s.unlocks?.length) out += `<div class="rhx-tz">${picto('lock')}<span>Unlocked: <b>${s.unlocks.slice(0, 2).map((u) => escHtml(u.name)).join(', ')}${s.unlocks.length > 2 ? ` +${s.unlocks.length - 2}` : ''}</b></span></div>`;
+  else if (s.teaser) out += `<div class="rhx-tz">${picto('lock')}<span>Next: <b>${escHtml(s.teaser.text)}</b></span></div>`;
+  return out;
 }

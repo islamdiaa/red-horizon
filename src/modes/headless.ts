@@ -16,6 +16,7 @@ import { deserializeWorld } from '../sim/save';
 import { World, type PlayerSetup } from '../sim/world';
 import { ceasefireForSetup } from '../sim/ceasefire';
 import { applyRoster, attachModeRuntime, prepareModeSetup, startModes } from './runtime';
+import { mutateSetup, varietyOptions, withMutatorMods } from './mutators'; // [VARIETY]
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d, 0xe07b2a, 0x8e4fd0, 0x2aa8a8, 0x9aa0aa];
 const AI_NAMES = ['Gen. Volkov', 'Marshal Krukov', 'Col. Nadia', 'Gen. Stavros', 'Cdr. Bennett', 'Maj. Kane'];
@@ -28,8 +29,8 @@ export interface HeadlessGame {
 
 /** Build the World a Game would build for this setup (without rendering, HUD or recorder). */
 export function headlessGame(input: GameSetup): HeadlessGame {
-  let setup = prepareModeSetup(input);
-  applyModSet(setup.mods);
+  let setup = mutateSetup(prepareModeSetup(input)); // [VARIETY] mutators' conditions
+  applyModSet(withMutatorMods(setup.mods, setup.mutators)); // [VARIETY] plus the mutators' rule changes
   const def = setup.mission ? getMission(setup.mission) ?? null : null;
   if (def) {
     const mp = def.map;
@@ -67,6 +68,8 @@ export function headlessGame(input: GameSetup): HeadlessGame {
     creditsPer: def ? def.players.map((ps, i) => (i === 0 ? def.credits : ps.credits ?? 5000)) : undefined,
     fog: setup.fog, seed: setup.seed,
     ceasefireUntil: ceasefireForSetup(setup, !!def),
+    ...varietyOptions(setup, !!def), // [VARIETY] rules, mutators, events, dynamic difficulty (as game.ts)
+    doctrines: def ? undefined : setup.doctrines, // [DOCTRINE] (as game.ts)
   });
   let local = world.players[0];
   attachModeRuntime(world, setup, !!def);

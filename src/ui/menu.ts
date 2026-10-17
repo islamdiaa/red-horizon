@@ -12,6 +12,8 @@ import { initLoadingScreen } from './loading';
 import { applyUiSettings, loadSettings, modelDetailOf, saveSettings, type ModelDetail, type Settings } from './settings'; // [HD] model detail
 import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
 import { showProfile } from './profile';
+import { showResults } from './results'; // [META] post-match results screen
+import { mountSessionCard } from './session-card'; // [META] session goals on the main menu
 import { resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // [AI] rivals
 import { showChallenges } from './challenges';
 import { CURATED_MAPS, getMapDef, loadCuratedMap } from '../maps';
@@ -29,6 +31,8 @@ import { loadProgress } from '../missions/progress';
 import { customMaps, isCustomMapId } from '../maps/custom'; // [EDIT] editor maps in the picker
 import { enabledModIds } from '../mods/store'; // [EDIT]
 import { activeModsChip } from '../mods'; // [EDIT]
+import { quickBattleSetup, rulesTabs } from './variety'; // [VARIETY] rules tab, mutators, Quick Battle
+import { DOCTRINES, doctrinesFor, doctrineUnlocked } from '../sim/doctrine'; // Quick Battle doctrine
 
 export { loadSettings, saveSettings, type Settings };
 
@@ -69,6 +73,12 @@ interface SkirmishPrefs {
   koth?: number;
   /** Build-up time: minutes of ceasefire at the start, -1 = unlimited, 0 / undefined = off (classic modes only). */
   ceasefire?: number;
+  /** [VARIETY] Rules (default Commander), mutators, battlefield events (default on), dynamic difficulty; [DOCTRINE] doctrine. */
+  rules?: 'classic' | 'commander';
+  mutators?: string[];
+  events?: boolean;
+  dynamicDifficulty?: boolean;
+  doctrine?: string | null;
 }
 
 function loadPrefs(): SkirmishPrefs {
@@ -76,6 +86,7 @@ function loadPrefs(): SkirmishPrefs {
     faction: 'allies', color: TEAM_COLORS[0], opponents: [{ faction: 'soviet', difficulty: 'normal' }],
     mapSize: 96, water: 0.5, trees: 0.5, ore: 0.6, credits: 10000, startUnits: 'light', fog: true, timeOfDay: 'day',
     weather: 'auto', climate: 'temperate', dayCycle: true,
+    rules: 'commander', events: true, // [VARIETY]
   };
   try {
     const prefs: SkirmishPrefs = { ...def, ...JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}') };
@@ -324,6 +335,7 @@ export class Menus {
     const bootDone = bootCampDone();
     if (cont) navItem('▶', `Continue · ${cont.label}`, ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
     if (this.cb.openBootCamp && !bootDone) navItem('00', `Boot Camp<em class="rh-daily-pill rh-new-pill">Start here</em>`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
+    navItem('»', 'Quick Battle<em class="rh-daily-pill">1 click</em>', ICONS.dice, () => this.quickBattle()); // [VARIETY] one click into a rolled skirmish
     if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
     if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `Conquest${ci ? `<em class="rh-daily-pill">${esc(ci)}</em>` : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); } // [CONQ]
     navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
@@ -339,6 +351,7 @@ export class Menus {
     nav.classList.toggle('dense', nav.childElementCount > 7);
     nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
     left.appendChild(nav);
+    mountSessionCard(left, { audio: this.audio, play: (k) => this.sound.play(k) }); // [META] today's contracts, streak, next unlock (replaces the tagline)
     // commander badge (rank insignia + name) next to the title; opens the profile
     const cmdr = h('div', 'mm-cmdr', commanderBadge());
     cmdr.style.cssText = 'margin-bottom:1.3rem;animation:fadeUp .8s .05s var(--ease) both';
@@ -347,6 +360,7 @@ export class Menus {
     left.appendChild(h('div', 'mm-foot', `<span class="live"><i></i>Live battlefield feed</span><span>v${VERSION}</span>`));
 
     // ---- right column: skirmish setup
+    let vr: ReturnType<typeof rulesTabs> | null = null; // [VARIETY]
     const panel = h('div', 'menu-panel panel mm-panel');
     panel.appendChild(this.header('Operation setup', 'Skirmish'));
 
@@ -362,6 +376,7 @@ export class Menus {
         for (const x of fac.children) x.classList.remove('on');
         c.classList.add('on');
         document.body.classList.toggle('faction-soviet', f === 'soviet');
+        vr?.refresh(); // [VARIETY] doctrines and mutators depend on the side
         if (f === 'soviet' && prefs.color === TEAM_COLORS[0]) setColor(TEAM_COLORS[1]);
         if (f === 'allies' && prefs.color === TEAM_COLORS[1]) setColor(TEAM_COLORS[0]);
         this.audio.play('tab');
@@ -485,7 +500,7 @@ export class Menus {
       bf.appendChild(field('Weather', ICONS.rain, stepper<Weather>([
         ['auto', 'Auto', ICONS.auto], ['clear', 'Clear', ICONS.clear], ['rain', 'Rain', ICONS.rain], ['storm', 'Storm', ICONS.storm],
         ['snow', 'Snow', ICONS.snow], ['fog', 'Fog', ICONS.fog], ['dust', 'Dust', ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
-      bf.appendChild(buildup); // (here, across from Mode: it keeps both columns the same height)
+      // [VARIETY] build-up time and the game mode live in the Rules tab
     };
     const cond = h('div', 'mp-col');
     cond.appendChild(h('div', 'sec-title', '<span>Conditions</span>'));
@@ -493,8 +508,8 @@ export class Menus {
     cond.appendChild(field('Credits', ICONS.coin, seg<number>([[5000, '$5k'], [10000, '$10k'], [20000, '$20k']], prefs.credits, (v) => { prefs.credits = v; })));
     cond.appendChild(field('Start units', ICONS.vehicle, seg<'mcv' | 'light' | 'heavy'>([['mcv', 'MCV only'], ['light', 'Squad'], ['heavy', 'Company']], prefs.startUnits, (v) => { prefs.startUnits = v; })));
     // [MODES] game mode: classic, or King of the Hill (hold the centre for N minutes)
-    cond.appendChild(field('Mode', ICONS.flag, stepper<string>([['0', 'Classic', ICONS.target], ...KOTH_MINUTES.map((m): Opt<string> => [String(m), `King of the Hill · ${m} min`, ICONS.flag])],
-      String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; syncBuildup(); })));
+    const modeField = field('Mode', ICONS.flag, stepper<string>([['0', 'Annihilation', ICONS.target], ...KOTH_MINUTES.map((m): Opt<string> => [String(m), `King of the Hill · ${m} min`, ICONS.flag])],
+      String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; syncBuildup(); })); // [VARIETY] placed in the Rules tab
     // build-up time: a ceasefire at the start (the AI builds and only defends until it runs out)
     const buildup = field('Build-up time', ICONS.shield, stepper<string>(CEASEFIRE_CHOICES.map((m): Opt<string> => [String(m), m ? ceasefireLabel(m) : 'Off', m < 0 ? ICONS.shield : m ? ICONS.clock : ICONS.target]),
       String(prefs.ceasefire ?? 0), (v) => { prefs.ceasefire = +v || undefined; }), 'f-buildup');
@@ -514,7 +529,13 @@ export class Menus {
     tp(ICONS.eyeOff, 'Fog of war', prefs.fog, (v) => { prefs.fog = v; });
     cond.appendChild(toggles);
     grid.append(bf, cond);
-    panel.appendChild(grid);
+    // [VARIETY] "Battlefield | Rules" tabs: rules, doctrine, mode, build-up, events, dynamic difficulty, mutators
+    vr = rulesTabs(prefs, { seg, toggle, field, play: (k) => this.sound.play(k) }, {
+      grid, mode: modeField, buildup, faction: () => prefs.faction,
+      mutatorContext: () => ({ climate: (prefs.mapId ? getMapDef(prefs.mapId)?.climate : undefined) ?? prefs.climate, faction: prefs.faction }),
+      host: () => this.screen, setEsc: (fn) => { this.escAction = fn; },
+    });
+    panel.append(vr.tabs, grid, vr.rules);
     renderOpps();
     renderBf();
     renderMap();
@@ -535,12 +556,38 @@ export class Menus {
         customMap: def && isCustomMapId(def.id) ? JSON.parse(JSON.stringify(def)) : undefined, // [EDIT] saves / replays carry the map
         koth: prefs.koth ? true : undefined, kothMinutes: prefs.koth || undefined, // [MODES] King of the Hill
         ceasefire: prefs.koth ? undefined : prefs.ceasefire || undefined, // build-up time (classic skirmish only)
+        // [VARIETY] rules, mutators, battlefield events, dynamic difficulty
+        rules: prefs.rules === 'classic' ? 'classic' : 'commander',
+        mutators: prefs.mutators?.length ? [...prefs.mutators] : undefined,
+        events: prefs.rules === 'classic' ? undefined : prefs.events !== false,
+        dynamicDifficulty: prefs.dynamicDifficulty || undefined,
+        doctrines: prefs.rules !== 'classic' && prefs.doctrine ? [prefs.doctrine] : undefined, // [DOCTRINE] the player's pick (AIs choose their own)
       };
       try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
       this.cb.start(setup);
     };
     panel.appendChild(go);
     layout.append(left, panel);
+  }
+
+  /** [VARIETY] Quick Battle: roll a well-tuned random skirmish, show the roll on the loading screen, deploy. */
+  quickBattle() {
+    this.audio.unlock().catch(() => {});
+    const prefs = loadPrefs();
+    // the commander's saved doctrine for this side, else the side's first doctrine that is open from the start
+    const own = prefs.doctrine && DOCTRINES[prefs.doctrine]?.faction === prefs.faction ? prefs.doctrine : undefined;
+    const doctrine = own ?? doctrinesFor(prefs.faction).find((d) => doctrineUnlocked(d, 0))?.id ?? null;
+    this.cb.start(quickBattleSetup({ faction: prefs.faction, color: prefs.color, quality: this.settings.quality, doctrine })); // (main.ts shows the roll on the loading screen)
+  }
+
+  /**
+   * [VARIETY] "Play again" for the results screen: `same` = the same setup again (map, opponents, rules, mutators;
+   * a Quick Battle shows its roll again), otherwise a fresh map (a Quick Battle rolls a new one).
+   */
+  playAgain(setup: GameSetup, same = true) {
+    if (!same && setup.quick) { this.quickBattle(); return; }
+    if (!same) { this.cb.restart(true); return; }
+    this.cb.start({ ...setup, load: undefined, replay: undefined, branch: undefined, intro: false, quality: this.settings.quality });
   }
 
   /** Brief "Copied" style confirmation on a button. */
@@ -772,6 +819,7 @@ export class Menus {
         ['E', 'All combat units on the map'], ['W', 'All of the selected type(s) on screen'], ['Ctrl + A', 'All own units on screen'],
         ['I', 'Next idle unit (Shift: idle harvester)'], ['Ctrl + 1–9', 'Assign control group'], ['1–9', 'Recall group · double tap to jump'],
         ['Shift + 1–9', 'Add the selection to a group'], ['Ctrl + drag', 'Remove units from the selection'], ['Double-click structure', 'All of that structure on screen'],
+        ['`', 'Army overview: every type, idle, damaged, value · click selects'], ['Shift + E', 'All damaged units on the map'], // [ARMY]
       ]],
       ['Orders', ICONS.attackMove, [
         ['RMB', 'Move · attack · harvest · enter'], ['Shift + RMB', 'Queue waypoints'], ['Ctrl + RMB', 'Force fire'], ['Alt + RMB', 'Force move'],
@@ -781,12 +829,14 @@ export class Menus {
         ['P', 'Patrol: click the far end (Shift-click: more waypoints)'], ['C', 'Guard: click a unit to escort or a structure to defend'],
         ['RMB friendly unit', 'Escort it (follow and defend)'], ['L', 'Formation: auto · line · box · wedge (Shift: back)'],
         ['D', 'Chrono Tank: pick a chronoshift spot · demolition truck: detonate'],
+        ['Shift + R', 'Damaged vehicles queue at the service depot, then drive back'], // [ARMY]
       ]],
       ['Base', ICONS.building, [
         ['Z / R / P', 'Sell · repair · primary factory'], ['LMB', 'Sidebar: build (Shift ×5) · place'], ['RMB', 'Sidebar: hold / cancel'],
         ['RMB', 'Factory selected: set rally point · on a unit: new units join it'],
         ['Shift + LMB', 'Place, then plan more of the same'], ['LMB card (yard busy)', 'Plan a structure: built and placed in order when affordable'],
         ['Tab / B, 1–9', 'Modern layout: next build tab · build the card with that number'], // [HUD]
+        ['Alt + LMB', 'Sidebar: loop a unit (keeps training while you can pay) · RMB stops'], ['Ctrl + 1–9', 'Factory selected: its new units join that group'], // [ARMY]
       ]],
       ['Camera', ICONS.eye, [
         ['Arrows', 'Scroll (or touch the screen edge)'], ['MMB / RMB drag', 'Pan the battlefield'], ['Wheel', 'Zoom'],
@@ -799,11 +849,12 @@ export class Menus {
         ['Tap', 'Select · with a selection: move / attack / enter'], ['Double tap', 'All of that type on screen'], ['Drag', 'Pan (hold, then drag: box select)'],
         ['Hold', 'Order menu: stop, scatter, deploy, patrol, guard, stance, formation'], ['Two fingers', 'Pan · pinch to zoom · twist to rotate'],
         ['Toolbar', 'Box · Add · Attack · Force · Guard · Patrol · Stop · All'], ['Hold a card', 'Sidebar: hold / cancel'],
+        ['Card loop button', 'Loop a unit · army chip: army overview'], // [ARMY]
       ]],
       ['Gamepad', ICONS.gear, [
         ['Left stick', 'Cursor · right stick: camera · LT / RT: zoom'], ['A', 'Select (hold and move: box) · X: command'], ['B / Y', 'Cancel · deploy'],
         ['View', 'Order menu (stance, formation, patrol, guard…)'], ['LB / RB', 'Next idle unit · next group (hold: Shift / Ctrl)'],
-        ['D-pad', 'Sidebar: tabs and cards (A build, X hold / cancel)'], ['L3 / R3', 'All units on screen · base'], ['Start', 'Pause · menus: D-pad, A, B'],
+        ['D-pad', 'Sidebar: tabs and cards (A build, X hold / cancel, Y loop)'], ['L3 / R3', 'All units on screen · base'], ['Start', 'Pause · menus: D-pad, A, B'], // [ARMY] Y loop
       ]],
       ['Replays', ICONS.replay, [
         ['Space', 'Pause / play'], ['[ / ]', 'Slower · faster (1× – 8×)'], ['V', 'Next player view · observer'], ['Home', 'Restart the replay'],
@@ -889,66 +940,19 @@ export class Menus {
   // ---------------------------------------------------------------------------
   showEnd(game: Game, won: boolean) {
     const s = this.open(`sub-screen end-screen ${won ? 'win' : 'lose'}`);
-    const me = game.local;
-    const rating = rateCommander(game, won);
-    const title = won ? 'VICTORY' : 'DEFEAT';
-    s.innerHTML = `<div class="end-wash"></div><div class="end-rays"></div>`;
-    const wrap = h('div', 'end-wrap');
-    const foes = game.world.players.filter((o) => me.isEnemy(o));
-    wrap.innerHTML = `
-      <div class="end-kicker">${won ? 'Mission accomplished' : 'Mission failed'}</div>
-      <h1 class="end-title" data-text="${title}">${[...title].map((c, i) => `<span class="ltr" style="--i:${i}">${c}</span>`).join('')}</h1>
-      <div class="end-meta"><span>${ICONS.clock}${formatTime(game.world.time)}</span><span>${ICONS.map}${game.setup.mapId ? esc(getMapDef(game.setup.mapId)?.name ?? '') + ' · ' : ''}${game.world.map.w}×${game.world.map.h}</span><span>${ICONS.target}${foes.length} opponent${foes.length === 1 ? '' : 's'}</span>${mapCodeForSetup(game.setup) ? `<span class="end-code">${ICONS.copy}<code>${mapCodeForSetup(game.setup)}</code></span>` : ''}</div>`;
-    const body = h('div', 'end-body');
-    // medal / rank
-    const rank = h('div', 'end-rank panel', `<div class="er-medal">${medalSvg(rating.tier)}</div>
-      <div class="er-grade">${rating.grade}</div><div class="er-title">${rating.title}</div>
-      <div class="er-score"><small>Score</small><b data-count="${rating.score}">0</b></div>`);
-    // stats
-    const right = h('div', 'end-right');
-    const rows = game.world.players.map((p) => {
-      const kills = p.stats.unitsKilled + p.stats.buildingsKilled;
-      return `<tr class="${p === me ? 'me' : ''}${p.defeated ? ' dead' : ''}" style="--c:${hexColor(p.color)}">
-        <td><span class="pl"><i></i><span><b>${esc(p.name)}</b><small>${p.faction === 'soviet' ? 'Soviet' : 'Allied'}${p.defeated ? ' · eliminated' : p.team === game.world.winnerTeam ? ' · victor' : ''}</small></span></span></td>
-        <td data-count="${p.stats.unitsBuilt}">0</td><td data-count="${p.stats.unitsLost}">0</td><td data-count="${kills}">0</td>
-        <td data-count="${p.stats.buildingsLost}">0</td><td data-count="${Math.round(p.stats.harvested)}" data-prefix="$">$0</td></tr>`;
-    }).join('');
-    const table = h('table', 'stats-table');
-    table.innerHTML = `<thead><tr><th>Commander</th><th>Built</th><th>Lost</th><th>Kills</th><th>Structures lost</th><th>Harvested</th></tr></thead><tbody>${rows}</tbody>`;
-    right.appendChild(table);
-    const mvp = game.world.units.filter((u) => u.alive && u.owner === me && u.kills > 0).sort((a, b) => b.kills - a.kills || b.xp - a.xp)[0];
-    if (mvp) {
-      const img = game.thumbs.get(mvp.type.id);
-      right.appendChild(h('div', 'end-mvp', `<div class="mvp-tag">${ICONS.trophy}<span>MVP</span></div>
-        <div class="mvp-por">${img ? `<img src="${img}" alt="">` : ICONS.vehicle}<span class="mvp-rank">${rankBadge(mvp.rank)}</span></div>
-        <div class="mvp-info"><b>${esc(mvp.type.name)}</b><small>${['Rookie', 'Veteran', 'Elite'][mvp.rank]}</small></div>
-        <div class="mvp-stat"><b data-count="${mvp.kills}">0</b><small>kills</small></div>`));
-    } else {
-      right.appendChild(h('div', 'end-mvp none', `<div class="mvp-tag">${ICONS.trophy}<span>MVP</span></div><div class="mvp-info"><b>No surviving veterans</b><small>Every hero fell in the line of duty</small></div>`));
-    }
-    body.append(rank, right);
-    wrap.appendChild(body);
-    const btns = h('div', 'btn-row end-btns');
-    const again = h('button', 'btn-primary', `${ICONS.restart}<span>Play again</span>`);
-    again.onclick = () => { this.hide(); this.cb.restart(true); };
-    const watch = h('button', 'btn', `${ICONS.eye}<span>Keep watching</span>`);
-    watch.onclick = () => { this.hide(); this.cb.resume(); };
-    const quit = h('button', 'btn', `${ICONS.exit}<span>Main menu</span>`);
-    quit.onclick = () => { this.hide(); this.cb.quit(); };
-    btns.append(again, watch);
+    // [META] results screen (src/ui/results.ts): XP and rank-up, contracts, medals, next unlock, battle report, MVP,
+    // highlights, and a big "Play again" (same settings, new seed) next to "Rematch" (same seed) and "Menu"
     const rec = game.recorder;
-    if (rec) {
-      // the whole match from the start, from any player's view
-      const rb = h('button', 'btn', `${ICONS.replay}<span>Watch replay</span>`);
-      rb.onclick = () => { const data = rec.toData(); this.hide(); this.cb.start(playbackSetup(data, this.settings.quality)); };
-      btns.appendChild(rb);
-    }
-    btns.appendChild(quit);
-    wrap.appendChild(btns);
-    s.appendChild(wrap);
-    const codeEl = wrap.querySelector('.end-code') as HTMLElement | null;
-    if (codeEl) { codeEl.title = 'Copy the map code'; codeEl.onclick = () => { copyText(codeEl.textContent ?? ''); this.flashTip(codeEl, 'Copied'); }; }
-    setTimeout(() => countUp(wrap, 1300, 60), 900);
+    const setup = game.setup;
+    showResults(s, game, won, {
+      summary: game.metaSummary, report: game.report, rating: rateCommander(game, won), audio: this.audio,
+      playAgain: () => { this.hide(); this.playAgain(setup, false); }, // (a fresh map; [VARIETY] a Quick Battle rolls a new one)
+      rematch: !setup.mission && !setup.branch && !setup.challenge ? () => { this.hide(); this.cb.restart(); } : undefined,
+      watchReplay: rec ? () => { const data = rec.toData(); this.hide(); this.cb.start(playbackSetup(data, this.settings.quality)); } : undefined,
+      keepWatching: () => { this.hide(); this.cb.resume(); },
+      menu: () => { this.hide(); this.cb.quit(); },
+      copyCode: (code, el) => { copyText(code); this.flashTip(el, 'Copied'); },
+    });
   }
 }
 

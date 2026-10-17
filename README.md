@@ -51,6 +51,13 @@ optional. There is nothing to install and nothing to sign up for.
   - Conquest, a roguelite campaign across Europe.
   - A Daily Challenge, King of the Hill and co-op survival.
   - Branching replays you can take command of.
+- **Built to keep you playing.**
+  - In skirmish, Commander rules give you doctrines, command points and commander powers, plus
+    battlefield events, capturable oil derricks and 24 mutators.
+  - Between matches there are daily and weekly contracts and earned cosmetic unlocks (paint
+    schemes, portraits, titles, themes, announcer voices).
+  - A results screen with battle charts and a one-key *Play again*, and one-click *Quick Battle*.
+  - Pure Red Alert stays one click away with Classic rules.
 - **An AI that plays fair.** It sees only what its units see, scouts and counters your army.
   There are 11 commander personalities, and persistent rivals that remember how you play.
 - **HD models.** Texture-baked models for every structure and ground vehicle, with weathered
@@ -129,8 +136,31 @@ that matter:
 | **Challenges** | Turn any moment of a replay into a "can you win from here?" challenge file and share it. |
 | **Replays** | Every skirmish is recorded. Watch it from any player's view at 1–8× speed. You can rewind, take command of any side at any moment and play on: each takeover becomes a branch on the replay's timeline. |
 
-Progression runs across all modes: XP, 15 ranks per faction, 52 medals (some hidden) and lifetime
-statistics. The game autosaves, and you can save manually at any time.
+**Skirmish rules: Commander (default) or Classic.** Classic is pure Red Alert. Commander adds:
+- **Doctrines:** pick one before the match (for example Armoured Fist, Human Wave, Blitzkrieg or
+  Fortress Europe). Each has two bonuses and a drawback; more unlock with rank.
+- **Command points and commander powers:** points come from combat and objectives, with a
+  comeback bonus when you're behind. Spend them in a three-tier tree: Recon Sweep, Field Repair,
+  Artillery Barrage, Reinforcements, Sabotage, Tesla Storm, Aegis Shield and more. The AI uses
+  them too.
+- **Battlefield events** every few minutes: supply convoys to escort or ambush, airdrops, downed
+  pilots, mercenaries and ore surges. Neutral oil derricks, field hospitals and radar outposts
+  can be captured with engineers.
+- **Mutators:** 24 of them (Golden Ore, Tank Rush, Lightning War, Night Ops…), or *Surprise me*.
+  There's also an optional dynamic difficulty that keeps matches close.
+
+**Quick Battle** on the main menu rolls a tuned random match in one click.
+
+**Progression** runs across all modes:
+- XP, 15 ranks per faction, 52 medals (some hidden) and lifetime statistics.
+- **Contracts:** 3 daily and 3 weekly goals, rotating by date, that pay XP and Commendations.
+- **The Locker:** cosmetic unlocks earned by playing. Paint schemes, portraits, titles, banners,
+  HUD themes, announcer voices and victory fanfares. Nothing is for sale, and nothing affects
+  gameplay.
+- **The results screen** after every match: XP and contract progress, battle charts (army value,
+  income, kills), your MVP unit and highlights, the next unlock, and *Play again* or *Rematch*.
+
+The game autosaves, and you can save manually at any time.
 
 ## Features
 
@@ -253,6 +283,11 @@ statistics. The game autosaves, and you can save manually at any time.
 | Q · , · . · Backspace | Rotate camera · reset to north |
 | F · U · hold Alt | Follow the selection · photo mode · show all health bars |
 | `[` · `]` | Game speed down · up (×1, ×2, ×3, ×5) |
+| Alt+click a unit card | Loop production of that unit (right click stops it) |
+| `` ` `` | Army overview: your army by type (click to select a type) |
+| Shift+E · Shift+R | Select damaged units · send them to the nearest service depot |
+| Ctrl+Alt+1–9 | New units from the selected factory join that control group |
+| T, then 1–9 | Commander powers (Commander rules) |
 | Alt+Enter · Esc | Fullscreen on/off · cancel or pause menu |
 | Sidebar | Left click: build (Shift: ×5) or place · right click: hold / cancel · Shift+place: plan several structures |
 | Touch | Tap: select or command · drag: pan · hold then drag: box select · hold: order menu · pinch: zoom · twist: rotate |

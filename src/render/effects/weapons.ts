@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type { FxContext } from './context';
 import { count } from './context';
-import { F, R } from './textures';
+import { F, R, D } from './textures';
 import { M } from './particles';
 import { BM, BS } from './beams';
 import { rnd, range, spread, randDir, irand } from './rand';
@@ -12,6 +12,7 @@ import { flash, star, sparks, smoke, embers, smokeFrame } from './blocks';
 
 const TAU = Math.PI * 2;
 const tmpColor = new THREE.Color();
+const TESLA_LINGER = { attack: 0.02, flicker: 0.6, priority: 1.2 }; // [JUICE]
 
 export function muzzleFlash(ctx: FxContext, px: number, py: number, pz: number, dx: number, dy: number, dz: number, size: number): void {
   const l = Math.hypot(dx, dy, dz) || 1;
@@ -49,7 +50,7 @@ export function muzzleFlash(ctx: FxContext, px: number, py: number, pz: number, 
   ctx.main.emit(m);
 }
 
-export function tracer(ctx: FxContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number, color?: number): void {
+export function tracer(ctx: FxContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number, color?: number, delay = 0, bright = 1): void {
   const L = Math.hypot(bx - ax, by - ay, bz - az);
   if (L < 0.02) return;
   const streak = Math.min(0.7, Math.max(0.12, 0.9 / L));
@@ -64,14 +65,27 @@ export function tracer(ctx: FxContext, ax: number, ay: number, az: number, bx: n
   for (let layer = 0; layer < 2; layer++) {
     const s = bb.begin();
     s.from(ax, ay, az).to(bx, by, bz);
+    s.tA = s.tB = delay; // [JUICE] bursts stagger their rounds
     s.life = life;
     s.mode = BM.TRACER;
     s.style = BS.GLOW;
     s.extra = streak;
     s.ramp = R.WHITE;
-    if (layer === 0) s.width(0.022).color(r * 7, g * 7, b * 7, 1);
-    else s.width(0.11).color(r * 1.1, g * 1.1, b * 1.1, 0.55);
+    if (layer === 0) s.width(0.022 * bright).color(r * 7 * bright, g * 7 * bright, b * 7 * bright, 1);
+    else s.width(0.11 * bright).color(r * 1.1, g * 1.1, b * 1.1, 0.55);
     bb.emit(s);
+  }
+}
+
+/**
+ * [JUICE] Machine-gun burst: the main tracer plus `n` follow-up rounds a few tens of ms apart, each landing
+ * a little off the aim point (the sim fires one shot per report; the burst is purely visual).
+ */
+export function tracerBurst(ctx: FxContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number, n: number, color?: number): void {
+  const L = Math.hypot(bx - ax, by - ay, bz - az);
+  const j = Math.min(0.22, 0.03 + L * 0.012);
+  for (let i = 1; i <= n; i++) {
+    tracer(ctx, ax, ay, az, bx + spread(j), by + spread(j * 0.5), bz + spread(j), color, i * range(0.05, 0.075), range(0.75, 1));
   }
 }
 
@@ -79,7 +93,8 @@ export function tracer(ctx: FxContext, ax: number, ay: number, az: number, bx: n
 // Tesla bolt: jagged branching lightning, re-randomised several times (pre-scheduled with delays).
 
 const BOLT_N = 16;
-const pts = new Float32Array((BOLT_N + 1) * 3);
+const BOLT_N_RICH = 28; // [JUICE] finer, more jagged main channel
+const pts = new Float32Array((BOLT_N_RICH + 1) * 3);
 const bpts = new Float32Array(6 * 3);
 
 function displace(i0: number, i1: number, mag: number, dx: number, dy: number, dz: number): void {
@@ -97,8 +112,15 @@ function displace(i0: number, i1: number, mag: number, dx: number, dy: number, d
   displace(mid, i1, mag * 0.55, dx, dy, dz);
 }
 
+/** [JUICE] Bolt thickness multiplier (1 = the original look; the director sets 1.5 on medium / high). */
+let BOLT_W = 1;
+export function setTeslaStyle(width: number): void {
+  BOLT_W = width;
+}
+
 function boltSeg(ctx: FxContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number, t0: number, life: number, thin: number): void {
   const b = ctx.beams;
+  const W = BOLT_W;
   // core
   let s = b.begin();
   s.from(ax, ay, az).to(bx, by, bz);
@@ -106,7 +128,7 @@ function boltSeg(ctx: FxContext, ax: number, ay: number, az: number, bx: number,
   s.life = life;
   s.mode = BM.BOLT;
   s.style = BS.GLOW;
-  s.width(0.032 * thin).color(6, 7.5, 11, 1);
+  s.width(0.032 * thin * W).color(6, 7.5, 11, 1);
   b.emit(s);
   // glow
   s = b.begin();
@@ -115,8 +137,31 @@ function boltSeg(ctx: FxContext, ax: number, ay: number, az: number, bx: number,
   s.life = life;
   s.mode = BM.BOLT;
   s.style = BS.GLOW;
-  s.width(0.17 * thin).color(0.45, 0.7, 2.2, 0.7);
+  s.width(0.17 * thin * W).color(0.45, 0.7, 2.2, 0.7);
   b.emit(s);
+}
+
+/** [JUICE] Lingering afterglow of the final strike path: a fading violet-blue ghost of the bolt and ionised haze. */
+function boltAfterglow(ctx: FxContext, n: number): void {
+  const b = ctx.beams;
+  for (let i = 0; i < n; i++) {
+    const o = i * 3;
+    const s = b.begin();
+    s.from(pts[o], pts[o + 1], pts[o + 2]).to(pts[o + 3], pts[o + 4], pts[o + 5]);
+    s.tA = s.tB = 0.24;
+    s.life = 0.6;
+    s.mode = BM.BOLT;
+    s.style = BS.GLOW;
+    s.width(0.2 * BOLT_W).color(0.35, 0.45, 1.9, 0.5);
+    b.emit(s);
+    if (i % 3 !== 1) continue;
+    const g = ctx.glow.begin();
+    g.at(pts[o], pts[o + 1], pts[o + 2]).vel(spread(0.05), 0.12, spread(0.05)).motion(range(0.55, 0.8), 0, 1)
+      .size(0.3 * BOLT_W, 0.5 * BOLT_W).color(0.35, 0.55, 1.6, 0.35).look(F.GLOW, R.WHITE).fade(0.1, 0.6);
+    g.push = 0.3;
+    g.delay = 0.22;
+    ctx.glow.emit(g);
+  }
 }
 
 export function teslaBolt(ctx: FxContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number): void {
@@ -124,27 +169,30 @@ export function teslaBolt(ctx: FxContext, ax: number, ay: number, az: number, bx
   if (L < 0.02) return;
   const dx = (bx - ax) / L, dy = (by - ay) / L, dz = (bz - az) / L;
   const flickers = 5;
+  const rich = BOLT_W > 1; // [JUICE]
+  const NB = rich ? BOLT_N_RICH : BOLT_N;
   for (let f = 0; f < flickers; f++) {
     const t0 = f * 0.055;
-    const life = f === flickers - 1 ? 0.14 : 0.075;
+    const life = f === flickers - 1 ? (rich ? 0.2 : 0.14) : rich ? 0.085 : 0.075;
     pts[0] = ax; pts[1] = ay; pts[2] = az;
-    pts[BOLT_N * 3] = bx; pts[BOLT_N * 3 + 1] = by; pts[BOLT_N * 3 + 2] = bz;
-    displace(0, BOLT_N, L * 0.22, dx, dy, dz);
-    for (let i = 0; i < BOLT_N; i++) {
+    pts[NB * 3] = bx; pts[NB * 3 + 1] = by; pts[NB * 3 + 2] = bz;
+    displace(0, NB, L * (rich ? 0.2 : 0.22), dx, dy, dz);
+    for (let i = 0; i < NB; i++) {
       const o = i * 3;
       boltSeg(ctx, pts[o], pts[o + 1], pts[o + 2], pts[o + 3], pts[o + 4], pts[o + 5], t0, life, 1);
     }
-    // branches
-    const nb = 1 + irand(3);
+    // branches ([JUICE] richer: more of them, and some fork again)
+    const nb = rich ? 2 + irand(3) : 1 + irand(3);
     for (let k = 0; k < nb; k++) {
-      const i = 2 + irand(BOLT_N - 5);
+      const i = 2 + irand(NB - 5);
       let px = pts[i * 3], py = pts[i * 3 + 1], pz = pts[i * 3 + 2];
       const d = randDir();
       let bdx = dx + d.x * 0.9, bdy = dy + d.y * 0.9, bdz = dz + d.z * 0.9;
       const bl = Math.hypot(bdx, bdy, bdz) || 1;
       bdx /= bl; bdy /= bl; bdz /= bl;
-      const len = L * range(0.12, 0.28);
+      const len = L * range(0.12, 0.28) * (rich ? 1.25 : 1);
       const segs = 4;
+      const fork = rich && rnd() < 0.6 ? 2 : -1;
       bpts[0] = px; bpts[1] = py; bpts[2] = pz;
       for (let j = 1; j <= segs; j++) {
         const step = len / segs;
@@ -153,8 +201,34 @@ export function teslaBolt(ctx: FxContext, ax: number, ay: number, az: number, bx
         pz += bdz * step + spread(step * 0.6);
         boltSeg(ctx, bpts[0], bpts[1], bpts[2], px, py, pz, t0, life, 0.6 - j * 0.08);
         bpts[0] = px; bpts[1] = py; bpts[2] = pz;
+        if (j === fork) {
+          // sub-branch splitting off sideways
+          const e = randDir();
+          let fx = px, fy = py, fz = pz;
+          for (let q = 1; q <= 3; q++) {
+            const st = len * 0.18;
+            const nx = fx + (bdx + e.x) * st * 0.6 + spread(st * 0.5);
+            const ny = fy + (bdy + e.y) * st * 0.6 + spread(st * 0.5);
+            const nz = fz + (bdz + e.z) * st * 0.6 + spread(st * 0.5);
+            boltSeg(ctx, fx, fy, fz, nx, ny, nz, t0, life, 0.38 - q * 0.06);
+            fx = nx; fy = ny; fz = nz;
+          }
+        }
       }
     }
+    if (rich && f === flickers - 1) boltAfterglow(ctx, NB);
+  }
+  if (rich) {
+    // [JUICE] scorched, ionised ground and a lingering blue glow where it struck
+    const gy = ctx.getHeight(bx, bz);
+    if (by - gy < 0.8) {
+      const r = ctx.glow.begin();
+      r.at(bx, gy + 0.05, bz).motion(0.7).size(0.4, 1.6, 2).spin(rnd() * TAU).color(0.6, 0.9, 2.6, 0.55).look(F.GLOW, R.WHITE, M.FLAT).fade(0.02, 0.5);
+      r.push = 0;
+      ctx.glow.emit(r);
+      if (!ctx.isWater(bx, bz)) ctx.decals.add(bx, bz, range(0.45, 0.7), rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B, 0.6, range(20, 30), rnd() * TAU);
+    }
+    ctx.dyn?.add(bx, by + 0.5, bz, 0x7f9cff, 7, 4.5, 0.75, TESLA_LINGER);
   }
   // glow at source and target + sparks at target
   const g = ctx.glow.begin();

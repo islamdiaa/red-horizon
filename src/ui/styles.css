@@ -1100,12 +1100,15 @@ body.hide-fps .tb-fps { display: none; }
   .tb-obj .obj-txt { display: none; }
 }
 body.reduce-motion .radar-sweep, body.reduce-motion .bi-shine, body.reduce-motion .sw-shine, body.reduce-motion .end-rays { display: none !important; }
+/* Zero-length (not 1 ms): state changes apply at once instead of depending on the animation clock ticking,
+   so a panel shown via a visibility/opacity transition can never get stuck hidden. No code relies on
+   transitionend / animationend. */
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after {
-  animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: 1ms !important;
+  animation-duration: 0s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: 0s !important; transition-delay: 0s !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .radar-sweep, .bi-shine, .sw-shine, .end-rays { display: none !important; }
-  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+  *, *::before, *::after { animation-duration: 0s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: 0s !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
 }
 
 /* =============================================================================

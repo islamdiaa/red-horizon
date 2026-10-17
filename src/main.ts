@@ -28,6 +28,9 @@ import { customMissionSetup, initEditorStore } from './editor/store'; // [EDIT]
 import { activeModSet, showModBadge, showMods } from './mods'; // [EDIT] mods
 import { attachModes, modesOnEnd, offerMoments, setModeHost } from './modes/ui'; // [MODES] KOTH, challenges, branches, co-op
 import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conquest'; // [CONQ]
+import { attachVariety } from './ui/variety-hud'; // [VARIETY]
+import { showQuickCard } from './ui/variety'; // [VARIETY]
+import './ui/doctrine-picker'; // [DOCTRINE] registers the doctrine picker in the skirmish Rules tab
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -77,7 +80,7 @@ const menus = new Menus(audio, {
   start: (setup) => void startGame(setup),
   resume: () => game?.resume(),
   // same map, same opponents, from the beginning (a loaded game restarts its map from scratch)
-  restart: (newMap) => { if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap && !lastSetup.branch && !lastSetup.challenge ? { seed: (Math.random() * 1e9) | 0 } : {}) }); }, // [MODES] a branch / challenge restarts from its moment
+  restart: (newMap) => { if (newMap && lastSetup?.quick && !lastSetup.replay) { menus.quickBattle(); return; } /* [VARIETY] "Play again" after a Quick Battle rolls a new one */ if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap && !lastSetup.branch && !lastSetup.challenge ? { seed: (Math.random() * 1e9) | 0 } : {}) }); }, // [MODES] a branch / challenge restarts from its moment
   quit: () => { if (game?.setup.conquest && !game.world.gameOver) game.save('auto'); /* [CONQ] the campaign can resume this battle */ if (applyUpdate) return applyUpdate(); audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); }, // [EDIT] playtests return to the editor
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
@@ -233,6 +236,7 @@ async function startGame(setup: GameSetup) {
   if (menus.settings.fullscreen !== false && !params.get('autostart')) void enterFullscreen();
   menus.hide();
   setLoading(0, 'Initialising');
+  if (setup.quick && !setup.load && !setup.replay) showQuickCard(setup.quick); // [VARIETY] what the Quick Battle rolled
   await nextFrame();
   game?.dispose();
   game = null;
@@ -275,6 +279,7 @@ async function startGame(setup: GameSetup) {
     // [D] watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
     if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
     attachModes(game); // [MODES] KOTH HUD, branch / challenge badge, moment tracking
+    attachVariety(game); // [VARIETY] mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
     game.start();
   } catch (e) {
     reportError(e, true);
@@ -359,6 +364,10 @@ if (params.get('autostart') && params.get('conquest')) {
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: numParam('seed', 1234, 0, 0x7fffffff) | 0,
     dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate', mission: params.get('mission') ?? undefined,
     ceasefire: params.get('ceasefire') === 'inf' ? -1 : numParam('ceasefire', 0, 0, 600) || undefined, // build-up time
+    // [DOCTRINE] &rules=commander[&doctrine=<id>]: Commander rules (doctrines, command points, commander powers)
+    ...(params.get('rules') === 'commander' ? { rules: 'commander' as const, doctrines: [params.get('doctrine')] } : {}),
+    // [VARIETY] &mut=<id,id>: mutators · &events=0: no battlefield events · &dyn=1: dynamic difficulty
+    ...(params.get('mut') ? { mutators: params.get('mut')!.split(',').slice(0, 8) } : {}), ...(params.get('events') === '0' ? { events: false } : {}), ...(params.get('dyn') === '1' ? { dynamicDifficulty: true } : {}),
   }).then(startGame);
 } else {
   setLoading(0.5, 'Loading');

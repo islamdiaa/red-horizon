@@ -74,10 +74,11 @@ export abstract class Entity {
   }
 
   get maxHp(): number {
-    return this.type.strength;
+    const c = this.owner.cmd; // [DOCTRINE] doctrine health (Commander rules only)
+    return c ? this.type.strength * (c.rules?.hp[this.type.id] ?? 1) : this.type.strength;
   }
   get healthFrac(): number {
-    return this.hp / this.type.strength;
+    return this.hp / this.maxHp; // [DOCTRINE] (was type.strength: identical under Classic rules)
   }
   isBuilding(): this is Building {
     return this.kind === 'building';

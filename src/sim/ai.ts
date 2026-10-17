@@ -15,6 +15,8 @@ import { bestFitness, counterWeights } from './ai-counter';
 import { DEFAULT_TUNING, resolvePersonality, trait, type AITuning, type Personality } from './ai-personality';
 import { expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
 import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
+import { commanderAI } from './ai-commander'; // [DOCTRINE]
+import { doctrineDefences, doctrinePrefer } from './doctrine'; // [DOCTRINE]
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
@@ -254,6 +256,7 @@ export class AIController {
     this.airStrikes();
     this.superweapons();
     contentAI(this);
+    if (this.world.commander) commanderAI(this); // [DOCTRINE] commander powers (Commander rules only)
     aftermathAI(this); // [CONTENT] builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
     if (this.chatter.length > 40) this.chatter.splice(0, this.chatter.length - 40);
   }
@@ -395,7 +398,7 @@ export class AIController {
   }
 
   private defenceCap(): number {
-    return this.d.defenses + Math.round((this.personality.defence - 0.5) * 8) + (this.world.time > 900 ? 2 : 0);
+    return this.d.defenses + Math.round((this.personality.defence - 0.5) * 8) + (this.world.time > 900 ? 2 : 0) + (this.p.cmd ? doctrineDefences(this.p) : 0); // [DOCTRINE]
   }
 
   private allowed(t: string): boolean {
@@ -576,6 +579,7 @@ export class AIController {
     const pers = this.personality;
     const out: [string, number][] = base.map(([t, w]) => {
       let m = pers.prefer?.[t] ?? 1;
+      if (this.p.cmd) m *= doctrinePrefer(this.p, t); // [DOCTRINE] lean into the doctrine
       if (ARTILLERY.has(t)) m *= trait(pers.artillery, 0.25, 3);
       if (t === '4tnk' || t === 'e7') m *= trait(pers.tech, 0.5, 1.6);
       if (FAST_RAIDERS.has(t)) m *= trait(pers.harass, 0.8, 1.5);

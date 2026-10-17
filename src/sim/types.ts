@@ -73,7 +73,15 @@ export type Command =
    * places each at its cell. mode 'append' (default) adds items, 'replace' sets the plan (items [] = clear),
    * 'remove' drops the listed items (matched by type and cell).
    */
-  | { c: 'queuePlan'; player: number; items: PlanItem[]; mode?: 'append' | 'replace' | 'remove' };
+  | { c: 'queuePlan'; player: number; items: PlanItem[]; mode?: 'append' | 'replace' | 'remove' }
+  /** [ARMY] Repeat production: `type` keeps being built from `building`'s queue while money allows (sim/repeat.ts). */
+  | { c: 'repeat'; player: number; building: number; type: string; on: boolean }
+  /** [DOCTRINE] Use an unlocked commander power (sim/commander.ts): at a map point, or on a `target` entity (Sabotage). */
+  | { c: 'commanderPower'; player: number; power: string; x?: number; y?: number; target?: number }
+  /** [DOCTRINE] Spend command points to unlock a power of the commander tree (sim/commander.ts). */
+  | { c: 'unlockPower'; player: number; power: string }
+  /** [VARIETY] Answer a battlefield event (sim/events.ts): hire the mercenaries on offer (event = its id). */
+  | { c: 'battleEvent'; player: number; event: number; act: 'hire' };
 
 /** How a unit picks fights: chase anything seen / engage in range and return (default) / never move / never fire unprompted. */
 export type Stance = 'aggressive' | 'guard' | 'hold' | 'passive';
@@ -104,4 +112,12 @@ export type GameEvent =
   /** [CONTENT] One seismic pulse of a deployed M.A.D. Tank (unit `id`), `pulse` of `pulses`, hitting everything within `radius` (aftermath.ts). */
   | { e: 'quake'; id: number; x: number; y: number; radius: number; pulse: number; pulses: number }
   /** Support power effects for the renderer: GPS launch (map reveal), sonar pulse, spy-plane photo, paradrop. */
-  | { e: 'power'; kind: 'gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs'; player: number; x: number; y: number };
+  | { e: 'power'; kind: 'gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs'; player: number; x: number; y: number }
+  /** [ARMY] A factory finished a unit: `id` left `building` (the factory it came out of). */
+  | { e: 'produced'; id: number; building: number; player: number }
+  /**
+   * [DOCTRINE] Commander rules (sim/commander.ts): a power was unlocked / cast, an offensive power's target area is
+   * announced to everybody ('warn'), a Tesla Storm bolt struck, reinforcements arrived, command points reached a
+   * new whole number (`amount`) or the commander a new level (`amount`). x / y = -1 when there is no place.
+   */
+  | { e: 'commander'; stage: 'unlock' | 'cast' | 'warn' | 'bolt' | 'arrive' | 'points' | 'level'; player: number; power: string; x: number; y: number; r?: number; amount?: number };

@@ -20,6 +20,7 @@ import { DEFENSE_BUILDERS } from './defenses';
 import { NAVAL_BUILDERS } from './naval';
 import { SUPPORT_BUILDERS } from './support';
 import { AFTERMATH_BUILDERS } from './aftermath';
+import { NEUTRAL_BUILDERS } from './neutral'; // [VARIETY] neutral tech structures, supply truck
 import { createProjectile } from './projectiles';
 import { hdModelsEnabled, hdWrap, holdHd, preloadHdModels, requestHd } from './hd'; // [HD]
 
@@ -36,6 +37,7 @@ const BUILDERS: Record<string, (fac: ModelFaction) => ModelTemplate> = {
   ...SUPPORT_BUILDERS,
   ...AFTERMATH_BUILDERS,
   ...STRUCTURE_BUILDERS, // [STRUCT] last: the naval yards are structures too
+  ...NEUTRAL_BUILDERS, // [VARIETY]
 };
 
 /**

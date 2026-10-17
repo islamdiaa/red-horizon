@@ -61,6 +61,13 @@ export const ANNOUNCER_TEXT: Record<AnnouncerKey, string> = {
   chrono_tank_charged: 'Chrono tank charged.',
   ceasefire_warning: 'Warning. Enemy forces are mobilising.',
   ceasefire_over: 'The ceasefire is over.',
+  // [JUICE]
+  armour_neutralised: 'Enemy armour neutralised.',
+  base_heavy_attack: 'Our base is under heavy attack!',
+  sector_victorious: 'Our forces are victorious in the sector.',
+  enemy_base_destroyed: 'Enemy base destroyed.',
+  superweapon_online: 'Superweapon online.',
+  heavy_armour_ready: 'Heavy armour ready for deployment.',
 };
 
 /** Minimum ms between two announcements of the same key. */
@@ -79,6 +86,11 @@ export const ANNOUNCER_THROTTLE: Partial<Record<AnnouncerKey, number>> = {
   mine_detected: 15000,
   mines_laid: 10000,
   radar_jammed: 15000,
+  // [JUICE] the director throttles these itself too (per moment and between moments)
+  armour_neutralised: 45000,
+  base_heavy_attack: 60000,
+  sector_victorious: 90000,
+  enemy_base_destroyed: 20000,
 };
 export const DEFAULT_THROTTLE = 4000;
 
@@ -88,6 +100,7 @@ export const ANNOUNCER_PRIORITY: Partial<Record<AnnouncerKey, number>> = {
   nuke_ready: 6, iron_curtain_ready: 6, chrono_ready: 6, harvester_under_attack: 5, structure_lost: 4,
   mission_start: 4, building_captured: 4, low_power: 3, construction_complete: 3, unit_ready: 3,
   unit_promoted: 2,
+  base_heavy_attack: 7, enemy_base_destroyed: 6, sector_victorious: 5, armour_neutralised: 4, superweapon_online: 5, heavy_armour_ready: 3, // [JUICE]
 };
 
 type Lines = Record<ResponseKind, string[]>;

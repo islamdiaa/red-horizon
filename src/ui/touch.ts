@@ -18,6 +18,7 @@ import type { Command, FormationShape, Stance } from '../sim/types';
 import { canCarry } from '../sim/naval';
 import { CTRL_ICONS, FORMATION_INFO, RadialMenu, type RadialItem } from './orderui';
 import type { InputController, InputHost, PtrLike } from './input';
+import { armyTools } from './army'; // [ARMY]
 
 /** A touch-first device (coarse pointer, or touch without hover). */
 export function isTouchDevice(): boolean {
@@ -410,6 +411,7 @@ export function orderMenu(inp: InputController, issue: (c: Command) => void, gx:
   } else {
     items.push({ id: 'all', label: 'All units', icon: CTRL_ICONS.all, key: 'E', run: () => inp.keyCommand('e', true) });
     items.push({ id: 'idle', label: 'Idle unit', icon: CTRL_ICONS.add, key: 'I', run: () => inp.cycleIdle(false) });
+    items.push({ id: 'army', label: 'Army', icon: CTRL_ICONS.all, key: '`', run: () => armyTools()?.toggle() }); // [ARMY] army overview
     items.push({ id: 'base', label: 'Base', icon: CTRL_ICONS.home, key: 'H', run: () => inp.keyCommand('h', true) });
     items.push({ id: 'alert', label: 'Last attack', icon: CTRL_ICONS.force, key: 'Space', run: () => inp.keyCommand(' ', true) });
   }

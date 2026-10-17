@@ -11,6 +11,8 @@ import type { Projectile } from './combat';
 import type { World } from './world';
 import type { MissionRuntime } from './mission';
 import { newCtrlState } from './formation'; // [CTRL]
+import { loadCommander, saveCommander } from './commander'; // [DOCTRINE]
+import { loadVariety, neutralOwner, saveVariety } from './events'; // [VARIETY]
 
 export const SAVE_VERSION = 1;
 
@@ -95,6 +97,8 @@ export function serializeWorld(w: World): Json {
     ceasefireUntil: w.ceasefireUntil, // build-up time (ceasefire.ts)
     bridges: w.bridges.map((b) => ({ id: b.id, hp: b.hp, alive: b.alive })),
     ctrl: w.ctrl, // [CTRL] formations in transit
+    commander: w.commander ? saveCommander(w.commander) : undefined, // [DOCTRINE] Commander rules (absent = Classic)
+    variety: w.variety ? saveVariety(w) : undefined, // [VARIETY] mutators, events, tech structures (absent = none)
     pathQueue: W.pathQueue.map((u: Unit) => u.id),
     // commands issued after the last step (AI thinks at the end of a tick) run at the start of the next one
     commands: W.commands,
@@ -145,7 +149,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   const byId = new Map<number, Entity>();
   for (const es of s.entities as Json[]) {
     let e: Entity;
-    const owner = w.players[es.owner];
+    const owner = es.owner < 0 ? neutralOwner(w, s.variety) : w.players[es.owner]; // [VARIETY] neutral structures / event units
     if (es.cls === 'B') {
       e = new Building(es.id, BUILDINGS[es.type], owner, es.cx, es.cy);
     } else {
@@ -223,6 +227,8 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     r.onceKeys = new Set(s.mission.onceKeys); r.everyT = new Map(s.mission.everyT); r.timers = new Map(s.mission.timers);
     mission.events.length = 0;
   }
+  loadCommander(w, s.commander, s.projectiles); // [DOCTRINE] Commander rules state (none in Classic saves)
+  if (s.variety || w.variety) loadVariety(w, s.variety); // [VARIETY] after the AI restored its economy (none in older saves)
   for (const p of w.players) w.updateVisibility(p);
 }
 

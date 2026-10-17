@@ -27,12 +27,15 @@ import { STINGER_INFO, StingerEngine } from './stingers';
 import {
   ANNOUNCER_PRIORITY, ANNOUNCER_TEXT, ANNOUNCER_THROTTLE, DEFAULT_THROTTLE, RESPONSE_LINES, Speech, VOICE_PARAMS,
 } from './speech';
+import { DUCK_HOLD, DUCK_LEVEL, SMALL_ARMS_CAP, VOICE_BUDGET, ducksSmallArms, isSmallArms, newMixStats, pickVictim, sfxTier, type MixStats } from './mixer'; // [JUICE]
+import { JUICE } from '../render/effects/juiceflags'; // [JUICE]
 
 export type { AmbienceState, AnnouncerKey, AudioApi, AudioVolumes, ResponseKind, SfxKey, StingerKind, VoiceKind, WeatherKind } from './types';
+export type { MixStats } from './mixer'; // [JUICE]
 
 const STORAGE_KEY = 'rh.audio.volumes';
 const DEFAULT_VOLUMES: AudioVolumes = { master: 0.85, sfx: 0.9, music: 0.6, voice: 0.9, ambience: 0.7 };
-const MAX_VOICES = 40;
+const MAX_VOICES = VOICE_BUDGET; // [JUICE] (was 40)
 const MAX_PER_KEY = 4;
 const MERGE_WINDOW = 0.03; // s
 const PITCH_VARIATION = 0.05;
@@ -43,6 +46,20 @@ const STEADY = new Set<AnyKey>(['click', 'hover', 'tab', 'error', 'ready_ping', 
 /** Slider value (0..1) → linear gain. Squared curve ≈ perceptually even steps. */
 const curve = (v: number): number => v * v;
 
+/**
+ * [JUICE] Announcer voice preset (cosmetic announcer styles, meta/cosmetics.ts). Fields are read each time an
+ * announcement is spoken, so a preset object may change underneath (getters work). Missing / invalid fields
+ * fall back to the default announcer: female voice, pitch 0.92, rate 1.04, full volume.
+ */
+export interface AnnouncerVoice {
+  /** 'male' | 'female' (default 'female'); a voice-name fragment ('Daniel', 'en-GB') is matched when present. */
+  voiceHint?: string;
+  pitch?: number;
+  rate?: number;
+  /** 0..1 multiplier on the voice volume. */
+  volume?: number;
+}
+
 interface Voice {
   key: AnyKey;
   src: AudioBufferSourceNode;
@@ -52,6 +69,9 @@ interface Voice {
   end: number;
   vol: number;
   stopping: boolean;
+  /** [JUICE] mix priority tier (mixer.ts) and small-arms category. */
+  tier: number;
+  small: boolean;
 }
 
 function reportError(e: unknown): void {
@@ -73,6 +93,16 @@ export class AudioSystem implements AudioApi {
   private musicIn: GainNode | null = null;
   private world: BiquadFilterNode | null = null;
   private sfxVerb: GainNode | null = null;
+  // [JUICE] small-arms sub-bus (ducked under big guns), the explosion "thump" low-pass + dip, mix stats
+  private smallBus: GainNode | null = null;
+  private thumpLp: BiquadFilterNode | null = null;
+  private thumpGain: GainNode | null = null;
+  private duckUntil = 0;
+  private lastThump = 0;
+  private clashBoost = 0;
+  private heatIntensity = 0;
+  /** [JUICE] Live mix diagnostics (voice counts, drops, steals, ducks). */
+  readonly mixStats: MixStats = newMixStats();
   private scape: Soundscape | null = null;
   private pendingAmb: Partial<AmbienceState> | null = null;
   private stingers: StingerEngine | null = null;
@@ -105,6 +135,7 @@ export class AudioSystem implements AudioApi {
   private annLast = new Map<AnnouncerKey, number>();
   private lastResponseAt = -Infinity;
   private lastLine = new Map<string, string>();
+  private annVoice: AnnouncerVoice | null = null; // [JUICE]
 
   constructor() {
     this.vol = { ...DEFAULT_VOLUMES };
@@ -189,15 +220,25 @@ export class AudioSystem implements AudioApi {
     limiter.connect(ctx.destination);
     const mk = (v: number, to: AudioNode) => { const g = ctx.createGain(); g.gain.value = v; g.connect(to); return g; };
     this.master = mk(curve(this.vol.master), limiter);
+    // [JUICE] big nearby blasts briefly low-pass and dip everything diegetic + the score ("ears ringing" thump)
+    const thumpLp = ctx.createBiquadFilter();
+    thumpLp.type = 'lowpass';
+    thumpLp.frequency.value = 20000;
+    thumpLp.Q.value = 0.5;
+    const thumpGain = mk(1, this.master);
+    thumpLp.connect(thumpGain);
+    this.thumpLp = thumpLp;
+    this.thumpGain = thumpGain;
     // "world" = everything diegetic (sfx, ambience, env reverb); snow / fog dull its highs a little
     const world = ctx.createBiquadFilter();
     world.type = 'highshelf';
     world.frequency.value = 3200;
     world.gain.value = 0;
-    world.connect(this.master);
+    world.connect(thumpLp);
     this.world = world;
     this.sfxBus = mk(curve(this.vol.sfx), world);
-    this.musicBus = mk(curve(this.vol.music), this.master);
+    this.smallBus = mk(1, this.sfxBus); // [JUICE]
+    this.musicBus = mk(curve(this.vol.music), thumpLp);
     this.musicIn = mk(1, this.musicBus);
     this.voiceBus = mk(curve(this.vol.voice), this.master);
     try {
@@ -227,15 +268,17 @@ export class AudioSystem implements AudioApi {
     this.hasListener = true;
   }
 
-  play(key: SfxKey, pos?: { x: number; y: number }, opts?: { volume?: number; pitch?: number }): void {
+  /** `delay` [JUICE]: start this many seconds from now (layered kill sounds, cook-off pops). */
+  play(key: SfxKey, pos?: { x: number; y: number }, opts?: { volume?: number; pitch?: number; delay?: number }): void {
     try {
-      this.playKey(key, this.sfxBus, pos, opts?.volume ?? 1, opts?.pitch ?? 1);
+      this.playKey(key, this.sfxBus, pos, opts?.volume ?? 1, opts?.pitch ?? 1, opts?.delay ?? 0);
     } catch { /* never throw into game code */ }
   }
 
-  private playKey(key: AnyKey, bus: GainNode | null, pos: { x: number; y: number } | undefined, volume: number, pitch: number): void {
+  private playKey(key: AnyKey, bus: GainNode | null, pos: { x: number; y: number } | undefined, volume: number, pitch: number, delay = 0): void {
     const ctx = this.ctx;
     if (!this.unlocked || !ctx || !bus || !this.bank) return;
+    this.mixStats.requested++; // [JUICE]
     if (ctx.state !== 'running') { ctx.resume().catch(() => {}); return; }
     const recipe = RECIPES[key];
     if (!recipe) return;
@@ -254,7 +297,7 @@ export class AudioSystem implements AudioApi {
       // distant sounds are more reverberant (env reverb send grows with distance)
       send = 0.3 + 0.7 * clamp((d - 0.2) / 1.4, 0, 1);
       att = d <= 0.6 ? 1 : Math.pow(Math.max(0, 1 - (d - 0.6) / 1.6), 2);
-      if (att < 0.015) return; // well off-screen: cull
+      if (att < 0.015) { this.mixStats.culled++; return; } // well off-screen: cull
       pan = clamp(dx / (this.lr * 1.1), -1, 1) * 0.85;
       if (d > 0.8) lp = 18000 * Math.pow(2500 / 18000, clamp((d - 0.8) / 1.4, 0, 1));
     }
@@ -262,39 +305,52 @@ export class AudioSystem implements AudioApi {
     if (vol < 0.002) return;
     const now = ctx.currentTime;
 
+    const juice = JUICE.on;
+    const tier = juice ? sfxTier(key) : 2;
+    const small = juice && bus === this.sfxBus && isSmallArms(key);
+    const at = now + (delay > 0 ? Math.min(delay, 4) : 0);
+
     // --- merge rapid duplicates
     const last = this.lastByKey.get(key);
-    if (last && !last.stopping && now - last.start < MERGE_WINDOW) {
+    if (last && !last.stopping && Math.abs(at - last.start) < MERGE_WINDOW) {
       if (vol > last.vol) {
         last.vol = Math.min(vol, last.vol * 1.5 + 0.1);
-        last.gain.gain.setTargetAtTime(last.vol, now, 0.005);
+        last.gain.gain.setTargetAtTime(last.vol, Math.max(now, last.start), 0.005);
       }
+      this.mixStats.merged++;
       return;
     }
 
-    // --- voice limiting
+    // --- voice limiting ([JUICE] priority tiers + a small-arms cap: rifles never cut off a tank gun)
     this.reap(now);
     const maxKey = recipe.maxVoices ?? MAX_PER_KEY;
     let sameKey = 0;
     let oldestSame: Voice | null = null;
     let active = 0;
-    let weakest: Voice | null = null;
-    let weakestScore = Infinity;
+    let smallN = 0;
+    let oldestSmall: Voice | null = null;
     for (const v of this.voices) {
       if (v.stopping) continue;
       active++;
+      if (v.small) {
+        smallN++;
+        if (!oldestSmall || v.start < oldestSmall.start) oldestSmall = v;
+      }
       if (v.key === key) {
         sameKey++;
         if (!oldestSame || v.start < oldestSame.start) oldestSame = v;
       }
-      const remaining = clamp((v.end - now) / Math.max(0.05, v.end - v.start), 0, 1);
-      const score = v.vol * (0.3 + 0.7 * remaining);
-      if (score < weakestScore) { weakestScore = score; weakest = v; }
     }
     if (sameKey >= maxKey && oldestSame) this.stopVoice(oldestSame, now);
-    else if (active >= MAX_VOICES && weakest) {
-      if (vol < weakestScore) return; // quieter than everything playing: skip
-      this.stopVoice(weakest, now);
+    else if (small && smallN >= SMALL_ARMS_CAP && oldestSmall) {
+      if (vol < oldestSmall.vol * 0.5) { this.mixStats.dropped++; return; }
+      this.stopVoice(oldestSmall, now);
+      this.mixStats.stolen++;
+    } else if (active >= MAX_VOICES) {
+      const vi = pickVictim(this.voices, tier, vol, now);
+      if (vi < 0) { this.mixStats.dropped++; return; } // quieter / lower priority than everything playing: skip
+      this.stopVoice(this.voices[vi], now);
+      this.mixStats.stolen++;
     }
 
     // --- pick variation (avoid immediate repeats)
@@ -325,7 +381,8 @@ export class AudioSystem implements AudioApi {
       node.connect(p);
       node = p;
     }
-    node.connect(bus);
+    node.connect(small && this.smallBus ? this.smallBus : bus);
+    if (juice && att > 0.3 && ducksSmallArms(key)) this.duckSmallArms(at);
     let sg: GainNode | null = null;
     if (send > 0 && this.sfxVerb && bus === this.sfxBus) {
       sg = ctx.createGain();
@@ -333,11 +390,66 @@ export class AudioSystem implements AudioApi {
       g.connect(sg);
       sg.connect(this.sfxVerb);
     }
-    src.start(now);
-    const voice: Voice = { key, src, gain: g, send: sg, start: now, end: now + buf.duration / rate + 0.05, vol, stopping: false };
+    src.start(at);
+    const voice: Voice = { key, src, gain: g, send: sg, start: at, end: at + buf.duration / rate + 0.05, vol, stopping: false, tier, small };
     src.onended = () => this.release(voice);
     this.voices.push(voice);
     this.lastByKey.set(key, voice);
+    // [JUICE] stats
+    const ms = this.mixStats;
+    ms.started++;
+    ms.active = active + 1;
+    if (ms.active > ms.peak) ms.peak = ms.active;
+    if (small) { ms.small = smallN + 1; if (ms.small > ms.smallPeak) ms.smallPeak = ms.small; }
+  }
+
+  /** [JUICE] Duck the small-arms sub-bus for a moment under a big gun / explosion starting at `at`. */
+  private duckSmallArms(at: number): void {
+    const ctx = this.ctx;
+    const g = this.smallBus?.gain;
+    if (!ctx || !g) return;
+    const now = ctx.currentTime;
+    const t = Math.max(now, at);
+    const already = t < this.duckUntil;
+    this.duckUntil = Math.max(this.duckUntil, t + DUCK_HOLD);
+    // (re)schedule: down at t (a no-op when already down), back up once the latest big sound's hold is over
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.setTargetAtTime(DUCK_LEVEL, already ? now : t, 0.012);
+    g.setTargetAtTime(1, this.duckUntil, 0.25);
+    if (!already) this.mixStats.ducks++;
+  }
+
+  /**
+   * [JUICE] Low-pass "thump" after a big blast close to the camera: everything diegetic and the score dull
+   * down for a moment and swell back (0..1 strength; ~0.4 for a dying tank next to the camera, 1 for a nuke).
+   */
+  thump(strength: number): void {
+    try {
+      const ctx = this.ctx;
+      const lp = this.thumpLp, tg = this.thumpGain;
+      if (!JUICE.on || !this.unlocked || !ctx || !lp || !tg || !(strength > 0.05)) return;
+      const now = ctx.currentTime;
+      if (now - this.lastThump < 0.35) return;
+      this.lastThump = now;
+      const k = clamp(strength, 0, 1);
+      const f = 1400 - 1050 * k; // 1.4 kHz light … 350 Hz massive
+      const rel = 0.25 + 0.6 * k;
+      lp.frequency.cancelScheduledValues(now);
+      lp.frequency.setValueAtTime(lp.frequency.value, now);
+      lp.frequency.setTargetAtTime(f, now, 0.015);
+      lp.frequency.setTargetAtTime(20000, now + 0.08 + 0.12 * k, rel);
+      tg.gain.cancelScheduledValues(now);
+      tg.gain.setValueAtTime(tg.gain.value, now);
+      tg.gain.setTargetAtTime(1 - 0.28 * k, now, 0.02);
+      tg.gain.setTargetAtTime(1, now + 0.1 + 0.1 * k, rel * 0.8);
+      this.mixStats.thumps++;
+    } catch { /* never throw */ }
+  }
+
+  /** [JUICE] Reset the peak counters of mixStats (diagnostics). */
+  resetMixStats(): void {
+    Object.assign(this.mixStats, newMixStats());
   }
 
   private stopVoice(v: Voice, now: number): void {
@@ -440,11 +552,56 @@ export class AudioSystem implements AudioApi {
       setTimeout(() => this.pumpAnnouncer(), 250);
     };
     setTimeout(() => {
-      const vol = this.speechVolume();
-      const ok = vol > 0.001 && this.speech.speak(text, { voice: this.speech.voiceFor('female'), pitch: 0.92, rate: 1.04, volume: vol }, finish);
+      const o = this.announcerSpeakOpts(); // [JUICE] cosmetic announcer voice (default when none)
+      const ok = o.volume > 0.001 && this.speech.speak(text, o, finish);
       // no speech available: keep subtitle pacing / non-overlap with an estimated duration
       if (!ok) setTimeout(finish, 450 + text.length * 55);
     }, 170);
+  }
+
+  /**
+   * [JUICE] Set the announcer's voice style (cosmetics); null restores the default announcer. Only the
+   * announcer changes: unit acknowledgements keep their own voices.
+   */
+  setAnnouncerVoice(preset: AnnouncerVoice | null): void {
+    this.annVoice = preset && typeof preset === 'object' ? preset : null;
+  }
+
+  /** [JUICE] Speak a line in an announcer voice right now (Locker preview); false when speech is unavailable. */
+  previewAnnouncerVoice(preset: AnnouncerVoice | null, text = 'Reinforcements have arrived. Construction complete.'): boolean {
+    try {
+      const keep = this.annVoice;
+      this.annVoice = preset;
+      const o = this.announcerSpeakOpts();
+      this.annVoice = keep;
+      if (o.volume <= 0.001) return false;
+      if (this.speech.speaking) this.speech.cancel();
+      return this.speech.speak(String(text).slice(0, 200), o, () => {});
+    } catch {
+      return false;
+    }
+  }
+
+  private announcerSpeakOpts(): { voice: SpeechSynthesisVoice | null; pitch: number; rate: number; volume: number } {
+    const p = this.annVoice;
+    const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : d);
+    let voice: SpeechSynthesisVoice | null = null;
+    let hint: unknown;
+    try { hint = p?.voiceHint; } catch { hint = undefined; }
+    if (typeof hint === 'string' && hint && hint !== 'male' && hint !== 'female') {
+      const h = hint.toLowerCase();
+      try {
+        const all = typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices() : [];
+        voice = all.find((v) => v.name.toLowerCase().includes(h) || v.lang.toLowerCase() === h) ?? null;
+      } catch { voice = null; }
+    }
+    voice ??= this.speech.voiceFor(hint === 'male' ? 'male' : 'female');
+    return {
+      voice,
+      pitch: num(p?.pitch, 0.1, 2, 0.92),
+      rate: num(p?.rate, 0.5, 2, 1.04),
+      volume: this.speechVolume() * num(p?.volume, 0, 1, 1),
+    };
   }
 
   /** Lower the music ~5 dB while the announcer talks (speech bypasses Web Audio, so we can't sidechain it). */
@@ -530,8 +687,23 @@ export class AudioSystem implements AudioApi {
 
   setMusicIntensity(v: number): void {
     if (!Number.isFinite(v)) return;
-    this.intensity = clamp(v, 0, 1);
+    this.heatIntensity = clamp(v, 0, 1);
+    // [JUICE] a big clash in view keeps the score at full battle intensity
+    this.intensity = Math.max(this.heatIntensity, this.clashBoost);
     this.music?.setIntensity(this.intensity);
+  }
+
+  /**
+   * [JUICE] Big-battle level 0..1 (from the battle director): pushes the score to full intensity and layers
+   * the battle theme on top (taiko ostinato, brass, choir pad; see MusicEngine.setClash).
+   */
+  setClash(level: number): void {
+    if (!Number.isFinite(level)) return;
+    const l = clamp(level, 0, 1);
+    this.clashBoost = l > 0.05 ? Math.min(1, 0.7 + 0.3 * l) : 0;
+    this.intensity = Math.max(this.heatIntensity, this.clashBoost);
+    this.music?.setIntensity(this.intensity);
+    this.music?.setClash(l);
   }
 
   /** Diagnostics: notes scheduled by the current music engine. */

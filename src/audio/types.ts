@@ -18,7 +18,9 @@ export type SfxKey =
   // Aftermath units
   | 'mad_pulse' | 'phase_shift' | 'demo_arm'
   // ui
-  | 'click' | 'hover' | 'error' | 'tab' | 'ready_ping' | 'promote';
+  | 'click' | 'hover' | 'error' | 'tab' | 'ready_ping' | 'promote'
+  // [JUICE] kill punches (layered boom + debris tail + metal groan), flak air bursts, milestone fanfare
+  | 'kill_armor' | 'kill_heavy' | 'metal_groan' | 'debris_rain' | 'flak_burst' | 'milestone';
 
 export type AnnouncerKey =
   | 'mission_start' | 'building' | 'construction_complete' | 'unit_ready' | 'training' | 'on_hold'
@@ -33,7 +35,9 @@ export type AnnouncerKey =
   | 'enemy_aircraft' | 'naval_unit_lost'
   | 'radar_jammed' | 'mine_detected' | 'paratroopers_inbound' | 'spy_detected' | 'mines_laid'
   | 'mad_tank_deployed' | 'chrono_tank_charged'
-  | 'ceasefire_warning' | 'ceasefire_over';
+  | 'ceasefire_warning' | 'ceasefire_over'
+  // [JUICE] battle moments called by the game-feel director
+  | 'armour_neutralised' | 'base_heavy_attack' | 'sector_victorious' | 'enemy_base_destroyed' | 'superweapon_online' | 'heavy_armour_ready';
 
 export type VoiceKind = 'infantry' | 'vehicle' | 'dog' | 'tanya' | 'engineer' | 'medic' | 'harvester' | 'aircraft' | 'naval' | 'spy' | 'mechanic' | 'shock';
 export type ResponseKind = 'select' | 'move' | 'attack';
@@ -69,7 +73,9 @@ export interface AmbienceState {
   zoom: number;
 }
 
-export type StingerKind = 'victory' | 'defeat' | 'superweapon_ready' | 'promotion' | 'reinforcements' | 'mission_start' | 'enemy_spotted';
+export type StingerKind = 'victory' | 'defeat' | 'superweapon_ready' | 'promotion' | 'reinforcements' | 'mission_start' | 'enemy_spotted'
+  // [JUICE] a big clash begins / is won, a big build is finished
+  | 'battle_joined' | 'battle_won' | 'milestone';
 
 /** Public surface of the audio system (implemented in ./index.ts as `class AudioSystem`). */
 export interface AudioApi {

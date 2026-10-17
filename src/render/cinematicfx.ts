@@ -154,3 +154,106 @@ export class CinematicPass extends Pass {
     this.quad.dispose();
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// [JUICE] Battle flourishes: a moment of slow motion under letterbox bars and a shallow lens when a
+// superweapon lands on screen or an enemy's last structure falls. Never in normal combat, never with
+// reduceMotion, never while another cinematic owns the screen. The player keeps full control.
+
+const FLOURISH_CSS = `
+.jf-bar { position: fixed; left: 0; right: 0; height: 7vh; background: #000; z-index: 37; pointer-events: none; transition: transform 0.45s cubic-bezier(.6,0,.2,1); }
+.jf-bar.top { top: 0; transform: translateY(-100%); }
+.jf-bar.bottom { bottom: 0; transform: translateY(100%); }
+.jf-on .jf-bar { transform: none; }
+`;
+
+/** What a flourish needs from the game (structural: Game satisfies it). */
+export interface FlourishHost {
+  speed: number;
+  readonly gfx: { cinematicDof: number; cinematicBlur: number };
+}
+
+export class Flourish {
+  private bars: HTMLElement[] = [];
+  private timers: number[] = [];
+  private raf = 0;
+  private active = false;
+  private setSpeed = -1;
+  private savedSpeed = 1;
+  private lastAt = -1e9;
+
+  constructor(private host: FlourishHost) {}
+
+  get isActive(): boolean {
+    return this.active;
+  }
+
+  /**
+   * Play a flourish for `seconds` of real time with the game slowed to `slow` × its speed. Returns false when
+   * it was skipped (cooldown, another cinematic running, or already active).
+   */
+  play(seconds = 1.6, slow = 0.4, cooldown = 25): boolean {
+    const now = performance.now() / 1000;
+    if (this.active || now - this.lastAt < cooldown) return false;
+    if (typeof document === 'undefined') return false;
+    const body = document.body;
+    if (body.classList.contains('cine-on') || body.classList.contains('cine-active')) return false;
+    this.lastAt = now;
+    this.active = true;
+    if (!document.getElementById('jf-style')) {
+      const st = document.createElement('style');
+      st.id = 'jf-style';
+      st.textContent = FLOURISH_CSS;
+      document.head.appendChild(st);
+    }
+    const top = document.createElement('div');
+    top.className = 'jf-bar top';
+    const bottom = document.createElement('div');
+    bottom.className = 'jf-bar bottom';
+    body.append(top, bottom);
+    this.bars = [top, bottom];
+    requestAnimationFrame(() => body.classList.add('jf-on'));
+    const h = this.host;
+    this.savedSpeed = h.speed;
+    this.setSpeed = Math.max(0.15, h.speed * slow);
+    h.speed = this.setSpeed;
+    this.lens(0.4, 0.2, 0.25);
+    this.timers.push(window.setTimeout(() => this.end(true), seconds * 1000));
+    return true;
+  }
+
+  /** End now. `restore` = put the game speed back (unless the player / another system changed it meanwhile). */
+  end(restore: boolean): void {
+    if (!this.active) return;
+    this.active = false;
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.length = 0;
+    const h = this.host;
+    if (restore && Math.abs(h.speed - this.setSpeed) < 1e-9) h.speed = this.savedSpeed;
+    this.setSpeed = -1;
+    this.lens(0, 0, 0.6);
+    document.body.classList.remove('jf-on');
+    const bars = this.bars;
+    this.bars = [];
+    window.setTimeout(() => bars.forEach((b) => b.remove()), 500);
+  }
+
+  private lens(dof: number, blur: number, seconds: number): void {
+    cancelAnimationFrame(this.raf);
+    const g = this.host.gfx;
+    const d0 = g.cinematicDof, b0 = g.cinematicBlur, t0 = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / Math.max(1, seconds * 1000));
+      const e = k * k * (3 - 2 * k);
+      g.cinematicDof = d0 + (dof - d0) * e;
+      g.cinematicBlur = b0 + (blur - b0) * e;
+      if (k < 1) this.raf = requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  dispose(): void {
+    this.end(false);
+    cancelAnimationFrame(this.raf);
+  }
+}

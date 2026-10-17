@@ -32,7 +32,20 @@ export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'atta
   /** [CTRL] click patrol waypoints (Shift: more) / click a unit or structure to guard / click to plan a structure. */
   | 'patrol' | 'guard' | 'plan'
   /** Chrono Tank: click where to chronoshift (D). */
-  | 'chrono';
+  | 'chrono'
+  /** [DOCTRINE] Aim a commander power (ui/commander.ts): click the target point / structure. */
+  | 'aim';
+
+/** [DOCTRINE] A ground-aimed action started from outside the input layer (commander powers, ui/commander.ts). */
+export interface AimRequest {
+  /** Reticle radius (cells) and colour. */
+  r: number;
+  color: number;
+  /** Shown when aiming starts. */
+  label: string;
+  /** Map point picked (and the entity under the pointer). Return false to keep aiming (invalid target). */
+  onTarget(x: number, y: number, picked: Entity | null): boolean | void;
+}
 
 /** A pointer position with modifier keys: a PointerEvent, or synthesised by touch and gamepad input. */
 export interface PtrLike {
@@ -107,6 +120,8 @@ export class InputController {
   mode: Mode = 'normal';
   placeType: string | null = null;
   superKind: SuperKind | null = null;
+  /** [DOCTRINE] Commander power being aimed (mode 'aim'). */
+  aim: AimRequest | null = null;
   groups = new Map<number, number[]>();
   mouseX = window.innerWidth / 2;
   mouseY = window.innerHeight / 2;
@@ -487,6 +502,16 @@ export class InputController {
       this.h.gfx.terrain.uniforms.uGrid.value.w = 0;
     }
     if (m !== 'super') this.superKind = null;
+    if (m !== 'aim') this.aim = null; // [DOCTRINE]
+  }
+
+  /** [DOCTRINE] Aim a commander power: the next primary click on the map calls `req.onTarget` (right click / Esc cancels). */
+  beginAim(req: AimRequest) {
+    if (this.spectator) return;
+    this.setMode('aim');
+    this.aim = req;
+    this.h.message(req.label);
+    this.h.audio.announce('select_target');
   }
 
   /** Place a finished structure; one that isn't ready yet goes into plan mode (queue it in the build plan). */
@@ -681,6 +706,12 @@ export class InputController {
         }
         tanks.forEach((u, k) => this.h.issue({ c: 'chronoJump', player: local.id, unit: u.id, x: gx + (k % 3) * 1.1, y: gy + Math.floor(k / 3) * 1.1 }));
         this.marker(gx, gy, 'move');
+        this.setMode('normal');
+        return;
+      }
+      case 'aim': { // [DOCTRINE] commander power target
+        const req = this.aim;
+        if (req && req.onTarget(gx, gy, this.pickAt(e.clientX, e.clientY) ?? null) === false) return;
         this.setMode('normal');
         return;
       }
@@ -889,6 +920,17 @@ export class InputController {
         this.voice('move', voice);
         return;
       }
+    }
+    // [VARIETY] engineers walk up to a neutral tech structure (sim/neutral.ts: reaching it captures it)
+    if (t instanceof Building && t.bt.tech && t.owner.id < 0 && units.some((u) => u.ut.engineer)) {
+      const eng = units.filter((u) => u.ut.engineer);
+      const [px, py] = t.closestPoint(eng[0].x, eng[0].y);
+      this.h.issue({ c: 'move', player: local.id, units: eng.map((u) => u.id), x: px + Math.sign(eng[0].x - px) * 0.6, y: py + Math.sign(eng[0].y - py) * 0.6 });
+      const rest = ids.filter((id) => !eng.some((u) => u.id === id));
+      if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: gx, y: gy, queue: e.shiftKey });
+      this.marker(t.x, t.y, 'move');
+      this.voice('move', voiceOf(eng[0]));
+      return;
     }
     // engineers rebuild a destroyed bridge (click its gap or either end)
     const engineers = units.filter((u) => u.ut.engineer);
@@ -1196,6 +1238,8 @@ export class InputController {
     if (this.mode === 'super' && this.superKind && this.h.reticle) {
       const ret = SUPER_RETICLE[this.superKind] ?? { r: 1.5, color: 0xffffff };
       this.h.reticle.show(this.groundX, this.groundY, Math.max(0.9, ret.r), ret.color, time);
+    } else if (this.mode === 'aim' && this.aim && this.h.reticle) { // [DOCTRINE]
+      this.h.reticle.show(this.groundX, this.groundY, Math.max(0.9, this.aim.r), this.aim.color, time);
     } else if (this.mode === 'chrono' && this.h.reticle) {
       const ok = !!chronoTarget(this.h.world, this.h.local, this.groundX, this.groundY);
       this.h.reticle.show(this.groundX, this.groundY, 0.9, ok ? SUPER_RETICLE.chrono.color : 0xff3020, time);
@@ -1215,7 +1259,7 @@ export class InputController {
       case 'sell': c = t instanceof Building && t.owner === local ? 'sell' : 'nomove'; break;
       case 'repair': c = t instanceof Building && t.owner === local && t.hp < t.maxHp ? 'repair' : 'nomove'; break;
       case 'attackMove': case 'attackGround': c = 'attack'; break;
-      case 'super': case 'layMines': c = 'target'; break;
+      case 'super': case 'layMines': case 'aim': c = 'target'; break; // [DOCTRINE] aim
       case 'patrol': c = 'patrol'; break;
       case 'chrono': c = chronoTarget(this.h.world, local, this.groundX, this.groundY) ? 'target' : 'nomove'; break;
       case 'guard': c = t && this.guardable(t) ? 'guard' : 'nomove'; break;
@@ -1235,6 +1279,8 @@ export class InputController {
           c = 'deploy';
         } else if (t instanceof Building && t.owner === local && ((t.bt.dock && units.some((u) => u.ut.harvester)) || (t.bt.repairPad && units.some((u) => u.kind === 'vehicle')) || (units.some((u) => u.ut.engineer) && t.hp < t.maxHp))) {
           c = 'enter';
+        } else if (t instanceof Building && t.bt.tech && t.owner.id < 0 && units.some((u) => u.ut.engineer)) {
+          c = 'enter'; // [VARIETY] capture a neutral tech structure
         } else if (t instanceof Unit && !this.h.selection.has(t.id) && this.guardable(t) && units.some((u) => u.kind !== 'aircraft')) {
           c = 'guard';
         } else if (t) {

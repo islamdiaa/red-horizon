@@ -16,7 +16,7 @@ import { ANNOUNCER_TEXT } from './speech';
 import { renderStingerOffline } from './stingers';
 import type { AmbienceState, AnnouncerKey, ResponseKind, SfxKey, StingerKind, VoiceKind, WeatherKind } from './types';
 
-const STINGERS: StingerKind[] = ['mission_start', 'enemy_spotted', 'reinforcements', 'promotion', 'superweapon_ready', 'victory', 'defeat'];
+const STINGERS: StingerKind[] = ['mission_start', 'enemy_spotted', 'reinforcements', 'promotion', 'superweapon_ready', 'victory', 'defeat', 'battle_joined', 'battle_won', 'milestone']; // [JUICE] +3
 
 /** Named ambience presets (preview buttons + self-test beds). */
 const AMB_PRESETS: Record<string, AmbienceState> = {

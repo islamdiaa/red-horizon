@@ -10,8 +10,12 @@ import { M } from './particles';
 import { rnd, range, spread } from './rand';
 import { smokeFrame, sparks, flash } from './blocks';
 import { gpuFire, gpuSmoke } from './gpufx';
+import { columnPuff } from './spectacle'; // [JUICE]
 
 const TAU = Math.PI * 2;
+const COLUMN_GLOW = { flicker: 0.45, priority: 0.6 }; // [JUICE] reused light options
+const FIRE_GLOW = { flicker: 0.4, priority: 0.8 };
+const SPARK_GLOW = { flicker: 0.3 };
 
 export class Emitter implements EmitterHandle {
   x = 0;
@@ -41,6 +45,13 @@ export class Emitter implements EmitterHandle {
 
   setIntensity(v: number): void {
     this.intensity = Math.max(0, v);
+  }
+
+  /** [JUICE] 'column' only: 0..1 fire glow at the base of the smoke column. */
+  heat = 0;
+
+  setHeat(v: number): void {
+    this.heat = Math.max(0, Math.min(1, v));
   }
 
   dispose(): void {
@@ -113,7 +124,7 @@ export class Emitter implements EmitterHandle {
         if (ctx.gpu) gpuFire(ctx.gpu, this.x, this.y, this.z, I, sz, this.gacc, dt);
         if (ctx.dyn) {
           const k = Math.min(I, 2);
-          ctx.dyn.add(this.x, this.y + 0.45 * sz, this.z, 0xff7a2e, 2.4 * k, 3.4 + 1.3 * k, 0, { flicker: 0.4, priority: 0.8 });
+          ctx.dyn.add(this.x, this.y + 0.45 * sz, this.z, 0xff7a2e, 2.4 * k, 3.4 + 1.3 * k, 0, FIRE_GLOW); // [JUICE] no per-frame option object
         }
         break;
       }
@@ -146,7 +157,7 @@ export class Emitter implements EmitterHandle {
             ? { life: 0.45, size: 0.025, ramp: R.TESLA, up: 0.6 }
             : { life: 0.6, size: 0.028, up: 0.6 });
           flash(ctx, this.x, this.y, this.z, 0.3, 3, 0, 0.06, blue ? 0.6 : 1, blue ? 0.8 : 0.8, blue ? 1.4 : 0.5);
-          ctx.dyn?.add(this.x, this.y + 0.1, this.z, blue ? 0x88aaff : 0xffb060, 1.6, 2.6, 0.14, { flicker: 0.3 });
+          ctx.dyn?.add(this.x, this.y + 0.1, this.z, blue ? 0x88aaff : 0xffb060, 1.6, 2.6, 0.14, SPARK_GLOW);
         }
         break;
       }
@@ -167,6 +178,17 @@ export class Emitter implements EmitterHandle {
           s.push = 0.3;
           ctx.main.emit(s);
         }
+        break;
+      }
+      case 'column': {
+        // [JUICE] tall smoke column: intensity ≈ structure size (1 small … 3 large); heat = still burning
+        this.a0 += dt * 1.5 * Math.min(I, 3) * k;
+        const sz = 0.8 + 0.25 * Math.min(I, 3);
+        while (this.a0 >= 1) {
+          this.a0 -= 1;
+          columnPuff(ctx, this.x, this.y, this.z, sz, this.heat);
+        }
+        if (this.heat > 0 && ctx.dyn) ctx.dyn.add(this.x, this.y + 0.4, this.z, 0xff6a24, 1.6 * this.heat * Math.min(I, 2), 2.6 + I, 0, COLUMN_GLOW);
         break;
       }
       case 'exhaust': {

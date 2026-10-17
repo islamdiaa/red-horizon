@@ -13,6 +13,7 @@ import { ceasefireActive, mayAutoEngage } from './ceasefire';
 import { damageBridgeAt, damageBridgesInRadius } from './bridges';
 import { focusBias } from './orders'; // [CTRL]
 import { healable } from './aftermath'; // [CONTENT]
+import { cmdArmor, cmdOffline, cmdRof } from './doctrine'; // [DOCTRINE]
 
 export interface Projectile {
   id: number;
@@ -189,6 +190,7 @@ export function fire(world: World, shooter: Entity, slot: WeaponSlot, target: En
   const shots = w.burst * (twin ? 2 : 1);
   let rof = raTicksToSeconds(w.rof) * (1 - 0.1 * shooter.rank);
   if (shooter instanceof Building && shooter.owner.lowPower && !shooter.bt.requiresPower) rof *= 1.5;
+  if (shooter.owner.cmd) rof *= cmdRof(shooter); // [DOCTRINE] Rally Cry
   slot.cooldown = rof;
   slot.burstLeft = shots - 1;
   slot.burstTimer = w.projectile === 'missile' ? 0.22 : 0.16;
@@ -324,6 +326,7 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
 export function damageEntity(world: World, e: Entity, dmg: number, attacker: Entity | null, how: 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' = 'normal') {
   // hp <= 0 while alive: already lethally hit this tick, removed at the end of the combat phase
   if (!e.alive || e.invulnerable > 0 || e.hp <= 0) return;
+  if (e.owner.cmd) dmg *= cmdArmor(e); // [DOCTRINE] doctrine armour, Aegis Shield
   e.hp -= dmg;
   e.lastDamagedTick = world.tick;
   if (attacker) e.lastAttacker = attacker.id;
@@ -416,7 +419,7 @@ export function updateBuildingWeapons(world: World, b: Building) {
   tickSlots(world, b);
   const slot = b.weapons[0];
   const w = slot.def;
-  if ((b.bt.requiresPower && b.owner.lowPower) || b.jammed) {
+  if ((b.bt.requiresPower && b.owner.lowPower) || b.jammed || (b.owner.cmd && cmdOffline(b))) { // [DOCTRINE] sabotaged
     b.charge = Math.max(0, b.charge - DT);
     b.target = null;
     return;
