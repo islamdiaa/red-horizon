@@ -27,7 +27,6 @@ export const STINGER_INFO: Record<StingerKind, { duck: number; priority: number 
   reinforcements: { duck: 0.4, priority: 4 },
   enemy_spotted: { duck: 0.45, priority: 3 },
   promotion: { duck: 0.5, priority: 2 },
-  // [JUICE]
   battle_won: { duck: 0.35, priority: 5 },
   milestone: { duck: 0.4, priority: 4 },
   battle_joined: { duck: 0.55, priority: 3 },
@@ -425,7 +424,7 @@ export class StingerEngine {
         return 5 * b + 1.2;
       }
       case 'battle_joined': {
-        // [JUICE] war drums swelling into a heavy brass hit: the battle theme takes over from here
+        // war drums swelling into a heavy brass hit: the battle theme takes over from here
         this.timpRoll(t0, T, 1.5 * b, 0.2, 0.9);
         this.swell(t0, 1.5 * b, 0.35);
         this.boom(t0 + 1.5 * b, 0.8);
@@ -438,7 +437,7 @@ export class StingerEngine {
         return 3.5 * b + 1;
       }
       case 'battle_won': {
-        // [JUICE] a short triumphant brass call (the sector is ours), lighter than the victory theme
+        // a short triumphant brass call (the sector is ours), lighter than the victory theme
         this.brass(t0, [TR + 7], b * 0.4, 0.85, { bright: 1, single: true, attack: 0.02, release: 0.1, pan: 0.15 });
         this.brass(t0 + 0.5 * b, [TR + 7], b * 0.4, 0.85, { bright: 1, single: true, attack: 0.02, release: 0.1, pan: 0.15 });
         this.brass(t0 + b, [TR + 12], b * 2.2, 1, { bright: 1, single: true, release: 0.45, pan: 0.15 });
@@ -452,7 +451,7 @@ export class StingerEngine {
         return 3.5 * b + 1.3;
       }
       case 'milestone': {
-        // [JUICE] a big build is finished: rising brass and bells
+        // a big build is finished: rising brass and bells
         const notes = [R, R + 4, R + 7];
         notes.forEach((n, i) => this.brass(t0 + i * s * 2, [n, n + 12], s * 1.8, 0.75, { bright: 0.9, attack: 0.02, release: 0.1 }));
         this.brass(t0 + 6 * s, [R - 12, R, R + 4, R + 7, R + 12], b * 2, 0.95, { bright: 1, release: 0.5 });

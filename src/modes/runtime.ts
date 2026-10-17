@@ -1,5 +1,5 @@
 /**
- * How a Game (src/game.ts) sets up the round-5 modes, in order:
+ * How a Game (src/game.ts) sets up the game modes (branches, challenges, King of the Hill, co-op), in order:
  *   1. withModeStart(setup)        a branch / challenge moment becomes the setup's `load`
  *   2. modeMissionId(setup)        co-op survival: GameSetup.allies -> the co-op mission id
  *   3. applyRoster(players, setup) the chosen player is human, everybody else AI (before the World exists)

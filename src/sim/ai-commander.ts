@@ -1,5 +1,5 @@
 /**
- * [DOCTRINE] The skirmish AI under Commander rules: which commander powers it unlocks and when it uses them.
+ * The skirmish AI under Commander rules: which commander powers it unlocks and when it uses them.
  *
  * Called once per think from AIController.think (only when the world has Commander rules). Stateless apart from
  * what the world already saves (the player's PlayerCmd, the AI's own wave state and intel), so save / load and

@@ -1,10 +1,10 @@
-// [JUICE] Screenshot scenes for the game-feel pass (deterministic frame stepping, so effects are caught mid-air).
+// Screenshot scenes for the game-feel pass (deterministic frame stepping, so effects are caught mid-air).
 //   QA_BASE=http://localhost:5264/ node tools/qa/juice_shots.mjs <scene> <outDir> [juice=1] [q=high]
 // scenes: battle · columns · tesla · flak · promotion · death · all
 import { launch, sleep, BASE } from './browser.mjs';
 import fs from 'node:fs';
 
-const [scene = 'all', out = '/tmp/rh-engage/juice', juice = '1', q = 'high'] = process.argv.slice(2);
+const [scene = 'all', out = '/tmp/rh-juice', juice = '1', q = 'high'] = process.argv.slice(2);
 fs.mkdirSync(out, { recursive: true });
 const W = +(process.env.W ?? 1600), H = +(process.env.H ?? 900);
 const url = `${BASE}?autostart=1&scenario=battle&fog=0&size=64&seed=11&tod=${process.env.TOD ?? 'day'}&q=${q}&juice=${juice}&hd=1&speed=0.1`;

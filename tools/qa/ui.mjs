@@ -2,7 +2,7 @@
 import { launch, shot, state, toScreen, toasts, sleep, BASE, report, waitGame } from './browser.mjs';
 
 const { browser, page, errors, warnings } = await launch({ width: 1280, height: 720 });
-// work around the negative-dt bug (see negdt_probe.mjs) so the HUD is usable on this slow renderer
+// clamp rAF timestamps to performance.now() so frame times never go negative on this slow renderer
 await page.addInitScript(() => { const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = (cb) => raf((ts) => cb(Math.max(ts, performance.now()))); });
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a);
 const card = (name) => page.locator('.bitem').filter({ has: page.locator('.bi-name', { hasText: new RegExp(`^${name}$`) }) }).first();

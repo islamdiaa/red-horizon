@@ -1,8 +1,8 @@
-"""Soviet heavy tank (3tnk, T-55 style; taken over from PIPE's hero model, tools/assets/models/soviet/3tnk.py),
-dressed for the RTS camera: light olive deck over darker olive sides, team-red glacis, red front fender caps and
-a red engine-deck band carrying the gold hull number, a 10% larger cast dome turret (part 'turret') with a thick
-red roof ring and the gold star on a red disc, twin guns 'b0' / 'b1' (recoil along -X, thickened), muzzles m0 /
-m1, five road wheels a side on scrolling tracks, fender fuel drums and stowage, lamps, exhaust smoke point.
+"""Soviet heavy tank (3tnk, T-55 style; one of the two hero models of the HD pipeline), dressed for the RTS
+camera: light olive deck over darker olive sides, team-red glacis, red front fender caps and a red engine-deck
+band carrying the gold hull number, a 10% larger cast dome turret (part 'turret') with a thick red roof ring and
+the gold star on a red disc, twin guns 'b0' / 'b1' (recoil along -X, thickened), muzzles m0 / m1, five road
+wheels a side on scrolling tracks, fender fuel drums and stowage, lamps, exhaust smoke point.
 Pivots match the procedural rig (node --import tsx tools/assets/rig.ts 3tnk).
 """
 import os

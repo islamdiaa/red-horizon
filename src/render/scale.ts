@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { ModelInstance } from './models/types';
 
 /**
- * [LOOK] Render-only unit scale and the model "look" hooks (rim light).
+ * Render-only unit scale and the model "look" hooks (rim light).
  *
  * True Red Alert proportions make soldiers a few pixels tall at RTS zoom. Units are drawn larger than their
  * simulation footprint so the screen reads as busy and legible (the sim, collision and ranges are untouched).
@@ -11,7 +11,7 @@ import type { ModelInstance } from './models/types';
  * and ragdolls work in world space from the root matrix, so flashes, projectile origins and bodies follow.
  */
 export const UNIT_VISUAL_SCALE = {
-  infantry: 1.3, // main session: 1.5 made soldiers as tall as tank hulls
+  infantry: 1.3, // 1.5 made soldiers as tall as tank hulls
   vehicle: 1.15,
   aircraft: 1.1,
   naval: 1.1,
@@ -78,7 +78,7 @@ export function patchModelRim(mat: THREE.MeshStandardMaterial): void {
       .replace(
         '#include <opaque_fragment>',
         `{
-          // [LOOK] fresnel rim from the sky, tinted by the surface (no plastic white edges), weaker on faces turned down
+          // fresnel rim from the sky, tinted by the surface (no plastic white edges), weaker on faces turned down
           float rimF = 1.0 - clamp( dot( geometryNormal, geometryViewDir ), 0.0, 1.0 );
           rimF = rimF * rimF * rimF;
           outgoingLight += uRimColor * rimF * ( 0.25 + 0.75 * diffuseColor.rgb );

@@ -1,5 +1,5 @@
 /**
- * [DOCTRINE] Commander powers panel and power visuals (Commander rules, src/sim/commander.ts).
+ * Commander powers panel and power visuals (Commander rules, src/sim/commander.ts).
  *
  * A compact panel: the doctrine badge, command points (CP), the commander level and its progress, and the three-tier
  * power tree. Buttons show their state at a glance: locked tier (with the level that opens it), affordable (glows:

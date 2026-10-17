@@ -2,11 +2,8 @@
 // Verifies the manifest parses (CDP Page.getAppManifest / installability), the service worker
 // installs, controls the page after a reload, precaches the bundles, and the game boots offline.
 //   npm run verify:pwa
-// If index.html / main.ts are not integrated yet, the script injects the documented <head> tags
-// and a production build of src/platform/pwa.ts into the built page (simulating the integration).
 import { build, preview } from 'vite';
 import { chromium } from 'playwright';
-import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -17,20 +14,6 @@ const PORT = +(process.env.PORT ?? 5191);
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) process.exitCode = 1; };
 
 await build({ root, logLevel: 'warn', build: { outDir, emptyOutDir: true } });
-let html = readFileSync(path.join(outDir, 'index.html'), 'utf8');
-if (!html.includes('rel="manifest"')) {
-  console.log('note: index.html not integrated yet - injecting manifest tags + pwa.ts for this check');
-  await build({
-    configFile: false, root, logLevel: 'warn', mode: 'production',
-    build: { outDir: path.join(outDir, '__verify'), emptyOutDir: true, lib: { entry: path.join(root, 'src/platform/pwa.ts'), formats: ['es'], fileName: () => 'pwa.js' } },
-  });
-  const head = `    <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#05070b" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <script type="module">import { registerServiceWorker } from '/__verify/pwa.js'; window.__pwa = registerServiceWorker({ onOfflineReady: () => (window.__offlineReady = true) });</script>\n`;
-  html = html.replace('</head>', head + '  </head>');
-  writeFileSync(path.join(outDir, 'index.html'), html);
-}
 
 const server = await preview({ root, logLevel: 'warn', build: { outDir }, preview: { port: PORT, strictPort: true, host: '127.0.0.1' } });
 const url = `http://127.0.0.1:${PORT}/`;

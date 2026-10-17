@@ -1,5 +1,5 @@
 /**
- * [VARIETY] Mutators, battlefield events, neutral tech structures, dynamic difficulty and Quick Battle:
+ * Mutators, battlefield events, neutral tech structures, dynamic difficulty and Quick Battle:
  * every mutator's effect, deterministic event scheduling, the convoy and derrick reward paths, save / load in the
  * middle of an event, replay-style sync, and Classic rules staying exactly classic.
  */

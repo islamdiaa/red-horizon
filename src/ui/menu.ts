@@ -9,12 +9,12 @@ import { ICONS, alliedEmblem, medalSvg, rankBadge, sovietEmblem, type MedalTier 
 import { UiSound, bindTilt, countUp, el as h, esc, hexColor, replay as replayAnim } from './dom';
 import { Embers } from './embers';
 import { initLoadingScreen } from './loading';
-import { applyUiSettings, loadSettings, modelDetailOf, saveSettings, type ModelDetail, type Settings } from './settings'; // [HD] model detail
+import { applyUiSettings, loadSettings, modelDetailOf, saveSettings, type ModelDetail, type Settings } from './settings'; // model detail
 import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
 import { showProfile } from './profile';
-import { showResults } from './results'; // [META] post-match results screen
-import { mountSessionCard } from './session-card'; // [META] session goals on the main menu
-import { resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // [AI] rivals
+import { showResults } from './results'; // post-match results screen
+import { mountSessionCard } from './session-card'; // session goals on the main menu
+import { resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // rivals
 import { showChallenges } from './challenges';
 import { CURATED_MAPS, getMapDef, loadCuratedMap } from '../maps';
 import { decodeMapCode, encodeMapCode, generatorOptions, mapCodeForSetup, normaliseParams, type GenParams } from '../maps/code';
@@ -24,14 +24,14 @@ import type { GameMap } from '../sim/map';
 import { fitOpponents, playbackSetup } from '../replay/launch';
 import { MAX_REPLAYS, type ReplayData } from '../replay/format';
 import { deleteReplay, exportReplay, importReplayFile, listReplays } from '../replay/store';
-import { renderReplayTree } from './replay-tree'; // [MODES] replay trees
-import { KOTH_MINUTES } from '../modes/koth'; // [MODES]
+import { renderReplayTree } from './replay-tree'; // replay trees
+import { KOTH_MINUTES } from '../modes/koth';
 import { CEASEFIRE_CHOICES, ceasefireLabel } from '../sim/ceasefire';
 import { loadProgress } from '../missions/progress';
-import { customMaps, isCustomMapId } from '../maps/custom'; // [EDIT] editor maps in the picker
-import { enabledModIds } from '../mods/store'; // [EDIT]
-import { activeModsChip } from '../mods'; // [EDIT]
-import { quickBattleSetup, rulesTabs } from './variety'; // [VARIETY] rules tab, mutators, Quick Battle
+import { customMaps, isCustomMapId } from '../maps/custom'; // editor maps in the picker
+import { enabledModIds } from '../mods/store';
+import { activeModsChip } from '../mods';
+import { quickBattleSetup, rulesTabs } from './variety'; // rules tab, mutators, Quick Battle
 import { DOCTRINES, doctrinesFor, doctrineUnlocked } from '../sim/doctrine'; // Quick Battle doctrine
 
 export { loadSettings, saveSettings, type Settings };
@@ -41,7 +41,7 @@ const SETUP_KEY = 'rh.setup';
 export type Weather = 'auto' | 'clear' | 'rain' | 'storm' | 'snow' | 'fog' | 'dust';
 export type Climate = 'temperate' | 'winter' | 'desert';
 
-/** Extra skirmish options the renderer can pick up (the integrator adds these to GameSetup). */
+/** Extra skirmish options the renderer picks up (merged into the GameSetup the menu builds). */
 export interface AtmosphereSetup {
   weather?: Weather;
   climate?: Climate;
@@ -51,7 +51,7 @@ export interface AtmosphereSetup {
 interface SkirmishPrefs {
   faction: Faction;
   color: number;
-  opponents: { faction: Faction | 'random'; difficulty: AIDifficulty; rivalId?: string }[]; // [AI] rival id
+  opponents: { faction: Faction | 'random'; difficulty: AIDifficulty; rivalId?: string }[]; // rival id
   mapSize: number;
   water: number;
   trees: number;
@@ -69,11 +69,11 @@ interface SkirmishPrefs {
   seed?: number;
   /** Keep the same generated map for the next match (a pasted code locks it). */
   lockSeed?: boolean;
-  /** [MODES] King of the Hill: minutes of hill time to win (0 / undefined = classic). */
+  /** King of the Hill: minutes of hill time to win (0 / undefined = classic). */
   koth?: number;
   /** Build-up time: minutes of ceasefire at the start, -1 = unlimited, 0 / undefined = off (classic modes only). */
   ceasefire?: number;
-  /** [VARIETY] Rules (default Commander), mutators, battlefield events (default on), dynamic difficulty; [DOCTRINE] doctrine. */
+  /** Rules (default Commander), mutators, battlefield events (default on), dynamic difficulty, doctrine. */
   rules?: 'classic' | 'commander';
   mutators?: string[];
   events?: boolean;
@@ -86,7 +86,7 @@ function loadPrefs(): SkirmishPrefs {
     faction: 'allies', color: TEAM_COLORS[0], opponents: [{ faction: 'soviet', difficulty: 'normal' }],
     mapSize: 96, water: 0.5, trees: 0.5, ore: 0.6, credits: 10000, startUnits: 'light', fog: true, timeOfDay: 'day',
     weather: 'auto', climate: 'temperate', dayCycle: true,
-    rules: 'commander', events: true, // [VARIETY]
+    rules: 'commander', events: true,
   };
   try {
     const prefs: SkirmishPrefs = { ...def, ...JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}') };
@@ -229,7 +229,7 @@ export interface MenuCallbacks {
   settingsChanged(s: Settings): void;
   /** Open the campaign / special-ops screen. */
   openCampaign?(): void;
-  /** [CONQ] Open the Conquest roguelite campaign; conquestInfo labels a campaign in progress (e.g. "Turn 5"). */
+  /** Open the Conquest roguelite campaign; conquestInfo labels a campaign in progress (e.g. "Turn 5"). */
   openConquest?(): void;
   conquestInfo?(): string | null;
   /** Most recent saved game, if any. */
@@ -243,9 +243,9 @@ export interface MenuCallbacks {
   openProfile?(): void;
   /** Start the Boot Camp tutorial mission (shown as a nav item; highlighted until completed). */
   openBootCamp?(): void;
-  /** [EDIT] Open the map & mission editor. */
+  /** Open the map & mission editor. */
   openEditor?(): void;
-  /** [EDIT] Open the Mods screen. */
+  /** Open the Mods screen. */
   openMods?(): void;
 }
 
@@ -335,9 +335,9 @@ export class Menus {
     const bootDone = bootCampDone();
     if (cont) navItem('▶', `Continue · ${cont.label}`, ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
     if (this.cb.openBootCamp && !bootDone) navItem('00', `Boot Camp<em class="rh-daily-pill rh-new-pill">Start here</em>`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
-    navItem('»', 'Quick Battle<em class="rh-daily-pill">1 click</em>', ICONS.dice, () => this.quickBattle()); // [VARIETY] one click into a rolled skirmish
+    navItem('»', 'Quick Battle<em class="rh-daily-pill">1 click</em>', ICONS.dice, () => this.quickBattle()); // one click into a rolled skirmish
     if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
-    if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `Conquest${ci ? `<em class="rh-daily-pill">${esc(ci)}</em>` : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); } // [CONQ]
+    if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `Conquest${ci ? `<em class="rh-daily-pill">${esc(ci)}</em>` : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); }
     navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
     navItem('03', `Challenges${dailyPending() ? '<em class="rh-daily-pill">Daily</em>' : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
     navItem('04', 'Replays', ICONS.replay, () => this.showReplays());
@@ -345,13 +345,13 @@ export class Menus {
     if (this.cb.openBootCamp && bootDone) navItem('06', 'Boot Camp', ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
     navItem(bootDone && this.cb.openBootCamp ? '07' : '06', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
     navItem(bootDone && this.cb.openBootCamp ? '08' : '07', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
-    // [EDIT] map editor and mods
+    // map editor and mods
     if (this.cb.openEditor) navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), 'Map Editor', ICONS.map, () => { this.hide(); this.cb.openEditor!(); });
     if (this.cb.openMods) { const n = enabledModIds().length; navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), `Mods${n ? `<em class="rh-daily-pill">${n} on</em>` : ''}`, ICONS.gear, () => { this.hide(); this.cb.openMods!(); }); }
     nav.classList.toggle('dense', nav.childElementCount > 7);
     nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
     left.appendChild(nav);
-    mountSessionCard(left, { audio: this.audio, play: (k) => this.sound.play(k) }); // [META] today's contracts, streak, next unlock (replaces the tagline)
+    mountSessionCard(left, { audio: this.audio, play: (k) => this.sound.play(k) }); // today's contracts, streak, next unlock (replaces the tagline)
     // commander badge (rank insignia + name) next to the title; opens the profile
     const cmdr = h('div', 'mm-cmdr', commanderBadge());
     cmdr.style.cssText = 'margin-bottom:1.3rem;animation:fadeUp .8s .05s var(--ease) both';
@@ -360,7 +360,7 @@ export class Menus {
     left.appendChild(h('div', 'mm-foot', `<span class="live"><i></i>Live battlefield feed</span><span>v${VERSION}</span>`));
 
     // ---- right column: skirmish setup
-    let vr: ReturnType<typeof rulesTabs> | null = null; // [VARIETY]
+    let vr: ReturnType<typeof rulesTabs> | null = null;
     const panel = h('div', 'menu-panel panel mm-panel');
     panel.appendChild(this.header('Operation setup', 'Skirmish'));
 
@@ -376,7 +376,7 @@ export class Menus {
         for (const x of fac.children) x.classList.remove('on');
         c.classList.add('on');
         document.body.classList.toggle('faction-soviet', f === 'soviet');
-        vr?.refresh(); // [VARIETY] doctrines and mutators depend on the side
+        vr?.refresh(); // doctrines and mutators depend on the side
         if (f === 'soviet' && prefs.color === TEAM_COLORS[0]) setColor(TEAM_COLORS[1]);
         if (f === 'allies' && prefs.color === TEAM_COLORS[1]) setColor(TEAM_COLORS[0]);
         this.audio.play('tab');
@@ -418,7 +418,7 @@ export class Menus {
         const r = h('div', 'opponent');
         r.style.setProperty('--i', String(i));
         r.appendChild(h('span', 'op-id', `<i style="--c:${hexColor(color)}"></i>${ICONS.cpu}<b>AI ${i + 1}</b>`));
-        // [AI] a rival replaces the faction choice with its chip; "Rival" sits next to the difficulties
+        // a rival replaces the faction choice with its chip; "Rival" sits next to the difficulties
         r.appendChild(o.rivalId ? rivalChip(o, renderOpps, (k) => this.sound.play(k)) : seg<Faction | 'random'>([['allies', 'Allies'], ['soviet', 'Soviet'], ['random', 'Random']], o.faction, (v) => { o.faction = v; }, 'op-fac'));
         r.appendChild(seg<AIDifficulty | 'rival'>([['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['brutal', 'Brutal'], ['rival', 'Rival']], o.rivalId ? 'rival' : o.difficulty, (v) => { const was = !!o.rivalId; setOpponentKind(o, v); r.dataset.diff = v; if (was !== !!o.rivalId) renderOpps(); }, 'op-diff'));
         r.dataset.diff = o.rivalId ? 'rival' : o.difficulty;
@@ -500,16 +500,16 @@ export class Menus {
       bf.appendChild(field('Weather', ICONS.rain, stepper<Weather>([
         ['auto', 'Auto', ICONS.auto], ['clear', 'Clear', ICONS.clear], ['rain', 'Rain', ICONS.rain], ['storm', 'Storm', ICONS.storm],
         ['snow', 'Snow', ICONS.snow], ['fog', 'Fog', ICONS.fog], ['dust', 'Dust', ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
-      // [VARIETY] build-up time and the game mode live in the Rules tab
+      // build-up time and the game mode live in the Rules tab
     };
     const cond = h('div', 'mp-col');
     cond.appendChild(h('div', 'sec-title', '<span>Conditions</span>'));
     cond.appendChild(field('Time of day', ICONS.sun, seg<TimeOfDay>([['day', 'Day', ICONS.sun], ['dusk', 'Dusk', ICONS.dusk], ['night', 'Night', ICONS.moon]], prefs.timeOfDay, (v) => { prefs.timeOfDay = v; }, 'with-ic')));
     cond.appendChild(field('Credits', ICONS.coin, seg<number>([[5000, '$5k'], [10000, '$10k'], [20000, '$20k']], prefs.credits, (v) => { prefs.credits = v; })));
     cond.appendChild(field('Start units', ICONS.vehicle, seg<'mcv' | 'light' | 'heavy'>([['mcv', 'MCV only'], ['light', 'Squad'], ['heavy', 'Company']], prefs.startUnits, (v) => { prefs.startUnits = v; })));
-    // [MODES] game mode: classic, or King of the Hill (hold the centre for N minutes)
+    // game mode: classic, or King of the Hill (hold the centre for N minutes)
     const modeField = field('Mode', ICONS.flag, stepper<string>([['0', 'Annihilation', ICONS.target], ...KOTH_MINUTES.map((m): Opt<string> => [String(m), `King of the Hill · ${m} min`, ICONS.flag])],
-      String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; syncBuildup(); })); // [VARIETY] placed in the Rules tab
+      String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; syncBuildup(); })); // placed in the Rules tab
     // build-up time: a ceasefire at the start (the AI builds and only defends until it runs out)
     const buildup = field('Build-up time', ICONS.shield, stepper<string>(CEASEFIRE_CHOICES.map((m): Opt<string> => [String(m), m ? ceasefireLabel(m) : 'Off', m < 0 ? ICONS.shield : m ? ICONS.clock : ICONS.target]),
       String(prefs.ceasefire ?? 0), (v) => { prefs.ceasefire = +v || undefined; }), 'f-buildup');
@@ -529,7 +529,7 @@ export class Menus {
     tp(ICONS.eyeOff, 'Fog of war', prefs.fog, (v) => { prefs.fog = v; });
     cond.appendChild(toggles);
     grid.append(bf, cond);
-    // [VARIETY] "Battlefield | Rules" tabs: rules, doctrine, mode, build-up, events, dynamic difficulty, mutators
+    // "Battlefield | Rules" tabs: rules, doctrine, mode, build-up, events, dynamic difficulty, mutators
     vr = rulesTabs(prefs, { seg, toggle, field, play: (k) => this.sound.play(k) }, {
       grid, mode: modeField, buildup, faction: () => prefs.faction,
       mutatorContext: () => ({ climate: (prefs.mapId ? getMapDef(prefs.mapId)?.climate : undefined) ?? prefs.climate, faction: prefs.faction }),
@@ -540,7 +540,7 @@ export class Menus {
     renderBf();
     renderMap();
 
-    const modsChip = activeModsChip(() => { this.hide(); this.cb.openMods?.(); }); // [EDIT] "Modded" marker
+    const modsChip = activeModsChip(() => { this.hide(); this.cb.openMods?.(); }); // "Modded" marker
     if (modsChip) (panel.querySelector('.mp-head') ?? panel).appendChild(modsChip);
     const go = h('button', 'btn-primary deploy', `<span>Deploy</span>${ICONS.arrowR}<i class="shine"></i>`);
     go.onclick = () => {
@@ -549,19 +549,19 @@ export class Menus {
       // a generated map is started from exactly the parameters its map code encodes
       const p = genParams();
       const setup: GameSetup & AtmosphereSetup = {
-        faction: prefs.faction, color: prefs.color, opponents: prefs.opponents.map((o) => resolveRivalOpponent({ ...o })), // [AI] rivals plan before the match
+        faction: prefs.faction, color: prefs.color, opponents: prefs.opponents.map((o) => resolveRivalOpponent({ ...o })), // rivals plan before the match
         mapSize: def ? def.size : p.size, water: p.water, trees: p.trees, ore: p.ore, credits: prefs.credits, startUnits: prefs.startUnits, fog: prefs.fog,
         timeOfDay: prefs.timeOfDay, quality: this.settings.quality, seed: def ? randomSeed() : p.seed,
         weather: prefs.weather, climate: def ? def.climate : p.climate, dayCycle: prefs.dayCycle, mapId: def?.id,
-        customMap: def && isCustomMapId(def.id) ? JSON.parse(JSON.stringify(def)) : undefined, // [EDIT] saves / replays carry the map
-        koth: prefs.koth ? true : undefined, kothMinutes: prefs.koth || undefined, // [MODES] King of the Hill
+        customMap: def && isCustomMapId(def.id) ? JSON.parse(JSON.stringify(def)) : undefined, // saves / replays carry the map
+        koth: prefs.koth ? true : undefined, kothMinutes: prefs.koth || undefined, // King of the Hill
         ceasefire: prefs.koth ? undefined : prefs.ceasefire || undefined, // build-up time (classic skirmish only)
-        // [VARIETY] rules, mutators, battlefield events, dynamic difficulty
+        // rules, mutators, battlefield events, dynamic difficulty
         rules: prefs.rules === 'classic' ? 'classic' : 'commander',
         mutators: prefs.mutators?.length ? [...prefs.mutators] : undefined,
         events: prefs.rules === 'classic' ? undefined : prefs.events !== false,
         dynamicDifficulty: prefs.dynamicDifficulty || undefined,
-        doctrines: prefs.rules !== 'classic' && prefs.doctrine ? [prefs.doctrine] : undefined, // [DOCTRINE] the player's pick (AIs choose their own)
+        doctrines: prefs.rules !== 'classic' && prefs.doctrine ? [prefs.doctrine] : undefined, // the player's pick (AIs choose their own)
       };
       try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
       this.cb.start(setup);
@@ -570,7 +570,7 @@ export class Menus {
     layout.append(left, panel);
   }
 
-  /** [VARIETY] Quick Battle: roll a well-tuned random skirmish, show the roll on the loading screen, deploy. */
+  /** Quick Battle: roll a well-tuned random skirmish, show the roll on the loading screen, deploy. */
   quickBattle() {
     this.audio.unlock().catch(() => {});
     const prefs = loadPrefs();
@@ -581,7 +581,7 @@ export class Menus {
   }
 
   /**
-   * [VARIETY] "Play again" for the results screen: `same` = the same setup again (map, opponents, rules, mutators;
+   * "Play again" for the results screen: `same` = the same setup again (map, opponents, rules, mutators;
    * a Quick Battle shows its roll again), otherwise a fresh map (a Quick Battle rolls a new one).
    */
   playAgain(setup: GameSetup, same = true) {
@@ -636,7 +636,7 @@ export class Menus {
       card(m.id, m.name, `${m.size}×${m.size} · ${m.players} players · ${cap(m.climate)}`, m.desc, m.tags ?? [],
         () => mapPreviewUrl(`c:${m.id}:${startColors(prefs.color, m.players).join(',')}`, () => loadCuratedMap(m.id)!, { size: 160, colors: startColors(prefs.color, m.players) }));
     }
-    // [EDIT] maps made in the editor (saved with 2+ starts)
+    // maps made in the editor (saved with 2+ starts)
     for (const m of customMaps()) {
       card(m.id, m.name, `${m.size}×${m.size} · ${m.players} players · ${cap(m.climate)}`, m.desc || `Custom map${m.author ? ' by ' + m.author : ''}, made in the editor.`, ['Custom', ...(m.tags ?? []).slice(0, 2)],
         () => mapPreviewUrl(`x:${m.id}:${JSON.stringify(m).length}:${startColors(prefs.color, m.players).join(',')}`, () => loadCuratedMap(m.id)!, { size: 160, colors: startColors(prefs.color, m.players) }));
@@ -754,7 +754,7 @@ export class Menus {
         list.appendChild(h('div', 'rpl-empty', `${ICONS.replay}<b>No replays yet</b><span>Play a skirmish: the whole match is recorded so you can rewatch it from any player's view.</span>`));
         return;
       }
-      // [MODES] trees: originals with their branches (rewind & take command); continue = take command at the end
+      // trees: originals with their branches (rewind & take command); continue = take command at the end
       renderReplayTree(list, replays, {
         watch: (r) => { this.hide(); this.cb.start(playbackSetup(r, this.settings.quality)); },
         cont: (r) => {
@@ -781,10 +781,10 @@ export class Menus {
     };
     const gfx = sec(ICONS.monitor, 'Graphics');
     gfx.appendChild(settingRow(ICONS.monitor, 'Quality', 'Applies to the next battle', seg<Quality>([['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], this.settings.quality, (v) => { this.settings.quality = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.monitor, 'Model detail', 'HD: baked high-detail buildings and vehicles (more memory) · Standard: lighter models', seg<ModelDetail>([['hd', 'HD'], ['standard', 'Standard']], modelDetailOf(this.settings), (v) => { this.settings.modelDetail = v; apply(); }))); // [HD]
+    gfx.appendChild(settingRow(ICONS.monitor, 'Model detail', 'HD: baked high-detail buildings and vehicles (more memory) · Standard: lighter models', seg<ModelDetail>([['hd', 'HD'], ['standard', 'Standard']], modelDetailOf(this.settings), (v) => { this.settings.modelDetail = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.gauge, 'Performance overlay', 'FPS and renderer stats in the top bar', toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.motion, 'Reduce motion', 'Calmer UI animations', toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.map, 'Interface layout', 'Modern: build bar at the bottom, panels in the corners · Classic: the sidebar on the right', seg<'modern' | 'classic'>([['modern', 'Modern'], ['classic', 'Classic']], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); }))); // [HUD]
+    gfx.appendChild(settingRow(ICONS.map, 'Interface layout', 'Modern: build bar at the bottom, panels in the corners · Classic: the sidebar on the right', seg<'modern' | 'classic'>([['modern', 'Modern'], ['classic', 'Classic']], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); })));
     const aud = sec(ICONS.volume, 'Audio');
     const vols = this.audio.getVolumes();
     const VOL: Record<string, [string, string]> = { master: ['Master', ICONS.volume], sfx: ['Effects', ICONS.bolt], music: ['Music', ICONS.music], voice: ['Voices', ICONS.mic], ambience: ['Ambience', ICONS.tree] };
@@ -819,7 +819,7 @@ export class Menus {
         ['E', 'All combat units on the map'], ['W', 'All of the selected type(s) on screen'], ['Ctrl + A', 'All own units on screen'],
         ['I', 'Next idle unit (Shift: idle harvester)'], ['Ctrl + 1–9', 'Assign control group'], ['1–9', 'Recall group · double tap to jump'],
         ['Shift + 1–9', 'Add the selection to a group'], ['Ctrl + drag', 'Remove units from the selection'], ['Double-click structure', 'All of that structure on screen'],
-        ['`', 'Army overview: every type, idle, damaged, value · click selects'], ['Shift + E', 'All damaged units on the map'], // [ARMY]
+        ['`', 'Army overview: every type, idle, damaged, value · click selects'], ['Shift + E', 'All damaged units on the map'],
       ]],
       ['Orders', ICONS.attackMove, [
         ['RMB', 'Move · attack · harvest · enter'], ['Shift + RMB', 'Queue waypoints'], ['Ctrl + RMB', 'Force fire'], ['Alt + RMB', 'Force move'],
@@ -829,14 +829,14 @@ export class Menus {
         ['P', 'Patrol: click the far end (Shift-click: more waypoints)'], ['C', 'Guard: click a unit to escort or a structure to defend'],
         ['RMB friendly unit', 'Escort it (follow and defend)'], ['L', 'Formation: auto · line · box · wedge (Shift: back)'],
         ['D', 'Chrono Tank: pick a chronoshift spot · demolition truck: detonate'],
-        ['Shift + R', 'Damaged vehicles queue at the service depot, then drive back'], // [ARMY]
+        ['Shift + R', 'Damaged vehicles queue at the service depot, then drive back'],
       ]],
       ['Base', ICONS.building, [
         ['Z / R / P', 'Sell · repair · primary factory'], ['LMB', 'Sidebar: build (Shift ×5) · place'], ['RMB', 'Sidebar: hold / cancel'],
         ['RMB', 'Factory selected: set rally point · on a unit: new units join it'],
         ['Shift + LMB', 'Place, then plan more of the same'], ['LMB card (yard busy)', 'Plan a structure: built and placed in order when affordable'],
-        ['Tab / B, 1–9', 'Modern layout: next build tab · build the card with that number'], // [HUD]
-        ['Alt + LMB', 'Sidebar: loop a unit (keeps training while you can pay) · RMB stops'], ['Ctrl + 1–9', 'Factory selected: its new units join that group'], // [ARMY]
+        ['Tab / B, 1–9', 'Modern layout: next build tab · build the card with that number'],
+        ['Alt + LMB', 'Sidebar: loop a unit (keeps training while you can pay) · RMB stops'], ['Ctrl + 1–9', 'Factory selected: its new units join that group'],
       ]],
       ['Camera', ICONS.eye, [
         ['Arrows', 'Scroll (or touch the screen edge)'], ['MMB / RMB drag', 'Pan the battlefield'], ['Wheel', 'Zoom'],
@@ -844,17 +844,17 @@ export class Menus {
         ['F6–F9', 'Camera bookmark · Ctrl / Shift + F6–F9: save'],
         ['Alt', 'Hold: show all health bars'], ['U', 'Photo mode'], ['Alt+Enter', 'Fullscreen on / off'], ['Esc', 'Cancel · pause menu'],
       ]],
-      // [CTRL] touch screens and gamepads
+      // touch screens and gamepads
       ['Touch', ICONS.target, [
         ['Tap', 'Select · with a selection: move / attack / enter'], ['Double tap', 'All of that type on screen'], ['Drag', 'Pan (hold, then drag: box select)'],
         ['Hold', 'Order menu: stop, scatter, deploy, patrol, guard, stance, formation'], ['Two fingers', 'Pan · pinch to zoom · twist to rotate'],
         ['Toolbar', 'Box · Add · Attack · Force · Guard · Patrol · Stop · All'], ['Hold a card', 'Sidebar: hold / cancel'],
-        ['Card loop button', 'Loop a unit · army chip: army overview'], // [ARMY]
+        ['Card loop button', 'Loop a unit · army chip: army overview'],
       ]],
       ['Gamepad', ICONS.gear, [
         ['Left stick', 'Cursor · right stick: camera · LT / RT: zoom'], ['A', 'Select (hold and move: box) · X: command'], ['B / Y', 'Cancel · deploy'],
         ['View', 'Order menu (stance, formation, patrol, guard…)'], ['LB / RB', 'Next idle unit · next group (hold: Shift / Ctrl)'],
-        ['D-pad', 'Sidebar: tabs and cards (A build, X hold / cancel, Y loop)'], ['L3 / R3', 'All units on screen · base'], ['Start', 'Pause · menus: D-pad, A, B'], // [ARMY] Y loop
+        ['D-pad', 'Sidebar: tabs and cards (A build, X hold / cancel, Y loop)'], ['L3 / R3', 'All units on screen · base'], ['Start', 'Pause · menus: D-pad, A, B'], // Y loop
       ]],
       ['Replays', ICONS.replay, [
         ['Space', 'Pause / play'], ['[ / ]', 'Slower · faster (1× – 8×)'], ['V', 'Next player view · observer'], ['Home', 'Restart the replay'],
@@ -906,7 +906,7 @@ export class Menus {
     const list = h('div', 'pp-list');
     const mk = (label: string, icon: string, fn: () => void, cls = '') => {
       const b = h('button', 'pp-btn ' + cls, `<span class="pp-bic">${icon}</span><span>${label}</span>${cls.includes('primary') ? '<kbd>Esc</kbd>' : ICONS.chevR}`);
-      b.dataset.act = label.toLowerCase(); // [HUD] the HUD's settings button opens "settings" directly
+      b.dataset.act = label.toLowerCase(); // the HUD's settings button opens "settings" directly
       b.onclick = fn;
       list.appendChild(b);
     };
@@ -940,13 +940,13 @@ export class Menus {
   // ---------------------------------------------------------------------------
   showEnd(game: Game, won: boolean) {
     const s = this.open(`sub-screen end-screen ${won ? 'win' : 'lose'}`);
-    // [META] results screen (src/ui/results.ts): XP and rank-up, contracts, medals, next unlock, battle report, MVP,
+    // results screen (src/ui/results.ts): XP and rank-up, contracts, medals, next unlock, battle report, MVP,
     // highlights, and a big "Play again" (same settings, new seed) next to "Rematch" (same seed) and "Menu"
     const rec = game.recorder;
     const setup = game.setup;
     showResults(s, game, won, {
       summary: game.metaSummary, report: game.report, rating: rateCommander(game, won), audio: this.audio,
-      playAgain: () => { this.hide(); this.playAgain(setup, false); }, // (a fresh map; [VARIETY] a Quick Battle rolls a new one)
+      playAgain: () => { this.hide(); this.playAgain(setup, false); }, // (a fresh map; a Quick Battle rolls a new one)
       rematch: !setup.mission && !setup.branch && !setup.challenge ? () => { this.hide(); this.cb.restart(); } : undefined,
       watchReplay: rec ? () => { const data = rec.toData(); this.hide(); this.cb.start(playbackSetup(data, this.settings.quality)); } : undefined,
       keepWatching: () => { this.hide(); this.cb.resume(); },

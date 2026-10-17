@@ -603,7 +603,7 @@ def roof_clutter(p, rect, y, seed=1, n=6, mats=None):
 def chimney(m, p, at, h, r, r_top=None, mat=None, bands=None, band_mat=None, cap=None, lights=4, smoke=None,
             light_color=0xff2a1a, ladder_side=None, seg=20, glow_ring=True, light_r=0.016):
     """Smokestack standing on y = at.y: tapered shell, coloured bands [(y_frac, h_frac), ...], cap ring, red
-    warning lights around the crown (and a glowing ring under it: the reference's red-crowned stacks),
+    warning lights around the crown (and a glowing ring under it: a red-crowned stack),
     optional ladder; `smoke` = point name ('smoke0') at the top."""
     mat = mat or Mt.concrete(0x7e7a72, streaks=1.0, grime=0.8)
     band_mat = band_mat or Mt.painted(0xa31812, wear=0.4, rust=0.2, streaks=0.8)
@@ -713,7 +713,7 @@ def sign(m, p, at, size, lines, facing='+z', board=None, text_color=0xe8e4da, fi
     tx = -w * 0.11 if emblem else 0.0
     nl = len(lines.split('|')) if isinstance(lines, str) else len(lines)
     if scales is None and nl == 2:
-        scales = [1.45, 1.0]  # headline over a smaller line, like the reference's POWER / OUR STRENGTH
+        scales = [1.45, 1.0]  # headline over a smaller line, e.g. POWER / OUR STRENGTH
     img = D.text(lines, px_h=192, aspect=tw / (h * 0.9), color=text_color, field=field, stencil=stencil, scales=scales, font=font)
     m.decal(img, at=_xf(F, (tx, 0, 0.012)), size=(tw, h * 0.9), facing=facing, part=p, depth=0.01, team=0, emit=emit)
     if emblem:

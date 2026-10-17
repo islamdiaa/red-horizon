@@ -84,7 +84,7 @@ type P2 = [number, number];
 const BOLT_HUB = new THREE.OctahedronGeometry(1, 0);
 const GUN_WOOD_V: Mat = { c: 0x7a4c2a, m: 0, r: 0.6, d: 2 };
 
-/** [UNITS] Stencilled number centred on edge i of a top-view outline (turret sides). */
+/** Stencilled number centred on edge i of a top-view outline (turret sides). */
 function edgeNumber(nb: NB, pts: P2[], i: number, y: number, text: string, h = 0.03, shift = 0): void {
   const f = edgeFrame(pts, i);
   const sx = Math.cos(f.yaw);
@@ -92,7 +92,7 @@ function edgeNumber(nb: NB, pts: P2[], i: number, y: number, text: string, h = 0
   stencilNumber(nb, text, [f.cx + f.nx * 0.0015 + sx * shift, y, f.cz + f.nz * 0.0015 + sz * shift], [0, f.yaw, 0], h);
 }
 
-/** [UNITS] Allied star decal centred on edge i of a top-view outline. */
+/** Allied star decal centred on edge i of a top-view outline. */
 function edgeStar(nb: NB, pts: P2[], i: number, y: number, size: number, shift = 0): void {
   const f = edgeFrame(pts, i);
   const sx = Math.cos(f.yaw);
@@ -100,7 +100,7 @@ function edgeStar(nb: NB, pts: P2[], i: number, y: number, size: number, shift =
   alliedStar(nb, size, [f.cx + f.nx * 0.0015 + sx * shift, y, f.cz + f.nz * 0.0015 + sz * shift], decalRot(f.yaw));
 }
 
-/** [UNITS] Camouflage blotches on edge i of a top-view outline (vertical face from y0 to y1). */
+/** Camouflage blotches on edge i of a top-view outline (vertical face from y0 to y1). */
 function edgeCamo(nb: NB, pts: P2[], i: number, y0: number, y1: number, n: number, seed: number): void {
   const f = edgeFrame(pts, i);
   camoFace(nb, f.len * 0.9, y1 - y0, [f.cx + f.nx * 0.0015, (y0 + y1) / 2, f.cz + f.nz * 0.0015], f.yaw, n, seed);
@@ -108,7 +108,7 @@ function edgeCamo(nb: NB, pts: P2[], i: number, y0: number, y1: number, n: numbe
 
 // =============================================================================================
 // Light tank (Allied): M41 Walker Bulldog style
-// [UNITS] team paint with dark camouflage, fender stowage, commander with .50 cal, muzzle brake
+// team paint with dark camouflage, fender stowage, commander with .50 cal, muzzle brake
 // =============================================================================================
 
 function lightTank(): ModelTemplate {
@@ -212,7 +212,7 @@ function lightTank(): ModelTemplate {
 
 // =============================================================================================
 // Medium tank (Allied): M60 / Abrams style
-// [UNITS] armoured skirts in alternating team panels, bustle rack, two crew hatches with MGs
+// armoured skirts in alternating team panels, bustle rack, two crew hatches with MGs
 // =============================================================================================
 
 function mediumTank(): ModelTemplate {
@@ -325,7 +325,7 @@ function mediumTank(): ModelTemplate {
 
 // =============================================================================================
 // Heavy tank (Soviet, twin barrels): T-55 style dome turret, big road wheels, fender fuel tanks
-// [UNITS] olive drab with team-colour appliqué plates; close-up crew, stowage and fittings
+// olive drab with team-colour appliqué plates; close-up crew, stowage and fittings
 // =============================================================================================
 
 function heavyTank(): ModelTemplate {
@@ -476,7 +476,7 @@ function heavyTank(): ModelTemplate {
 
 // =============================================================================================
 // Mammoth tank (Soviet): twin big guns, missile pods, four tracks
-// [UNITS] olive drab with team-colour cheek plates, skirts and pods; exhaust stacks, crew, stowage
+// olive drab with team-colour cheek plates, skirts and pods; exhaust stacks, crew, stowage
 // =============================================================================================
 
 function mammothTank(): ModelTemplate {
@@ -626,7 +626,7 @@ function mammothTank(): ModelTemplate {
 }
 
 // =============================================================================================
-// Ranger jeep (Allied) [UNITS] team paint with camo, crew (driver + gunner on the pintle MG), stowage
+// Ranger jeep (Allied): team paint with camo, crew (driver + gunner on the pintle MG), stowage
 // =============================================================================================
 
 /** Seated crewman (helmeted head over shoulders), facing +X at p (seat height). */
@@ -749,7 +749,7 @@ function jeep(): ModelTemplate {
 }
 
 // =============================================================================================
-// APC (Allied, M113-like) [UNITS] team paint with camo, commander behind a gun shield, ramp door, stowage
+// APC (Allied, M113-like): team paint with camo, commander behind a gun shield, ramp door, stowage
 // =============================================================================================
 
 function apc(): ModelTemplate {
@@ -833,7 +833,7 @@ function apc(): ModelTemplate {
 }
 
 // =============================================================================================
-// Artillery (Allied) [UNITS] open casemate with a crew, ready rounds, spades, camo
+// Artillery (Allied): open casemate with a crew, ready rounds, spades, camo
 // =============================================================================================
 
 function artillery(): ModelTemplate {
@@ -1083,7 +1083,7 @@ function v2Launcher(): ModelTemplate {
 }
 
 // =============================================================================================
-// Ore truck / harvester [UNITS] dressed per faction: Soviet olive with team panels / Allied team paint
+// Ore truck / harvester, dressed per faction: Soviet olive with team panels / Allied team paint
 // =============================================================================================
 
 /** Hull paint, secondary paint and contrasting panel paint of a faction-dressed vehicle. */
@@ -1229,7 +1229,7 @@ function harvester(fac: ModelFaction = 'soviet'): ModelTemplate {
 }
 
 // =============================================================================================
-// MCV [UNITS] dressed per faction; folded crane, structure frames, generator and comms dish
+// MCV, dressed per faction; folded crane, structure frames, generator and comms dish
 // =============================================================================================
 
 function mcv(fac: ModelFaction = 'soviet'): ModelTemplate {
@@ -1344,8 +1344,7 @@ function mcv(fac: ModelFaction = 'soviet'): ModelTemplate {
 }
 
 // =============================================================================================
-// [UNITS] Support vehicles (supersede the round-4 versions in support.ts; registered through
-// AFTERMATH_BUILDERS, which index.ts spreads after SUPPORT_BUILDERS)
+// Support vehicles: minelayer, mobile gap generator, radar jammer (registered through AFTERMATH_BUILDERS)
 // =============================================================================================
 
 const MINE_OLIVE: Mat = { c: 0x4a5236, m: 0.35, r: 0.6, d: 0 };
@@ -1667,7 +1666,7 @@ function radarJammer(): ModelTemplate {
   });
 }
 
-/** [UNITS] Support vehicles that supersede support.ts (spread into AFTERMATH_BUILDERS, after SUPPORT_BUILDERS). */
+/** Support vehicles (spread into AFTERMATH_BUILDERS). */
 export const SUPPORT_VEHICLE_BUILDERS: Record<string, (fac?: ModelFaction) => ModelTemplate> = {
   mnly: minelayer,
   mgg: mobileGap,

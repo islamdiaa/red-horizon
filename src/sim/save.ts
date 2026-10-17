@@ -10,9 +10,9 @@ import { SUPER_KINDS } from './superweapons';
 import type { Projectile } from './combat';
 import type { World } from './world';
 import type { MissionRuntime } from './mission';
-import { newCtrlState } from './formation'; // [CTRL]
-import { loadCommander, saveCommander } from './commander'; // [DOCTRINE]
-import { loadVariety, neutralOwner, saveVariety } from './events'; // [VARIETY]
+import { newCtrlState } from './formation';
+import { loadCommander, saveCommander } from './commander';
+import { loadVariety, neutralOwner, saveVariety } from './events';
 
 export const SAVE_VERSION = 1;
 
@@ -80,7 +80,7 @@ export function serializeWorld(w: World): Json {
       player: ai.player.id, difficulty: ai.difficulty, state: a.state, stage: a.stage, stageX: a.stageX, stageY: a.stageY,
       stageTarget: a.stageTarget, stageStart: a.stageStart, wave: [...a.wave], waveStart: a.waveStart, nextWaveValue: a.nextWaveValue,
       lastDefend: a.lastDefend, deployTries: a.deployTries, behaviour: a.behaviour, thinks: a.thinks,
-      ext: a.saveState?.(), // [AI] intel, scouting, raids, expansions, flanks, repairs
+      ext: a.saveState?.(), // intel, scouting, raids, expansions, flanks, repairs
     };
   });
   let mission: Json = null;
@@ -96,9 +96,9 @@ export function serializeWorld(w: World): Json {
     crateTimer: W.crateTimer, crates: w.crates, cratesEnabled: w.cratesEnabled,
     ceasefireUntil: w.ceasefireUntil, // build-up time (ceasefire.ts)
     bridges: w.bridges.map((b) => ({ id: b.id, hp: b.hp, alive: b.alive })),
-    ctrl: w.ctrl, // [CTRL] formations in transit
-    commander: w.commander ? saveCommander(w.commander) : undefined, // [DOCTRINE] Commander rules (absent = Classic)
-    variety: w.variety ? saveVariety(w) : undefined, // [VARIETY] mutators, events, tech structures (absent = none)
+    ctrl: w.ctrl, // formations in transit
+    commander: w.commander ? saveCommander(w.commander) : undefined, // Commander rules (absent = Classic)
+    variety: w.variety ? saveVariety(w) : undefined, // mutators, events, tech structures (absent = none)
     pathQueue: W.pathQueue.map((u: Unit) => u.id),
     // commands issued after the last step (AI thinks at the end of a tick) run at the start of the next one
     commands: W.commands,
@@ -149,7 +149,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   const byId = new Map<number, Entity>();
   for (const es of s.entities as Json[]) {
     let e: Entity;
-    const owner = es.owner < 0 ? neutralOwner(w, s.variety) : w.players[es.owner]; // [VARIETY] neutral structures / event units
+    const owner = es.owner < 0 ? neutralOwner(w, s.variety) : w.players[es.owner]; // neutral structures / event units
     if (es.cls === 'B') {
       e = new Building(es.id, BUILDINGS[es.type], owner, es.cx, es.cy);
     } else {
@@ -203,7 +203,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   }
   for (const b of w.bridges) if (b.alive) for (const [x, y] of b.cells) m.bridgeAt[m.idx(x, y)] = b.id;
   W.commands = s.commands ? JSON.parse(JSON.stringify(s.commands)) : [];
-  w.ctrl = s.ctrl ? JSON.parse(JSON.stringify(s.ctrl)) : newCtrlState(); // [CTRL]
+  w.ctrl = s.ctrl ? JSON.parse(JSON.stringify(s.ctrl)) : newCtrlState();
   W.pathQueue = [];
   for (const id of s.pathQueue as number[]) {
     const u = byId.get(id);
@@ -215,7 +215,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     if (!ai) continue;
     if (as.behaviour === 'full') ai.setMode(as.difficulty); else ai.setMode(as.behaviour);
     Object.assign(ai, { state: as.state, stage: as.stage, stageX: as.stageX, stageY: as.stageY, stageTarget: as.stageTarget, stageStart: as.stageStart, wave: new Set(as.wave), waveStart: as.waveStart, nextWaveValue: as.nextWaveValue, lastDefend: as.lastDefend, deployTries: as.deployTries, thinks: as.thinks ?? 0 });
-    ai.loadState?.(as.ext); // [AI]
+    ai.loadState?.(as.ext);
   }
   // --- mission
   if (mission && s.mission) {
@@ -227,8 +227,8 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     r.onceKeys = new Set(s.mission.onceKeys); r.everyT = new Map(s.mission.everyT); r.timers = new Map(s.mission.timers);
     mission.events.length = 0;
   }
-  loadCommander(w, s.commander, s.projectiles); // [DOCTRINE] Commander rules state (none in Classic saves)
-  if (s.variety || w.variety) loadVariety(w, s.variety); // [VARIETY] after the AI restored its economy (none in older saves)
+  loadCommander(w, s.commander, s.projectiles); // Commander rules state (none in Classic saves)
+  if (s.variety || w.variety) loadVariety(w, s.variety); // after the AI restored its economy (none in older saves)
   for (const p of w.players) w.updateVisibility(p);
 }
 

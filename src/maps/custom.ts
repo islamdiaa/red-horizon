@@ -1,5 +1,5 @@
 /**
- * [EDIT] Custom maps (made in the editor, src/editor): the same MapDef format as the curated maps,
+ * Custom maps (made in the editor, src/editor): the same MapDef format as the curated maps,
  * validated structurally when they are imported or loaded from a save / replay, plus content hashes.
  * Custom map ids start with "custom-" so they never collide with curated ones.
  */

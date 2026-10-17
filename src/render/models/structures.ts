@@ -68,13 +68,13 @@ import { setBodyTime } from './materials';
 const STRUCT_AO = { h: 0.32, min: 0.52 };
 
 /**
- * [STRUCT] Types shared by both sides that are built once per faction (Soviet / Allied dressing): their
+ * Types shared by both sides that are built once per faction (Soviet / Allied dressing): their
  * builders receive the owner's faction and models/index.ts caches one template per faction. Units join
  * through registerFactionDressed() (or by adding to the set) at module load.
  */
 export const FACTION_DRESSED = new Set(['fact', 'powr', 'apwr', 'proc', 'silo', 'weap', 'dome', 'fix', 'hpad', 'mslo']);
 
-/** [STRUCT] Mark more type ids as faction-dressed (call at module load, before any model is created). */
+/** Mark more type ids as faction-dressed (call at module load, before any model is created). */
 export function registerFactionDressed(...ids: string[]): void {
   for (const id of ids) FACTION_DRESSED.add(id);
 }
@@ -82,7 +82,7 @@ export function registerFactionDressed(...ids: string[]): void {
 function root(sx: number, sz: number, slab: Mat = M.concrete): NB {
   const r = new NB('root');
   r.ao = STRUCT_AO;
-  r.snow = 1; // [STRUCT] structures collect the full snow cover in winter
+  r.snow = 1; // structures collect the full snow cover in winter
   r.cavity = true;
   foundation(r, sx, sz, 0.04, 0.05, slab);
   return r;
@@ -92,7 +92,7 @@ function root(sx: number, sz: number, slab: Mat = M.concrete): NB {
 function sAnim(extra?: (c: Ctx, s: ModelAnimState, pw: number) => void): AnimFn {
   return (c, s) => {
     healthVariant(c, s);
-    setBodyTime(s.time); // [STRUCT] baked light animation clock (idempotent; previews have no destruction system)
+    setBodyTime(s.time); // baked light animation clock (idempotent; previews have no destruction system)
     if (c.v.seed === undefined) c.v.seed = Math.random() * 3;
     const pw = s.powered ? 1 : 0.1;
     c.setPowered(s.powered);
@@ -108,7 +108,7 @@ function beacon(nb: NB, p: V3, glow: { glow: number } = G.red, h = 0.05): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-// [STRUCT] building blocks
+// building blocks
 // ---------------------------------------------------------------------------------------------
 
 interface BlockOpts {
@@ -1466,7 +1466,7 @@ function sovietTech(): ModelTemplate {
   const tz = -0.5;
   r.add(prismXZ(oct(0.42, 0.36, 0.08), 0.42, 0.03), S.sovWall, { p: [0, y0 + 0.48, tz] });
   r.add(prismXZ(oct(0.45, 0.39, 0.09), 0.05, 0.015), M.team, { p: [0, y0 + 0.88, tz] });
-  r.add(prismXZ(oct(0.41, 0.35, 0.08), 0.012, 0), S.roofTar, { p: [0, y0 + 0.93, tz] }); // [STRUCT] roof inside the trim
+  r.add(prismXZ(oct(0.41, 0.35, 0.08), 0.012, 0), S.roofTar, { p: [0, y0 + 0.93, tz] }); // roof inside the trim
   r.add(prismXZ(oct(0.3, 0.26, 0.06), 0.24, 0.02), S.sovWall, { p: [0, y0 + 0.93, tz] });
   r.add(prismXZ(oct(0.33, 0.29, 0.07), 0.04, 0.012), M.team, { p: [0, y0 + 1.15, tz] });
   r.add(prismXZ(oct(0.29, 0.25, 0.06), 0.012, 0), S.roofTar, { p: [0, y0 + 1.19, tz] });
@@ -1493,7 +1493,7 @@ function sovietTech(): ModelTemplate {
   // radio masts (right)
   radioMast(r, 0.98, y0 + 0.5, -0.8, 0.8);
   radioMast(r, 0.72, y0 + 0.5, -0.25, 0.55);
-  // [STRUCT] dressing: banners, slogan, red lights, roof plant
+  // dressing: banners, slogan, red lights, roof plant
   banner(r, 'soviet', 0.22, 0.38, [-0.3, y0 + 0.44, 0.508], 0);
   banner(r, 'soviet', 0.22, 0.38, [0.3, y0 + 0.44, 0.508], 0);
   sloganBoard(r, 'soviet', 'НАУКА СИЛА', 0.62, 0.11, [0, y0 + 0.82, tz + 0.37], 0, false);
@@ -1752,7 +1752,7 @@ function ironCurtain(): ModelTemplate {
     return p;
   };
   r.add(prismXZ(oct(0.86), 0.1, 0.02), M.dark, { p: [0, y0, 0] });
-  r.add(prismXZ(oct(0.66), 0.08, 0.02), S.sovSteel, { p: [0, y0 + 0.1, 0] }); // [STRUCT] steel step, team edge band
+  r.add(prismXZ(oct(0.66), 0.08, 0.02), S.sovSteel, { p: [0, y0 + 0.1, 0] }); // steel step, team edge band
   r.add(ringGeo(0.6, 0.64, 0.02, 8), M.team, { p: [0, y0 + 0.17, 0], r: [0, Math.PI / 8, 0] });
   r.add(prismXZ(oct(0.4), 0.06, 0.02), M.gun, { p: [0, y0 + 0.18, 0] });
   // energy ring in the floor
@@ -1809,7 +1809,7 @@ function ironCurtain(): ModelTemplate {
   r.box(M.gun, 0.3, 0.12, 0.1, 0, y0 + 0.06, 0.82, { b: 0.01 });
   r.box(G.red, 0.24, 0.03, 0.005, 0, y0 + 0.09, 0.872, { b: 0, slot: 'glow' });
   sovietStar(r, 0.08, [0, y0 + 0.103, 0.7]);
-  // [STRUCT] dressing: hazard edge, warning lights at the octagon corners, cable runs, banner posts
+  // dressing: hazard edge, warning lights at the octagon corners, cable runs, banner posts
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     warnLight(r, [Math.cos(a) * 0.82, y0 + 0.125, Math.sin(a) * 0.82], i % 2 === 0, 0.016);
@@ -1852,7 +1852,7 @@ function chronosphere(): ModelTemplate {
   const r = root(2, 2, M.concreteLight);
   const y0 = 0.04;
   r.cyl(M.offwhite, 0.85, 0.88, 0.1, 0, y0 + 0.05, 0, { seg: 32 });
-  r.cyl(S.allSteel, 0.7, 0.75, 0.06, 0, y0 + 0.13, 0, { seg: 32 }); // [STRUCT] steel deck, team edge band
+  r.cyl(S.allSteel, 0.7, 0.75, 0.06, 0, y0 + 0.13, 0, { seg: 32 }); // steel deck, team edge band
   r.add(ringGeo(0.66, 0.71, 0.02, 32), M.team, { p: [0, y0 + 0.155, 0] });
   r.add(ringGeo(0.76, 0.8, 0.012, 32), G.blue, { p: [0, y0 + 0.105, 0], slot: 'glow:core' });
   // pedestal + support arms
@@ -1888,7 +1888,7 @@ function chronosphere(): ModelTemplate {
   r.box(M.gun, 0.28, 0.12, 0.1, 0, y0 + 0.16, 0.8, { b: 0.01, r: [-0.3, 0, 0] });
   r.box(G.cyan, 0.22, 0.05, 0.005, 0, y0 + 0.18, 0.85, { b: 0, r: [-0.3, 0, 0], slot: 'glow' });
   alliedStar(r, 0.07, [0, y0 + 0.161, 0.6]);
-  // [STRUCT] dressing: floodlight masts, capacitor cabinets, hazard edge, cable runs
+  // dressing: floodlight masts, capacitor cabinets, hazard edge, cable runs
   for (const [x, z] of [[-0.86, -0.86], [0.86, -0.86]]) {
     r.cyl(M.dark, 0.012, 0.016, 0.62, x, y0 + 0.31, z, { seg: 6 });
     floodlight(r, [x, y0 + 0.62, z + 0.02], Math.atan2(-x, -z) + Math.PI, 0.7, 0.045);

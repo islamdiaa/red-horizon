@@ -11,16 +11,16 @@ import type { GameMap } from '../sim/map';
 import { buildMap } from './build';
 import { MAP_DEFS } from './defs';
 import type { MapDef, MapInfo } from './format';
-import { getCustomMap } from './custom'; // [EDIT] custom (editor) maps
+import { getCustomMap } from './custom'; // custom (editor) maps
 
 export type { MapDef, MapInfo } from './format';
 export { buildMap } from './build';
-export { customMaps, isCustomMapId } from './custom'; // [EDIT]
+export { customMaps, isCustomMapId } from './custom';
 
 export const CURATED_MAPS: readonly MapDef[] = MAP_DEFS;
 
 export function getMapDef(id: string): MapDef | undefined {
-  return MAP_DEFS.find((m) => m.id === id) ?? getCustomMap(id); // [EDIT] editor maps too
+  return MAP_DEFS.find((m) => m.id === id) ?? getCustomMap(id); // editor maps too
 }
 
 export function mapInfo(def: MapDef): MapInfo {

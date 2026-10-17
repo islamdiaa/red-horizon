@@ -44,7 +44,7 @@ const AO = { h: 0.25, min: 0.52 };
 function root(sx: number, sz: number): NB {
   const r = new NB('root');
   r.ao = AO;
-  r.snow = 1; // [STRUCT]
+  r.snow = 1;
   r.cavity = true;
   foundation(r, sx, sz, 0.04, 0.05, M.concreteDark);
   return r;
@@ -53,7 +53,7 @@ function root(sx: number, sz: number): NB {
 function dAnim(extra?: (c: Ctx, s: ModelAnimState) => void): AnimFn {
   return (c, s) => {
     healthVariant(c, s);
-    setBodyTime(s.time); // [STRUCT] baked light animation clock
+    setBodyTime(s.time); // baked light animation clock
     if (c.v.seed === undefined) c.v.seed = Math.random() * 3;
     c.setPowered(s.powered);
     c.setGlow('glow:blink', s.powered ? (blink(s.time + c.v.seed, 1.4, 0.3) ? 1 : 0.06) : 0.04);
@@ -81,7 +81,7 @@ function pillbox(): ModelTemplate {
   r.add(prismXZ(polygon(6, 0.4, Math.PI / 6), 0.22, 0.04), S.allWall, { p: [0, y0 + 0.02, 0] });
   r.add(prismXZ(polygon(6, 0.37, Math.PI / 6), 0.025, 0.006), M.team, { p: [0, y0 + 0.22, 0] });
   r.add(prismXZ(polygon(6, 0.34, Math.PI / 6), 0.06, 0.03), M.concreteLight, { p: [0, y0 + 0.24, 0] });
-  // [STRUCT] roof: hatch, periscope, sandbag ring, floodlight
+  // roof: hatch, periscope, sandbag ring, floodlight
   r.cyl(M.gun, 0.06, 0.065, 0.025, 0.08, y0 + 0.31, 0.06, { seg: 10 });
   r.box(M.dark, 0.03, 0.06, 0.03, -0.1, y0 + 0.33, -0.08, { b: 0.004 });
   for (let i = 0; i < 6; i++) {
@@ -120,7 +120,7 @@ function gunTurret(): ModelTemplate {
   r.add(prismXZ(polygon(8, 0.42, Math.PI / 8), 0.18, 0.035), M.concrete, { p: [0, y0, 0] });
   r.add(prismXZ(polygon(8, 0.34, Math.PI / 8), 0.06, 0.02), M.gun, { p: [0, y0 + 0.18, 0] });
   hazard(r, 0.3, 0.035, [0, y0 + 0.1, 0.39], [0, 0, 0]);
-  sandbags(r, 0.3, 2, [-0.3, y0, 0.38], [0, 0.4, 0]); // [STRUCT]
+  sandbags(r, 0.3, 2, [-0.3, y0, 0.38], [0, 0.4, 0]);
   drums(r, 0.34, y0, 0.3, 2);
   warnLight(r, [0.36, y0 + 0.22, -0.22], false, 0.016);
   r.cyl(M.dark, 0.22, 0.24, 0.03, 0, y0 + 0.255, 0, { seg: 20 });
@@ -302,7 +302,7 @@ function flameTower(): ModelTemplate {
     r.box(G.fire, 0.05, 0.02, 0.008, Math.cos(a) * 0.2, y0 + 0.48, Math.sin(a) * 0.2, { b: 0, r: [0, -a + Math.PI / 2, 0], slot: 'glow:pilot' });
   }
   sovietStar(r, 0.07, [0, y0 + 0.28, 0.315], [-0.32, 0, 0]);
-  // [STRUCT] dressing: warning lights, fuel drums, a stencil
+  // dressing: warning lights, fuel drums, a stencil
   warnLight(r, [0.2, y0 + 0.47, 0.18], false, 0.015);
   warnLight(r, [-0.2, y0 + 0.47, -0.18], false, 0.015);
   drums(r, 0.3, y0, 0.3, 3, M.red);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// [PIPE] Lazy HD loading check (dev server): scene A with every type loading lazily (?hdlazy=1).
+// Lazy HD loading check (dev server): scene A with every type loading lazily (?hdlazy=1).
 //   1. which power plants swapped to HD (off-screen ones) and which stayed procedural (on screen in frame 1)
 //   2. a power plant built while its HD model loads: swaps during construction (hologram + build-up)
 //   3. a heavy tank produced while its HD model loads: swaps while still inside the war factory / off-screen

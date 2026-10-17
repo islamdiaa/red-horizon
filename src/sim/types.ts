@@ -22,15 +22,15 @@ export type Order =
   | { type: 'layMines'; cells: number[]; tries?: number; field?: boolean }
   /** Engineer: walk to an end of a destroyed bridge and rebuild it (bridges.ts). */
   | { type: 'repairBridge'; bridge: number }
-  /** [CTRL] Loop through `points`, engaging on the way (orders.ts). `idx` = point heading for. */
+  /** Loop through `points`, engaging on the way (orders.ts). `idx` = point heading for. */
   | { type: 'patrol'; points: [number, number][]; idx: number; started?: boolean }
-  /** [CTRL] Escort / guard a unit or structure: keep station at angle `a`, radius `r` around it and defend it (orders.ts). */
+  /** Escort / guard a unit or structure: keep station at angle `a`, radius `r` around it and defend it (orders.ts). */
   | { type: 'escort'; target: number; a: number; r: number };
 
-/** [CTRL] Formation shapes ('none' = automatic: keep relative positions, see formation.ts). */
+/** Formation shapes ('none' = automatic: keep relative positions, see formation.ts). */
 export type FormationShape = 'line' | 'box' | 'wedge' | 'none';
 
-/** [CTRL] One planned structure of a build plan (Player.buildPlan): type and top-left footprint cell. */
+/** One planned structure of a build plan (Player.buildPlan): type and top-left footprint cell. */
 export interface PlanItem { type: string; cx: number; cy: number }
 
 /** Player-issued commands. All game-state changes from input/AI go through these. */
@@ -57,9 +57,9 @@ export type Command =
   | { c: 'mine'; player: number; units: number[]; x: number; y: number }
   /** Engineers rebuild a destroyed bridge (World.bridges id) from its nearest end. */
   | { c: 'repairBridge'; player: number; units: number[]; bridge: number }
-  /** [CONTENT] A Chrono Tank chronoshifts itself to (x, y) (explored, open ground) when its own charge is full (aftermath.ts). */
+  /** A Chrono Tank chronoshifts itself to (x, y) (explored, open ground) when its own charge is full (aftermath.ts). */
   | { c: 'chronoJump'; player: number; unit: number; x: number; y: number }
-  // --- [CTRL] unit control (orders.ts / formation.ts)
+  // --- unit control (orders.ts / formation.ts)
   /** Loop through the points (each unit starts from where it stands), attack-moving. `queue`: after current orders. */
   | { c: 'patrol'; player: number; units: number[]; points: [number, number][]; queue?: boolean }
   /** Escort / guard an own or allied unit or structure: follow it and defend it. */
@@ -74,13 +74,13 @@ export type Command =
    * 'remove' drops the listed items (matched by type and cell).
    */
   | { c: 'queuePlan'; player: number; items: PlanItem[]; mode?: 'append' | 'replace' | 'remove' }
-  /** [ARMY] Repeat production: `type` keeps being built from `building`'s queue while money allows (sim/repeat.ts). */
+  /** Repeat production: `type` keeps being built from `building`'s queue while money allows (sim/repeat.ts). */
   | { c: 'repeat'; player: number; building: number; type: string; on: boolean }
-  /** [DOCTRINE] Use an unlocked commander power (sim/commander.ts): at a map point, or on a `target` entity (Sabotage). */
+  /** Use an unlocked commander power (sim/commander.ts): at a map point, or on a `target` entity (Sabotage). */
   | { c: 'commanderPower'; player: number; power: string; x?: number; y?: number; target?: number }
-  /** [DOCTRINE] Spend command points to unlock a power of the commander tree (sim/commander.ts). */
+  /** Spend command points to unlock a power of the commander tree (sim/commander.ts). */
   | { c: 'unlockPower'; player: number; power: string }
-  /** [VARIETY] Answer a battlefield event (sim/events.ts): hire the mercenaries on offer (event = its id). */
+  /** Answer a battlefield event (sim/events.ts): hire the mercenaries on offer (event = its id). */
   | { c: 'battleEvent'; player: number; event: number; act: 'hire' };
 
 /** How a unit picks fights: chase anything seen / engage in range and return (default) / never move / never fire unprompted. */
@@ -109,14 +109,14 @@ export type GameEvent =
   | { e: 'infiltrate'; building: number; player: number; victim: number; kind: 'spy' | 'thief'; amount: number; x: number; y: number }
   /** A bridge collapsed or was rebuilt (World.bridges id). */
   | { e: 'bridge'; id: number; alive: boolean }
-  /** [CONTENT] One seismic pulse of a deployed M.A.D. Tank (unit `id`), `pulse` of `pulses`, hitting everything within `radius` (aftermath.ts). */
+  /** One seismic pulse of a deployed M.A.D. Tank (unit `id`), `pulse` of `pulses`, hitting everything within `radius` (aftermath.ts). */
   | { e: 'quake'; id: number; x: number; y: number; radius: number; pulse: number; pulses: number }
   /** Support power effects for the renderer: GPS launch (map reveal), sonar pulse, spy-plane photo, paradrop. */
   | { e: 'power'; kind: 'gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs'; player: number; x: number; y: number }
-  /** [ARMY] A factory finished a unit: `id` left `building` (the factory it came out of). */
+  /** A factory finished a unit: `id` left `building` (the factory it came out of). */
   | { e: 'produced'; id: number; building: number; player: number }
   /**
-   * [DOCTRINE] Commander rules (sim/commander.ts): a power was unlocked / cast, an offensive power's target area is
+   * Commander rules (sim/commander.ts): a power was unlocked / cast, an offensive power's target area is
    * announced to everybody ('warn'), a Tesla Storm bolt struck, reinforcements arrived, command points reached a
    * new whole number (`amount`) or the commander a new level (`amount`). x / y = -1 when there is no place.
    */

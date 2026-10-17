@@ -6,8 +6,8 @@
 import { BUILDINGS, UNITS, type Faction } from '../data/rules';
 import type { MissionDef, MissionRuntime } from '../sim/mission';
 import type { Unit } from '../sim/entities';
-import type { Player } from '../sim/player'; // [MODES] co-op survival
-import type { AIDifficulty } from '../sim/ai'; // [MODES]
+import type { Player } from '../sim/player'; // co-op survival
+import type { AIDifficulty } from '../sim/ai';
 import { DAILY_MODIFIERS, MODIFIER_BY_ID, dailyConfig, dailyVictoryScore, dayKey, type DailyConfig } from '../meta/daily';
 
 // =============================================================================
@@ -50,7 +50,7 @@ function baseCentre(m: MissionRuntime, p = 0): [number, number] {
   const s = m.start(p);
   return [s.x, s.y];
 }
-/** [MODES] The human and any AI teammates (co-op survival); never the horde (player 1). */
+/** The human and any AI teammates (co-op survival); never the horde (player 1). */
 function isDefender(m: MissionRuntime, p: Player): boolean {
   return p.team === m.human.team && p !== m.player(1);
 }
@@ -103,7 +103,7 @@ function spawnAtEdge(m: MissionRuntime, p: number, types: string[], side: Side, 
   const horizontal = side === 'n' || side === 's';
   const inward = side === 'n' || side === 'w' ? 1 : -1;
   const heading = horizontal ? (inward > 0 ? Math.PI / 2 : -Math.PI / 2) : inward > 0 ? 0 : Math.PI;
-  const [bx, by] = target ?? baseCentre(m); // [MODES] co-op: the base this wave goes for
+  const [bx, by] = target ?? baseCentre(m); // co-op: the base this wave goes for
   const ground = types.some((t) => UNITS[t].kind !== 'aircraft');
   const [ax, ay] = ground ? entryPoint(m, side, along, bx, by) : edgeCell(m, side, along, 1);
   const [ix, iy] = horizontal ? [0, inward] : [inward, 0];
@@ -224,7 +224,7 @@ function survivalBudget(n: number, factor: number): number {
   return (800 + 360 * n + 26 * n * n) * factor;
 }
 
-// ---- [MODES] co-op survival: AI teammates with their own bases; waves go for every base in turn ----
+// ---- co-op survival: AI teammates with their own bases; waves go for every base in turn ----
 /** Score factor (difficulty x co-op discount). */
 function scoreFactor(m: MissionRuntime, v: SurvivalVariant): number {
   return v.factor * (m.flags.coopScore ?? 1);
@@ -286,10 +286,10 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
     if (kind === m.flags.lastKind) kind = rng.pick(opts);
   }
   m.flags.lastKind = kind;
-  const budget = survivalBudget(n, v.factor) * (m.flags.budgetMul ?? 1); // [MODES] co-op: bigger waves
+  const budget = survivalBudget(n, v.factor) * (m.flags.budgetMul ?? 1); // co-op: bigger waves
   const rank = n >= 22 ? 2 : n >= 12 ? 1 : 0;
   const cap = 44;
-  const tgt = waveTarget(m, n); // [MODES] co-op: the base this wave goes for (solo: the human's)
+  const tgt = waveTarget(m, n); // co-op: the base this wave goes for (solo: the human's)
   const [bx, by] = baseCentre(m, tgt);
   const at: [number, number] = [bx, by];
   if (m.flags.allies) (m.flags.waveTargets ??= []).push(tgt);
@@ -321,7 +321,7 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
       fill(m, pools.armour, budget * 0.3, b, cap / 2);
       fill(m, pools.inf, budget * 0.2, b, cap / 2);
       const side2: Side = side === 'n' ? 's' : side === 's' ? 'n' : side === 'e' ? 'w' : 'e';
-      const at2 = baseCentre(m, waveTarget(m, n + 1)); // [MODES] co-op: the second column goes for the next base
+      const at2 = baseCentre(m, waveTarget(m, n + 1)); // co-op: the second column goes for the next base
       const ua = spawnAtEdge(m, 1, a, side, along, rank, at);
       const ub = spawnAtEdge(m, 1, b, side2, alongFor(m, side2), rank, at2);
       orderMove(m, ua, bx, by);
@@ -363,7 +363,7 @@ function launchWave(m: MissionRuntime, v: SurvivalVariant) {
     const units = spawnAtEdge(m, 1, types, side, along, rank, at);
     orderMove(m, units, bx, by);
   }
-  if (line && tgt !== 0) line = kind === 'air' ? `${line} Target: ${m.player(tgt).name}'s base.` : line.replace(/!$/, `, heading for ${m.player(tgt).name}'s base!`); // [MODES] co-op
+  if (line && tgt !== 0) line = kind === 'air' ? `${line} Target: ${m.player(tgt).name}'s base.` : line.replace(/!$/, `, heading for ${m.player(tgt).name}'s base!`); // co-op
   if (line) m.say('Intelligence', line, 'intel');
   m.flags.waveActive = true;
   m.flags.waveLossMark = teamBuildingsLost(m);
@@ -388,7 +388,7 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
       m.flags.hordeLost = lost;
       m.addScore('Score', Math.round(d * (10 + 2 * n) * m.flags.mult * scoreFactor(m, v)));
     }
-    const bl = teamBuildingsLost(m); // [MODES] co-op: any defender's structure
+    const bl = teamBuildingsLost(m); // co-op: any defender's structure
     if (bl > m.flags.humanBLost) {
       m.flags.humanBLost = bl;
       if (m.flags.mult > 1) {
@@ -457,7 +457,7 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
     m.flags.air = keep;
   }
 
-  if (m.flags.allies && m.every(8, 'allyHelp')) allyHelp(m); // [MODES] co-op: teammates reinforce the human's base
+  if (m.flags.allies && m.every(8, 'allyHelp')) allyHelp(m); // co-op: teammates reinforce the human's base
 
   // keep stragglers pushing into the base; units that cannot find a way in desert after ~20 s
   if (m.every(6, 'push')) {
@@ -476,7 +476,7 @@ function survivalUpdate(m: MissionRuntime, v: SurvivalVariant) {
 }
 
 function makeSurvival(v: SurvivalVariant, allies: CoopAlly[] = []): MissionDef {
-  const n = allies.length; // [MODES] co-op survival: AI teammates (players 2, 3) on the human's team
+  const n = allies.length; // co-op survival: AI teammates (players 2, 3) on the human's team
   const coopScore = n === 1 ? 0.8 : 0.65;
   return {
     id: n ? coopMissionId(v.id, allies) : v.id,
@@ -530,7 +530,7 @@ function makeSurvival(v: SurvivalVariant, allies: CoopAlly[] = []): MissionDef {
 
 export const SURVIVALS: MissionDef[] = SURVIVAL_VARIANTS.map((v) => makeSurvival(v));
 
-// ---- [MODES] co-op survival ids: "<variant>:coop:<ally>[+<ally>]", ally = "[faction.]difficulty" ----
+// ---- co-op survival ids: "<variant>:coop:<ally>[+<ally>]", ally = "[faction.]difficulty" ----
 export type CoopAlly = { faction?: Faction; difficulty: AIDifficulty };
 const ALLY_NAMES = ['Gen. Hartmann', 'Col. Dubois'];
 const ALLY_COLORS = [0x3fa34d, 0x2aa8a8];

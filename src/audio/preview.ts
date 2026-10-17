@@ -16,7 +16,7 @@ import { ANNOUNCER_TEXT } from './speech';
 import { renderStingerOffline } from './stingers';
 import type { AmbienceState, AnnouncerKey, ResponseKind, SfxKey, StingerKind, VoiceKind, WeatherKind } from './types';
 
-const STINGERS: StingerKind[] = ['mission_start', 'enemy_spotted', 'reinforcements', 'promotion', 'superweapon_ready', 'victory', 'defeat', 'battle_joined', 'battle_won', 'milestone']; // [JUICE] +3
+const STINGERS: StingerKind[] = ['mission_start', 'enemy_spotted', 'reinforcements', 'promotion', 'superweapon_ready', 'victory', 'defeat', 'battle_joined', 'battle_won', 'milestone'];
 
 /** Named ambience presets (preview buttons + self-test beds). */
 const AMB_PRESETS: Record<string, AmbienceState> = {
@@ -749,7 +749,7 @@ async function ambienceTests(log: (s: string) => void, problems: string[]): Prom
 async function ambienceCpu(log: (s: string) => void, problems: string[], shared: AmbBank | null, quick: boolean): Promise<void> {
   log('');
   log(`AMBIENCE CPU: offline render time / audio time (48 kHz stereo, 0.25 s scheduler chunks), ${quick ? 'single 10 s run each (?selftest=cpu-amb: best of 3 × 20 s)' : 'best of 3 runs × 20 s'} ≈ audio-thread cost`);
-  // machine-speed reference (this host is shared; a modern desktop core does this in ≈ 2–4 ns/op)
+  // machine-speed reference (a modern desktop core does this in ≈ 2–4 ns/op)
   {
     let x = 0x1234567, acc = 0;
     const N = 3_000_000;

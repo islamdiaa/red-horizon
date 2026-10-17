@@ -1,4 +1,4 @@
-"""[VEH] Minelayer (mnly) shared by the Soviet and Allied scripts (mnly_soviet.py / mnly_allies.py).
+"""Minelayer (mnly) shared by the Soviet and Allied scripts (mnly_soviet.py / mnly_allies.py).
 
 Tracked carrier with a sloped faction glacis, armoured cab with vision blocks and the commander's cupola, an
 open hopper stacked with mines (Allied: big AT mines, Soviet: small AP mines), a rear dispensing chute with

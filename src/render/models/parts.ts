@@ -529,7 +529,7 @@ export function pipe(nb: NB, a: V3, b: V3, r: number, mat: Mat = M.steel, seg = 
 /** Ladder on a wall facing +Z (rails + rungs), base at p. */
 export function ladder(nb: NB, h: number, p: V3, rotY = 0): void {
   const n = new NB('_lad', p, [0, rotY, 0]);
-  n.lod = 0; // [STRUCT] close-up detail
+  n.lod = 0; // close-up detail
   n.box(M.steel, 0.008, h, 0.008, -0.03, h / 2, 0, { b: 0 });
   n.box(M.steel, 0.008, h, 0.008, 0.03, h / 2, 0, { b: 0 });
   for (let y = 0.04; y < h; y += 0.05) n.box(M.steel, 0.06, 0.006, 0.006, 0, y, 0, { b: 0 });
@@ -673,7 +673,7 @@ export function hatch(nb: NB, r: number, p: V3, mat: Mat = M.teamDark): void {
 }
 
 // =============================================================================================
-// [STRUCT] Structure kit: faction styles, stencil text, banners, emblems, lights, catwalks, roof clutter
+// Structure kit: faction styles, stencil text, banners, emblems, lights, catwalks, roof clutter
 // =============================================================================================
 
 export type Fac = 'allies' | 'soviet';
@@ -1032,7 +1032,7 @@ export function warnLight(nb: NB, p: V3, steady = false, size = 0.02, glow: Glow
   nb.add(new THREE.OctahedronGeometry(size * 0.8, 0), { ...glow, a: steady ? 0 : 1 + ((p[0] * 7.3 + p[2] * 3.1 + 10) % 1) * 0.99 }, { p, s: [1, 1.2, 1] });
 }
 
-/** Ring of steady red lights around the rim of a stack (the glowing red crowns of the reference art). */
+/** Ring of steady red lights around the rim of a stack (a glowing red crown). */
 export function lightRing(nb: NB, x: number, y: number, z: number, rad: number, n = 6, glow: Glow = { glow: 0xff2414, i: 2.4 }): void {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
@@ -1098,7 +1098,7 @@ export function railLine(nb: NB, a: V3, b: V3, h = 0.07, mat: Mat = M.yellow): v
 export function catwalk(nb: NB, x: number, y: number, z: number, len: number, depth = 0.09, rotY = 0, rail: Mat = M.yellow): void {
   const n = new NB('_cw', [x, y, z], [0, rotY, 0]);
   n.box(S.grating, len, 0.012, depth, 0, 0, 0, { b: 0 });
-  n.lod = 0; // [STRUCT] brackets and railing: close-up
+  n.lod = 0; // brackets and railing: close-up
   n.box(M.dark, len, 0.02, 0.012, 0, -0.008, depth / 2, { b: 0 });
   const k = Math.max(1, Math.round(len / 0.3));
   for (let i = 0; i <= k; i++) {
@@ -1121,7 +1121,7 @@ export function pipeRun(nb: NB, pts: V3[], r: number, mat: Mat = M.steel, seg = 
   mergeChild(nb, j);
 }
 
-/** [STRUCT] Temporary child node for close-up-only detail (merge it back with mergeChild). */
+/** Temporary child node for close-up-only detail (merge it back with mergeChild). */
 export function detailNode(nb: NB): NB {
   const n = new NB('_det');
   n.lod = nb.lod === 1 ? 1 : 0;

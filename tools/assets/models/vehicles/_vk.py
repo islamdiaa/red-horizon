@@ -1,4 +1,4 @@
-"""[VEH] Shared helpers for the ground-vehicle HD models (tools/assets/models/vehicles/*.py).
+"""Shared helpers for the ground-vehicle HD models (tools/assets/models/vehicles/*.py).
 
 Not a model: build.mjs skips files starting with '_'. Model scripts load it with
 

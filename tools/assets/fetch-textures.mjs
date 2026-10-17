@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// [PIPE] Fetch the pinned CC0 Poly Haven materials used as *inputs* by the HD-model kit (tools/assets/kit).
+// Fetch the pinned CC0 Poly Haven materials used as *inputs* by the HD-model kit (tools/assets/kit).
 //
 //   node tools/assets/fetch-textures.mjs                 # download what's missing, verify every md5
 //   node tools/assets/fetch-textures.mjs --pin <id> ...  # add / re-pin materials from the Poly Haven API

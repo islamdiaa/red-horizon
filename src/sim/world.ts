@@ -9,9 +9,9 @@ import { DT, TICK_HZ, type Command, type GameEvent, type Order } from './types';
 import { pickWeapon, updateBuildingWeapons, updateProjectiles, updateUnitWeapons, type Projectile } from './combat';
 import { engineerCanEnter, pathRemaining, resolveCollisions, unitSpeed, updateUnit } from './unitlogic';
 import { updateProduction, recalcPlayerEconomy, QUEUE_LIMIT } from './production';
-import { repeatCommand } from './repeat'; // [ARMY]
+import { repeatCommand } from './repeat';
 import { AIController, type AIDifficulty } from './ai';
-import type { Personality } from './ai-personality'; // [AI]
+import type { Personality } from './ai-personality';
 import { updateSuperweapons, fireSuperweapon } from './superweapons';
 import type { MissionRuntime } from './mission';
 import { navalDeploy, navalLaunchOk, placeNaval, sonarPulse, updateNaval } from './naval';
@@ -19,13 +19,13 @@ import { contentPostMove, contentPreTick, contentStepUnit, contentVisibility } f
 import { canInfiltrate } from './infiltration';
 import { deployMinelayer, orderMinefield } from './mines';
 import { initBridges, orderRepairBridge, type Bridge } from './bridges';
-import { aftermathDeploy, aftermathKilled, aftermathStepUnit, chronoJump } from './aftermath'; // [CONTENT]
-import { formationMove, newCtrlState, type CtrlState } from './formation'; // [CTRL]
-import { ordersCommand, ordersPreTick } from './orders'; // [CTRL]
+import { aftermathDeploy, aftermathKilled, aftermathStepUnit, chronoJump } from './aftermath';
+import { formationMove, newCtrlState, type CtrlState } from './formation';
+import { ordersCommand, ordersPreTick } from './orders';
 import { CEASEFIRE_WARNING } from './ceasefire';
-import { commanderCommand, commanderKill, commanderSpawn, commanderTick, initCommander, type CommanderState } from './commander'; // [DOCTRINE]
-import { costOf } from './doctrine'; // [DOCTRINE]
-import { initVariety, varietyCommand, varietyTick, type VarietyState } from './events'; // [VARIETY]
+import { commanderCommand, commanderKill, commanderSpawn, commanderTick, initCommander, type CommanderState } from './commander';
+import { costOf } from './doctrine';
+import { initVariety, varietyCommand, varietyTick, type VarietyState } from './events';
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -54,7 +54,7 @@ export interface PlayerSetup {
   team: number;
   isHuman: boolean;
   ai?: AIDifficulty;
-  /** [AI] Commander personality of an AI player (id or full trait object, ai-personality.ts); default = balanced. */
+  /** Commander personality of an AI player (id or full trait object, ai-personality.ts); default = balanced. */
   personality?: string | Personality;
 }
 
@@ -75,13 +75,13 @@ export interface WorldOptions {
    */
   ceasefireUntil?: number;
   /**
-   * [DOCTRINE] Skirmish rules (sim/commander.ts): 'commander' = doctrines, command points and commander powers;
+   * Skirmish rules (sim/commander.ts): 'commander' = doctrines, command points and commander powers;
    * 'classic' / undefined = pure Red Alert (missions, campaigns, old saves and replays).
    */
   rules?: 'classic' | 'commander';
-  /** [DOCTRINE] Doctrine id per player (null: a human plays without one, an AI picks its own; 'none': no doctrine). */
+  /** Doctrine id per player (null: a human plays without one, an AI picks its own; 'none': no doctrine). */
   doctrines?: (string | null)[];
-  /** [VARIETY] Skirmish mutators (modes/mutators.ts), battlefield events (default on under Commander rules) and dynamic difficulty (sim/events.ts). */
+  /** Skirmish mutators (modes/mutators.ts), battlefield events (default on under Commander rules) and dynamic difficulty (sim/events.ts). */
   mutators?: string[];
   events?: boolean;
   dynamicDifficulty?: boolean;
@@ -158,13 +158,13 @@ export class World {
   winnerTeam = -1;
   /** Scripted mission driving this world (campaign / survival / challenges). */
   mission: MissionRuntime | null = null;
-  /** [CTRL] Formations in transit (formation.ts); saved. */
+  /** Formations in transit (formation.ts); saved. */
   ctrl: CtrlState = newCtrlState();
   /** Build-up time (ceasefire.ts): end tick, -1 = unlimited, 0 = none; saved. */
   ceasefireUntil = 0;
-  /** [DOCTRINE] Commander rules state (sim/commander.ts); null = Classic rules. Saved. */
+  /** Commander rules state (sim/commander.ts); null = Classic rules. Saved. */
   commander: CommanderState | null = null;
-  /** [VARIETY] Mutators, battlefield events, neutral tech structures, dynamic difficulty (sim/events.ts); null = none. Saved. */
+  /** Mutators, battlefield events, neutral tech structures, dynamic difficulty (sim/events.ts); null = none. Saved. */
   variety: VarietyState | null = null;
   private nextId = 1;
   /** Projectile ids (their own namespace; renderers key effects by them). */
@@ -192,11 +192,11 @@ export class World {
     opts.players.forEach((ps, i) => {
       const p = new Player({ id: i, name: ps.name, faction: ps.faction, color: ps.color, team: ps.team, isHuman: ps.isHuman, cash: opts.creditsPer?.[i] ?? opts.credits, mapCells: cells });
       this.players.push(p);
-      if (ps.ai) this.ais.push(new AIController(this, p, ps.ai, ps.personality)); // [AI] personality
+      if (ps.ai) this.ais.push(new AIController(this, p, ps.ai, ps.personality)); // personality
     });
-    if (opts.rules === 'commander') initCommander(this, opts.doctrines, opts.seed); // [DOCTRINE] before the starting units exist
+    if (opts.rules === 'commander') initCommander(this, opts.doctrines, opts.seed); // before the starting units exist
     this.setupStart(opts.startUnits, opts.startUnitsPer);
-    initVariety(this, { rules: opts.rules, mutators: opts.mutators, events: opts.events, dynamicDifficulty: opts.dynamicDifficulty, seed: opts.seed }); // [VARIETY] (null for Classic without options)
+    initVariety(this, { rules: opts.rules, mutators: opts.mutators, events: opts.events, dynamicDifficulty: opts.dynamicDifficulty, seed: opts.seed }); // (null for Classic without options)
     for (const p of this.players) {
       recalcPlayerEconomy(this, p);
       this.updateVisibility(p);
@@ -252,7 +252,7 @@ export class World {
       u.order = { type: 'harvest' };
       u.hstate = 'seek';
     }
-    if (this.commander) commanderSpawn(this, u); // [DOCTRINE] doctrine weapons / health, Elite Training
+    if (this.commander) commanderSpawn(this, u); // doctrine weapons / health, Elite Training
     return u;
   }
 
@@ -269,7 +269,7 @@ export class World {
     }
     // tech / factory availability is granted when construction completes (instant: right away)
     if (instant) this.countBuilding(b);
-    if (this.commander) commanderSpawn(this, b); // [DOCTRINE] doctrine weapons / health
+    if (this.commander) commanderSpawn(this, b); // doctrine weapons / health
     recalcPlayerEconomy(this, owner);
     return b;
   }
@@ -327,7 +327,7 @@ export class World {
     if (!e.alive) return;
     // a mine going off / being shot is no "structure lost"
     if (e instanceof Building && e.bt.mine) how = 'sold';
-    if (this.commander) commanderKill(this, e, how, killer); // [DOCTRINE] command points
+    if (this.commander) commanderKill(this, e, how, killer); // command points
     // a dog sniffed out a disguised spy
     if (e instanceof Unit && e.ut.spy && e.disguise >= 0 && killer instanceof Unit && killer.ut.dog) this.announce(killer.owner, 'spy_detected', 4);
     e.alive = false;
@@ -370,7 +370,7 @@ export class World {
         owner.stats.unitsLost++;
       }
       e.passengers.length = 0;
-      if (e.ut.demolition) aftermathKilled(this, e, how); // [CONTENT] a demolition truck goes off
+      if (e.ut.demolition) aftermathKilled(this, e, how); // a demolition truck goes off
     }
   }
 
@@ -467,7 +467,7 @@ export class World {
       case 'move': {
         const units = this.ownedUnits(cmd.player, cmd.units);
         if (!units.length) return;
-        if (formationMove(this, units, cmd)) break; // [CTRL] group moves in formation
+        if (formationMove(this, units, cmd)) break; // group moves in formation
         const dests = this.formation(units, cmd.x, cmd.y);
         // mixed groups travel together at the pace of their slowest member
         const ground = units.filter((u) => u.kind !== 'aircraft' && u.kind !== 'naval');
@@ -522,7 +522,7 @@ export class World {
         break;
       case 'deploy':
         for (const u of this.ownedUnits(cmd.player, cmd.units)) {
-          if (aftermathDeploy(this, u)) continue; // [CONTENT] M.A.D. charge, demolition truck, chrono tank
+          if (aftermathDeploy(this, u)) continue; // M.A.D. charge, demolition truck, chrono tank
           if (u.kind === 'naval') navalDeploy(this, u);
           else if (u.ut.passengers && u.kind !== 'aircraft') this.unload(u);
           else if (u.ut.minelayer) deployMinelayer(this, u);
@@ -570,7 +570,7 @@ export class World {
           q.items.push({ type: cmd.type, progress: 0, paid: 0, paused: false });
           this.announce(p, 'building', 0);
         } else {
-          for (let k = 0; k < count && q.items.length < QUEUE_LIMIT; k++) { // [ARMY] (25)
+          for (let k = 0; k < count && q.items.length < QUEUE_LIMIT; k++) {
             q.items.push({ type: cmd.type, progress: 0, paid: 0, paused: false });
           }
           const first = q.items.find((it) => it.type === cmd.type);
@@ -594,7 +594,7 @@ export class World {
         const q = p.queues[queueKindOf(t)];
         if (q.ready === cmd.type) {
           q.ready = null;
-          p.refund(costOf(p, t)); // [DOCTRINE] doctrine price (= t.cost under Classic rules)
+          p.refund(costOf(p, t)); // doctrine price (= t.cost under Classic rules)
           this.announce(p, 'cancelled', 0);
           return;
         }
@@ -627,7 +627,7 @@ export class World {
             if (!this.canPlace(p, cmd.type, x, y)) continue;
             // a friendly unit standing here must be able to step out, or the segment is skipped
             if (!this.canClearCell(x, y)) continue;
-            if (!p.spend(costOf(p, b.bt))) { this.announce(p, 'insufficient_funds', 3); break; } // [DOCTRINE] doctrine price
+            if (!p.spend(costOf(p, b.bt))) { this.announce(p, 'insufficient_funds', 3); break; } // doctrine price
             const w = this.addBuilding(cmd.type, p, x, y);
             p.stats.buildingsBuilt++;
             this.events.push({ e: 'placed', id: w.id });
@@ -660,7 +660,7 @@ export class World {
         if (!(b instanceof Building) || b.owner !== p || !b.bt.factory) return;
         b.rallyX = cmd.x;
         b.rallyY = cmd.y;
-        b.rallyUnit = 0; // [CTRL]
+        b.rallyUnit = 0;
         break;
       }
       case 'stance': {
@@ -688,19 +688,19 @@ export class World {
       case 'repairBridge':
         orderRepairBridge(this, this.ownedUnits(cmd.player, cmd.units), cmd.bridge);
         break;
-      case 'chronoJump': // [CONTENT] aftermath.ts
+      case 'chronoJump': // aftermath.ts
         chronoJump(this, p, cmd.unit, cmd.x, cmd.y);
         break;
-      case 'patrol': case 'guard': case 'formation': case 'rallyUnit': case 'queuePlan': // [CTRL] orders.ts
+      case 'patrol': case 'guard': case 'formation': case 'rallyUnit': case 'queuePlan': // orders.ts
         ordersCommand(this, cmd);
         break;
-      case 'commanderPower': case 'unlockPower': // [DOCTRINE] commander powers (commander.ts)
+      case 'commanderPower': case 'unlockPower': // commander powers (commander.ts)
         commanderCommand(this, cmd);
         break;
-      case 'repeat': // [ARMY] repeat production (repeat.ts)
+      case 'repeat': // repeat production (repeat.ts)
         repeatCommand(this, p, cmd);
         break;
-      case 'battleEvent': // [VARIETY] answer a battlefield event (events.ts)
+      case 'battleEvent': // answer a battlefield event (events.ts)
         varietyCommand(this, cmd);
         break;
     }
@@ -855,7 +855,7 @@ export class World {
   /** Whether an own structure lies within `gap` cells of the footprint (optionally ignoring walls). */
   isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2, ignoreWalls = false): boolean {
     for (const b of this.buildings) {
-      if (!b.alive || b.owner !== p || b.bt.mine || b.bt.tech || (ignoreWalls && b.bt.wall)) continue; // [VARIETY] captured tech structures don't extend the base
+      if (!b.alive || b.owner !== p || b.bt.mine || b.bt.tech || (ignoreWalls && b.bt.wall)) continue; // captured tech structures don't extend the base
       const gx = Math.max(b.cx - (cx + bt.size[0]), cx - (b.cx + b.w), 0);
       const gy = Math.max(b.cy - (cy + bt.size[1]), cy - (b.cy + b.h), 0);
       if (Math.max(gx, gy) <= gap) return true;
@@ -1123,8 +1123,8 @@ export class World {
       updateSuperweapons(this, p);
     }
     contentPreTick(this);
-    ordersPreTick(this); // [CTRL] formations, build plans
-    if (this.commander) commanderTick(this); // [DOCTRINE] command points, timed power effects, barrages
+    ordersPreTick(this); // formations, build plans
+    if (this.commander) commanderTick(this); // command points, timed power effects, barrages
     this.deferDeaths = true;
     for (const b of this.buildings) if (b.alive) this.updateBuilding(b);
     this.processPaths();
@@ -1153,7 +1153,7 @@ export class World {
     if (this.tick % TICK_HZ === 0) this.checkVictory();
     if (this.cratesEnabled) this.updateCrates();
     this.mission?.tick();
-    if (this.variety) { varietyTick(this); this.cleanupDead(); } // [VARIETY] mutators, battlefield events, tech structures, dynamic difficulty (engineers that went in, despawned convoys: off the lists)
+    if (this.variety) { varietyTick(this); this.cleanupDead(); } // mutators, battlefield events, tech structures, dynamic difficulty (engineers that went in, despawned convoys: off the lists)
   }
 
   /** Timed build-up: the one-minute warning and the end of the ceasefire, announced to the humans. */
@@ -1166,7 +1166,7 @@ export class World {
   private stepUnit(u: Unit) {
     if (!u.alive) return;
     if (contentStepUnit(this, u)) return;
-    if (aftermathStepUnit(this, u)) return; // [CONTENT]
+    if (aftermathStepUnit(this, u)) return;
     updateUnit(this, u);
     if (u.alive) updateUnitWeapons(this, u);
   }
@@ -1188,7 +1188,7 @@ export class World {
     for (let k = this.crates.length - 1; k >= 0; k--) {
       const c = this.crates[k];
       let taker: Unit | null = null;
-      this.grid.query(c.x, c.y, 0.8, (u) => { if (!taker && u.alive && !u.isAir && u.owner.id >= 0 && Math.hypot(u.x - c.x, u.y - c.y) < 0.5) taker = u; }); // [VARIETY] (neutral convoys / pilots don't take crates)
+      this.grid.query(c.x, c.y, 0.8, (u) => { if (!taker && u.alive && !u.isAir && u.owner.id >= 0 && Math.hypot(u.x - c.x, u.y - c.y) < 0.5) taker = u; }); // (neutral convoys / pilots don't take crates)
       if (!taker) continue;
       this.crates.splice(k, 1);
       this.collectCrate(taker, c.x, c.y);
@@ -1240,7 +1240,7 @@ export class World {
     if (b.selling >= 0) {
       b.selling -= DT;
       if (b.selling < 0) {
-        const refund = Math.floor(costOf(b.owner, b.bt) * REFUND_PERCENT); // [DOCTRINE] doctrine price (= bt.cost under Classic rules)
+        const refund = Math.floor(costOf(b.owner, b.bt) * REFUND_PERCENT); // doctrine price (= bt.cost under Classic rules)
         b.owner.refund(refund);
         b.owner.stats.spent += refund; // refund is not "negative spending" for stats
         this.spawnSurvivors(b, 1);
@@ -1365,7 +1365,7 @@ export class World {
     if (this.gameOver) return;
     for (const p of this.players) {
       if (p.defeated) continue;
-      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !b.bt.mine && !b.bt.tech) || this.units.some((u) => u.alive && u.owner === p); // [VARIETY] tech structures don't keep anyone alive
+      const alive = this.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !b.bt.mine && !b.bt.tech) || this.units.some((u) => u.alive && u.owner === p); // tech structures don't keep anyone alive
       if (!alive) {
         p.defeated = true;
         this.events.push({ e: 'eliminated', player: p.id });

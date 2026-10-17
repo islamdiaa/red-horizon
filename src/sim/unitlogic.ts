@@ -14,17 +14,17 @@ import { stanceIdle } from './stance';
 import { infiltrate } from './infiltration';
 import { updateLayMines } from './mines';
 import { updateRepairBridge } from './bridges';
-import { formationSteer } from './formation'; // [CTRL]
-import { ordersUnitStep, updateCtrlOrder } from './orders'; // [CTRL]
+import { formationSteer } from './formation';
+import { ordersUnitStep, updateCtrlOrder } from './orders';
 import { mayAutoEngage } from './ceasefire';
-import { cmdSpeed } from './doctrine'; // [DOCTRINE]
-import { commanderCaptured } from './commander'; // [DOCTRINE]
+import { cmdSpeed } from './doctrine';
+import { commanderCaptured } from './commander';
 
 const LEASH = 5;
 
 export function unitSpeed(u: Unit): number {
   const s = mphToCellsPerSecond(u.ut.speed);
-  return u.owner.cmd ? s * cmdSpeed(u) : s; // [DOCTRINE] doctrine speed, Rally Cry
+  return u.owner.cmd ? s * cmdSpeed(u) : s; // doctrine speed, Rally Cry
 }
 
 /** Main per-tick behaviour for a unit. */
@@ -53,7 +53,7 @@ export function updateUnit(world: World, u: Unit) {
     case 'repairBridge':
       updateRepairBridge(world, u, o);
       break;
-    case 'patrol': case 'escort': // [CTRL] orders.ts
+    case 'patrol': case 'escort': // orders.ts
       updateCtrlOrder(world, u, o);
       break;
     case 'move':
@@ -78,7 +78,7 @@ export function updateUnit(world: World, u: Unit) {
       world.setOrder(u, { type: 'idle' });
       break;
   }
-  if (u.alive && u.target) ordersUnitStep(world, u); // [CTRL] kiting
+  if (u.alive && u.target) ordersUnitStep(world, u); // kiting
 
   followPath(world, u);
   if (u.exitBuilding) {
@@ -197,7 +197,7 @@ function medic(world: World, u: Unit) {
 }
 
 function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
-  const steered = o.formation !== undefined && formationSteer(world, u, o); // [CTRL] formation members follow their slot
+  const steered = o.formation !== undefined && formationSteer(world, u, o); // formation members follow their slot
   if (!steered && !u.hasGoal && !u.pathPending && !u.path) {
     if (Math.hypot(o.x - u.x, o.y - u.y) < 0.15 || o.started) {
       finishOrder(world, u);
@@ -375,7 +375,7 @@ export function captureBuilding(world: World, b: Building, by: Unit) {
     now.owned.set(b.bt.id, (now.owned.get(b.bt.id) ?? 0) + 1);
   }
   b.owner = now;
-  if (world.commander) commanderCaptured(world, b, old); // [DOCTRINE] the new owner's doctrine
+  if (world.commander) commanderCaptured(world, b, old); // the new owner's doctrine
   b.repairing = false;
   b.target = null;
   b.primary = false;

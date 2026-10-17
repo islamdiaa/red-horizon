@@ -1,5 +1,5 @@
 /**
- * [VARIETY] In-match presentation of the variety systems (reads World.variety only; never changes the sim except
+ * In-match presentation of the variety systems (reads World.variety only; never changes the sim except
  * through Game.issue):
  *  - a status strip: rules, active mutators (tooltip), dynamic difficulty level (transparent: always shown when on)
  *  - battlefield event radio cards (title, briefing, countdown; "Hire" for mercenary offers), mirrored in the

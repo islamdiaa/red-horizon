@@ -1,5 +1,5 @@
 /**
- * [JUICE] Mix policy for big battles: every SFX key gets a priority tier and a category, so a 100-unit fight
+ * Mix policy for big battles: every SFX key gets a priority tier and a category, so a 100-unit fight
  * stays readable instead of turning to mush.
  *
  *  - Voice stealing: when the voice budget is full, a new sound may only replace a voice of a lower tier (or

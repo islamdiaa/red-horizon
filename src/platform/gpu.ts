@@ -149,7 +149,7 @@ export function getGpuInfo(gl?: WebGLRenderingContext | WebGL2RenderingContext |
 }
 
 // ---------------------------------------------------------------------------
-// Classification (pure, unit-tested in tests/gpu.test.ts)
+// Classification (pure, unit-tested in tests/platform.test.ts)
 // ---------------------------------------------------------------------------
 
 const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render driver|microsoft basic|mesa offscreen|virgl|vmware svga|parallels/i;

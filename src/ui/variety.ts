@@ -1,5 +1,5 @@
 /**
- * [VARIETY] Skirmish setup UI for the variety systems: the "Rules" tab of the skirmish panel (rules, doctrine slot,
+ * Skirmish setup UI for the variety systems: the "Rules" tab of the skirmish panel (rules, doctrine slot,
  * game mode, build-up time, battlefield events, dynamic difficulty, mutators), the mutator picker, the Quick Battle
  * roll and its loading-screen card. The controls (seg / toggle / field) come from menu.ts so everything matches.
  */
@@ -20,7 +20,7 @@ export interface RulesPrefs {
   mutators?: string[];
   events?: boolean;
   dynamicDifficulty?: boolean;
-  /** [DOCTRINE] the player's doctrine (null = none / AI picks for AIs). */
+  /** the player's doctrine (null = none / AI picks for AIs). */
   doctrine?: string | null;
 }
 
@@ -33,7 +33,7 @@ export interface Controls {
 }
 
 /**
- * [DOCTRINE] Doctrine picker slot: DOCTRINE registers a component that renders into the host. Without one the slot
+ * Doctrine picker slot: ui/doctrine-picker.ts registers a component that renders into the host. Without one the slot
  * shows a note. `onChange` stores the pick in the skirmish prefs (deployed as GameSetup.doctrines[0]).
  */
 export type DoctrineSlot = (host: HTMLElement, ctx: { faction: Faction; value: string | null; onChange(id: string | null): void; enabled: boolean }) => void;
@@ -200,7 +200,7 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
   const rulesField = ctl.field('Rules', picto('chevrons', 'ic'), ctl.seg<'commander' | 'classic'>([['commander', 'Commander', picto('chevrons', 'ic')], ['classic', 'Classic', ICONS.target]], prefs.rules, (v) => { prefs.rules = v; refresh(); }, 'with-ic'));
   rulesField.title = 'Commander: doctrines, commander powers, battlefield events and neutral tech structures. Classic: pure Red Alert rules.';
   left.appendChild(rulesField);
-  // [DOCTRINE] doctrine picker slot
+  // doctrine picker slot
   const docHost = h('div', 'vr-doctrine');
   const docField = ctl.field('Doctrine', ICONS.flag, docHost);
   commanderOnly.push(docField);

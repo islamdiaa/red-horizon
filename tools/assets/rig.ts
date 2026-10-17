@@ -1,4 +1,4 @@
-// [PIPE] Dump a procedural model's rig, so HD models match it: node tree (names, local / model-space rest
+// Dump a procedural model's rig, so HD models match it: node tree (names, local / model-space rest
 // positions, bones), muzzles, smoke / steam points, height, radius, body bounds and triangle counts.
 //
 //   node --import tsx tools/assets/rig.ts 3tnk            # units

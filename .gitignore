@@ -3,7 +3,7 @@ dist/
 reference/
 *.log
 .DS_Store
-screenshots/
+/screenshots/
 
 # local headless-Chromium system libraries (extracted .debs; machine-specific)
 tools/nsslibs/
@@ -25,10 +25,10 @@ coverage/
 *.cpuprofile
 *.heapsnapshot
 
-# per-agent dev servers (copies of tools/vite.test.config.ts)
+# local dev-server configs (copies of tools/vite.test.config.ts)
 tools/vite.*.config.ts
 !tools/vite.test.config.ts
 
-# [PIPE] Blender's Python bytecode for tools/assets/kit
+# Blender's Python bytecode for tools/assets/kit
 __pycache__/
 *.pyc

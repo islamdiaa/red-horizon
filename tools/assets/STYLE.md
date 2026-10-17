@@ -1,7 +1,7 @@
 # HD model style rules (Red Horizon)
 
-Target: /tmp/rh-phaseA/reference.webp — a dense, detailed winter Soviet base seen from the RTS camera
-(about 40° pitch, 15–30 cells away). Every HD model must read at that distance first and reward a close-up second.
+Target: a dense, detailed winter Soviet base seen from the RTS camera (about 40° pitch, 15–30 cells away).
+Every HD model must read at that distance first and reward a close-up second.
 
 ## Shape
 - **Chunky, slightly exaggerated proportions.** Thick walls, heavy cornices, fat pipes, big bolts. Nothing spindly
@@ -23,8 +23,7 @@ Target: /tmp/rh-phaseA/reference.webp — a dense, detailed winter Soviet base s
 - Keep albedo in a readable range: walls 0x50–0x70, concrete 0x80–0x95, darks 0x2a–0x35. Pure black only for
   holes and bores. Detail must survive the shadow side of a building (ambient light only), so contrast comes
   from albedo (seams, panel tones, edge wear, grime), not from lighting.
-- Emissive accents (red lamps, lit windows, glowing vents) are important at night and in the reference: every
-  structure gets a few.
+- Emissive accents (red lamps, lit windows, glowing vents) are important at night: every structure gets a few.
 
 ## Weathering (automatic, tune per material)
 - Edge wear on chamfers and corners (`wear=`), grime in crevices and on the lower walls (`grime=`), rust in

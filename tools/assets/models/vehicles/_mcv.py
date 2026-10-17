@@ -1,4 +1,4 @@
-"""[VEH] Mobile construction vehicle (mcv) shared by the Soviet and Allied scripts (mcv_soviet.py / mcv_allies.py).
+"""Mobile construction vehicle (mcv) shared by the Soviet and Allied scripts (mcv_soviet.py / mcv_allies.py).
 
 Long tracked carrier with faction skirts, a glazed cab with roof work lights and two amber beacons
 ('glow:beacon', blinking), an off-white construction module with team bands, hazard stripes and hatches, a

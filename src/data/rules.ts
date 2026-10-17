@@ -127,7 +127,7 @@ export interface UnitTypeDef extends BaseTypeDef {
   cloakable?: boolean;
   /** Naval: detects submerged submarines within this many cells (RA Sensors / IsScanner). */
   sensors?: number;
-  // --- Aftermath / Counterstrike units (behaviour in sim/aftermath.ts) [CONTENT]
+  // --- Aftermath / Counterstrike units (behaviour in sim/aftermath.ts)
   /** M.A.D. Tank: 'deploy' arms a seismic charge (the crew bails out); its quake pulses hit vehicles and structures, then the tank is gone. */
   quake?: boolean;
   /** Demolition truck: drives into its target and detonates (mini-nuke), also when destroyed on the way. Holds fire by default. */
@@ -172,7 +172,7 @@ export interface BuildingTypeDef extends BaseTypeDef {
   fakeOf?: string;
   /** Support powers this structure provides (RA: Airfield = spy plane / paratroopers / parabombs, Tech Center = GPS). */
   powers?: ('gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs')[];
-  /** [VARIETY] Neutral tech structure (Commander rules, sim/neutral.ts): any engineer that reaches it captures it. */
+  /** Neutral tech structure (Commander rules, sim/neutral.ts): any engineer that reaches it captures it. */
   tech?: 'derrick' | 'hospital' | 'radar' | 'comms';
 }
 
@@ -242,7 +242,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
   Stinger:          W({ id: 'Stinger', damage: 30, rof: 60, range: 9, projectile: 'missile', speed: 60, warhead: 'AP', report: 'missile_launch', burst: 2, antiAir: true }),
   TorpTube:         W({ id: 'TorpTube', damage: 90, rof: 60, range: 9, projectile: 'torpedo', speed: 35, warhead: 'AP', report: 'torpedo' }),
   DepthCharge:      W({ id: 'DepthCharge', damage: 80, rof: 60, range: 5, projectile: 'depthcharge', speed: 5, warhead: 'AP', report: 'depth_charge', inaccuracy: 0.3 }),
-  // ---- Aftermath / Counterstrike (RA AFTRMATH.INI [TTankZap] [PortaTesla] [GoodWrench] [APTusk] [SubSCUD] [Democharge]) [CONTENT]
+  // ---- Aftermath / Counterstrike (RA AFTRMATH.INI [TTankZap] [PortaTesla] [GoodWrench] [APTusk] [SubSCUD] [Democharge])
   TTankZap:         W({ id: 'TTankZap', damage: 100, rof: 120, range: 7, projectile: 'tesla', warhead: 'Super', report: 'tesla_zap' }),
   PortaTesla:       W({ id: 'PortaTesla', damage: 45, rof: 70, range: 3.5, projectile: 'tesla', warhead: 'Super', report: 'tesla_zap' }),
   GoodWrench:       W({ id: 'GoodWrench', damage: -100, rof: 80, range: 1.83, projectile: 'heal', warhead: 'Mechanical', report: 'repair' }),
@@ -299,7 +299,7 @@ export const UNITS: Record<string, UnitTypeDef> = {
   '1tnk': VEH({ id: '1tnk', name: 'Light Tank', cost: 700, strength: 300, speed: 9, rot: 5, primary: '75mm', turret: true, owner: ['allies'], radius: 0.34, description: 'Fast, lightly armed tank.' }),
   '2tnk': VEH({ id: '2tnk', name: 'Medium Tank', cost: 800, strength: 400, speed: 8, rot: 5, sight: 5, primary: '90mm', turret: true, owner: ['allies'], radius: 0.42, description: 'Allied main battle tank.' }),
   '3tnk': VEH({ id: '3tnk', name: 'Heavy Tank', cost: 950, strength: 400, speed: 7, rot: 5, sight: 5, primary: '105mm', secondary: '105mm', twinShot: true, turret: true, owner: ['soviet'], radius: 0.46, description: 'Soviet twin-barrel main battle tank.' }),
-  // [AI] balance: cost 1700 -> 1900 (round 5 self-play: no cost-equal counter among Allied ground units, best in-game exchange)
+  // balance: cost 1900 instead of RA's 1700 (in self-play at 1700 no Allied ground unit was a cost-equal counter and it had the best in-game exchange)
   '4tnk': VEH({ id: '4tnk', name: 'Mammoth Tank', cost: 1900, strength: 600, speed: 4, rot: 5, sight: 6, primary: '120mm', secondary: 'MammothTusk', twinShot: true, turret: true, selfHealing: true, owner: ['soviet'], prereq: ['weap', 'stek'], radius: 0.56, description: 'Massive twin-cannon tank with missile pods. Self-repairs.' }),
   arty: VEH({ id: 'arty', name: 'Artillery', cost: 600, strength: 75, armor: 'light', speed: 6, rot: 2, sight: 5, primary: '155mm', noMovingFire: true, owner: ['allies'], prereq: ['weap', 'dome'], description: 'Long-range howitzer. Devastating but fragile.' }),
   v2rl: VEH({ id: 'v2rl', name: 'V2 Rocket Launcher', cost: 700, strength: 150, armor: 'light', speed: 7, rot: 5, sight: 5, primary: 'SCUD', tracked: false, noMovingFire: true, owner: ['soviet'], prereq: ['weap', 'dome'], radius: 0.4, description: 'Fires a long-range ballistic rocket.' }),
@@ -330,7 +330,7 @@ export const UNITS: Record<string, UnitTypeDef> = {
   ss:   NAV({ id: 'ss', name: 'Submarine', cost: 950, strength: 120, armor: 'light', speed: 6, rot: 7, sight: 6, primary: 'TorpTube', cloakable: true, owner: ['soviet'], prereq: ['spen'], radius: 0.42, description: 'Stealthy attack submarine. Surfaces only to fire torpedoes at ships.' }),
 
   // ---- Aftermath / Counterstrike (RA UDATA / IDATA / VDATA FIXIT_CSII types; numbers from AFTRMATH.INI as best known,
-  //      behaviour in sim/aftermath.ts) [CONTENT]
+  //      behaviour in sim/aftermath.ts)
   shok: INF({ id: 'shok', name: 'Shock Trooper', cost: 900, strength: 80, speed: 3, sight: 4, primary: 'PortaTesla', owner: ['soviet'], prereq: ['barr', 'tsla'], description: 'Elite infantry with a portable Tesla coil. Strong against infantry and vehicles.' }),
   mech: INF({ id: 'mech', name: 'Mechanic', cost: 950, strength: 80, speed: 4, sight: 3, primary: 'GoodWrench', medic: true, owner: ['allies'], prereq: ['tent', 'fix'], description: 'Field mechanic: repairs nearby damaged vehicles.' }),
   ttnk: VEH({ id: 'ttnk', name: 'Tesla Tank', cost: 1500, strength: 450, speed: 8, rot: 5, sight: 7, primary: 'TTankZap', jamRadius: 10, owner: ['soviet'], prereq: ['weap', 'tsla'], radius: 0.44, description: 'Tank with a mounted Tesla coil. Its coil also jams enemy radar nearby.' }),
@@ -339,7 +339,7 @@ export const UNITS: Record<string, UnitTypeDef> = {
   ctnk: VEH({ id: 'ctnk', name: 'Chrono Tank', cost: 2400, strength: 350, armor: 'light', speed: 9, rot: 5, sight: 5, primary: 'APTusk', chronoShift: 75, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.42, description: 'Anti-armour missile tank that can chronoshift itself anywhere you have explored (recharges).' }),
   stnk: VEH({ id: 'stnk', name: 'Phase Transport', cost: 1350, strength: 200, armor: 'light', speed: 10, rot: 5, sight: 6, primary: 'APTusk', turret: true, passengers: 5, phasing: true, owner: ['allies'], prereq: ['weap', 'atek'], radius: 0.42, description: 'Cloaked armoured transport for five infantry. Visible only while firing or with an enemy right next to it.' }),
   msub: NAV({ id: 'msub', name: 'Missile Submarine', cost: 1650, strength: 400, armor: 'light', speed: 5, rot: 7, sight: 6, primary: 'SubSCUD', cloakable: true, owner: ['soviet'], prereq: ['spen', 'stek'], radius: 0.48, description: 'Submarine with long-range missiles for ships and shore targets. Surfaces to fire.' }),
-  // [VARIETY] battlefield events (sim/events.ts): the neutral supply convoy's truck, never built
+  // battlefield events (sim/events.ts): the neutral supply convoy's truck, never built
   truk: VEH({ id: 'truk', name: 'Supply Truck', cost: 300, strength: 260, armor: 'light', speed: 6, rot: 5, sight: 3, tracked: false, crusher: false, buildable: false, owner: [], prereq: [], radius: 0.4, description: 'Neutral supply convoy. Escort it across the map (right-click it) or force-fire it (Ctrl + right-click) to seize its cargo.' }),
 };
 
@@ -401,7 +401,7 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   // land mines (laid by minelayers, never built): enemies can't see them unless right next to one
   minp: BLD({ id: 'minp', name: 'Anti-Personnel Mine', cost: 25, strength: 100, armor: 'heavy', size: [1, 1], power: 0, prereq: [], buildable: false, mine: 'ap', passable: [[0, 0]], sight: 0, category: 'defense', description: 'Blows up enemy infantry that step on it.' }),
   minv: BLD({ id: 'minv', name: 'Anti-Tank Mine', cost: 25, strength: 100, armor: 'heavy', size: [1, 1], power: 0, prereq: [], buildable: false, mine: 'at', passable: [[0, 0]], sight: 0, category: 'defense', description: 'Wrecks enemy vehicles that drive over it.' }),
-  // [VARIETY] neutral tech structures (Commander rules): placed by mapgen, captured by any engineer, never built (sim/neutral.ts)
+  // neutral tech structures (Commander rules): placed by mapgen, captured by any engineer, never built (sim/neutral.ts)
   oild: BLD({ id: 'oild', name: 'Oil Derrick', cost: 0, strength: 800, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'derrick', sight: 3, description: 'Neutral tech structure. Capture it with an Engineer: +$50 every 4 seconds.' }),
   hosp: BLD({ id: 'hosp', name: 'Field Hospital', cost: 0, strength: 800, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'hospital', sight: 4, description: 'Neutral tech structure. Capture it with an Engineer: heals your infantry nearby.' }),
   rado: BLD({ id: 'rado', name: 'Radar Outpost', cost: 0, strength: 600, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'radar', radar: true, sight: 13, description: 'Neutral tech structure. Capture it with an Engineer: reveals the area around it and gives you radar.' }),

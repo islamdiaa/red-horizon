@@ -138,7 +138,7 @@ export class TrackMarks {
     a.needsUpdate = true;
   }
 
-  /** The rendered terrain: snow, sand and mud also get persistent ruts pressed into it (FX's terrain.rut). */
+  /** The rendered terrain: snow, sand and mud also get persistent ruts pressed into it (terrain.rut). */
   setTerrain(t: { rut?(x0: number, y0: number, x1: number, y1: number, width: number, depth?: number): void } | null): void {
     this.terrain = t;
   }

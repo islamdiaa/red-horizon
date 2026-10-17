@@ -1,5 +1,5 @@
 /**
- * [DOCTRINE] Commander-rules balance: headless AI-vs-AI self-play of doctrines and commander powers.
+ * Commander-rules balance: headless AI-vs-AI self-play of doctrines and commander powers.
  *
  *   node --import tsx tools/selfplay/doctrine.ts [--seeds 6] [--workers 8] [--size 80] [--diff hard] [--only mirror,cross,powers,comeback]
  *
@@ -8,7 +8,7 @@
  *  - cross:    every Soviet doctrine against every Allied doctrine, compared with the no-doctrine faction baseline;
  *  - powers:   an AI using commander powers against one that never does (same faction, no doctrines);
  *  - comeback: how often the side behind on material at 10 minutes still wins, Classic rules vs Commander rules.
- * Prints the tables (Markdown) and writes the raw results to /tmp/rh-engage/doctrine/balance.json.
+ * Prints the tables (Markdown) and writes the raw results to /tmp/rh-selfplay/doctrine-balance.json.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { DOCTRINES, doctrinesFor } from '../../src/sim/doctrine';
@@ -90,8 +90,8 @@ const res: MatchResult[] = await runPool(specs, {
   },
 });
 console.log(`done in ${((performance.now() - t0) / 1000).toFixed(0)} s\n`);
-mkdirSync('/tmp/rh-engage/doctrine', { recursive: true });
-writeFileSync('/tmp/rh-engage/doctrine/balance.json', JSON.stringify(res.map((r, i) => ({ ...tags[i], seed: r.seed, winner: r.winnerTeam, leader: r.leader, minutes: Math.round(r.minutes * 10) / 10, timedOut: r.timedOut, samples: r.samples, players: r.players.map((p) => ({ faction: p.faction, doctrine: p.doctrine, won: p.won, earned: p.cmdEarned, uses: p.cmdUses, score: p.score })) }))));
+mkdirSync('/tmp/rh-selfplay', { recursive: true });
+writeFileSync('/tmp/rh-selfplay/doctrine-balance.json', JSON.stringify(res.map((r, i) => ({ ...tags[i], seed: r.seed, winner: r.winnerTeam, leader: r.leader, minutes: Math.round(r.minutes * 10) / 10, timedOut: r.timedOut, samples: r.samples, players: r.players.map((p) => ({ faction: p.faction, doctrine: p.doctrine, won: p.won, earned: p.cmdEarned, uses: p.cmdUses, score: p.score })) }))));
 
 const pct = (w: number, n: number) => (n ? `${((100 * w) / n).toFixed(0)}%` : '-');
 /**

@@ -23,7 +23,7 @@ export interface PlayerSpec {
   difficulty: AIDifficulty;
   /** Personality id or a full personality object (src/sim/ai-personality.ts); undefined = default. */
   personality?: string | Personality;
-  /** Play this slot with the frozen round-4 AI (tools/selfplay/legacy) instead of the current one. */
+  /** Play this slot with the frozen legacy AI (tools/selfplay/legacy) instead of the current one. */
   legacy?: boolean;
   /** Label used in reports (defaults to personality id / "legacy"). */
   label?: string;
@@ -52,7 +52,7 @@ export interface MatchSpec {
   trees?: number;
   ore?: number;
   /**
-   * [DOCTRINE] Commander rules (src/sim/commander.ts): doctrine per slot (an id, 'none', or undefined = the AI picks
+   * Commander rules (src/sim/commander.ts): doctrine per slot (an id, 'none', or undefined = the AI picks
    * its own from personality and seed); `noPowers`: slots that never use commander powers (they still earn points).
    */
   commander?: { doctrines?: (string | null)[]; noPowers?: number[] };
@@ -84,7 +84,7 @@ export interface PlayerResult {
   firstKillMin: number;
   /** Superweapon / support power commands issued. */
   powers: Record<string, number>;
-  /** [DOCTRINE] Commander rules: doctrine played, command points earned, commander powers used. */
+  /** Commander rules: doctrine played, command points earned, commander powers used. */
   doctrine?: string | null;
   cmdEarned?: number;
   cmdUses?: Record<string, number>;
@@ -104,7 +104,7 @@ export interface MatchResult {
   /** Wall time of the run (ms) and simulation cost (ms per tick). */
   wallMs: number;
   msPerTick: number;
-  /** [DOCTRINE] Material score per player every 5 simulated minutes (comeback analysis). */
+  /** Material score per player every 5 simulated minutes (comeback analysis). */
   samples?: { min: number; score: number[] }[];
 }
 
@@ -162,10 +162,10 @@ export function buildMatch(spec: MatchSpec): World {
   } as PlayerSetup));
   const world = new World({
     map, players, credits: spec.credits ?? 10000, startUnits: spec.startUnits ?? 'light', fog: true, seed: spec.seed,
-    rules: spec.commander ? 'commander' : undefined, doctrines: spec.commander?.doctrines, // [DOCTRINE]
+    rules: spec.commander ? 'commander' : undefined, doctrines: spec.commander?.doctrines,
   });
-  for (const i of spec.commander?.noPowers ?? []) { const c = world.players[i]?.cmd; if (c) c.disabled = true; } // [DOCTRINE]
-  // legacy slots: the frozen round-4 controller thinks in the slot order the world would give it
+  for (const i of spec.commander?.noPowers ?? []) { const c = world.players[i]?.cmd; if (c) c.disabled = true; }
+  // legacy slots: the frozen controller thinks in the slot order the world would give it
   const legacy = spec.players.map((ps, i) => (ps.legacy ? i : -1)).filter((i) => i >= 0);
   if (legacy.length) {
     const ais: any[] = [];
@@ -244,11 +244,11 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     issue(c);
   };
   const seen = new Set<number>();
-  const samples: { min: number; score: number[] }[] = []; // [DOCTRINE]
+  const samples: { min: number; score: number[] }[] = [];
   const maxTicks = (spec.maxMinutes ?? 45) * 60 * TICK_HZ;
   for (let t = 1; t <= maxTicks; t++) {
     world.step();
-    if (t % (5 * 60 * TICK_HZ) === 0) samples.push({ min: t / (60 * TICK_HZ), score: world.players.map((p) => Math.round(materialScore(world, p.id))) }); // [DOCTRINE]
+    if (t % (5 * 60 * TICK_HZ) === 0) samples.push({ min: t / (60 * TICK_HZ), score: world.players.map((p) => Math.round(materialScore(world, p.id))) });
     for (const ev of world.events) {
       if (ev.e === 'placed') {
         const b = world.entities.get(ev.id);
@@ -274,7 +274,7 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     r.harvested = Math.round(p.stats.harvested);
     r.spent = Math.round(p.stats.spent);
     r.score = Math.round(scores[p.id]);
-    if (p.cmd) { r.doctrine = p.cmd.doctrine; r.cmdEarned = Math.round(p.cmd.earned * 10) / 10; r.cmdUses = { ...p.cmd.uses }; } // [DOCTRINE]
+    if (p.cmd) { r.doctrine = p.cmd.doctrine; r.cmdEarned = Math.round(p.cmd.earned * 10) / 10; r.cmdUses = { ...p.cmd.uses }; }
   }
   let leader = 0;
   for (let i = 1; i < n; i++) if (scores[i] > scores[leader]) leader = i;
@@ -283,7 +283,7 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     id: spec.id, seed: spec.seed, map: spec.map === 'curated' ? spec.curated! : `${spec.map}${spec.size ?? 96}`,
     winnerTeam: world.gameOver ? world.winnerTeam : -1, leader: world.gameOver && world.winnerTeam >= 0 ? world.winnerTeam : leader,
     minutes: world.time / 60, timedOut: !world.gameOver, players: res, wallMs, msPerTick: wallMs / Math.max(1, world.tick),
-    samples, // [DOCTRINE]
+    samples,
   };
 }
 

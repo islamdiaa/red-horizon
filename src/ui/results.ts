@@ -1,5 +1,5 @@
 /**
- * [META] Post-match results screen: the "one more game" moment.
+ * Post-match results screen: the "one more game" moment.
  *
  *   left   service record: animated XP bar with the rank-up moment, XP breakdown, contracts ticking up
  *          (+ Commendations), medals earned, and the next unlock ("2 more wins → Arctic White paint")

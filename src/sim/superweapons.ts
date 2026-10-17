@@ -6,7 +6,7 @@ import { DT } from './types';
 import type { AnnouncerKey } from '../audio/types';
 import { firePower, isSupportPower } from './powers';
 import type { World } from './world';
-import { aftermathChronoshift } from './aftermath'; // [CONTENT]
+import { aftermathChronoshift } from './aftermath';
 
 /** Superweapons and support powers (RA "special weapons"). */
 export type SuperKind = 'nuke' | 'ironcurtain' | 'chrono' | 'gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs';
@@ -169,7 +169,7 @@ export function fireSuperweapon(world: World, p: Player, kind: SuperKind, x: num
       }
       p.superCharge.chrono = 0;
       p.superAnnounced.chrono = false;
-      if (aftermathChronoshift(world, u)) break; // [CONTENT] a shifted demolition truck detonates on the spot (RA)
+      if (aftermathChronoshift(world, u)) break; // a shifted demolition truck detonates on the spot (RA)
       const fx = u.x, fy = u.y;
       u.x = u.prevX = cx + 0.5;
       u.y = u.prevY = cy + 0.5;

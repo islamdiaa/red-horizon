@@ -367,7 +367,7 @@ function phaseDetect(world: World, u: Unit): number {
 // AI-facing data and AI use (AIController.think hook)
 // ---------------------------------------------------------------------------
 
-/** Role tags for AI army composition (the AI agent may use them for any unit). */
+/** Role tags for AI army composition (the AI may use them for any unit). */
 export type AIRole = 'antiArmor' | 'antiInfantry' | 'antiAir' | 'siege' | 'suicide' | 'transport' | 'stealth' | 'naval' | 'support' | 'mobility' | 'jammer';
 
 export interface AftermathAIEntry {

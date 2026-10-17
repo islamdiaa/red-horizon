@@ -121,7 +121,7 @@ export class Water {
   private nWaves = NWAVES;
   /** Interactive heightfield ripples (high). */
   private ripples3: RippleSim | null = null;
-  /** [ENV] Ice floes drifting on open winter water (one instanced draw call; medium / high). */
+  /** Ice floes drifting on open winter water (one instanced draw call; medium / high). */
   private floes: THREE.InstancedMesh | null = null;
 
   constructor(map: GameMap, heightAt: (x: number, y: number) => number, sunDir: THREE.Vector3, frozen = false, quality: 'low' | 'medium' | 'high' = 'high') {
@@ -144,7 +144,7 @@ export class Water {
     tex.needsUpdate = true;
     this.heightTex = tex;
     this.normalTex = makeWaveNormals();
-    // [FX] open-sea mask: distance to the nearest shore, damped on small bodies (lakes stay calm)
+    // open-sea mask: distance to the nearest shore, damped on small bodies (lakes stay calm)
     this.seaW = tw;
     this.seaH = th;
     this.sea = buildSeaMask(data, tw, th, res);
@@ -182,7 +182,7 @@ export class Water {
     if (refract && quality === 'high') defines.SSR = '';
     if (quality !== 'low') defines.SHADOWS = '';
     if (frozen) defines.ICE = '';
-    // [ENV] open winter water (a sea, so not frozen): shelf ice along the banks and drifting floes
+    // open winter water (a sea, so not frozen): shelf ice along the banks and drifting floes
     const winterOpen = !frozen && map.climate === 'winter';
     if (winterOpen) defines.WINTER = '';
     if (quality === 'low') defines.LOW = '';
@@ -359,7 +359,7 @@ export class Water {
 
           #ifdef ICE
           {
-            // [ENV] frozen lake / river: a mosaic of ice plates (jittered cells) welded by dark refrozen leads,
+            // frozen lake / river: a mosaic of ice plates (jittered cells) welded by dark refrozen leads,
             // clear blue-green ice in the middle, wind-blown snow drifts, a snow-covered shelf along the banks
             if (depthV < -0.02) discard;
             float d = clamp(depthV / 0.5, 0.0, 1.0);
@@ -573,7 +573,7 @@ export class Water {
 
           #ifdef WINTER
           {
-            // [ENV] shelf ice: shallow water along the banks freezes (further out in calm water), ragged edge,
+            // shelf ice: shallow water along the banks freezes (further out in calm water), ragged edge,
             // snow on it and a bright broken rim
             float shelfLine = 0.14 + 0.16 * (1.0 - vSea);
             float ragged = (tn_noise(p * 1.7) - 0.5) * 0.12 + (tn_noise(p * 6.0) - 0.5) * 0.04;
@@ -630,7 +630,7 @@ export class Water {
   }
 
   /**
-   * [ENV] Ice floes on open winter water: irregular slabs scattered in drifting clusters beyond the shelf ice.
+   * Ice floes on open winter water: irregular slabs scattered in drifting clusters beyond the shelf ice.
    * They ride the same Gerstner swell as the surface (shared uniforms) and drift slowly around their spot.
    */
   private buildFloes(map: GameMap, h: Float32Array, tw: number, res: number, quality: 'medium' | 'high', defines: Record<string, string>): THREE.InstancedMesh | null {

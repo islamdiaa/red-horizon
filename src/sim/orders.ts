@@ -1,5 +1,5 @@
 /**
- * [CTRL] Unit control beyond RA's orders:
+ * Unit control beyond RA's orders:
  * - patrol: loop through waypoints, attack-moving (engagements resume the loop where they left it);
  * - escort / guard: keep station around an own or allied unit or structure and defend it (its attackers first,
  *   never chasing far from it); medics heal around it;
@@ -60,7 +60,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 // Commands
 // ---------------------------------------------------------------------------
 
-/** World.processCommand hook for the CTRL commands. */
+/** World.processCommand hook for the unit-control commands (patrol, guard, formation). */
 export function ordersCommand(world: World, cmd: Command) {
   const p = world.players[cmd.player];
   if (!p) return;

@@ -13,26 +13,26 @@ export interface Settings {
   skipIntro?: boolean;
   /** Go fullscreen when a battle starts (edge scrolling needs the screen edge). */
   fullscreen?: boolean;
-  /** [HUD] In-battle interface: 'modern' (bottom build bar, corner panels; the default) or 'classic' (right-hand sidebar). */
+  /** In-battle interface: 'modern' (bottom build bar, corner panels; the default) or 'classic' (right-hand sidebar). */
   hudLayout?: HudLayout;
-  /** [HD] Model detail: baked 'hd' models or the procedural 'standard' ones (unset: HD on High / Medium, Standard on Low). */
+  /** Model detail: baked 'hd' models or the procedural 'standard' ones (unset: HD on High / Medium, Standard on Low). */
   modelDetail?: ModelDetail;
 }
 
-/** [HD] Model detail setting. */
+/** Model detail setting. */
 export type ModelDetail = 'hd' | 'standard';
-/** [HD] The model detail in effect for a quality preset (the player's choice, else HD unless Low). */
+/** The model detail in effect for a quality preset (the player's choice, else HD unless Low). */
 export const modelDetailOf = (s: Settings, quality: Quality = s.quality): ModelDetail => s.modelDetail ?? (quality === 'low' ? 'standard' : 'hd');
-/** [HD] Use the baked HD models for a match at this quality (URL ?hd=0 / ?hd=1 overrides, for tests). */
+/** Use the baked HD models for a match at this quality (URL ?hd=0 / ?hd=1 overrides, for tests). */
 export function hdModelsWanted(s: Settings, quality: Quality): boolean {
   const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('hd') : null;
   if (q === '0' || q === '1') return q === '1';
   return modelDetailOf(s, quality) === 'hd';
 }
 
-/** [HUD] In-battle interface layout. */
+/** In-battle interface layout. */
 export type HudLayout = 'modern' | 'classic';
-/** [HUD] The layout to use (Modern unless the player picked Classic). */
+/** The layout to use (Modern unless the player picked Classic). */
 export const hudLayoutOf = (s: Settings): HudLayout => (s.hudLayout === 'classic' ? 'classic' : 'modern');
 
 const SETTINGS_KEY = 'rh.settings';

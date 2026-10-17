@@ -7,7 +7,7 @@ import { NB, makeTemplate, type Ctx, type Mat, type ModelFaction, type ModelTemp
 import { M, G, lathe, prismXY, prismXZ, sovietStar, alliedStar, faceRot, grille, stencilNumber } from './parts';
 import { P, cbox, far, near, pbox, rotYZ } from './unitkit';
 
-// [UNITS] aircraft paints: team upper surfaces a shade deeper than plastic team colour, pale grey belly
+// aircraft paints: team upper surfaces a shade deeper than plastic team colour, pale grey belly
 const HULL_TEAM: Mat = { c: 0xbcbcbc, m: 0.32, r: 0.46, t: 1, d: 0 };
 const AIR_PALE: Mat = { c: 0xa8adb0, m: 0.3, r: 0.5, d: 0 };
 const AIR_GREY: Mat = { c: 0x5c6268, m: 0.35, r: 0.5, d: 0 };
@@ -37,7 +37,7 @@ function animRotors(c: Ctx, s: ModelAnimState, main: string, tail: string | null
 }
 
 /**
- * [UNITS] Articulated rotor head: hub plate, blade grips with pitch links (close up) and a capped mast top.
+ * Articulated rotor head: hub plate, blade grips with pitch links (close up) and a capped mast top.
  * Blades are slightly drooped (static droop reads as weight).
  */
 function rotorHead(nb: NB, n: number, R: number, chord: number, hubR: number): void {
@@ -67,7 +67,7 @@ function rotorDisc(parent: NB, y: number, R: number): void {
   d.add(new THREE.CircleGeometry(R + 0.02, 20), M.dark, { r: [-Math.PI / 2, 0, 0], slot: 'fx:rotor', keepUv: true });
 }
 
-/** [UNITS] Landing wheel (axis Z): plain disc pair far away, tyre with a hub close up. */
+/** Landing wheel (axis Z): plain disc pair far away, tyre with a hub close up. */
 function wheelZ(nb: NB, r: number, w: number, p: V3): void {
   far(nb, () => nb.cyl(M.rubber, r, r, w, p[0], p[1], p[2], { r: [Math.PI / 2, 0, 0], seg: 6 }));
   near(nb, () => {
@@ -76,7 +76,7 @@ function wheelZ(nb: NB, r: number, w: number, p: V3): void {
   });
 }
 
-/** [UNITS] Rocket pod (UB-32 / Hydra) along +X centred at p: tube, nose fairing and the honeycomb front. */
+/** Rocket pod (UB-32 / Hydra) along +X centred at p: tube, nose fairing and the honeycomb front. */
 function rocketPod(nb: NB, p: V3, r: number, len: number, mat: Mat): void {
   const [x, y, z] = p;
   far(nb, () => {
@@ -96,7 +96,7 @@ function rocketPod(nb: NB, p: V3, r: number, len: number, mat: Mat): void {
   });
 }
 
-/** [UNITS] Pylon + anti-tank missile rail with two missiles along +X. */
+/** Pylon + anti-tank missile rail with two missiles along +X. */
 function missileRail(nb: NB, p: V3, len: number, mat: Mat = M.offwhite): void {
   const [x, y, z] = p;
   nb.box(M.dark, len, 0.012, 0.016, x, y, z, { b: 0 });
@@ -111,7 +111,7 @@ function missileRail(nb: NB, p: V3, len: number, mat: Mat = M.offwhite): void {
 
 // =============================================================================================
 // Longbow (Allied attack helicopter): AH-64D Apache Longbow
-// [UNITS] team upper fuselage over grey, flat-panel tandem canopy, sponsons, engine nacelles, stub wings
+// team upper fuselage over grey, flat-panel tandem canopy, sponsons, engine nacelles, stub wings
 // with Hellfire racks and Hydra pods, chin cannon, mast radar
 // =============================================================================================
 
@@ -266,7 +266,7 @@ function longbow(): ModelTemplate {
 
 // =============================================================================================
 // Hind (Soviet assault helicopter): Mi-24
-// [UNITS] as in the reference: stepped double-bubble canopies, team upper / pale belly, twin engines
+// stepped double-bubble canopies, team upper / pale belly, twin engines
 // with intakes and exhausts, anhedral stub wings with rocket pods and missile rails, chin gun
 // =============================================================================================
 
@@ -536,7 +536,7 @@ function mig(): ModelTemplate {
   }
   r.node('m0', [0.05, cy - 0.04, -0.17]);
   r.node('m1', [0.05, cy - 0.04, 0.17]);
-  // [UNITS] pale belly, dorsal spine, pilot, canopy frame, panel lines, pitot
+  // pale belly, dorsal spine, pilot, canopy frame, panel lines, pitot
   r.box(AIR_PALE, 0.5, 0.02, 0.07, -0.02, cy - 0.048, 0, { b: 0.008 });
   r.box(HULL_TEAM, 0.3, 0.02, 0.03, -0.12, cy + 0.048, 0, { b: 0.008 });
   near(r, () => {
@@ -667,7 +667,7 @@ function yak(): ModelTemplate {
   sovietStar(r, 0.03, [-0.2, cy + 0.0, -0.03], faceRot('-z'));
   r.node('m0', [0.19, cy - 0.025, -0.12]);
   r.node('m1', [0.19, cy - 0.025, 0.12]);
-  // [UNITS] pale belly, pilot under the canopy, canopy frame, tail wheel, radiator scoop
+  // pale belly, pilot under the canopy, canopy frame, tail wheel, radiator scoop
   r.box(AIR_PALE, 0.36, 0.018, 0.06, 0.02, cy - 0.045, 0, { b: 0.006 });
   r.box(M.dark, 0.08, 0.024, 0.05, -0.02, cy - 0.055, 0, { b: 0.006 });
   near(r, () => {
@@ -714,7 +714,7 @@ function yak(): ModelTemplate {
 function chinook(fac: ModelFaction = 'allies'): ModelTemplate {
   const r = new NB('root');
   const W = 0.2;
-  // [UNITS] dressed per faction: Soviet olive with team panels / Allied team paint over grey
+  // dressed per faction: Soviet olive with team panels / Allied team paint over grey
   const hull: Mat = fac === 'soviet' ? P_SOV : HULL_TEAM;
   const dark: Mat = fac === 'soviet' ? P_SOV_D : AIR_GREY;
   const panel: Mat = fac === 'soviet' ? M.team : M.teamDark;
@@ -988,7 +988,7 @@ function badger(): ModelTemplate {
   r.sph(G.red, 0.009, -0.3, cy + 0.09, 0, { seg: 4, slot: 'glow:strobe' });
   r.node('m0', [0.0, cy - 0.1, 0]);
   r.node('m1', [0.05, cy - 0.1, 0]);
-  // [UNITS] pale belly line, crew in the nose glazing, panel lines, gun barbettes
+  // pale belly line, crew in the nose glazing, panel lines, gun barbettes
   r.box(AIR_PALE, 0.9, 0.022, 0.1, 0.02, cy - 0.072, 0, { b: 0.008 });
   near(r, () => {
     r.sph(M.dark, 0.016, 0.42, cy + 0.07, 0, { seg: 5 });
@@ -1118,7 +1118,7 @@ function u2(): ModelTemplate {
   // camera bay under the nose (glints)
   r.sph(M.glass, 0.015, 0.28, cy - 0.04, 0, { seg: 6 });
   r.sph(G.white, 0.007, -0.48, cy + 0.17, 0, { seg: 4, slot: 'glow:strobe' });
-  // [UNITS] pilot in a pressure suit, canopy frame, sensor bay hatches, panel lines, pogo outriggers
+  // pilot in a pressure suit, canopy frame, sensor bay hatches, panel lines, pogo outriggers
   near(r, () => {
     r.sph(M.white, 0.014, 0.22, cy + 0.045, 0, { seg: 5 });
     pbox(r, M.dark, 0.004, 0.024, 0.05, 0.25, cy + 0.04, 0);

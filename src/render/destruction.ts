@@ -1,5 +1,5 @@
 /**
- * Destruction & physics visuals (round 5, DEST). Purely visual, driven by sim events and entity state:
+ * Destruction & physics visuals. Purely visual, driven by sim events and entity state:
  *
  *  - Structures break apart when destroyed: the model's pre-baked fracture (destruction-fracture.ts) takes
  *    its place, shakes while the charges go off, then the chunks collapse and topple under a small rigid-body
@@ -733,10 +733,10 @@ export class Destruction {
   }
 
   /**
-   * Press a crater into the rendered terrain (FX terrain.deform). Policy: repeated hits on one spot deepen it
+   * Press a crater into the rendered terrain (terrain.deform). Policy: repeated hits on one spot deepen it
    * only so far; at most CRATER_BUDGET craters per match and CRATERS_PER_FRAME per frame are pressed (later
-   * blasts keep their scorch decals); craters older than CRATER_HEAL_AFTER heal in steps when the terrain
-   * accepts negative depths (FX's deform currently only digs, so they stay: persistent battle scars).
+   * blasts keep their scorch decals); craters older than CRATER_HEAL_AFTER heal in steps (a negative depth
+   * makes terrain.deform heal the ground).
    */
   crater(x: number, y: number, radius: number, depth: number): void {
     const t = this.terrain;
@@ -776,7 +776,7 @@ export class Destruction {
       const c = this.craters[i];
       const due = c.t + CRATER_HEAL_AFTER + c.healed * CRATER_HEAL_DT;
       if (this.time < due) continue;
-      // FX's deform ignores negative depths today (craters are permanent); harmless if so
+      // a negative depth heals the ground
       t.deform(c.x, c.y, c.r, -c.d / CRATER_HEAL_STEPS);
       c.healed++;
       if (c.healed >= CRATER_HEAL_STEPS) this.craters.splice(i, 1);
@@ -826,7 +826,7 @@ export class Destruction {
 
   // ===========================================================================================
 
-  /** A dynamic point light through FX's effects.addDynamicLight (when available). */
+  /** A dynamic point light through effects.addDynamicLight (when available). */
   private light(x: number, y: number, z: number, color: number, intensity: number, radius: number, duration: number): void {
     const fx = this.effects as unknown as { addDynamicLight?: (x: number, y: number, z: number, c: number, i: number, r: number, d: number) => void };
     fx.addDynamicLight?.(x, y, z, color, intensity, radius, duration);

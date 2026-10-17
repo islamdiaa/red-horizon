@@ -27,8 +27,8 @@ TEX_DIR = os.path.join(os.environ.get('RH_CACHE', os.path.expanduser('~/.cache/r
 ATLAS_UV = 'atlas'
 TEAM_GREY = 0.7  # linear albedo of clean team paint in the bake; the runtime scales by teamColor / TEAM_GREY
 DIRT_H = 0.2  # ground dirt / splash height (model units); kit.run lowers it for units (they are low to the ground)
-EDGE_LIGHT = 0.07  # catch-light on every edge (was 0.22: together with the wear it outlined every silhouette
-#                   in a pale halo at RTS distances)
+EDGE_LIGHT = 0.07  # catch-light on every edge (keep it low: with the wear, higher values outline every
+#                   silhouette in a pale halo at RTS distances)
 
 _cache = {}
 _graphs = {}  # material name -> _Graph (until finalize)

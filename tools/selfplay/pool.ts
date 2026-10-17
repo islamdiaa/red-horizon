@@ -10,7 +10,7 @@ import type { DuelResult, DuelSpec, MatchResult, MatchSpec } from './lib';
 export function defaultWorkers(): number {
   const env = +(process.env.WORKERS ?? 0);
   if (env > 0) return env;
-  // leave headroom for the other processes on the box
+  // leave headroom for the other processes on the machine
   return Math.max(1, Math.min(12, availableParallelism() - 4));
 }
 

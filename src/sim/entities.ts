@@ -74,11 +74,11 @@ export abstract class Entity {
   }
 
   get maxHp(): number {
-    const c = this.owner.cmd; // [DOCTRINE] doctrine health (Commander rules only)
+    const c = this.owner.cmd; // doctrine health (Commander rules only)
     return c ? this.type.strength * (c.rules?.hp[this.type.id] ?? 1) : this.type.strength;
   }
   get healthFrac(): number {
-    return this.hp / this.maxHp; // [DOCTRINE] (was type.strength: identical under Classic rules)
+    return this.hp / this.maxHp; // maxHp = type.strength under Classic rules
   }
   isBuilding(): this is Building {
     return this.kind === 'building';
@@ -120,7 +120,7 @@ export class Unit extends Entity {
   exitBuilding = 0;
   /** Engagement behaviour (see Stance). */
   stance: Stance = 'guard';
-  /** [CTRL] Formation kept on group moves (formation.ts); 'none' = automatic. */
+  /** Formation kept on group moves (formation.ts); 'none' = automatic. */
   formShape: FormationShape = 'none';
   /** Where an idle unit returns after chasing a target. */
   guardX: number;
@@ -175,7 +175,7 @@ export class Unit extends Entity {
   ramp = 0;
   rampHold = 0;
 
-  // --- Aftermath / Counterstrike units (see aftermath.ts) [CONTENT]
+  // --- Aftermath / Counterstrike units (see aftermath.ts)
   /** M.A.D. Tank: 0 = mobile, 1 = deployed and arming (crew bailed out), 2 = pumping its quake pulses. */
   madStage = 0;
   /** M.A.D. Tank: seconds left in the current stage (stage 2: until the next pulse). */
@@ -198,7 +198,7 @@ export class Unit extends Entity {
     if (type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.primary]));
     if (type.secondary && type.secondary !== type.primary) this.weapons.push(new WeaponSlot(WEAPONS[type.secondary]));
     this.ammo = type.ammo ?? 0;
-    // a parked demolition truck never sets off on its own (aftermath.ts) [CONTENT]
+    // a parked demolition truck never sets off on its own (aftermath.ts)
     if (type.demolition) this.stance = 'passive';
   }
 
@@ -225,7 +225,7 @@ export class Building extends Entity {
   primary = false;
   rallyX = -1;
   rallyY = -1;
-  /** [CTRL] Rally to a unit: id of the own unit new units join and guard (0 = none, see orders.ts). */
+  /** Rally to a unit: id of the own unit new units join and guard (0 = none, see orders.ts). */
   rallyUnit = 0;
   door = 0;
   doorHold = 0;

@@ -39,7 +39,7 @@ export type FeatureKind =
   | 'forest'  // trees at `density` on open land
   | 'ore'     // gold ore field
   | 'gems'    // gem field
-  // [EDIT] editor brushes (no curated map uses them, so those build exactly as before)
+  // editor brushes (no curated map uses them)
   | 'deforest' // remove trees only
   | 'noore'    // remove ore / gems only
   | 'raise'    // raise the ground by `amount` (height units) in a smooth dome; land only
@@ -95,7 +95,7 @@ export interface MapDef {
   tags?: string[];
   /** Height multiplier for rock relief (default 1). */
   relief?: number;
-  /** [EDIT] Custom (editor) maps: author name and format version of the `.rhmap.json` file. */
+  /** Custom (editor) maps: author name and format version of the `.rhmap.json` file. */
   author?: string;
   format?: number;
 }

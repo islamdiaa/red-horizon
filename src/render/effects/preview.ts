@@ -49,7 +49,7 @@ const sspread = (r: number) => (srnd() * 2 - 1) * r;
 // ---------------------------------------------------------------------------------------------
 // Terrain
 
-/** Round-4 scenarios live in map space around (32, 32) so the real Water renderer can be used. */
+/** The water scenarios live in map space around (32, 32) so the real Water renderer can be used. */
 const WATER_SCENES = ['naval', 'bridges', 'powers'];
 const WATERY = WATER_SCENES.includes(only);
 const OX = 32;
@@ -59,7 +59,7 @@ function baseHeight(x: number, z: number): number {
   return 0.22 * Math.sin(x * 0.23) * Math.cos(z * 0.19) + 0.14 * Math.sin(x * 0.071 + z * 0.113) + 0.05 * Math.sin(x * 0.9 + 1.3) * Math.sin(z * 0.7);
 }
 
-/** 0..1 water mask for the round-4 scenes (lake / river / channel). */
+/** 0..1 water mask for the water scenes (lake / river / channel). */
 function waterMask(x: number, z: number): number {
   const sm = (e0: number, e1: number, v: number) => {
     const t = Math.min(1, Math.max(0, (v - e0) / (e1 - e0)));
@@ -441,7 +441,7 @@ function misc(ox: number, oz: number): Scenario {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Round-4 scenarios: naval combat, support powers, bridges (map space around OX, OZ)
+// Water scenarios: naval combat, support powers, bridges (map space around OX, OZ)
 
 interface Actor {
   m: ModelInstance;

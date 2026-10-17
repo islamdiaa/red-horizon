@@ -1,5 +1,5 @@
 /**
- * [CTRL] Formations: group moves that keep their shape in transit.
+ * Formations: group moves that keep their shape in transit.
  *
  * A FormationGroup is a virtual centre that follows one A* path at the pace of the slowest member (90 % of
  * it, so whoever drifts back can catch up). Every member steers for its slot: the centre plus its offset,
@@ -12,7 +12,7 @@
  * Shapes (Unit.formShape, set with the 'formation' command): line, box, wedge, or 'none' = automatic: a
  * tight group keeps its relative positions (and holds them on the way), a spread-out group converges into a
  * box sorted by role (armour in front, rocket infantry behind it, artillery and support at the back).
- * The automatic formation applies to human players' group moves; AI armies move as before unless they ask
+ * The automatic formation applies to human players' group moves; AI armies move without one unless they ask
  * for a shape. World.ctrl (CtrlState) is saved with the world.
  */
 import { mphToCellsPerSecond } from '../data/rules';

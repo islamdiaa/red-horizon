@@ -20,9 +20,9 @@ import { el, esc, hexColor } from '../ui/dom';
 import { renderThumbnails } from '../render/thumbnails';
 import { CommandFeeder } from './core';
 import type { PlaybackOptions, ReplayData } from './format';
-import { branchSetup, defaultTakeoverAI, makeBranch, replayStartTick } from './branch'; // [MODES] rewind & take command
-import { openMomentPanel, weather } from '../ui/moment'; // [MODES]
-import { challengeGameSetup } from '../modes/author'; // [MODES]
+import { branchSetup, defaultTakeoverAI, makeBranch, replayStartTick } from './branch'; // rewind & take command
+import { openMomentPanel, weather } from '../ui/moment';
+import { challengeGameSetup } from '../modes/author';
 import type { AIDifficulty } from '../sim/ai';
 import { picto } from '../meta';
 
@@ -64,7 +64,7 @@ export class ReplayPlayback {
   private timer = 0;
   private dragFrac = -1;
   private keyHandler = (e: KeyboardEvent) => this.onKey(e);
-  /** [MODES] First tick of the recording (a branch starts at its branch point). */
+  /** First tick of the recording (a branch starts at its branch point). */
   readonly startTick: number;
   private closeMoment: (() => void) | null = null;
   private tookCommand = false;
@@ -142,7 +142,7 @@ export class ReplayPlayback {
   /** Jump to a tick: forward by fast simulation, backward by restarting the match and seeking. */
   seek(tick: number) {
     const world = this.game.world;
-    tick = Math.max(this.startTick, Math.min(this.data.ticks, Math.round(tick))); // [MODES] a branch begins at its branch point
+    tick = Math.max(this.startTick, Math.min(this.data.ticks, Math.round(tick))); // a branch begins at its branch point
     if (this.seeking) return;
     if (tick < world.tick) {
       const { load: _l, ...setup } = this.game.setup;
@@ -187,13 +187,13 @@ export class ReplayPlayback {
     g.gfx.fog.snap(g.local);
     if (!this.ended) g.speed = this.paused ? 0 : this.speed;
     this.refresh();
-    // [MODES] "Continue" from the replay list: take command at the end of the recording
+    // "Continue" from the replay list: take command at the end of the recording
     const tc = this.opts.takeCommand;
     if (tc && !this.tookCommand && !w.gameOver) this.takeCommand(tc.local, tc.ai ?? defaultTakeoverAI(this.data));
   }
 
   // ---------------------------------------------------------------------------
-  // [MODES] Rewind & take command · make a challenge from this moment
+  // Rewind & take command · make a challenge from this moment
   // ---------------------------------------------------------------------------
   /** Start a live game from this exact moment with `local` as the human (a branch of this replay). */
   takeCommand(local: number, ai: AIDifficulty) {
@@ -360,7 +360,7 @@ export class ReplayPlayback {
     const tl = el('div', 'rp-timeline', `<span class="rp-time">00:00</span><div class="rp-track"><i class="rp-fill"></i><i class="rp-head"></i><i class="rp-desync"></i><span class="rp-hover"></span></div><span class="rp-total">${formatTime(d.ticks * DT)}</span>`);
     const track = tl.querySelector('.rp-track') as HTMLElement;
     if (this.startTick > 0) {
-      // [MODES] the part before the branch point belongs to the parent recording
+      // the part before the branch point belongs to the parent recording
       const pre = el('i', 'rp-pre');
       pre.style.width = `${((this.startTick / Math.max(1, d.ticks)) * 100).toFixed(2)}%`;
       pre.title = `Branched from the parent replay at ${formatTime(this.startTick * DT)}`;
@@ -392,7 +392,7 @@ export class ReplayPlayback {
     const fog = btn('rp-fog', ICONS.eye, 'Observer view: no fog of war (V cycles views)', () => this.setView(this.view < 0 ? this.hudPlayer : -1));
     const sync = el('span', 'rp-sync');
     const exit = btn('rp-exit', ICONS.close, 'Leave the replay', () => this.host.exit(true));
-    // [MODES] rewind & take command · challenge from this moment
+    // rewind & take command · challenge from this moment
     const take = btn('rp-take', `${ICONS.flag}<span>Take command</span>`, 'Take command from this moment (T)', () => this.openMoment('take'));
     const chal = btn('rp-chal', picto('trophy', 'ic'), 'Make a challenge from this moment (C)', () => this.openMoment('challenge'));
     right.append(take, chal, fog, sync, exit);
@@ -480,7 +480,7 @@ export class ReplayPlayback {
       this.setSpeed(SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (i < 0 ? 0 : i) + (k === ']' ? 1 : -1)))]);
     } else if (k === 'v' && !e.ctrlKey && !e.metaKey) this.cycleView(e.shiftKey ? -1 : 1);
     else if (k === 'home') this.seek(0);
-    else if (k === 't' && !e.ctrlKey && !e.metaKey) this.openMoment('take'); // [MODES]
-    else if (k === 'c' && !e.ctrlKey && !e.metaKey) this.openMoment('challenge'); // [MODES]
+    else if (k === 't' && !e.ctrlKey && !e.metaKey) this.openMoment('take');
+    else if (k === 'c' && !e.ctrlKey && !e.metaKey) this.openMoment('challenge');
   }
 }

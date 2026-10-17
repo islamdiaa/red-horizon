@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// [PIPE] Build HD models: runs Blender (one at a time, 4 threads) on tools/assets/models/**/<id>.py, writes
+// Build HD models: runs Blender (one at a time, 4 threads) on tools/assets/models/**/<id>.py, writes
 // public/models/<id>[.<faction>].glb and updates public/models/manifest.json.
 //
 //   node tools/assets/build.mjs powr            # every faction's powr (models/*/powr.py)
@@ -7,13 +7,13 @@
 //   node tools/assets/build.mjs --all           # everything except models/test/
 //   options: --quick (half-res atlas, few samples: iteration only, never commit)
 //            --preview (Cycles stills next to the log: /tmp/rh-assets/<key>-rts.png, -close.png)
-//            --threads N (default 4, max 6 on the shared box)  --out DIR (default public/models)
+//            --threads N (default 4, max 6)  --out DIR (default public/models)
 //            --min-mem MB (default 3072: wait until /proc/meminfo MemAvailable reaches it before each
-//            Blender run; the box also runs Plex, Immich... RH_MIN_MEM_MB overrides; 0 disables)
+//            Blender run, for shared machines; RH_MIN_MEM_MB overrides; 0 disables)
 //            --list (print the model scripts and exit)
 //            --reindex (rebuild manifest.json from the GLBs on disk: recovers entries lost to parallel builds)
 // The manifest is merged per built model under a lock file (manifest.lock) and written atomically, so several
-// agents can build at the same time.
+// builds can run at the same time.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -50,7 +50,7 @@ function memAvailableMB() {
   }
 }
 
-/** Memory guard: block until MemAvailable >= minMemMB, polling every 30 s (protects the box's other services). */
+/** Memory guard: block until MemAvailable >= minMemMB, polling every 30 s (protects other processes on a shared machine). */
 async function waitForMemory(label) {
   if (!(minMemMB > 0)) return;
   let mb = memAvailableMB();
@@ -156,7 +156,7 @@ function entryFromGlb(file, extra = {}) {
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Serialised read-merge-write of manifest.json: several agents build at once. An O_EXCL lock file (stale after
+ * Serialised read-merge-write of manifest.json (several builds may run at once). An O_EXCL lock file (stale after
  * 60 s), the manifest re-read under the lock, only `entries` (key -> entry, or null = delete) merged in, then an
  * atomic tmp + rename.
  */

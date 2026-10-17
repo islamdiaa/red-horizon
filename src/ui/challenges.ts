@@ -8,8 +8,8 @@ import {
 } from '../meta';
 import { SURVIVAL_VARIANTS, currentDailyDay, type SurvivalVariant } from '../missions/special';
 import { alliedEmblem, sovietEmblem } from './icons';
-import { bindCoopSwitch, coopSwitchHtml, survivalDeployId, survivalRecord } from './coop'; // [MODES] co-op survival
-import { openScenarioChallenges } from '../modes/ui'; // [MODES] scenario challenges
+import { bindCoopSwitch, coopSwitchHtml, survivalDeployId, survivalRecord } from './coop'; // co-op survival
+import { openScenarioChallenges } from '../modes/ui'; // scenario challenges
 
 type PlayKey = 'click' | 'tab' | 'hover';
 
@@ -314,7 +314,7 @@ function dailyCard(cfg: DailyConfig, p: Profile, day: string): string {
 }
 
 function survivalCard(v: SurvivalVariant, p: Profile, i: number): string {
-  const r = survivalRecord(v, p); // [MODES] solo or co-op record
+  const r = survivalRecord(v, p); // solo or co-op record
   return `<div class="chl-sv ${v.climate}" style="--i:${i}" data-deploy="${survivalDeployId(v.id)}">
     <div class="chl-sv-art">${landscape(v.climate, 'day', v.seed)}</div>
     <div class="chl-sv-b">
@@ -377,7 +377,7 @@ export function showChallenges(opts: { onDeploy(missionId: string): void; onBack
     (root.querySelector('[data-act="back"]') as HTMLElement).onclick = () => { opts.play('click'); close(); opts.onBack(); };
     const prof = root.querySelector('[data-act="profile"]') as HTMLElement | null;
     if (prof) prof.onclick = () => { opts.play('click'); close(); opts.onProfile!(); };
-    // [MODES] co-op switch on the Survival panel; scenario challenges list (back reopens this hub)
+    // co-op switch on the Survival panel; scenario challenges list (back reopens this hub)
     bindCoopSwitch(root, render);
     (root.querySelector('[data-act="scenarios"]') as HTMLElement).onclick = () => { opts.play('click'); close(); openScenarioChallenges(() => showChallenges(opts)); };
   };

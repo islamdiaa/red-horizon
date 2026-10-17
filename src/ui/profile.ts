@@ -9,10 +9,10 @@ import {
 import { star } from '../meta/art';
 import { UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
-import { showRivals } from './rivals'; // [AI]
-import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, fmtContractValue, profileWithContracts, rerollContractNow, unlockContext, unseenUnlocks, type Cadence } from '../meta'; // [META]
-import { commanderLook } from '../meta/cosmetics'; // [META] portrait, banner, title
-import { showLocker } from './locker'; // [META]
+import { showRivals } from './rivals';
+import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, fmtContractValue, profileWithContracts, rerollContractNow, unlockContext, unseenUnlocks, type Cadence } from '../meta';
+import { commanderLook } from '../meta/cosmetics'; // portrait, banner, title
+import { showLocker } from './locker';
 
 type PlayKey = 'click' | 'tab' | 'hover';
 
@@ -68,7 +68,7 @@ const CSS = `
 .pf-ladder span:hover { opacity: 1; transform: scale(1.4); filter: none; }
 .pf-ladder svg { width: 100%; height: 100%; display: block; }
 
-/* [META] banner, portrait, title, Commendations */
+/* banner, portrait, title, Commendations */
 .pf-cmd { --banner: none; }
 .pf-cmd::before { content: ''; position: absolute; inset: 0; background: var(--banner); opacity: .42; pointer-events: none; }
 .pf-cmd > * { position: relative; }
@@ -271,7 +271,7 @@ function barRow(label: string, wins: number, games: number, color: string, max: 
   return `<div class="pf-br" style="--c:${color}"><span>${label}</span><span class="tr"><u style="width:${((games / max) * 100).toFixed(1)}%"></u><i style="width:${((wins / max) * 100).toFixed(1)}%"></i></span><b>${wins}/${games}</b></div>`;
 }
 
-/** [META] Daily and weekly contracts with progress, rewards and the free daily reroll. */
+/** Daily and weekly contracts with progress, rewards and the free daily reroll. */
 function contractsGrid(p: Profile): string {
   const reroll = canReroll(p.contracts, Date.now());
   const card = (cad: Cadence, i: number) => {
@@ -302,15 +302,15 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
   root.className = 'pf';
   document.body.appendChild(root);
   let filter: 'all' | 'earned' | 'progress' | 'locked' = 'all';
-  let view: 'medals' | 'contracts' = 'medals'; // [META]
+  let view: 'medals' | 'contracts' = 'medals';
   let p: Profile = loadProfile();
 
   const render = () => {
-    p = profileWithContracts(); // [META] (today's orders in place)
-    const uctx = unlockContext(p); // [META]
-    const look = commanderLook(uctx); // [META]
-    const topUnits = Object.entries(p.stats.killsByUnit).filter(([id, k]) => UNITS[id] && k > 0).sort((a, b) => b[1] - a[1]).slice(0, 3); // [META] career: favourite units
-    const freshLocker = unseenUnlocks(uctx).length; // [META]
+    p = profileWithContracts(); // (today's orders in place)
+    const uctx = unlockContext(p);
+    const look = commanderLook(uctx);
+    const topUnits = Object.entries(p.stats.killsByUnit).filter(([id, k]) => UNITS[id] && k > 0).sort((a, b) => b[1] - a[1]).slice(0, 3); // career: favourite units
+    const freshLocker = unseenUnlocks(uctx).length;
     const rp = rankProgress(p.xp, p.faction);
     const st = p.stats;
     const states = allAchievementStates(p);
@@ -359,7 +359,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
           <div class="pf-tile"><small>${picto('streak')}Daily streak</small><b>${p.daily.streak}<em>best ${p.daily.longest}</em></b></div>
           <div class="pf-tile"><small>${picto('stopwatch')}Fastest win</small><b>${st.fastestWin ? formatTime(st.fastestWin) : '–'}</b></div>
         </div>
-        ${topUnits.length > 1 ? `<div class="pf-fav pf-favs">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite units · kills</small><span class="cols">${topUnits.map(([id, k]) => `<span title="${esc(UNITS[id].name)}: ${fmt(k)} kills"><b>${esc(UNITS[id].name)}</b><u><i style="width:${((k / topUnits[0][1]) * 100).toFixed(1)}%"></i></u><em>${fmt(k)}</em></span>`).join('')}</span></span></div>` // [META] career: favourite units
+        ${topUnits.length > 1 ? `<div class="pf-fav pf-favs">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite units · kills</small><span class="cols">${topUnits.map(([id, k]) => `<span title="${esc(UNITS[id].name)}: ${fmt(k)} kills"><b>${esc(UNITS[id].name)}</b><u><i style="width:${((k / topUnits[0][1]) * 100).toFixed(1)}%"></i></u><em>${fmt(k)}</em></span>`).join('')}</span></span></div>` // career: favourite units
           : `<div class="pf-fav">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite unit</small><b>${fav ? esc(fav.name) : 'None yet'}</b></span>${fav ? `<i>${fmt(fav.kills)} kills</i>` : ''}</div>`}
       </div>
       <div class="pf-panel">
@@ -389,8 +389,8 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
 
     root.querySelectorAll<HTMLElement>('[data-f]').forEach((b) => (b.onclick = () => { filter = b.dataset.f as typeof filter; opts.play('tab'); render(); }));
     (root.querySelector('[data-act="back"]') as HTMLElement).onclick = () => { opts.play('click'); close(); opts.onBack(); };
-    (root.querySelector('[data-act="rivals"]') as HTMLElement).onclick = () => { opts.play('click'); showRivals({ play: opts.play, onBack: () => {} }); }; // [AI] rivals board
-    // [META] Locker, medals / contracts switch, the free daily reroll
+    (root.querySelector('[data-act="rivals"]') as HTMLElement).onclick = () => { opts.play('click'); showRivals({ play: opts.play, onBack: () => {} }); }; // rivals board
+    // Locker, medals / contracts switch, the free daily reroll
     (root.querySelector('[data-act="locker"]') as HTMLElement).onclick = () => { opts.play('click'); showLocker({ play: opts.play, onBack: () => { if (root.isConnected) render(); } }); };
     root.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => (b.onclick = () => { view = b.dataset.view as typeof view; opts.play('tab'); render(); }));
     root.querySelectorAll<HTMLElement>('[data-rr]').forEach((b) => (b.onclick = () => {
@@ -424,7 +424,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !root.isConnected || document.querySelector('.rv, .rh-locker')) return; // [AI] (the rivals board closes first) · [META] and the Locker
+    if (e.key !== 'Escape' || !root.isConnected || document.querySelector('.rv, .rh-locker')) return; // (the rivals board and the Locker close first)
     e.preventDefault();
     e.stopPropagation();
     opts.play('click');

@@ -1,4 +1,4 @@
-"""[SOVB] Shared dressing for the Soviet structures (not a model: build.mjs skips files starting with '_').
+"""Shared dressing for the Soviet structures (not a model: build.mjs skips files starting with '_').
 
 Model scripts do:
     import os, sys
@@ -126,7 +126,7 @@ def roof_sign(m, p, P, at, size, lines, lights=3, emblem='soviet', depth=0.12):
 _imgs = {}
 
 
-# mullions() and glazing() now come from the kit (kit.decals.mullions / kit.shapes.glazing: same signatures).
+# window mullions and glazing come from the kit: kit.decals.mullions / kit.shapes.glazing.
 
 
 def big_star(px=256, color=0xe8b434, ring=0x7a1410, field=0xa01812):
@@ -311,7 +311,7 @@ def v3(t):
 
 def neon(p, x0, x1, top, fz, color=0xff2a1a, strength=2.2, h=0.014, mode='steady'):
     """Red accent light strip along a +z facade, just low enough under the cornice (top) to show from the
-    RTS camera (the reference's red-lit roof edges)."""
+    RTS camera (red-lit roof edges)."""
     y = top - 0.075 - 0.04
     box(p, light_mat(color, strength, mode), (x1 - x0, h, 0.008), ((x0 + x1) / 2, y, fz + 0.006))
     box(p, _Mt.metal(0x26282c), (x1 - x0 + 0.01, h + 0.008, 0.006), ((x0 + x1) / 2, y, fz + 0.002))

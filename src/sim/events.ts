@@ -1,5 +1,5 @@
 /**
- * [VARIETY] What makes every skirmish different: battlefield events, the mutators' world effects, neutral tech
+ * What makes every skirmish different: battlefield events, the mutators' world effects, neutral tech
  * structures (neutral.ts) and dynamic difficulty. Everything lives in `World.variety` (null for Classic rules
  * without mutators or dynamic difficulty: the simulation is then exactly the classic one), runs inside the
  * deterministic tick (`varietyTick`, called at the end of World.step) and is saved with the world (`saveVariety`
@@ -14,7 +14,7 @@
  *   mercs    a mercenary squad offers its services for 60 s: 'battleEvent' / 'hire' command, once per commander
  *   surge    an ore surge floods the most contested ore field and spreads it
  * Each is announced through `VarietyState.news` (UI: toast, radio card, minimap ping, ui/variety-hud.ts).
- * Rewards are credits plus command points (DOCTRINE's PlayerCmd when Commander rules give the player one,
+ * Rewards are credits plus command points (the player's PlayerCmd when Commander rules give the player one,
  * otherwise their credit value).
  */
 import { Rng } from '../core/rng';
@@ -28,7 +28,7 @@ import { DT, TICK_HZ, type Command } from './types';
 import type { World } from './world';
 import { aiNeutral, chargePowers, neutralTick, news, raiseSite, type AiCapture, type Site } from './neutral';
 import { isLanded } from './aircraft';
-import { grantCommandPoints as doctrinePoints } from './commander'; // [DOCTRINE] command points
+import { grantCommandPoints as doctrinePoints } from './commander'; // command points
 
 export type Rules = 'classic' | 'commander';
 export type BattleEventKind = 'convoy' | 'airdrop' | 'pilot' | 'storm' | 'mercs' | 'surge';
@@ -725,7 +725,7 @@ function updateConvoy(w: World, v: VarietyState, ev: BattleEvent): boolean {
   return false;
 }
 
-/** Credits and command points for a commander (DOCTRINE's points when Commander rules gave the player some). */
+/** Credits and command points for a commander (command points only when Commander rules gave the player a PlayerCmd). */
 export function reward(w: World, v: VarietyState, p: Player, credits: number, points: number, text: string, x: number, y: number, ev?: BattleEvent) {
   p.cash += credits;
   w.events.push({ e: 'credits', player: p.id, amount: credits, x, y });
@@ -734,7 +734,7 @@ export function reward(w: World, v: VarietyState, p: Player, credits: number, po
 }
 
 /**
- * Command points through DOCTRINE's API (sim/commander.ts) when the player has a commander (Commander rules);
+ * Command points through the commander API (sim/commander.ts) when the player has a commander (Commander rules);
  * otherwise (Classic rules with events: never, but mods / branches may) the points are paid in credits.
  * Returns whether points were granted.
  */

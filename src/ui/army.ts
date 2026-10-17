@@ -1,5 +1,5 @@
 /**
- * [ARMY] Big-army command tools, owned by the HUD (ui/hud.ts):
+ * Big-army command tools, owned by the HUD (ui/hud.ts):
  *
  * - Army overview (` or the army chip): your forces by type with count, value, veterancy, idle and damaged
  *   units and health; click a row to select that type on the map (Shift adds, double-click also jumps there).
@@ -259,7 +259,7 @@ export class ArmyTools {
     if (!b) { this.host.sound('error'); return false; }
     this.pendingLoop.set(type, { on: true, tick: world.tick });
     this.host.issue({ c: 'repeat', player: p.id, building: b.id, type, on: true });
-    const cost = priceOf(p, type); // [DOCTRINE] price under Commander rules
+    const cost = priceOf(p, type); // price under Commander rules
     this.host.message(`Loop on: ${getType(type).name}${p.credits < cost ? ' (waiting for funds)' : ''}`);
     return true;
   }
@@ -609,7 +609,7 @@ export class ArmyTools {
     if (e.code === 'KeyE' && e.shiftKey && !mod && !e.altKey) { stop(); this.selectDamaged(); return; }
     if (e.code === 'KeyR' && e.shiftKey && !mod && !e.altKey) {
       const units = [...this.host.selection].some((id) => { const u = this.host.world.getEntity(id); return u instanceof Unit && u.owner === this.host.local; });
-      if (!units) return; // a structure selected: R / Shift+R toggles its repairs as before
+      if (!units) return; // a structure selected: R / Shift+R keeps toggling its repairs
       stop();
       this.sendToRepair();
       return;
@@ -637,7 +637,7 @@ export interface ArmyCore {
 }
 
 /**
- * [ARMY] Idle watch: unit factories idle for IDLE_FACTORY_SECS while the player has money (and no loop saving up
+ * Idle watch: unit factories idle for IDLE_FACTORY_SECS while the player has money (and no loop saving up
  * for its next unit), idle harvesters and refineries without one. `nagging()` drives the tab pulse; toasts are
  * throttled per kind (2 min) and overall (30 s). Game time, so pausing or game speed don't fake idleness.
  */
@@ -729,7 +729,7 @@ export class IdleWatch {
 }
 
 /**
- * [ARMY] Repair runs ("send damaged units for repairs"): damaged vehicles queue at the nearest service depot,
+ * Repair runs ("send damaged units for repairs"): damaged vehicles queue at the nearest service depot,
  * most damaged first. The queue waits at a staging spot beside the depot, one vehicle at a time drives onto the
  * pad, and a repaired one drives back to where it was sent from. Ships move next to the nearest naval yard
  * (yards repair every idle ship alongside). Only ordinary move / enter commands are issued, so replays record

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [PIPE] Install the pinned Blender LTS used by the HD-model pipeline (tools/assets).
+# Install the pinned Blender LTS used by the HD-model pipeline (tools/assets).
 #
 #   tools/assets/setup-blender.sh            # install (idempotent)
 #   tools/assets/setup-blender.sh --check    # just verify an existing install runs headless

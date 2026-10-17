@@ -1,5 +1,5 @@
 /**
- * [JUICE] Game-feel logic without a GPU or an AudioContext: screen-shake trauma and distance falloff, the
+ * Game-feel logic without a GPU or an AudioContext: screen-shake trauma and distance falloff, the
  * clash meter behind the battle music, throttled announcer moments, the audio mix policy (priority tiers,
  * voice stealing), and the particle / beam budgets of the new spectacle recipes (LOD must cut them down).
  */

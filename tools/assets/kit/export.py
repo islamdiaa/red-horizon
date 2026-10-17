@@ -306,7 +306,7 @@ def write(model, images, path, meta_extra=None, separate_glass=False):
     js = json.dumps(gl, separators=(',', ':')).encode()
     js += b' ' * ((-len(js)) % 4)
     total = 12 + 8 + len(js) + 8 + len(blob)
-    # atomic: tests, the dev server and the service worker never see a half-written GLB while agents rebuild
+    # atomic: tests, the dev server and the service worker never see a half-written GLB during a rebuild
     tmp = f'{path}.tmp-{os.getpid()}'
     with open(tmp, 'wb') as f:
         f.write(struct.pack('<III', 0x46546C67, 2, total))

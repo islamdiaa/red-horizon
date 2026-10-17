@@ -26,7 +26,7 @@ export class Overlay {
   showAllBars = false;
   groups = new Map<number, number>();
   /**
-   * [CTRL] Extra 2D layer drawn under the selection box (patrol routes, escort links, planned structures; see
+   * Extra 2D layer drawn under the selection box (patrol routes, escort links, planned structures; see
    * ui/orderui.ts). `project` maps world (x, height, y) to CSS pixels or null; return true if anything was drawn.
    */
   extra: ((ctx: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => [number, number] | null) => boolean) | null = null;
@@ -208,7 +208,7 @@ export class Overlay {
     for (const f of this.floats) if (f.t < f.life) this.floats[nf++] = f;
     this.floats.length = nf;
 
-    // [CTRL] order visualisation (ui/orderui.ts)
+    // order visualisation (ui/orderui.ts)
     if (this.extra) {
       ctx.save();
       if (this.extra(ctx, (x, y, z) => (this.project(camera, x, y, z) ? [this.px, this.py] : null))) this.drawn = true;

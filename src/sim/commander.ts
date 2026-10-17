@@ -1,5 +1,5 @@
 /**
- * [DOCTRINE] Commander rules, part 2: command points and commander powers.
+ * Commander rules, part 2: command points and commander powers.
  *
  * Under Commander rules (skirmish default; World option `rules: 'commander'`) every player
  *  - fights with a doctrine (doctrine.ts; the AI picks its own from its personality and the seed),

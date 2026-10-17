@@ -1,4 +1,4 @@
-// [PIPE] Baked HD models (public/models): every manifest entry is a valid, CSP-safe GLB that the runtime
+// Baked HD models (public/models): every manifest entry is a valid, CSP-safe GLB that the runtime
 // (src/render/models/hd.ts) can graft onto the procedural model, within the size / triangle budgets.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

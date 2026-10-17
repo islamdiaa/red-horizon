@@ -1,4 +1,4 @@
-// Round-5 modes (src/modes): King of the Hill, challenges (built-ins, goals, scoring, files, bests,
+// Game modes (src/modes): King of the Hill, challenges (built-ins, goals, scoring, files, bests,
 // moments) and co-op survival with AI allies. All headless and deterministic.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

@@ -32,7 +32,7 @@ export function symmetryGroup(def: MapDef): Xf[] {
         { f: (x, y) => [N - y, x], inv: (x, y) => [y, N - x], swap: true },
         r180,
         { f: (x, y) => [y, N - x], inv: (x, y) => [N - y, x], swap: true }];
-    // [EDIT] editor symmetries: none (every start authored) and the 2-player mirrors
+    // editor symmetries: none (every start authored) and the 2-player mirrors
     case 'none':
       return [id];
     case 'mirrorX':
@@ -306,7 +306,7 @@ function equaliseOre(map: GameMap) {
 }
 
 function paintFeature(map: GameMap, ft: Feature, k: number, G: Xf[], noise: Noise2D, seed: number, ford: Uint8Array) {
-  if (ft.t === 'raise' || ft.t === 'lower') return; // [EDIT] height brushes act on vertices (buildHeights)
+  if (ft.t === 'raise' || ft.t === 'lower') return; // height brushes act on vertices (buildHeights)
   const N = map.w;
   const wob = ft.wobble ?? 1.2, freq = ft.freq ?? 0.22;
   const [bx0, by0, bx1, by1] = bounds(ft);
@@ -351,7 +351,7 @@ function applyFeature(map: GameMap, ft: Feature, i: number, depth: number, px: n
       map.tree[i] = 0;
       ford[i] = 0;
       break;
-    case 'deforest': // [EDIT] editor eraser brushes
+    case 'deforest': // editor eraser brushes
       map.tree[i] = 0;
       break;
     case 'noore':
@@ -446,7 +446,7 @@ function buildHeights(map: GameMap, def: MapDef, G: Xf[], noise: Noise2D, starts
         h = WATER_LEVEL + 0.1 + (h - WATER_LEVEL - 0.1) * smooth(0.5, 4, dw);
         if (h < WATER_LEVEL + 0.05) h = WATER_LEVEL + 0.05;
       }
-      // [EDIT] raise / lower brushes (dry land only, never below the waterline)
+      // raise / lower brushes (dry land only, never below the waterline)
       if (bump && water === 0 && fd === 0) h = Math.max(WATER_LEVEL + 0.05, h + bump[vy * W + vx]);
       // flatten base areas (never lifting the sea floor above the waterline)
       if (water === 0) {
@@ -469,7 +469,7 @@ function innerDepth(s: Shape): number {
 }
 
 /**
- * [EDIT] Per-vertex height change from the editor's raise / lower brushes: a smooth dome per feature.
+ * Per-vertex height change from the editor's raise / lower brushes: a smooth dome per feature.
  * Symmetric copies of one feature take the maximum (not the sum), so a dab on a symmetry axis is not
  * doubled; the result is symmetric because the maximum over a symmetry orbit is invariant.
  */

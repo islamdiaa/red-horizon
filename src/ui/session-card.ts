@@ -1,5 +1,5 @@
 /**
- * [META] Session goals on the main menu: a compact card with today's (or this week's) contracts, the daily
+ * Session goals on the main menu: a compact card with today's (or this week's) contracts, the daily
  * streak, Commendations and the next unlock, with the free daily reroll and a way into the Locker. It takes
  * the place of the menu's tagline once the player has fought a battle. No countdowns, no pressure: orders
  * simply change with the date.

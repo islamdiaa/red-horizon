@@ -20,9 +20,9 @@ const INDEX = new URL('index.html', SCOPE).href;
 const FONTS = ['rajdhani-500', 'rajdhani-600', 'rajdhani-700', 'share-tech-mono-400'].map((f) => `fonts/${f}.woff2`);
 const SHELL = ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/icon.svg', ...FONTS]
   .map((p) => new URL(p, SCOPE).href);
-/** Cache of the Google Fonts era (fonts are self-hosted now); deleted on activate. */
+/** Font cache left by older builds that loaded web fonts from a CDN (fonts are self-hosted); deleted on activate. */
 const LEGACY_CACHES = ['rh-fonts-v1'];
-const ASSET_RE = /\.(?:js|mjs|css|wasm|png|jpe?g|webp|avif|gif|svg|ico|json|webmanifest|woff2?|ttf|mp3|ogg|wav|glb)$/i; // [HD] glb: baked models (public/models), runtime cache-first
+const ASSET_RE = /\.(?:js|mjs|css|wasm|png|jpe?g|webp|avif|gif|svg|ico|json|webmanifest|woff2?|ttf|mp3|ogg|wav|glb)$/i; // glb: baked models (public/models), runtime cache-first
 
 const sameOrigin = (u) => { try { return new URL(u, SCOPE).origin === self.location.origin; } catch { return false; } };
 /** Keys are plain URLs; hosts often send `Vary: Origin` and module scripts are CORS requests, so ignore Vary. */

@@ -85,7 +85,7 @@ const CSS = `
   box-shadow: 0 10px 40px rgba(0,0,0,0.55); transform: translateY(20px); opacity: 0; transition: transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.35s, bottom 0.3s ease; font-family: var(--font, sans-serif); }
 body:not(.hud-modern):has(#selpanel.on) .rv-tx, body:not(.hud-modern):has(#groups.on) .rv-tx { bottom: calc(var(--dock-h, 128px) + 22px); }
 body:not(.hud-modern):has(#selpanel.on):has(#groups.on) .rv-tx { bottom: 182px; }
-/* [HUD] Modern layout: above the minimap / build bar, sized with the HUD */
+/* Modern layout: above the minimap / build bar, sized with the HUD */
 body.hud-modern .rv-tx { left: var(--edge, 0.7rem); bottom: calc(var(--dock-h, 16rem) + var(--edge, 0.7rem) * 2 + var(--bot, 0px)); width: min(29rem, calc(100vw - 2 * var(--edge, 0.7rem))); gap: 0.75rem; padding: 0.75rem; border-radius: 0.8rem; }
 body.hud-modern .rv-tx .pt { width: 4.6rem; height: 5.4rem; border-radius: 0.5rem; }
 body.hud-modern .rv-tx .sp { font-size: 0.68rem; }

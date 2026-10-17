@@ -17,7 +17,7 @@ tools/assets/
   memguard.sh <MB>        wait until that much memory is available (run before a headless browser)
   STYLE.md                art direction and budgets
   kit/                    the Python API (runs inside Blender): core, shapes, materials, decals, patterns, bake, export
-  models/<group>/<id>.py  one script per model (content agents own their group directory)
+  models/<group>/<id>.py  one script per model (groups: allies, soviet, vehicles; test = kit checks)
 ```
 
 ## Setup (once per machine)
@@ -27,7 +27,7 @@ tools/assets/setup-blender.sh            # ~360 MB download, verified against do
 node tools/assets/fetch-textures.mjs     # ~18 MB of 1k CC0 textures into ~/.cache/red-horizon/textures
 ```
 Both are idempotent. `setup-blender.sh --check` just runs `blender -b` and prints the version. The tarball needs
-`xz` (present on this box); Blender's own libraries are bundled, nothing else had to be installed.
+`xz`; Blender's own libraries are bundled, nothing else needs to be installed.
 
 ## Building
 
@@ -38,16 +38,16 @@ node tools/assets/build.mjs powr --quick         # half atlas, few samples: fast
 node tools/assets/build.mjs powr --preview       # + Cycles stills: /tmp/rh-assets/<key>-rts.png, -close.png
 node tools/assets/build.mjs --all                # everything except models/test/
 ```
-- One Blender at a time, 4 threads by default (`--threads N`, max 6; the box is shared). A structure takes
+- One Blender at a time, 4 threads by default (`--threads N`, max 6). A structure takes
   ~1–1.5 min, a vehicle ~15–45 s.
 - **Memory guard:** before each Blender run build.mjs waits until `/proc/meminfo` MemAvailable is ≥ 3 GB
-  (`--min-mem MB`, `RH_MIN_MEM_MB`), polling every 30 s: Plex, Immich and other services share this box.
+  (`--min-mem MB`, `RH_MIN_MEM_MB`), polling every 30 s, so a shared machine is never pushed into swap.
   Run `tools/assets/memguard.sh 3072` before starting a headless browser (view.mjs, hdcheck.mjs).
 - Logs: `/tmp/rh-assets/<key>.log`. Debug maps: run the kit directly with `--debug DIR` (see `kit/run.py`).
 - The runner prints triangles, KB and budget checks per model and the set / per-faction totals, and merges each
   built model into `public/models/manifest.json` (id -> file, bytes, hash, type, faction, kind, tris, parts,
   points...) right after its Blender run: re-read under a lock file (`manifest.lock`, stale after 60 s) and
-  written atomically, so parallel builds by several agents never drop each other's entries.
+  written atomically, so parallel builds never drop each other's entries.
 - `node tools/assets/build.mjs --reindex` rebuilds the manifest from the GLBs on disk (their glTF extras).
 - Commit the `.glb` files and `manifest.json` (the game builds without Blender). Never commit `--quick` output.
 
@@ -57,7 +57,7 @@ node tools/assets/build.mjs --all                # everything except models/test
    ```sh
    node --import tsx tools/assets/rig.ts 3tnk                 # units
    node --import tsx tools/assets/rig.ts powr soviet          # structures (dressing per faction)
-   node tools/assets/view.mjs --port <yours> --scene A --hd 0 --focus powr --dist 8 --out /tmp/before.png
+   node tools/assets/view.mjs --port <port> --scene A --hd 0 --focus powr --dist 8 --out /tmp/before.png
    ```
    `rig.ts` prints the node tree (names, local and model-space positions), muzzles, smoke / steam points,
    height, radius, body bounds and the procedural triangle counts. **Animated parts and points must use these
@@ -84,7 +84,7 @@ node tools/assets/build.mjs --all                # everything except models/test
    ```
    Units: `t = m.part('turret', at=(-0.05, 0.236, 0))`, `b = m.part('b0', parent='turret', at=(0.24, 0.05, -0.05))`,
    `m.muzzle('m0', (0.66, 0.05, -0.05))` (turret frame), `track_belt(r, L, H, W, (0, 0, z))` for each track.
-   See `models/soviet/powr.py` and `models/soviet/3tnk.py` (the two hero models) for complete examples.
+   See `models/soviet/powr.py` and `models/vehicles/3tnk.py` (the two hero models) for complete examples.
 
 3. **Iterate fast:** `node tools/assets/build.mjs <key> --quick --preview` and look at the two stills.
    Then a full build and an in-game check (restart your view server after the first build of a new model):
@@ -100,8 +100,8 @@ node tools/assets/build.mjs --all                # everything except models/test
    Structures: `node tools/assets/hdcheck.mjs <port> /tmp/rh-assets 1 <id>` shoots the damaged / wrecked stages,
    the construction hologram and the collapse, and lists console warnings.
 
-4. **Check the budget line** printed by build.mjs (triangles, KB) and the STYLE.md rules, then hand the `.glb` +
-   `manifest.json` changes to the main session.
+4. **Check the budget line** printed by build.mjs (triangles, KB) and the STYLE.md rules, then commit the `.glb`
+   and the `manifest.json` change.
 
 ## Conventions
 
@@ -214,7 +214,7 @@ that touches nothing prints `[kit] WARNING: decal ... touches no faces` (check p
    ones 0.4x, then AABB-packed with a 2 px gutter (the run logs the atlas coverage; 55-75% is normal). Round
    surfaces are cut into quarter-turn strips so they pack tightly. Every bake fills the gutters itself (the
    islands grow into them like Blender's EXTEND margin, but for all parts at once: Blender's own margin is per
-   object and used to paint a moving part's colours over the border of a neighbouring root island).
+   object and would paint a moving part's colours over the border of a neighbouring root island).
 3. Phase 1 masks: **AO** with a ground plane (contact shadows) and **edge** curvature (bevel shader + the chamfers
    `box(bevel=)` makes). `m.ground = False` drops the plane for the whole model; `m.part(..., ground=False)` bakes
    just that part (and its children, unless they say `ground=True`) without it: a silo missile resting below
@@ -265,7 +265,7 @@ that touches nothing prints `[kit] WARNING: decal ... touches no faces` (check p
   `m.separate_glass = True` (costs a draw call); by default glass is just a glossy region of the atlas.
 - Rebuilds are not bit-identical (hidden-face culling and bake sampling vary slightly): only rebuild the models
   you changed, so the other GLBs keep their hashes and the players' caches.
-- Don't edit the kit: ask PIPE / the main session for kit features (keep model scripts self-contained).
+- Keep model scripts self-contained; extend the kit (`kit/`) only for features several models need.
 
 ## Credits
 - Texture inputs: [Poly Haven](https://polyhaven.com) (CC0): rusty_painted_metal, rusty_metal_02, metal_plate,

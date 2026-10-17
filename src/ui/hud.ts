@@ -1,5 +1,5 @@
 import { BAIL_COUNT, BUILDINGS, CATEGORIES, CONDITION_RED, CONDITION_YELLOW, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, type BuildingTypeDef, type Category, type TypeDef, type UnitTypeDef } from '../data/rules';
-import { modCardTag, modTipHtml } from '../mods'; // [EDIT] "Modded" markers
+import { modCardTag, modTipHtml } from '../mods'; // "Modded" markers
 import { formatTime } from '../core/util';
 import { Building, Unit, type Entity } from '../sim/entities';
 import { queueKindOf, type Player, type ProductionQueue } from '../sim/player';
@@ -15,12 +15,12 @@ import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtm
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
 import { RANK_NAMES, factionTypes, missingRequirements, statLines, xpThresholds } from './tech';
 import { applyUiSettings, hudLayoutOf, loadSettings, onSettingsChanged, type HudLayout } from './settings';
-import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui'; // [CTRL]
+import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui';
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
-import { BOOT_CAMP_HUD } from '../missions/tutorial'; // [HUD] Boot Camp drill highlights
+import { BOOT_CAMP_HUD } from '../missions/tutorial'; // Boot Camp drill highlights
 import { GAME_SPEEDS, GAME_SPEED_LABELS } from '../config';
 import { CEASEFIRE_WARNING, ceasefireLeft } from '../sim/ceasefire';
-import { ArmyTools, type OverlayHook } from './army'; // [ARMY] army overview, loops, auto-groups, idle watch, repairs
+import { ArmyTools, type OverlayHook } from './army'; // army overview, loops, auto-groups, idle watch, repairs
 import { QUEUE_LIMIT } from '../sim/production';
 import { isLooping, loopable } from '../sim/repeat';
 import { priceOf } from '../sim/doctrine';
@@ -56,7 +56,7 @@ export interface HudHost {
   selectGroup?(g: number, jump: boolean): void;
   /** Read-only spectator HUD (replays): no build, power or unit orders; `local` is the viewed player. */
   spectator?: boolean;
-  /** [ARMY] The 2D overlay: control-group numbers of auto-grouped units and the factory auto-group badges. */
+  /** The 2D overlay: control-group numbers of auto-grouped units and the factory auto-group badges. */
   overlay?: OverlayHook | null;
 }
 
@@ -82,7 +82,7 @@ const TABS: TabDef[] = CATEGORIES.map((cat) => {
   return { id: cat, cat, icon: m?.icon ?? ICONS.building, title: m?.title ?? cat.charAt(0).toUpperCase() + cat.slice(1), conditional: m ? !!m.conditional : true };
 });
 const CAT_ICON: Record<Category, string> = Object.fromEntries(TABS.map((t) => [t.cat, t.icon])) as Record<Category, string>;
-/** [HUD] Modern build bar tabs: Structures, Infantry, Vehicles, Defences, Support, then Aircraft / Naval once available. */
+/** Modern build bar tabs: Structures, Infantry, Vehicles, Defences, Support, then Aircraft / Naval once available. */
 const MODERN_ORDER: TabId[] = ['building', 'infantry', 'vehicle', 'defense', 'support', 'aircraft', 'naval'];
 const MODERN_TITLES: Partial<Record<TabId, string>> = { defense: 'Defences', support: 'Support' };
 const SUPPORT_TAB: TabDef = { id: 'support', cat: 'building', icon: ICONS.radar, title: 'Support', conditional: false };
@@ -170,7 +170,7 @@ const HARVEST_STATE: Record<string, string> = {
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
- * [ARMY] Restart a one-shot CSS animation class on the next frame instead of forcing a synchronous layout like
+ * Restart a one-shot CSS animation class on the next frame instead of forcing a synchronous layout like
  * dom.ts replay(): the selection panel rebuilds on every selection change, and a forced reflow of the whole HUD
  * was most of the cost of box-selecting a big army.
  */
@@ -199,12 +199,12 @@ interface Card {
 
 type CardState = 'idle' | 'build' | 'hold' | 'nofunds' | 'queued' | 'ready' | 'busy';
 
-/** [HUD] Build-card hotkeys of the Modern layout: B arms them, then 1–9 / 0 picks the Nth card of the open tab. */
+/** Build-card hotkeys of the Modern layout: B arms them, then 1–9 / 0 picks the Nth card of the open tab. */
 const CARD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
 export class Hud {
   private detachListeners: (() => void) | null = null;
-  /** [HUD] The HUD on screen: a new one (replays rebuild theirs per viewed player) retires the previous one. */
+  /** The HUD on screen: a new one (replays rebuild theirs per viewed player) retires the previous one. */
   private static live: Hud | null = null;
 
   /** Detach document-level listeners and the layout's body state (the DOM itself is cleared with the UI root). */
@@ -213,8 +213,8 @@ export class Hud {
     this.detachListeners?.();
     this.detachListeners = null;
     window.clearTimeout(this.armTimer);
-    this.army.dispose(); // [ARMY]
-    // [HUD] the next screen (menus, another battle's HUD) starts from a clean body
+    this.army.dispose();
+    // the next screen (menus, another battle's HUD) starts from a clean body
     document.body.classList.remove('hud-modern');
     for (const v of ['--dock-h', '--tl-h', '--bb-h']) document.body.style.removeProperty(v);
   }
@@ -274,7 +274,7 @@ export class Hud {
   private newUntil = new Map<string, number>();
   private hoverCard: Card | null = null;
 
-  // ---- [HUD] layout: the same widgets mounted as the Classic sidebar or the Modern corner panels
+  // ---- layout: the same widgets mounted as the Classic sidebar or the Modern corner panels
   private layout: HudLayout = 'classic';
   private ui: HTMLElement;
   private sbHead: HTMLElement;
@@ -303,11 +303,11 @@ export class Hud {
   private armed = false;
   private armTimer = 0;
   private tutKey = '';
-  /** [ARMY] Big-army tools (ui/army.ts): army overview, loops, auto-groups, idle watch, repairs. */
+  /** Big-army tools (ui/army.ts): army overview, loops, auto-groups, idle watch, repairs. */
   readonly army: ArmyTools;
 
   constructor(private host: HudHost) {
-    Hud.live?.dispose(); // [HUD] its widgets are about to be cleared with the UI root; drop its listeners too
+    Hud.live?.dispose(); // its widgets are about to be cleared with the UI root; drop its listeners too
     Hud.live = this;
     const ui = document.getElementById('ui')!;
     this.root = ui;
@@ -368,7 +368,7 @@ export class Hud {
     // reading scroll metrics forces a layout, so only on scroll / resize / grid rebuild (not every frame)
     this.grid.addEventListener('scroll', () => this.updateScrollFade(), { passive: true });
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.updateScrollFade()).observe(this.grid);
-    // [HUD] the Modern build bar is one row of cards: the mouse wheel scrolls it sideways
+    // the Modern build bar is one row of cards: the mouse wheel scrolls it sideways
     this.grid.addEventListener('wheel', (e) => {
       if (this.layout !== 'modern' || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const g = this.grid;
@@ -434,7 +434,7 @@ export class Hud {
     ui.appendChild(tr);
     this.toasts = new Toasts(ui, tr, () => host.world.time, this.sound);
     this.logPanel = tr.querySelector('.notif-log');
-    // [ARMY] army overview, repeat production, auto-groups, idle watch, repairs
+    // army overview, repeat production, auto-groups, idle watch, repairs
     this.army = new ArmyTools({
       world: host.world, local: host.local, selection: host.selection, thumbs: host.thumbs, spectator: host.spectator, tip: this.tip,
       issue: (c) => host.issue(c), select: (ids) => host.select(ids), focusOn: (x, y) => host.focusOn(x, y),
@@ -457,7 +457,7 @@ export class Hud {
     this.tip.bind(this.dock, 'top');
     this.sound.bind(this.dock, 'button');
 
-    // ======================================================== [HUD] Modern-only widgets
+    // ======================================================== Modern-only widgets
     this.mmPanel = el('div', 'panel');
     this.mmPanel.id = 'minimap-panel';
     this.bbSide = el('div', 'bb-side');
@@ -496,7 +496,7 @@ export class Hud {
     label(this.toasts.bell, 'Event log');
     this.speedBtns.forEach((b) => label(b, `Game speed ${b.dataset.speed}x`));
 
-    // [HUD] build-bar hotkeys (Modern) and live layout switching from the settings screen
+    // build-bar hotkeys (Modern) and live layout switching from the settings screen
     window.addEventListener('keydown', this.onKeyDown, true);
     const offSettings = onSettingsChanged((s) => { const l = hudLayoutOf(s); if (l !== this.layout && this.sidebar.isConnected) this.mount(l); });
     const prev = this.detachListeners;
@@ -509,7 +509,7 @@ export class Hud {
   }
 
   // ---------------------------------------------------------------------------
-  // [HUD] Layout
+  // Layout
   // ---------------------------------------------------------------------------
   /** The tabs of the current layout. */
   private tabDefs(): TabDef[] {
@@ -545,7 +545,7 @@ export class Hud {
       this.sbHead.remove();
       this.mmPanel.replaceChildren(this.radar);
       if (!this.mmPanel.isConnected) this.ui.insertBefore(this.mmPanel, this.dock.nextSibling);
-      this.rbRes.replaceChildren(this.creditsBox, this.powerBox, this.army.chip); // [ARMY] units (overview) + idle count
+      this.rbRes.replaceChildren(this.creditsBox, this.powerBox, this.army.chip); // units (overview) + idle count
       this.rbTime.replaceChildren(this.clock, this.speedEl);
       this.rbBtns.replaceChildren(...[this.fsBtn, this.toasts.bell, this.settingsBtn, this.menuBtn].filter((b): b is HTMLButtonElement => !!b));
       tr.replaceChildren(this.fpsEl, this.rbRes, this.rbTime, this.rbBtns, ...(this.logPanel ? [this.logPanel] : []));
@@ -559,7 +559,7 @@ export class Hud {
       this.mmPanel.remove();
       tr.replaceChildren(this.fpsEl, ...[this.fsBtn, this.toasts.bell, this.logPanel].filter((b): b is HTMLElement => !!b));
       this.objPanel.remove();
-      tb.prepend(this.menuBtn, this.clock, this.speedEl, this.objEl, this.cfChip, this.army.chip, this.intelEl); // [ARMY] army chip
+      tb.prepend(this.menuBtn, this.clock, this.speedEl, this.objEl, this.cfChip, this.army.chip, this.intelEl); // army chip
       if (mission) this.ui.appendChild(mission);
     }
     this.setArmed(false);
@@ -606,7 +606,7 @@ export class Hud {
     this.slowT = 0;
   }
 
-  /** [HUD] Keyboard for the Modern build bar: Tab / Shift+Tab switch tabs, B then 1–9 / 0 builds the Nth card. */
+  /** Keyboard for the Modern build bar: Tab / Shift+Tab switch tabs, B then 1–9 / 0 builds the Nth card. */
   private onKeyDown = (e: KeyboardEvent) => {
     if (this.layout !== 'modern' || this.host.spectator || e.ctrlKey || e.metaKey || e.altKey || !this.sidebar.isConnected) return;
     const t = e.target as HTMLElement | null;
@@ -666,7 +666,7 @@ export class Hud {
     const w = this.host.world;
     this.updateCredits(dt, p);
     this.toasts.update(dt);
-    this.army.update(dt); // [ARMY]
+    this.army.update(dt);
 
     this.fpsAcc += dt; this.fpsN++;
     this.slowT -= dt;
@@ -697,7 +697,7 @@ export class Hud {
     this.updateObjective();
     this.updateIntel();
     if (this.layout === 'modern') {
-      this.updateObjPanel(); // ([ARMY] the unit count chip is the army chip now)
+      this.updateObjPanel();
       this.updateTutorial();
     }
     this.updateCeasefire();
@@ -837,7 +837,7 @@ export class Hud {
       b.classList.toggle('empty', n === 0);
       b.classList.toggle('active', t.id === this.activeTab);
       b.classList.toggle('has-new', hasNew && t.id !== this.activeTab);
-      // [ARMY] a loop runs in this tab's queue / its factory has been idle with money to spend
+      // a loop runs in this tab's queue / its factory has been idle with money to spend
       const loops = isStruct ? 0 : p.repeat.reduce((k, id) => k + (this.tabOf(id) === t.id ? 1 : 0), 0);
       const nag = !isStruct && this.army.nagging(q.kind);
       b.classList.toggle('has-loop', loops > 0);
@@ -851,7 +851,7 @@ export class Hud {
       prog.classList.toggle('hold', !!head?.paused);
       (prog.firstElementChild as HTMLElement).style.transform = `scaleX(${ready ? 1 : head ? head.progress.toFixed(3) : 0})`;
       let status = ready ? '<span class="tt-ok">Ready to place</span>' : head ? `${head.paused ? 'On hold' : 'Producing'}: <b>${getType(head.type).name}</b> ${Math.floor(head.progress * 100)}%` + (mine.length > 1 ? ` · ${mine.length - 1} queued` : '') : n ? `${n} available` : 'Nothing available yet';
-      if (loops) status += `<br>Looping: <b>${p.repeat.filter((id) => this.tabOf(id) === t.id).map((id) => esc(getType(id).name)).join('</b>, <b>')}</b>`; // [ARMY]
+      if (loops) status += `<br>Looping: <b>${p.repeat.filter((id) => this.tabOf(id) === t.id).map((id) => esc(getType(id).name)).join('</b>, <b>')}</b>`;
       if (nag) status += `<br><span class="tt-bad">Factory idle for ${Math.floor(this.army.idleFor(q.kind))} s</span>`;
       const tip = tipHtml(t.title, status, this.layout === 'modern' ? [['Tab', 'next tab']] : []);
       if (b.dataset.tip !== tip) { b.dataset.tip = tip; this.tip.refresh(b, tip); }
@@ -904,9 +904,9 @@ export class Hud {
     } else if (q.kind === 'structure' && q.items.length) {
       html = 'Yard busy'; cls = 'muted';
     } else if (q.kind !== 'structure' && this.army.nagging(q.kind)) {
-      html = `Factory idle ${Math.floor(this.army.idleFor(q.kind))}s`; cls = 'idle'; // [ARMY]
+      html = `Factory idle ${Math.floor(this.army.idleFor(q.kind))}s`; cls = 'idle';
     } else if (q.kind !== 'structure' && p.repeat.some((id) => this.tabOf(id) === this.activeTab)) {
-      html = `${ICONS.cycle} Loop · awaiting funds`; cls = 'busy'; // [ARMY] (nothing queued: the loops wait for money)
+      html = `${ICONS.cycle} Loop · awaiting funds`; cls = 'busy'; // (nothing queued: the loops wait for money)
     } else if (!list.length && locked.length) {
       const req = missingRequirements(p, locked[0])[0];
       html = req ? `Requires ${esc(req)}` : 'Locked';
@@ -947,7 +947,7 @@ export class Hud {
     const c = el('div', 'bitem' + (locked ? ' locked' : ''));
     c.style.setProperty('--i', String(i));
     c.dataset.id = id;
-    // [HUD] build hotkey (Modern: B, then the digit); hidden in the Classic sidebar
+    // build hotkey (Modern: B, then the digit); hidden in the Classic sidebar
     const keyIdx = locked ? -1 : this.keyCards.length;
     const hk = keyIdx >= 0 && keyIdx < CARD_KEYS.length ? CARD_KEYS[keyIdx] : '';
     c.innerHTML = `<div class="bi-tilt">
@@ -968,7 +968,7 @@ export class Hud {
       arc: c.querySelector('.arc') as SVGCircleElement, label: c.querySelector('.bi-label')!, countEl: c.querySelector('.bi-count')!,
     };
     if (!locked) this.keyCards.push(card);
-    // [ARMY] the loop button (touch / mouse) and Alt- (Ctrl- / Cmd-) click toggle repeat production
+    // the loop button (touch / mouse) and Alt- (Ctrl- / Cmd-) click toggle repeat production
     c.querySelector('.bi-loop')?.addEventListener('click', (ev) => { ev.stopPropagation(); this.sound.play('click'); this.army.setLoop(id); this.refreshCardTip(card); });
     c.addEventListener('click', (ev) => this.clickItem(card, ev.shiftKey, ev.altKey || ev.ctrlKey || ev.metaKey));
     c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); this.rightClickItem(card); });
@@ -1013,12 +1013,12 @@ export class Hud {
         card.countEl.classList.toggle('on', n > 1);
         if (n > 1) replay(card.countEl, 'bump', 400);
       }
-      // [CTRL] planned copies of this structure (build plan)
+      // planned copies of this structure (build plan)
       const planned = q.kind === 'structure' ? p.buildPlan.reduce((n, x) => n + (x.type === card.id ? 1 : 0), 0) : 0;
       if ((card.el.dataset.planned ?? '') !== (planned ? `${planned}` : '')) { if (planned) card.el.dataset.planned = `${planned}`; else delete card.el.dataset.planned; }
-      const poor = state === 'idle' && credits < priceOf(p, card.id); // [DOCTRINE] doctrine price
+      const poor = state === 'idle' && credits < priceOf(p, card.id); // doctrine price
       if (poor !== card.poor) { card.poor = poor; card.el.classList.toggle('poor', poor); }
-      // [ARMY] repeat production badge: looping, or looping and waiting for the money for the next one
+      // repeat production badge: looping, or looping and waiting for the money for the next one
       const loop = isLooping(p, card.id) ? (n === 0 && credits < priceOf(p, card.id) ? 'wait' : 'on') : '';
       if ((card.el.dataset.loop ?? '') !== loop) { if (loop) card.el.dataset.loop = loop; else delete card.el.dataset.loop; }
     }
@@ -1035,11 +1035,11 @@ export class Hud {
       foot = `<div class="tt-req">${ICONS.lock}<span>Requires <b>${req.map(esc).join('</b>, <b>') || 'more technology'}</b></span></div>`;
     } else {
       const secs = buildSeconds(w, p, card.id);
-      const price = priceOf(p, card.id); // [DOCTRINE] doctrine price
+      const price = priceOf(p, card.id); // doctrine price
       const poor = p.credits < price;
       foot = `<div class="tt-meta"><span>${ICONS.clock}${Math.ceil(secs)}s build</span>${poor ? `<span class="tt-bad">${ICONS.coin}Need $${(price - p.credits).toLocaleString('en-US')} more</span>` : ''}${p.lowPower ? `<span class="tt-bad">${ICONS.bolt}Low power: slower</span>` : ''}</div>`;
       const hk = this.layout === 'modern' ? CARD_KEYS[this.keyCards.indexOf(card)] : undefined;
-      // [ARMY] loop state, queue fill and the loop key
+      // loop state, queue fill and the loop key
       const unitQ = !isBuildingType(t) ? p.queues[queueKindOf(t)] : null;
       if (unitQ) {
         const looping = isLooping(p, card.id);
@@ -1062,7 +1062,7 @@ export class Hud {
     const p = this.host.local;
     const t = getType(id);
     const q = p.queues[queueKindOf(t)];
-    // [ARMY] Alt-click: repeat production (units)
+    // Alt-click: repeat production (units)
     if (loop && !card.locked && loopable(id)) {
       this.sound.play('click');
       if (this.army.setLoop(id)) replay(card.el, 'keyhit', 350);
@@ -1079,7 +1079,7 @@ export class Hud {
     this.sound.play('click');
     if (isBuildingType(t)) {
       if (q.ready === id) { this.host.beginPlacement(id); return; }
-      // [CTRL] yard busy (or Shift): plan it instead; the yard builds and places it later
+      // yard busy (or Shift): plan it instead; the yard builds and places it later
       if (shift || q.ready || (q.items.length && q.items[0].type !== id)) {
         this.host.beginPlacement(id);
         if (this.host.getMode() === 'plan') return;
@@ -1096,7 +1096,7 @@ export class Hud {
     } else {
       const head = q.items[0];
       if (head && head.type === id && head.paused) { this.host.issue({ c: 'pause', player: p.id, type: id }); return; }
-      if (q.items.length >= QUEUE_LIMIT) { // [ARMY] say so instead of silently dropping the click
+      if (q.items.length >= QUEUE_LIMIT) { // say so instead of silently dropping the click
         this.message(`Queue full (${QUEUE_LIMIT}): Alt-click a card to loop it instead`, true);
         this.host.audio.play('error');
         replay(card.el, 'shake', 450);
@@ -1114,7 +1114,7 @@ export class Hud {
     const q = p.queues[queueKindOf(t)];
     this.sound.play('click');
     if (q.ready === id) { this.host.issue({ c: 'cancel', player: p.id, type: id }); return; }
-    // [ARMY] a looping card: the first right-click only stops the loop (the unit in production carries on)
+    // a looping card: the first right-click only stops the loop (the unit in production carries on)
     if (this.army.looping(id)) { this.army.setLoop(id, false); this.refreshCardTip(card); return; }
     const head = q.items[0];
     // commands apply on the next sim tick: a second click before then must cancel, not un-pause
@@ -1155,7 +1155,7 @@ export class Hud {
       const offline = !ready && p.lowPower;
       b.classList.toggle('ready', ready);
       b.classList.toggle('offline', offline);
-      // [HUD] the Modern support row is always compact: just the timer under each power
+      // the Modern support row is always compact: just the timer under each power
       const compact = this.layout === 'modern' || this.supers.classList.contains('compact');
       const sub = ready ? 'Ready' : offline ? 'Offline' : compact ? formatTime(Math.max(0, full - p.superCharge[k])) : `${Math.floor(frac * 100)}% · ${formatTime(Math.max(0, full - p.superCharge[k]))}`;
       const small = b.querySelector('small')!;
@@ -1206,8 +1206,8 @@ export class Hud {
     if (ents.length === 1) this.refreshSingle(ents[0]);
     else this.refreshMulti(ents);
     this.refreshStances(ents);
-    refreshFormationBar(this.selpanel, ents.filter((e): e is Unit => e instanceof Unit)); // [CTRL]
-    // [ARMY] auto-group picker and the repair button follow the state
+    refreshFormationBar(this.selpanel, ents.filter((e): e is Unit => e instanceof Unit));
+    // auto-group picker and the repair button follow the state
     this.refreshAutoGroup(ents.filter((e): e is Building => e instanceof Building && !!e.bt.factory && e.bt.factory !== 'building'));
     const rb = this.selpanel.querySelector<HTMLElement>('.cmd[data-key="⇧R"]');
     if (rb) { const r = this.army.repairable(); rb.classList.toggle('off', !(r.veh.length && r.depots.length) && !(r.ships.length && r.yards.length)); }
@@ -1303,7 +1303,7 @@ export class Hud {
       sp.appendChild(this.commandButtons(cmdEnts));
       const st = this.stanceButtons(cmdEnts);
       if (st) sp.appendChild(st);
-      // [CTRL] formation selector for two or more own ground units
+      // formation selector for two or more own ground units
       const fm = formationBar(cmdEnts.filter((e): e is Unit => e instanceof Unit), (shape) => {
         const ids = cmdEnts.filter((e): e is Unit => e instanceof Unit && (e.kind === 'infantry' || e.kind === 'vehicle')).map((u) => u.id);
         this.sound.play('click');
@@ -1311,15 +1311,15 @@ export class Hud {
         this.message(`Formation: ${FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape}`);
       });
       if (fm) sp.appendChild(fm);
-      // [ARMY] unit factories: new units join a control group
+      // unit factories: new units join a control group
       const facs = cmdEnts.filter((e): e is Building => e instanceof Building && !!e.bt.factory && e.bt.factory !== 'building');
       if (facs.length) (sp.querySelector('.sp-main, .sp-multi') ?? sp).appendChild(this.autoGroupPicker(facs));
     }
-    replaySoft(sp, wasOpen ? 'swap' : 'pop', 500); // [ARMY] (no forced layout: box-selecting 100+ units stays instant)
+    replaySoft(sp, wasOpen ? 'swap' : 'pop', 500); // (no forced layout: box-selecting 100+ units stays instant)
     this.tutKey = '';
   }
 
-  /** [ARMY] "Auto-group: Off 1 … 9" for the selected unit factories (Ctrl+1–9 does the same). */
+  /** "Auto-group: Off 1 … 9" for the selected unit factories (Ctrl+1–9 does the same). */
   private autoGroupPicker(facs: Building[]): HTMLElement {
     const box = el('div', 'ag-pick');
     box.appendChild(el('span', 'ag-l', 'Auto-group'));
@@ -1425,7 +1425,7 @@ export class Hud {
     if (e.invulnerable > 0) { tag = 'Invulnerable'; tagCls = 'inv'; }
     else if (e instanceof Unit && e.submerged) { tag = 'Submerged'; tagCls = 'acc'; }
     else if (e instanceof Unit && e.parachute > 0) { tag = 'Parachuting'; tagCls = 'acc'; }
-    else if (e instanceof Unit && e.madStage) { tag = e.madStage === 2 ? 'Quaking' : 'Arming'; tagCls = 'bad'; } // [CTRL] Aftermath
+    else if (e instanceof Unit && e.madStage) { tag = e.madStage === 2 ? 'Quaking' : 'Arming'; tagCls = 'bad'; } // Aftermath
     else if (e instanceof Unit && e.armed) { tag = 'Armed'; tagCls = 'bad'; }
     else if (e instanceof Building && e.repairing) { tag = 'Repairing'; tagCls = 'ok'; }
     else if (e instanceof Building && e.bt.requiresPower && e.owner.lowPower) { tag = 'Offline'; tagCls = 'bad'; }
@@ -1456,7 +1456,7 @@ export class Hud {
         const frac = e.cargo / BAIL_COUNT;
         return this.xbar(ICONS.ore, 'Cargo', frac, `${Math.round(frac * 100)}% · ${HARVEST_STATE[e.hstate] ?? e.hstate}`, 'ore');
       }
-      // [CTRL] Aftermath status: chrono recharge, M.A.D. charge, demolition truck
+      // Aftermath status: chrono recharge, M.A.D. charge, demolition truck
       if (e.ut.chronoShift) {
         const left = e.chronoCooldown;
         return this.xbar(ICONS.clock, 'Chronoshift', 1 - left / e.ut.chronoShift, left > 0 ? `Recharging ${Math.ceil(left)} s` : own ? 'Ready · D' : 'Ready', left > 0 ? 'hold' : 'ready');
@@ -1487,7 +1487,7 @@ export class Hud {
       if (bt.factory && bt.factory !== 'building' && own) {
         const q = p.queues[bt.factory];
         const head = q.items[0];
-        // [ARMY] loops running in this factory's queue
+        // loops running in this factory's queue
         const loops = p.repeat.filter((id) => queueKindOf(getType(id)) === bt.factory);
         const loopLine = loops.length ? `<div class="loop-line">${ICONS.cycle}<span>Loop: <b>${loops.map((id) => esc(getType(id).name)).join('</b>, <b>')}</b></span></div>` : '';
         if (head) return this.xbar(CAT_ICON[getType(head.type).category], 'Producing', head.progress, `${esc(getType(head.type).name)}${q.items.length > 1 ? ` +${q.items.length - 1}` : ''}`, head.paused ? 'hold' : '') + loopLine;
@@ -1517,7 +1517,7 @@ export class Hud {
     const units = ents.filter((e) => e instanceof Unit).length;
     const label = units === ents.length ? (units === 1 ? 'unit' : 'units') : units === 0 ? 'structures' : 'selected';
     box.innerHTML = `<div class="spm-head"><b>${ents.length}</b><span>${label}</span><span class="spm-types">${groups.size} type${groups.size > 1 ? 's' : ''}</span><span class="spm-val"></span><span class="spm-dmg"></span><span class="spm-hp"><i></i></span></div><div class="spm-grid"></div>`;
-    // [ARMY] the damaged count narrows the selection to the damaged units
+    // the damaged count narrows the selection to the damaged units
     const dmg = box.querySelector('.spm-dmg') as HTMLElement;
     dmg.dataset.tip = tipHtml('Damaged', 'Keep only the damaged units selected.', [['Shift+R', 'send them for repairs']]);
     dmg.onclick = () => {
@@ -1556,7 +1556,7 @@ export class Hud {
     }
     const tot = this.selpanel.querySelector('.spm-hp i') as HTMLElement | null;
     if (tot) { const f = hp / Math.max(1, max); tot.style.width = `${(f * 100).toFixed(1)}%`; tot.dataset.c = f > CONDITION_YELLOW ? 'ok' : f > CONDITION_RED ? 'mid' : 'low'; }
-    // [ARMY] value of the selection and how many are damaged
+    // value of the selection and how many are damaged
     let value = 0, damaged = 0;
     for (const e of ents) { if (e instanceof Unit && e.owner === this.host.local) value += e.ut.cost; if (e.hp < e.maxHp - 0.01) damaged++; }
     const val = this.selpanel.querySelector('.spm-val') as HTMLElement | null;
@@ -1596,18 +1596,18 @@ export class Hud {
       if (units.some((u) => u.ut.deploysInto)) add(ICONS.deploy, 'D', 'Deploy', 'Deploy into a Construction Yard.', 'hl');
       else if (units.some((u) => u.ut.passengers)) add(ICONS.unload, 'D', 'Unload', 'Unload all passengers.');
       else if (units.some((u) => u.kind === 'aircraft')) add(ICONS.home, 'D', 'Return to base', 'Fly back to a pad to rearm.');
-      // [CTRL] Aftermath specials on D
+      // Aftermath specials on D
       else if (units.some((u) => u.ut.chronoShift)) add(ICONS.deploy, 'D', 'Chronoshift', 'Click any explored open ground: the Chrono Tank jumps there, then recharges.', 'hl');
       else if (units.some((u) => u.ut.quake)) add(ICONS.deploy, 'D', 'Deploy seismic charge', 'The crew bails out and the charge arms, then quakes wreck every vehicle and structure nearby (friend or foe).', 'warn');
       else if (units.some((u) => u.ut.demolition)) add(ICONS.deploy, 'D', 'Detonate', 'Set the charge off right here. Order an attack to arm it and drive it into a target.', 'warn');
       add(ICONS.groundFire, 'G', 'Fire at ground', 'Force-fire at a location (click the target after).');
-      // [CTRL] patrol and guard
+      // patrol and guard
       if (units.some((u) => u.kind !== 'aircraft')) {
         add(CTRL_ICONS.patrol, 'P', 'Patrol', 'Click the far end of a route (Shift-click for more waypoints): loop along it, engaging enemies on the way.');
         add(CTRL_ICONS.guard, 'C', 'Guard / escort', 'Click a unit to escort (follow and defend it) or a structure to defend. Right-clicking a friendly unit escorts it too.');
       }
       if (units.some((u) => u.ut.minelayer)) add(ICONS.mine, 'M', 'Lay mines', 'Click the ground to lay a minefield there (Ctrl + right click does the same). D drops a single mine.', 'hl');
-      // [ARMY] send the damaged vehicles to the service depot (ships to a naval yard)
+      // send the damaged vehicles to the service depot (ships to a naval yard)
       const r = this.army.repairable(units.map((u) => u.id));
       if ((units.some((u) => u.kind === 'vehicle' && !u.ut.harvester) && r.depots.length) || (units.some((u) => u.kind === 'naval') && r.yards.length)) {
         const b = el('button', 'cmd', `${ICONS.wrench}<kbd>⇧R</kbd>`);
@@ -1724,7 +1724,7 @@ export class Hud {
   }
 
   /**
-   * [HUD] Modern objectives checklist (top left) for skirmish: the goal, the opponents still standing, and a
+   * Modern objectives checklist (top left) for skirmish: the goal, the opponents still standing, and a
    * row per enemy that gets ticked off when it is eliminated. Scripted missions show MissionHud's checklist here.
    */
   private updateObjPanel() {
@@ -1769,7 +1769,7 @@ export class Hud {
     }
   }
 
-  /** [HUD] Boot Camp: glow the cards / buttons the current drill asks for (missions/tutorial.ts BOOT_CAMP_HUD). */
+  /** Boot Camp: glow the cards / buttons the current drill asks for (missions/tutorial.ts BOOT_CAMP_HUD). */
   private updateTutorial() {
     const m = this.host.world.mission;
     const step = m?.def.id === 'bootcamp' ? String(m.flags.step ?? '') : '';

@@ -102,7 +102,7 @@ const PALETTES: Record<Climate, number[][]> = {
   desert: [[0.66, 0.52, 0.33], [0.78, 0.64, 0.42], [0.5, 0.46, 0.26], [0.86, 0.73, 0.52], [0.6, 0.42, 0.27], [0.5, 0.33, 0.25], [0.68, 0.48, 0.36]],
 };
 
-/** [ENV] Base-dressing colours (sRGB) per climate: trampled ground, bare / churned, packed path, concrete. */
+/** Base-dressing colours (sRGB) per climate: trampled ground, bare / churned, packed path, concrete. */
 const DRESS: Record<Climate, { worn: number[]; bare: number[]; path: number[]; rut: number[]; conc: number[] }> = {
   temperate: { worn: [0.43, 0.4, 0.25], bare: [0.37, 0.29, 0.2], path: [0.38, 0.31, 0.22], rut: [0.25, 0.2, 0.15], conc: [0.52, 0.51, 0.49] },
   winter: { worn: [0.73, 0.76, 0.81], bare: [0.5, 0.48, 0.47], path: [0.52, 0.49, 0.47], rut: [0.38, 0.35, 0.33], conc: [0.5, 0.51, 0.53] },
@@ -253,7 +253,7 @@ export class TerrainMesh implements TerrainDeformApi {
     geo.computeBoundingSphere();
     this.geo = geo;
     this.refreshOre();
-    // [FX] deformation support: original heights, a height texture for particle collisions, the fine map
+    // deformation support: original heights, a height texture for particle collisions, the fine map
     (geo.attributes.position as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
     (geo.attributes.normal as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
     this.baseH = new Float32Array(n);
@@ -357,7 +357,7 @@ export class TerrainMesh implements TerrainDeformApi {
           float rnf = n4;` : `vec4 rx = texture2D(tNoise, vWPos.zy * (2.6 / 16.0)), rz = texture2D(tNoise, vWPos.xy * (2.6 / 16.0)), ry = texture2D(tNoise, p * (2.6 / 16.0));
           float rn = rx.r * tw.x + rz.r * tw.z + ry.r * tw.y;
           float rnf = rx.b * tw.x + rz.b * tw.z + ry.b * tw.y;`}
-          // [ENV] layered strata: each band its own tone, a dark seam under every ledge, a lit lip on top
+          // layered strata: each band its own tone, a dark seam under every ledge, a lit lip on top
           float rsy = vWPos.y * 3.4 + rn * 1.1 + rnf * 0.45;
           float rLayer = floor(rsy), rLf = fract(rsy);
           float rTone = fract(sin(rLayer * 12.9898 + 4.1) * 43758.5453);
@@ -372,14 +372,14 @@ export class TerrainMesh implements TerrainDeformApi {
           float slope = 1.0 - clamp(nW.y, 0.0, 1.0);
           float cliff = smoothstep(0.28, 0.55, slope);
           col = mix(col, rock * 0.9, cliff);
-          ${climate === 'winter' ? `// [ENV] snow lies on the flatter rock ledges and tops
+          ${climate === 'winter' ? `// snow lies on the flatter rock ledges and tops
           col = mix(col, srgb(vec3(0.84, 0.88, 0.94)) * (0.9 + 0.1 * n3), sp.z * smoothstep(0.8, 0.95, nW.y + (n3 - 0.5) * 0.25) * 0.85);` : ''}
           // shoreline: a dark, glossy band of wet sand above the waterline, a silty lake bed below it
           float hw = vWPos.y + 0.32;
           float rhShoreWet = smoothstep(0.16, 0.0, hw + (n3 - 0.5) * 0.05) * (1.0 - cliff);
           float bed = smoothstep(0.0, -0.06, hw);
           col = mix(col, col * vec3(0.58, 0.56, 0.52), rhShoreWet * 0.85);
-          ${low ? '' : `// [ENV] riverbank gravel: speckled pebbles in a band along the waterline
+          ${low ? '' : `// riverbank gravel: speckled pebbles in a band along the waterline
           float bankK = smoothstep(0.32, 0.12, hw + (n2 - 0.5) * 0.12) * smoothstep(-0.08, 0.02, hw) * (1.0 - cliff);
           float pebble = smoothstep(0.62, 0.78, texture2D(tNoise, p * (13.0 / 16.0)).a);
           col = mix(col, mix(col * 0.55, srgb(uPal[6]) * (0.8 + 0.4 * n4), step(0.5, n3)), pebble * bankK * 0.75);`}
@@ -387,7 +387,7 @@ export class TerrainMesh implements TerrainDeformApi {
           lakeBed *= 0.9 + 0.2 * (sin(dot(p, vec2(0.7, 0.71)) * 13.0 + n2 * 6.0) * 0.5 + 0.5);
           col = mix(col, lakeBed, bed);
           // ore stains the ground rusty (mottled, with bright flecks), gems leave a violet tint
-          // [ENV] noisy, soft field edges (the per-vertex density alone shows the half-cell grid)
+          // noisy, soft field edges (the per-vertex density alone shows the half-cell grid)
           float ore = smoothstep(0.08, 0.62, vOre.x * 1.25 + (n3 - 0.5) * 0.45 + (n4 - 0.5) * 0.2);
           float fleck = smoothstep(0.78, 0.97, tn_noise(p * 31.0));
           vec3 oreStain = mix(srgb(vec3(0.52, 0.33, 0.16)), srgb(vec3(0.36, 0.28, 0.42)), vOre.y);
@@ -395,7 +395,7 @@ export class TerrainMesh implements TerrainDeformApi {
           col = mix(col, oreStain, ore * 0.85);
           vec2 duv = vWPos.xz / uMapSize;
           float dIn = step(0.0, duv.x) * step(0.0, duv.y) * step(duv.x, 1.0) * step(duv.y, 1.0);
-          // [ENV] base dressing (props.ts): trampled ground and packed paths between structures, concrete aprons
+          // base dressing (props.ts): trampled ground and packed paths between structures, concrete aprons
           vec4 bm = texture2D(tBase, duv) * dIn;
           float bGround = (1.0 - cliff) * (1.0 - bed) * (1.0 - sp.z * 0.8);
           // soft: a smooth falloff gently broken up (hard noise thresholds read as camouflage blotches)
@@ -505,7 +505,7 @@ export class TerrainMesh implements TerrainDeformApi {
     this.baseTexture.dispose();
   }
 
-  /** [ENV] Upload rows j0..j1 (texel rows, inclusive) of the base-dressing mask after editing baseData. */
+  /** Upload rows j0..j1 (texel rows, inclusive) of the base-dressing mask after editing baseData. */
   markBase(j0: number, j1: number) {
     const W = this.map.w * BASE_RES, H = this.map.h * BASE_RES;
     j0 = Math.max(0, j0); j1 = Math.min(H - 1, j1);

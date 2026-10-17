@@ -451,7 +451,7 @@ def mullions(nx=6, ny=2, aspect=4.0, px=128, frame=0x1c1e21, t=0.09, dark=0.0, s
     col = lin(frame)
     bw = h * t
     cw, ch = (w - bw) / nx, (h - bw) / ny
-    for i in range(nx):  # (the same random panes as the original SOVB helper for the same seed)
+    for i in range(nx):  # (fixed draw order: a given seed always darkens the same panes)
         for j in range(ny):
             off = (j * nx + i) in dark_panes if dark_panes is not None else (dark > 0 and rnd.random() < dark)
             if off:

@@ -11,9 +11,9 @@ import { initNavalProjectile, navalImpactOk, navalReadyToFire, navalSplash, nava
 import { autoTargetable } from './stealth';
 import { ceasefireActive, mayAutoEngage } from './ceasefire';
 import { damageBridgeAt, damageBridgesInRadius } from './bridges';
-import { focusBias } from './orders'; // [CTRL]
-import { healable } from './aftermath'; // [CONTENT]
-import { cmdArmor, cmdOffline, cmdRof } from './doctrine'; // [DOCTRINE]
+import { focusBias } from './orders';
+import { healable } from './aftermath';
+import { cmdArmor, cmdOffline, cmdRof } from './doctrine';
 
 export interface Projectile {
   id: number;
@@ -66,7 +66,7 @@ export function weaponCanHit(w: WeaponDef, attacker: Entity, t: Entity): boolean
     return t instanceof Unit && t.kind === 'infantry';
   }
   if (w.damage < 0) {
-    // medic: infantry; mechanic (Mechanical warhead): vehicles [CONTENT aftermath.ts]
+    // medic: infantry; mechanic (Mechanical warhead): vehicles (aftermath.ts)
     return t instanceof Unit && healable(w, t) && t.owner.team === attacker.owner.team && t.hp < t.maxHp;
   }
   return true;
@@ -137,7 +137,7 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     // prefer targets our weapon is good against, and finish off the wounded (natural focus fire)
     score -= WARHEADS[slot.def.warhead].verses[ARMOR_INDEX[u.type.armor]] * 2;
     score -= (1 - u.healthFrac) * 2;
-    score += focusBias(world, e, u, slot); // [CTRL] spread fire: avoid overkill, take the finishing shot
+    score += focusBias(world, e, u, slot); // spread fire: avoid overkill, take the finishing shot
     if (score < bestScore) { bestScore = score; best = u; }
   });
   // structures (defences first)
@@ -160,7 +160,7 @@ export function findHealTarget(world: World, u: Unit, range: number): Unit | nul
   const heal = u.weapons[0]?.def;
   if (!heal) return null;
   world.grid.query(u.x, u.y, range + 1, (o) => {
-    if (!o.alive || o === u || o.owner.team !== u.owner.team || !healable(heal, o) || o.hp >= o.maxHp || o.transport) return; // [CONTENT] mechanics mend vehicles
+    if (!o.alive || o === u || o.owner.team !== u.owner.team || !healable(heal, o) || o.hp >= o.maxHp || o.transport) return; // mechanics mend vehicles
     const d = Math.hypot(o.x - u.x, o.y - u.y);
     if (d < bestD && d <= range) { bestD = d; best = o; }
   });
@@ -190,7 +190,7 @@ export function fire(world: World, shooter: Entity, slot: WeaponSlot, target: En
   const shots = w.burst * (twin ? 2 : 1);
   let rof = raTicksToSeconds(w.rof) * (1 - 0.1 * shooter.rank);
   if (shooter instanceof Building && shooter.owner.lowPower && !shooter.bt.requiresPower) rof *= 1.5;
-  if (shooter.owner.cmd) rof *= cmdRof(shooter); // [DOCTRINE] Rally Cry
+  if (shooter.owner.cmd) rof *= cmdRof(shooter); // Rally Cry
   slot.cooldown = rof;
   slot.burstLeft = shots - 1;
   slot.burstTimer = w.projectile === 'missile' ? 0.22 : 0.16;
@@ -326,7 +326,7 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
 export function damageEntity(world: World, e: Entity, dmg: number, attacker: Entity | null, how: 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' = 'normal') {
   // hp <= 0 while alive: already lethally hit this tick, removed at the end of the combat phase
   if (!e.alive || e.invulnerable > 0 || e.hp <= 0) return;
-  if (e.owner.cmd) dmg *= cmdArmor(e); // [DOCTRINE] doctrine armour, Aegis Shield
+  if (e.owner.cmd) dmg *= cmdArmor(e); // doctrine armour, Aegis Shield
   e.hp -= dmg;
   e.lastDamagedTick = world.tick;
   if (attacker) e.lastAttacker = attacker.id;
@@ -419,7 +419,7 @@ export function updateBuildingWeapons(world: World, b: Building) {
   tickSlots(world, b);
   const slot = b.weapons[0];
   const w = slot.def;
-  if ((b.bt.requiresPower && b.owner.lowPower) || b.jammed || (b.owner.cmd && cmdOffline(b))) { // [DOCTRINE] sabotaged
+  if ((b.bt.requiresPower && b.owner.lowPower) || b.jammed || (b.owner.cmd && cmdOffline(b))) { // sabotaged
     b.charge = Math.max(0, b.charge - DT);
     b.target = null;
     return;

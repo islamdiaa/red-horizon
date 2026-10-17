@@ -1,4 +1,4 @@
-// Round-5 strategic AI: intel without map-hack, scouting, counter-composition, retreats, personalities,
+// Strategic AI: intel without map-hack, scouting, counter-composition, retreats, personalities,
 // determinism with personalities, and the persistent rivals (src/meta/rivals.ts).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

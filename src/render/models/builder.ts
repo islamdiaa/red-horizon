@@ -21,7 +21,7 @@ import { bodyMaterial, fxMaterial, glowMaterial, setBodyDetail, shadowDepthMater
 
 export type V3 = [number, number, number];
 
-/** [STRUCT] Owner faction a template is dressed for (banners, emblems, slogans, lights). */
+/** Owner faction a template is dressed for (banners, emblems, slogans, lights). */
 export type ModelFaction = 'allies' | 'soviet';
 
 /** Surface description for body parts. c = sRGB hex, m = metalness, r = roughness,
@@ -34,7 +34,7 @@ export interface Mat {
   d?: number;
   uv?: number;
   /**
-   * [STRUCT] Weathering controls (see materials.ts, 'wear' attribute):
+   * Weathering controls (see materials.ts, 'wear' attribute):
    *   w    = edge wear on chamfered edges: paint chipped to bare metal / scuffed concrete (default by material)
    *   g    = rust / grime streaks running down vertical faces from the part's top edge (default by material)
    *   snow = how much snow settles on its up-facing faces in winter (0..1, default 1; scaled by NB.snow)
@@ -43,7 +43,7 @@ export interface Mat {
   g?: number;
   snow?: number;
   /**
-   * [STRUCT] Material flags (packed into pbr.y above the roughness, read by the body shader):
+   * Material flags (packed into pbr.y above the roughness, read by the body shader):
    *   camo = disruptive camouflage blotches over the team paint (dark shade + sand / winter white)
    *   mud  = mud (winter: grey slush) caked on the lower hull, below ~0.13 model units, with splatter
    *   soot = exhaust scorch: mottled black soot, matte (exhaust plates, gun ports, burner nozzles)
@@ -53,7 +53,7 @@ export interface Mat {
   soot?: boolean;
 }
 
-/** [STRUCT] pbr.y = roughness + MAT_FLAG_STEP * flags (bit 1 camo, 2 mud, 4 soot). */
+/** pbr.y = roughness + MAT_FLAG_STEP * flags (bit 1 camo, 2 mud, 4 soot). */
 export const MAT_FLAG_STEP = 2;
 export const MAT_CAMO = 1;
 export const MAT_MUD = 2;
@@ -64,7 +64,7 @@ export interface Glow {
   glow: number;
   i?: number;
   /**
-   * [STRUCT] Shader-driven animation of emissive parts baked into the body (free: no extra draw call):
+   * Shader-driven animation of emissive parts baked into the body (free: no extra draw call):
    * 1 = blink (warning lights), 2 = slow pulse, 3 = fire flicker, 4 = fast strobe. The fractional part is a
    * phase offset; every instance also gets its own phase from its world position.
    */
@@ -224,17 +224,17 @@ function prepGeometry(src: THREE.BufferGeometry, matrix: THREE.Matrix4, surf: Su
   }
   out.setAttribute('color', new THREE.BufferAttribute(col, 3));
   out.setAttribute('pbr', new THREE.BufferAttribute(pbr, 4));
-  out.setAttribute('wear', new THREE.BufferAttribute(wearAttr(src, P, N, n, surf), 4)); // [STRUCT]
+  out.setAttribute('wear', new THREE.BufferAttribute(wearAttr(src, P, N, n, surf), 4));
   out.userData.lod = lodClass(out, surf, lod);
   return out;
 }
 
-/** [STRUCT] Streak length (world units): rust / grime fades out this far below the top edge of a part. */
+/** Streak length (world units): rust / grime fades out this far below the top edge of a part. */
 const STREAK_LEN = 0.32;
 let partSeed = 0x2545f491;
 
 /**
- * [STRUCT] Per-vertex weathering ('wear', vec4), read by the body material:
+ * Per-vertex weathering ('wear', vec4), read by the body material:
  *   surfaces: x = edge wear (chamfer facets), y = streak strength (from the part's top edge down),
  *             z = cavity occlusion (baked later for structures), w = snow steps (0..7) + part seed (0..1)
  *   emissive: x = animation mode + phase (see Glow.a)
@@ -322,16 +322,16 @@ export class NB {
   visible = true;
   /** Ground-AO parameters (root only; applied to the merged body in model space). */
   ao?: { h: number; min: number };
-  /** [STRUCT] Root only: snow multiplier for the whole model (default 0.3: units get a light dusting). */
+  /** Root only: snow multiplier for the whole model (default 0.3: units get a light dusting). */
   snow?: number;
-  /** [STRUCT] Root only: bake cavity occlusion (crevices, under ledges, contact shadows) into the body. */
+  /** Root only: bake cavity occlusion (crevices, under ledges, contact shadows) into the body. */
   cavity?: boolean;
-  /** [STRUCT] Root only: mud / slush on the lower hull of every part (sets Mat.mud on the whole model). */
+  /** Root only: mud / slush on the lower hull of every part (sets Mat.mud on the whole model). */
   mud?: boolean;
-  /** [STRUCT] Root only: camouflage on every team-painted part (sets Mat.camo where the team mask >= 0.5). */
+  /** Root only: camouflage on every team-painted part (sets Mat.camo where the team mask >= 0.5). */
   camo?: boolean;
   /**
-   * [STRUCT] Default level of detail of the non-emissive parts added to this node (AddOpts.lod overrides).
+   * Default level of detail of the non-emissive parts added to this node (AddOpts.lod overrides).
    * Greeble helpers build into a child node with lod 0 (close-up only) and merge it in.
    */
   lod?: 0 | 1;
@@ -354,7 +354,7 @@ export class NB {
 
   box(surf: Surface, w: number, h: number, d: number, x: number, y: number, z: number, o: BoxOpts = {}): this {
     const g = boxGeo(w, h, d, o.b ?? 0.012);
-    // [STRUCT] chamfered boxes (44 triangles) show up close; the distant body gets a plain 12-triangle box
+    // chamfered boxes (44 triangles) show up close; the distant body gets a plain 12-triangle box
     if (this.lod === undefined && !isGlow(surf) && normSlot(o.slot) === 'body' && g.getAttribute('edge')) {
       this.add(g, surf, { p: [x, y, z], r: o.r, slot: o.slot, lod: 0 });
       return this.add(boxGeo(w, h, d, 0), surf, { p: [x, y, z], r: o.r, slot: o.slot, lod: 1 });
@@ -364,7 +364,7 @@ export class NB {
 
   cyl(surf: Surface, rt: number, rb: number, h: number, x: number, y: number, z: number, o: CylOpts = {}): this {
     const seg = Math.min(o.seg ?? 8, maxSeg(Math.max(rt, rb)));
-    // [STRUCT] round parts: fewer sides in the distant body
+    // round parts: fewer sides in the distant body
     if (this.lod === undefined && seg > 6 && !isGlow(surf) && normSlot(o.slot) === 'body') {
       this.add(cylGeo(rt, rb, h, seg, !!o.open), surf, { p: [x, y, z], r: o.r, s: o.s, slot: o.slot, lod: 0 });
       return this.add(cylGeo(rt, rb, h, Math.max(6, Math.round(seg * 0.6)), !!o.open), surf, { p: [x, y, z], r: o.r, s: o.s, slot: o.slot, lod: 1 });
@@ -417,7 +417,7 @@ function chamferBox(w: number, h: number, d: number, b: number): THREE.BufferGeo
   const pos: number[] = [];
   const nrm: number[] = [];
   const idx: number[] = [];
-  const edg: number[] = []; // [STRUCT] 1 on bevel facets (edge wear / catch-light)
+  const edg: number[] = []; // 1 on bevel facets (edge wear / catch-light)
   let isEdge = 0;
   // vertex of a corner (signs) lying on the face perpendicular to axis a
   const fv = (s: number[], a: number): number[] => [0, 1, 2].map((k) => s[k] * (k === a ? H[k] : H[k] - b));
@@ -558,11 +558,11 @@ export interface TemplateSpec {
 }
 
 const DUST = [0.11, 0.085, 0.055];
-/** [STRUCT] Snow multiplier of templates that do not set NB.snow (units: a light dusting). */
+/** Snow multiplier of templates that do not set NB.snow (units: a light dusting). */
 const DEFAULT_SNOW = 0.3;
 
 /**
- * [STRUCT] Cavity occlusion baked into wear.z: the parts are splatted into a coarse voxel grid and every
+ * Cavity occlusion baked into wear.z: the parts are splatted into a coarse voxel grid and every
  * vertex marches a few short rays over its hemisphere. Darkens crevices, the feet of roof clutter, pipes
  * against walls and the undersides of ledges (and keeps snow out of them). Costs a few ms per structure.
  */
@@ -683,17 +683,17 @@ function bakeCavity(parts: THREE.BufferGeometry[]): void {
 const LOD_MIN_SAVING = 0.9;
 /** Camera distance (world units) beyond which models switch to their distant body (Medium preset). */
 export const LOD_DISTANCE = 17;
-/** [STRUCT] High preset: the default camera sits about 20 away, so close-up bodies reach a little further. */
+/** High preset: the default camera sits about 20 away, so close-up bodies reach a little further. */
 export const LOD_DISTANCE_HIGH = 21.5;
 
 /**
- * [STRUCT] Model detail: 2 = High (close-up bodies within LOD_DISTANCE_HIGH), 1 = Medium (LOD_DISTANCE),
+ * Model detail: 2 = High (close-up bodies within LOD_DISTANCE_HIGH), 1 = Medium (LOD_DISTANCE),
  * 0 = Low (distant body only, cheaper body shader).
  */
 let modelDetail: 0 | 1 | 2 = 1;
 
 /**
- * [STRUCT] Select the model detail level by quality preset (call before models are created, e.g. when a
+ * Select the model detail level by quality preset (call before models are created, e.g. when a
  * match starts): 0 Low, 1 Medium, 2 High.
  */
 export function setModelDetail(level: 0 | 1 | 2): void {
@@ -701,7 +701,7 @@ export function setModelDetail(level: 0 | 1 | 2): void {
   setBodyDetail(level);
 }
 
-/** [STRUCT] Camera distance at which models switch to their distant body for the current detail level. */
+/** Camera distance at which models switch to their distant body for the current detail level. */
 export function lodDistance(): number {
   return modelDetail >= 2 ? LOD_DISTANCE_HIGH : LOD_DISTANCE;
 }
@@ -775,7 +775,7 @@ export function makeTemplate(spec: TemplateSpec): ModelTemplate {
   };
   const root = walk(spec.root, new THREE.Matrix4());
 
-  // [STRUCT] model-wide snow multiplier and baked cavity occlusion (both shared by the hi and lo bodies)
+  // model-wide snow multiplier and baked cavity occlusion (both shared by the hi and lo bodies)
   const snowMul = spec.root.snow ?? DEFAULT_SNOW;
   if (snowMul !== 1) {
     for (const g of bodyParts) {
@@ -982,7 +982,7 @@ export function instantiate(tpl: ModelTemplate, teamColor: THREE.Color, typeId: 
       return mesh;
     };
     if (skin.geoLo && modelDetail === 0) {
-      // [STRUCT] Low preset: the lighter body everywhere (no close-up greebles)
+      // Low preset: the lighter body everywhere (no close-up greebles)
       root.add(mk(skin.geoLo, 'body-lo'));
     } else if (skin.geoLo) {
       // close-up detail near the camera, the lighter body further out: still one draw call either way

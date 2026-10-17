@@ -19,7 +19,7 @@
  *   dc=1               show mesh (draw call) counts in labels
  *   nolabel=1          hide labels
  *   gap=0.5            spacing multiplier for small items
- *   sub=1 para=1 deployed=1 cloak=1   new round-4 anim fields (anim=1 cycles them)
+ *   sub=1 para=1 deployed=1 cloak=1   submarine dive, parachute, deploy and cloak anim fields (anim=1 cycles them)
  *   dying=0.5          also lists & sinks ships
  *   water=0            no water plane under naval models
  *   pitch=25           camera pitch in degrees (default 55)
@@ -34,7 +34,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRe
 import { UNITS, BUILDINGS } from '../../data/rules';
 import { createModel, createProjectileModel, listModelIds, modelAliasOf, prewarmModels } from './index';
 import type { ModelAnimState, ModelInstance, ProjectileModelKind } from './types';
-import { setModelSnow } from './materials'; // [STRUCT]
+import { setModelSnow } from './materials';
 
 const params = new URLSearchParams(location.search);
 const num = (k: string, d: number) => (params.has(k) ? parseFloat(params.get(k)!) : d);
@@ -86,7 +86,7 @@ const allIds = listModelIds();
 const ids = params.has('ids') ? params.get('ids')!.split(',').map((s) => s.trim()).filter(Boolean) : allIds;
 
 const t0 = performance.now();
-setModelSnow(num('snow', 0)); // [STRUCT] snow=1: winter snow cover on the models
+setModelSnow(num('snow', 0)); // snow=1: winter snow cover on the models
 prewarmModels(ids.filter((i) => allIds.includes(i)));
 const buildMs = performance.now() - t0;
 

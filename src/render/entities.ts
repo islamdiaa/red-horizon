@@ -7,7 +7,7 @@ import { DT, type GameEvent } from '../sim/types';
 import type { World } from '../sim/world';
 import type { Projectile } from '../sim/combat';
 import { createModel, holdHdModel, modelKey, requestHdModel } from './models';
-import { hdReadyVersion, hdSwapMoment, releaseHd } from './models/hd'; // [HD] lazy per-type HD loading
+import { hdReadyVersion, hdSwapMoment, releaseHd } from './models/hd'; // lazy per-type HD loading
 import type { ModelAnimState, ModelInstance } from './models/types';
 import { bodyMaterial, BodyVariant, setLitMaterialPatch } from './models/materials';
 import type { Effects } from './effects';
@@ -18,8 +18,8 @@ import { Water } from './water';
 import { cloakHidden, contentAnim, perceived } from './contentview';
 import { PARACHUTE_SECONDS } from '../sim/powers';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
-import { Destruction } from './destruction'; // [DEST]
-import { applyVisualScale, patchModelRim } from './scale'; // [LOOK] render-only unit scale + rim light
+import { Destruction } from './destruction';
+import { applyVisualScale, patchModelRim } from './scale'; // render-only unit scale + rim light
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -58,19 +58,19 @@ interface View {
   powner: number;
   /** Contrails behind support planes (Badger, U2), one per exhaust point. */
   trails: ProjectileHandle[] | null;
-  /** [DEST] The destruction system took over this structure's death (fracture + collapse). */
+  /** The destruction system took over this structure's death (fracture + collapse). */
   collapsed?: boolean;
-  /** [HD] Has been on screen at least once (a swap to HD after that must be hidden by something). */
+  /** Has been on screen at least once (a swap to HD after that must be hidden by something). */
   hdShown?: boolean;
-  /** [HD] Its HD model has loaded: swap at the next unseen moment. */
+  /** Its HD model has loaded: swap at the next unseen moment. */
   hdReady?: boolean;
-  /** [HD] Pending ref on the HD template while waiting (released on swap / removal). */
+  /** Pending ref on the HD template while waiting (released on swap / removal). */
   hdHold?: string | null;
-  /** [HD] hdReadyVersion() when this view last asked for its template. */
+  /** hdReadyVersion() when this view last asked for its template. */
   hdVer?: number;
-  /** [JUICE] Tall smoke column over a badly damaged structure / a big burning wreck. */
+  /** Tall smoke column over a badly damaged structure / a big burning wreck. */
   column?: EmitterHandle | null;
-  /** [JUICE] Seconds a wreck keeps burning (bigger vehicles burn longer). */
+  /** Seconds a wreck keeps burning (bigger vehicles burn longer). */
   burn?: number;
 }
 
@@ -93,7 +93,7 @@ const _to = new THREE.Vector3();
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
-const _jv = new THREE.Vector3(); // [JUICE] scratch
+const _jv = new THREE.Vector3(); // scratch
 
 /**
  * Weather surface uniforms shared by every model material for the lifetime of the page. Model materials
@@ -101,7 +101,7 @@ const _jv = new THREE.Vector3(); // [JUICE] scratch
  * copied in per frame (binding a match's own uniforms would leave the next match's models dry).
  */
 const WX: WeatherSurfaceUniforms = { uWxWet: { value: 0 }, uWxSnow: { value: 0 }, uWxSky: { value: new THREE.Color() } };
-const patchWx = (m: THREE.MeshStandardMaterial) => { patchMaterialForWeather(m, WX); patchModelRim(m); }; // [LOOK] + rim light
+const patchWx = (m: THREE.MeshStandardMaterial) => { patchMaterialForWeather(m, WX); patchModelRim(m); }; // + rim light
 
 /** Camera height above which infantry stop casting shadows (a couple of pixels at that zoom). */
 const SMALL_SHADOW_HEIGHT = 34;
@@ -156,7 +156,7 @@ export class EntityRenderer {
   }
   /** Vehicles whose wrecks linger. */
   private wreckTime = 22;
-  /** [DEST] Structure collapse, wreck / debris physics, ragdolls, craters, damage stages. */
+  /** Structure collapse, wreck / debris physics, ragdolls, craters, damage stages. */
   readonly destruction: Destruction;
 
   constructor(
@@ -203,7 +203,7 @@ export class EntityRenderer {
     sg.setAttribute('skinWeight', new THREE.Float32BufferAttribute(new Float32Array(n * 4).fill(0.25), 4));
     warm.add(new THREE.SkinnedMesh(sg, this.holoMatSk));
     scene.add(warm);
-    this.destruction = new Destruction(scene, effects, world.map); // [DEST]
+    this.destruction = new Destruction(scene, effects, world.map);
   }
 
   private warm = new THREE.Group();
@@ -216,11 +216,11 @@ export class EntityRenderer {
 
   private createView(e: Entity): View {
     const seenAs = e instanceof Unit ? perceived(this.world, this.local, e) : { type: e.type.id, owner: e.owner };
-    // [HD] lazy loading: the first instance of a type starts its HD load and renders procedural meanwhile
+    // lazy loading: the first instance of a type starts its HD load and renders procedural meanwhile
     const hdWait = !(e instanceof Building && e.bt.wall) && requestHdModel(seenAs.type, seenAs.owner.faction) === 'pending';
     const model: ModelInstance = e instanceof Building && e.bt.wall
       ? { root: new THREE.Group(), muzzles: [], height: 0.6, radius: 0.5, update() {}, dispose() { this.root.removeFromParent(); } }
-      : createModel(seenAs.type, this.teamColor(seenAs.owner), seenAs.owner.faction); // [STRUCT] faction dressing
+      : createModel(seenAs.type, this.teamColor(seenAs.owner), seenAs.owner.faction); // faction dressing
     this.scene.add(model.root);
     const wx = !!this.wxSource;
     model.root.traverse((o) => {
@@ -250,23 +250,23 @@ export class EntityRenderer {
       seen: false, fogged: false, ghostDead: false, wasExplored: this.primed && e instanceof Building && this.buildingExplored(e),
       inView: true, animSkipped: false, ptype: seenAs.type, powner: seenAs.owner.id, trails: null,
     };
-    if (e instanceof Unit) v.baseScale = applyVisualScale(model, e.kind, seenAs.type); // [LOOK] render-only unit scale
+    if (e instanceof Unit) v.baseScale = applyVisualScale(model, e.kind, seenAs.type); // render-only unit scale
     if (e instanceof Building) {
       // surfaceAt: structures built on water (shipyard, sub pen) stand on the surface, not the lake bed
       model.root.position.set(e.x, this.world.map.surfaceAt(e.x, e.y), e.y);
       if (e.buildAnim < 1) this.effects.constructionBurst(new THREE.Vector3(e.x, this.world.map.surfaceAt(e.x, e.y), e.y), Math.max(e.w, e.h));
     }
     this.views.set(e.id, v);
-    if (hdWait) { this.hdWaiting.add(v); v.hdHold = holdHdModel(seenAs.type, seenAs.owner.faction); } // [HD] the hold keeps the template from the sweep
-    if (e instanceof Building && !e.bt.wall) this.destruction.prepare(modelKey(seenAs.type, seenAs.owner.faction), [e.w, e.h]); // [DEST] bake its fracture in idle time ([STRUCT] per faction dressing)
+    if (hdWait) { this.hdWaiting.add(v); v.hdHold = holdHdModel(seenAs.type, seenAs.owner.faction); } // the hold keeps the template from the sweep
+    if (e instanceof Building && !e.bt.wall) this.destruction.prepare(modelKey(seenAs.type, seenAs.owner.faction), [e.w, e.h]); // bake its fracture in idle time (per-faction dressing)
     return v;
   }
 
-  /** [HD] Views whose type's HD model is loading (see hdSwaps). */
+  /** Views whose type's HD model is loading (see hdSwaps). */
   private hdWaiting = new Set<View>();
 
   /**
-   * [HD] Swap views to their HD model once it has loaded, only when nobody can see the switch: before the view
+   * Swap views to their HD model once it has loaded, only when nobody can see the switch: before the view
    * was ever on screen, while it is hidden or off-screen, during a structure's construction (the hologram and
    * the build-up cover it), or while a unit is still inside the structure it is leaving (a factory exit).
    * A finished, on-screen structure stays procedural (its next instance is HD); a unit waits for such a moment.
@@ -306,20 +306,20 @@ export class EntityRenderer {
     }
   }
 
-  /** [HD] Stop waiting: drop the view from the set and release its pending ref. */
+  /** Stop waiting: drop the view from the set and release its pending ref. */
   private hdDone(v: View) {
     this.hdWaiting.delete(v);
     releaseHd(v.hdHold);
     v.hdHold = null;
   }
 
-  /** [HD] The player a view is drawn as owned by (a spy's disguise). */
+  /** The player a view is drawn as owned by (a spy's disguise). */
   private ownerOf(v: View): Player {
     for (const p of this.world.players) if (p.id === v.powner) return p;
     return v.ent.owner;
   }
 
-  /** [HD] A unit still inside a structure's footprint (rolling out of a factory). */
+  /** A unit still inside a structure's footprint (rolling out of a factory). */
   private insideStructure(u: Unit): boolean {
     for (const b of this.world.buildings) {
       if (!b.alive || b.bt.wall) continue;
@@ -333,14 +333,14 @@ export class EntityRenderer {
     v.ptype = type;
     v.powner = owner.id;
     const pos = v.model.root.position.clone();
-    const rot = v.model.root.quaternion.clone(); // [HD] (units slerp towards their heading: keep it across swaps)
+    const rot = v.model.root.quaternion.clone(); // (units slerp towards their heading: keep it across swaps)
     const vis = v.model.root.visible;
     v.model.dispose();
-    v.model = createModel(type, this.teamColor(owner), owner.faction); // [STRUCT]
-    if (v.ent instanceof Unit) v.baseScale = applyVisualScale(v.model, v.ent.kind, type); // [LOOK] render-only unit scale
+    v.model = createModel(type, this.teamColor(owner), owner.faction);
+    if (v.ent instanceof Unit) v.baseScale = applyVisualScale(v.model, v.ent.kind, type); // render-only unit scale
     v.model.root.position.copy(pos);
-    v.model.root.quaternion.copy(rot); // [HD]
-    v.model.root.visible = vis; // [HD]
+    v.model.root.quaternion.copy(rot);
+    v.model.root.visible = vis;
     this.scene.add(v.model.root);
     for (const c of v.chimneys) c.dispose();
     v.chimneys = [];
@@ -418,33 +418,33 @@ export class EntityRenderer {
         if (e instanceof Building && e.bt.wall) {
           this.effects.explosion(p.clone().setY(p.y + 0.3), 'small', 1.2);
         } else if (e instanceof Building) {
-          this.destruction.crater(p.x, p.z, Math.max(e.w, e.h) * 0.55, 0.05); // [DEST] before the scorch so it lies in the crater
+          this.destruction.crater(p.x, p.z, Math.max(e.w, e.h) * 0.55, 0.05); // before the scorch so it lies in the crater
           this.effects.explosion(p.clone().setY(p.y + 0.3), 'building', Math.max(e.w, e.h));
           this.effects.scorch(p, Math.max(e.w, e.h) * 1.1);
-          // [DEST] the structure breaks apart into physics-driven chunks
-          if (e.buildAnim >= 1 && e.selling < 0) v.collapsed = this.destruction.collapse(e.id, modelKey(v.ptype, e.owner.faction), this.teamColor(e.owner).getHex(), v.model, [e.w, e.h]); // [STRUCT] modelKey
+          // the structure breaks apart into physics-driven chunks
+          if (e.buildAnim >= 1 && e.selling < 0) v.collapsed = this.destruction.collapse(e.id, modelKey(v.ptype, e.owner.faction), this.teamColor(e.owner).getHex(), v.model, [e.w, e.h]); // modelKey
         } else if (e.kind === 'vehicle' || e.kind === 'aircraft') {
           const u = e as Unit;
-          this.destruction.onImpact(p.x, p.z, p.y, 'large', 1); // [DEST] crater under the wreck
+          this.destruction.onImpact(p.x, p.z, p.y, 'large', 1); // crater under the wreck
           this.effects.explosion(p.clone().setY(p.y + 0.25), 'large', e.type.id === '4tnk' || e.type.id === 'harv' || e.type.id === 'mcv' ? 1.3 : 1);
           this.effects.scorch(p, 1.1);
           this.charWreck(v);
           v.fire = this.effects.createEmitter('fire', p.clone().setY(p.y + 0.3));
           v.fire.setIntensity(0.7);
-          this.juiceWreck(v, u, p); // [JUICE] cook-off, longer burn, smoke column
-          // [DEST] the wreck bounces and settles, the turret may pop off, parts fly
+          this.juiceWreck(v, u, p); // cook-off, longer burn, smoke column
+          // the wreck bounces and settles, the turret may pop off, parts fly
           this.destruction.vehicleDeath(e.id, v.model, this.teamColor(e.owner).getHex(), ev.how, !!u.ut.tracked, e.kind === 'vehicle' && !u.ut.tracked, e.kind === 'aircraft' ? u.altitude : 0);
         } else {
           if (ev.how === 'crushed') {
             this.effects.bloodSplat(p);
-            v.model.root.scale.set(1.2 * v.baseScale, 0.08 * v.baseScale, 1.2 * v.baseScale); // [LOOK] keep the visual scale
+            v.model.root.scale.set(1.2 * v.baseScale, 0.08 * v.baseScale, 1.2 * v.baseScale); // keep the visual scale
           } else if (ev.how === 'burn' || ev.how === 'electro') {
             this.effects.scorch(p, 0.35);
           } else if (ev.how === 'blown') {
             this.effects.bloodSplat(p);
           }
           v.anim.deathKind = ev.how;
-          if (e.kind === 'infantry') this.destruction.infantryDeath(e.id, v.model, ev.how); // [DEST] ragdoll
+          if (e.kind === 'infantry') this.destruction.infantryDeath(e.id, v.model, ev.how); // ragdoll
         }
         break;
       }
@@ -467,7 +467,7 @@ export class EntityRenderer {
       case 'impact': {
         _v.set(ev.x, ev.z, ev.y);
         if (this.fog.visibilityAt(ev.x, ev.y) < 0.2 && ev.kind !== 'nuke') return;
-        this.destruction.onImpact(ev.x, ev.y, ev.z, ev.kind, ev.scale); // [DEST] crater first, so the scorch lies in it
+        this.destruction.onImpact(ev.x, ev.y, ev.z, ev.kind, ev.scale); // crater first, so the scorch lies in it
         this.effects.explosion(_v.clone(), ev.kind, ev.scale);
         if (ev.kind === 'medium' || ev.kind === 'large' || ev.kind === 'huge') {
           const g = this.world.map.heightAt(ev.x, ev.y);
@@ -479,13 +479,13 @@ export class EntityRenderer {
         if (this.fog.visibilityAt(ev.x, ev.y) > 0.3) this.effects.oreSparkle(new THREE.Vector3(ev.x, this.world.map.heightAt(ev.x, ev.y) + 0.15, ev.y), ev.gems);
         break;
       case 'teleport': {
-        // [DEST] a chrono tank's own jump gets the rift between both ends
+        // a chrono tank's own jump gets the rift between both ends
         if (this.views.get(ev.id)?.ent.type.id === 'ctnk') { this.destruction.chronoJump(ev.fromX, ev.fromY, ev.x, ev.y); break; }
         this.effects.chronoFlash(new THREE.Vector3(ev.fromX, this.world.map.surfaceAt(ev.fromX, ev.fromY), ev.fromY));
         this.effects.chronoFlash(new THREE.Vector3(ev.x, this.world.map.surfaceAt(ev.x, ev.y), ev.y));
         break;
       }
-      case 'quake': // [DEST] M.A.D. tank seismic pulse
+      case 'quake': // M.A.D. tank seismic pulse
         if (this.fog.visibilityAt(ev.x, ev.y) > 0.2) this.destruction.madPulse(ev.x, ev.y, ev.radius);
         break;
       case 'ironcurtain':
@@ -511,13 +511,13 @@ export class EntityRenderer {
     switch (w.projectile) {
       case 'bullet':
         this.effects.muzzleFlash(from, dir, w.damage >= 40 ? 0.8 : 0.5);
-        this.effects.tracer(from, to, undefined, w.report === 'mg' ? 2 : 0); // [JUICE] machine-gun bursts
+        this.effects.tracer(from, to, undefined, w.report === 'mg' ? 2 : 0); // machine-gun bursts
         if (targetVisible) this.effects.explosion(to, 'piff', 0.6);
         break;
       case 'flak':
         this.effects.muzzleFlash(from, dir, 0.7);
         this.effects.tracer(from, to, 0xffd080);
-        this.effects.flakBurst(to, 2); // [JUICE] flak bursts in the sky
+        this.effects.flakBurst(to, 2); // flak bursts in the sky
         break;
       case 'tesla':
         this.effects.teslaBolt(from, to);
@@ -528,7 +528,7 @@ export class EntityRenderer {
         else this.effects.muzzleFlash(from, dir, 1);
         break;
       case 'heal':
-        // [DEST] the mechanic's wrench throws welding sparks
+        // the mechanic's wrench throws welding sparks
         if (w.warhead !== 'Mechanical' || !this.destruction.repair(to.x, to.y, to.z)) this.effects.healPulse(to);
         break;
       case 'melee':
@@ -561,7 +561,7 @@ export class EntityRenderer {
       else if (mesh.geometry.getAttribute('pbr') && !m.transparent && m.name.startsWith('glow')) mesh.visible = false;
       else if (m.transparent) mesh.visible = false;
     });
-    (v.model as { hdSync?: () => void }).hdSync?.(); // [HD] the HD body follows the procedural body's charred material
+    (v.model as { hdSync?: () => void }).hdSync?.(); // the HD body follows the procedural body's charred material
   }
 
   private clearHolo(v: View) {
@@ -572,13 +572,13 @@ export class EntityRenderer {
   private removeView(id: number) {
     const v = this.views.get(id);
     if (!v) return;
-    this.hdDone(v); // [HD]
-    this.destruction.forget(id); // [DEST]
+    this.hdDone(v);
+    this.destruction.forget(id);
     this.clearHolo(v);
     v.model.dispose();
     v.smoke?.dispose();
     v.fire?.dispose();
-    v.column?.dispose(); // [JUICE]
+    v.column?.dispose();
     for (const c of v.chimneys) c.dispose();
     for (const t of v.trails ?? []) t.end();
     const r = this.rings.get(id);
@@ -601,7 +601,7 @@ export class EntityRenderer {
     // create views for new entities
     for (const u of world.units) if (!this.views.has(u.id)) this.createView(u);
     for (const b of world.buildings) if (!this.views.has(b.id)) this.createView(b);
-    if (this.hdWaiting.size) this.hdSwaps(); // [HD]
+    if (this.hdWaiting.size) this.hdSwaps();
 
     // values() rather than entries(): no [id, view] pair allocated per view per frame
     for (const v of this.views.values()) {
@@ -643,13 +643,13 @@ export class EntityRenderer {
         if (as.type !== v.ptype || as.owner.id !== v.powner) this.recolor(v, as.type, as.owner);
       }
       v.model.root.visible = show;
-      if (show && v.inView) v.hdShown = true; // [HD]
+      if (show && v.inView) v.hdShown = true;
       if (v.fogged) {
         // a ghost keeps its last-seen health, smoke and pose
         this.updateRing(v, selected.has(id) || hovered === id, selected.has(id));
         continue;
       }
-      if (show && v.inView && !(e instanceof Building)) this.juiceHit(v, e as Unit, anim.health); // [JUICE] hit flash
+      if (show && v.inView && !(e instanceof Building)) this.juiceHit(v, e as Unit, anim.health); // hit flash
       anim.health = e.healthFrac;
 
       if (e instanceof Building) this.updateBuilding(v, e, dt);
@@ -666,7 +666,7 @@ export class EntityRenderer {
     }
 
     this.updateProjectiles(alpha);
-    this.destruction.update(dt, time); // [DEST]
+    this.destruction.update(dt, time);
     this.bracketMat.uniforms.uTime.value = time;
     this.primed = true;
   }
@@ -744,7 +744,7 @@ export class EntityRenderer {
       const t = b.buildAnim;
       sy = Math.max(0.02, 1 - Math.pow(1 - t, 2.2));
       if (!v.holo && root.visible && !b.bt.wall) {
-        v.holo = createModel(b.bt.id, this.teamColor(b.owner), b.owner.faction); // [STRUCT]
+        v.holo = createModel(b.bt.id, this.teamColor(b.owner), b.owner.faction);
         v.holo.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = (m as THREE.SkinnedMesh).isSkinnedMesh ? this.holoMatSk : this.holoMat; m.castShadow = false; m.receiveShadow = false; } });
         v.holo.root.position.set(b.x, g, b.y);
         this.scene.add(v.holo.root);
@@ -795,8 +795,8 @@ export class EntityRenderer {
       for (const c of v.chimneys) c.setIntensity(on);
     }
     this.damageEmitters(v, b.healthFrac, root.visible && b.buildAnim >= 1, _e.set(b.x, g + v.model.height * 0.8, b.y), 1 + Math.max(b.w, b.h) * 0.3);
-    this.juiceColumn(v, b.healthFrac, root.visible && b.buildAnim >= 1 && !b.bt.wall, _e.set(b.x, g + v.model.height * 0.75, b.y), Math.max(b.w, b.h)); // [JUICE] smoke column
-    if (!b.bt.wall) this.destruction.buildingDamage(b.id, modelKey(v.ptype, b.owner.faction), [b.w, b.h], b.x, g, b.y, b.healthFrac, root.visible && b.buildAnim >= 1 && b.selling < 0, v.model, anim); // [DEST] roof fires / smoke, steam vents
+    this.juiceColumn(v, b.healthFrac, root.visible && b.buildAnim >= 1 && !b.bt.wall, _e.set(b.x, g + v.model.height * 0.75, b.y), Math.max(b.w, b.h)); // smoke column
+    if (!b.bt.wall) this.destruction.buildingDamage(b.id, modelKey(v.ptype, b.owner.faction), [b.w, b.h], b.x, g, b.y, b.healthFrac, root.visible && b.buildAnim >= 1 && b.selling < 0, v.model, anim); // roof fires / smoke, steam vents
   }
 
   private damageEmitters(v: View, hf: number, visible: boolean, pos: THREE.Vector3, size: number) {
@@ -810,7 +810,6 @@ export class EntityRenderer {
     if (v.fire) { v.fire.setPosition(pos); v.fire.setIntensity(size * 0.7); }
   }
 
-  // [JUICE] ------------------------------------------------------------------------------------
   /** Hit flash when a unit loses a big chunk of health in one frame (vehicles ≥ 10 %, infantry ≥ 45 %). */
   private juiceHit(v: View, u: Unit, prev: number | undefined) {
     if (prev === undefined || this.effects.juice <= 0) return;
@@ -921,7 +920,7 @@ export class EntityRenderer {
     const e = v.ent;
     const root = v.model.root;
     if (e instanceof Building) {
-      if (v.collapsed) return false; // [DEST] the fracture took the model's place
+      if (v.collapsed) return false; // the fracture took the model's place
       if (v.deathHow === 'sold') {
         // shrink back into the ground
         const s = Math.max(0, 1 - v.deathT / 0.5);
@@ -938,13 +937,13 @@ export class EntityRenderer {
     if (e.kind === 'infantry') {
       v.anim.dying = Math.min(1, v.deathT / 0.9);
       v.anim.time += dt;
-      if (v.deathHow !== 'crushed' && !this.destruction.hasRagdoll(e.id)) v.model.update(v.anim); // [DEST] ragdolls pose the bones themselves
+      if (v.deathHow !== 'crushed' && !this.destruction.hasRagdoll(e.id)) v.model.update(v.anim); // ragdolls pose the bones themselves
       if (v.deathT > 4) root.position.y -= dt * 0.15;
       return v.deathT < 6;
     }
     // vehicles: the wreck burns, then smoulders, then sinks away
     if (v.fire) {
-      const burn = v.burn ?? 6; // [JUICE] heavy wrecks burn longer
+      const burn = v.burn ?? 6; // heavy wrecks burn longer
       const k = v.deathT < burn ? 0.7 : Math.max(0, 0.7 - (v.deathT - burn) * 0.25);
       v.column?.setHeat?.(k / 0.7);
       v.fire.setIntensity(k);
@@ -955,7 +954,7 @@ export class EntityRenderer {
       v.smoke.setIntensity(0.45);
     }
     if (v.smoke && v.deathT > this.wreckTime - 4) v.smoke.setIntensity(Math.max(0, (this.wreckTime - 1.5 - v.deathT) / 2.5) * 0.45);
-    if (v.column && v.deathT > this.wreckTime - 8) v.column.setIntensity(Math.max(0, (this.wreckTime - 2 - v.deathT) / 6) * 0.9); // [JUICE] the column thins out
+    if (v.column && v.deathT > this.wreckTime - 8) v.column.setIntensity(Math.max(0, (this.wreckTime - 2 - v.deathT) / 6) * 0.9); // the column thins out
     if (v.deathT > this.wreckTime - 1.5) root.position.y -= dt * 0.3;
     return v.deathT < this.wreckTime;
   }
@@ -1058,7 +1057,7 @@ export class EntityRenderer {
   }
 
   dispose() {
-    this.destruction.dispose(); // [DEST]
+    this.destruction.dispose();
     this.warm.removeFromParent();
     if (this.scene.userData.preRender === this.preRender) delete this.scene.userData.preRender;
     for (const id of [...this.views.keys()]) this.removeView(id);

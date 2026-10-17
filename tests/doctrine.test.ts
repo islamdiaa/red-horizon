@@ -1,4 +1,4 @@
-// [DOCTRINE] Commander rules: doctrines (per-player modifiers), command points, the commander powers, save / load,
+// Commander rules: doctrines (per-player modifiers), command points, the commander powers, save / load,
 // replay sync, the AI's use of them, and Classic rules staying bit-identical.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

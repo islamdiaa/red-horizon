@@ -1,5 +1,5 @@
 /**
- * [VARIETY] Neutral tech structures (Commander rules): oil derricks, field hospitals, radar outposts and
+ * Neutral tech structures (Commander rules): oil derricks, field hospitals, radar outposts and
  * communications arrays, placed symmetrically by mapgen (`neutralSites`).
  *
  * They are ordinary Buildings owned by the neutral pseudo-player (`VarietyState.neutral`, id -1, not in
@@ -136,7 +136,7 @@ export function neutralTick(w: World, v: VarietyState) {
       const extra = commsBonus(w, p);
       if (!extra) continue;
       chargePowers(w, p, extra, 10 * DT);
-      // [DOCTRINE] commander powers recharge 10% faster too: one tick off every pending cooldown per 10 ticks
+      // commander powers recharge 10% faster too: one tick off every pending cooldown per 10 ticks
       const c = p.cmd;
       if (c) for (const id of c.unlocked) if ((c.ready[id] ?? 0) > t) c.ready[id] -= Math.round(10 * extra);
     }

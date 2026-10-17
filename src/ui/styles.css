@@ -1112,7 +1112,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 /* =============================================================================
-   ROUND 4 (D): MAP PICKER, MAP CODES, REPLAYS, STANCES, SUPPORT POWERS, INTEL
+   MAP PICKER, MAP CODES, REPLAYS, STANCES, SUPPORT POWERS, INTEL
    ========================================================================== */
 /* --- skirmish panel: battlefield row ------------------------------------------- */
 .map-row { display: grid; grid-template-columns: 4.4rem 1fr auto; gap: 0.8rem; align-items: center; padding: 0.5rem 0.6rem 0.5rem 0.5rem; border-radius: 0.7rem; background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line); }
@@ -1317,7 +1317,7 @@ body.spectating .tb-obj { display: none; }
 .rp-end-btns > * { flex: 1; height: 2.6rem; font-size: 0.8rem; letter-spacing: 0.16em; white-space: nowrap; padding: 0 0.9rem; }
 
 /* =============================================================================
-   [HUD] MODERN LAYOUT (body.hud-modern, the default; Settings › Interface layout)
+   MODERN LAYOUT (body.hud-modern, the default; Settings › Interface layout)
    Bottom-centre build bar with tabs, minimap bottom-left, objectives top-left,
    resource bar top-right, selection panel + orders bottom-right. The same widgets
    as the Classic sidebar, re-mounted by hud.ts; everything here is scoped to the

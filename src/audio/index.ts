@@ -12,7 +12,7 @@
  * - SFX are synthesised once per variation in OfflineAudioContexts (background, after unlock)
  *   and played back as AudioBufferSourceNode → [lowpass] → gain → StereoPanner → sfxBus.
  * - Music is a seeded procedural engine with intensity-crossfaded layers (./music.ts).
- * - Announcer / unit responses use the Web Speech API (./speech.ts) plus synthesized radio chirps.
+ * - Announcer / unit responses use the Web Speech API (./speech.ts) plus synthesised radio chirps.
  * - The living soundscape (./ambience.ts, beds rendered in a Web Worker by ./ambgen.ts) follows
  *   setAmbience(); it also owns the environment reverb (fed by distance-scaled SFX sends) and the
  *   world high-shelf. Stingers (./stingers.ts) follow the score's key and beat and duck it.
@@ -27,15 +27,15 @@ import { STINGER_INFO, StingerEngine } from './stingers';
 import {
   ANNOUNCER_PRIORITY, ANNOUNCER_TEXT, ANNOUNCER_THROTTLE, DEFAULT_THROTTLE, RESPONSE_LINES, Speech, VOICE_PARAMS,
 } from './speech';
-import { DUCK_HOLD, DUCK_LEVEL, SMALL_ARMS_CAP, VOICE_BUDGET, ducksSmallArms, isSmallArms, newMixStats, pickVictim, sfxTier, type MixStats } from './mixer'; // [JUICE]
-import { JUICE } from '../render/effects/juiceflags'; // [JUICE]
+import { DUCK_HOLD, DUCK_LEVEL, SMALL_ARMS_CAP, VOICE_BUDGET, ducksSmallArms, isSmallArms, newMixStats, pickVictim, sfxTier, type MixStats } from './mixer';
+import { JUICE } from '../render/effects/juiceflags';
 
 export type { AmbienceState, AnnouncerKey, AudioApi, AudioVolumes, ResponseKind, SfxKey, StingerKind, VoiceKind, WeatherKind } from './types';
-export type { MixStats } from './mixer'; // [JUICE]
+export type { MixStats } from './mixer';
 
 const STORAGE_KEY = 'rh.audio.volumes';
 const DEFAULT_VOLUMES: AudioVolumes = { master: 0.85, sfx: 0.9, music: 0.6, voice: 0.9, ambience: 0.7 };
-const MAX_VOICES = VOICE_BUDGET; // [JUICE] (was 40)
+const MAX_VOICES = VOICE_BUDGET;
 const MAX_PER_KEY = 4;
 const MERGE_WINDOW = 0.03; // s
 const PITCH_VARIATION = 0.05;
@@ -47,7 +47,7 @@ const STEADY = new Set<AnyKey>(['click', 'hover', 'tab', 'error', 'ready_ping', 
 const curve = (v: number): number => v * v;
 
 /**
- * [JUICE] Announcer voice preset (cosmetic announcer styles, meta/cosmetics.ts). Fields are read each time an
+ * Announcer voice preset (cosmetic announcer styles, meta/cosmetics.ts). Fields are read each time an
  * announcement is spoken, so a preset object may change underneath (getters work). Missing / invalid fields
  * fall back to the default announcer: female voice, pitch 0.92, rate 1.04, full volume.
  */
@@ -69,7 +69,7 @@ interface Voice {
   end: number;
   vol: number;
   stopping: boolean;
-  /** [JUICE] mix priority tier (mixer.ts) and small-arms category. */
+  /** mix priority tier (mixer.ts) and small-arms category. */
   tier: number;
   small: boolean;
 }
@@ -93,7 +93,7 @@ export class AudioSystem implements AudioApi {
   private musicIn: GainNode | null = null;
   private world: BiquadFilterNode | null = null;
   private sfxVerb: GainNode | null = null;
-  // [JUICE] small-arms sub-bus (ducked under big guns), the explosion "thump" low-pass + dip, mix stats
+  // small-arms sub-bus (ducked under big guns), the explosion "thump" low-pass + dip, mix stats
   private smallBus: GainNode | null = null;
   private thumpLp: BiquadFilterNode | null = null;
   private thumpGain: GainNode | null = null;
@@ -101,7 +101,7 @@ export class AudioSystem implements AudioApi {
   private lastThump = 0;
   private clashBoost = 0;
   private heatIntensity = 0;
-  /** [JUICE] Live mix diagnostics (voice counts, drops, steals, ducks). */
+  /** Live mix diagnostics (voice counts, drops, steals, ducks). */
   readonly mixStats: MixStats = newMixStats();
   private scape: Soundscape | null = null;
   private pendingAmb: Partial<AmbienceState> | null = null;
@@ -135,7 +135,7 @@ export class AudioSystem implements AudioApi {
   private annLast = new Map<AnnouncerKey, number>();
   private lastResponseAt = -Infinity;
   private lastLine = new Map<string, string>();
-  private annVoice: AnnouncerVoice | null = null; // [JUICE]
+  private annVoice: AnnouncerVoice | null = null;
 
   constructor() {
     this.vol = { ...DEFAULT_VOLUMES };
@@ -220,7 +220,7 @@ export class AudioSystem implements AudioApi {
     limiter.connect(ctx.destination);
     const mk = (v: number, to: AudioNode) => { const g = ctx.createGain(); g.gain.value = v; g.connect(to); return g; };
     this.master = mk(curve(this.vol.master), limiter);
-    // [JUICE] big nearby blasts briefly low-pass and dip everything diegetic + the score ("ears ringing" thump)
+    // big nearby blasts briefly low-pass and dip everything diegetic + the score ("ears ringing" thump)
     const thumpLp = ctx.createBiquadFilter();
     thumpLp.type = 'lowpass';
     thumpLp.frequency.value = 20000;
@@ -237,7 +237,7 @@ export class AudioSystem implements AudioApi {
     world.connect(thumpLp);
     this.world = world;
     this.sfxBus = mk(curve(this.vol.sfx), world);
-    this.smallBus = mk(1, this.sfxBus); // [JUICE]
+    this.smallBus = mk(1, this.sfxBus);
     this.musicBus = mk(curve(this.vol.music), thumpLp);
     this.musicIn = mk(1, this.musicBus);
     this.voiceBus = mk(curve(this.vol.voice), this.master);
@@ -268,7 +268,7 @@ export class AudioSystem implements AudioApi {
     this.hasListener = true;
   }
 
-  /** `delay` [JUICE]: start this many seconds from now (layered kill sounds, cook-off pops). */
+  /** `delay`: start this many seconds from now (layered kill sounds, cook-off pops). */
   play(key: SfxKey, pos?: { x: number; y: number }, opts?: { volume?: number; pitch?: number; delay?: number }): void {
     try {
       this.playKey(key, this.sfxBus, pos, opts?.volume ?? 1, opts?.pitch ?? 1, opts?.delay ?? 0);
@@ -278,7 +278,7 @@ export class AudioSystem implements AudioApi {
   private playKey(key: AnyKey, bus: GainNode | null, pos: { x: number; y: number } | undefined, volume: number, pitch: number, delay = 0): void {
     const ctx = this.ctx;
     if (!this.unlocked || !ctx || !bus || !this.bank) return;
-    this.mixStats.requested++; // [JUICE]
+    this.mixStats.requested++;
     if (ctx.state !== 'running') { ctx.resume().catch(() => {}); return; }
     const recipe = RECIPES[key];
     if (!recipe) return;
@@ -321,7 +321,7 @@ export class AudioSystem implements AudioApi {
       return;
     }
 
-    // --- voice limiting ([JUICE] priority tiers + a small-arms cap: rifles never cut off a tank gun)
+    // --- voice limiting (priority tiers + a small-arms cap: rifles never cut off a tank gun)
     this.reap(now);
     const maxKey = recipe.maxVoices ?? MAX_PER_KEY;
     let sameKey = 0;
@@ -395,7 +395,7 @@ export class AudioSystem implements AudioApi {
     src.onended = () => this.release(voice);
     this.voices.push(voice);
     this.lastByKey.set(key, voice);
-    // [JUICE] stats
+    // stats
     const ms = this.mixStats;
     ms.started++;
     ms.active = active + 1;
@@ -403,7 +403,7 @@ export class AudioSystem implements AudioApi {
     if (small) { ms.small = smallN + 1; if (ms.small > ms.smallPeak) ms.smallPeak = ms.small; }
   }
 
-  /** [JUICE] Duck the small-arms sub-bus for a moment under a big gun / explosion starting at `at`. */
+  /** Duck the small-arms sub-bus for a moment under a big gun / explosion starting at `at`. */
   private duckSmallArms(at: number): void {
     const ctx = this.ctx;
     const g = this.smallBus?.gain;
@@ -421,7 +421,7 @@ export class AudioSystem implements AudioApi {
   }
 
   /**
-   * [JUICE] Low-pass "thump" after a big blast close to the camera: everything diegetic and the score dull
+   * Low-pass "thump" after a big blast close to the camera: everything diegetic and the score dull
    * down for a moment and swell back (0..1 strength; ~0.4 for a dying tank next to the camera, 1 for a nuke).
    */
   thump(strength: number): void {
@@ -447,7 +447,7 @@ export class AudioSystem implements AudioApi {
     } catch { /* never throw */ }
   }
 
-  /** [JUICE] Reset the peak counters of mixStats (diagnostics). */
+  /** Reset the peak counters of mixStats (diagnostics). */
   resetMixStats(): void {
     Object.assign(this.mixStats, newMixStats());
   }
@@ -552,7 +552,7 @@ export class AudioSystem implements AudioApi {
       setTimeout(() => this.pumpAnnouncer(), 250);
     };
     setTimeout(() => {
-      const o = this.announcerSpeakOpts(); // [JUICE] cosmetic announcer voice (default when none)
+      const o = this.announcerSpeakOpts(); // cosmetic announcer voice (default when none)
       const ok = o.volume > 0.001 && this.speech.speak(text, o, finish);
       // no speech available: keep subtitle pacing / non-overlap with an estimated duration
       if (!ok) setTimeout(finish, 450 + text.length * 55);
@@ -560,14 +560,14 @@ export class AudioSystem implements AudioApi {
   }
 
   /**
-   * [JUICE] Set the announcer's voice style (cosmetics); null restores the default announcer. Only the
+   * Set the announcer's voice style (cosmetics); null restores the default announcer. Only the
    * announcer changes: unit acknowledgements keep their own voices.
    */
   setAnnouncerVoice(preset: AnnouncerVoice | null): void {
     this.annVoice = preset && typeof preset === 'object' ? preset : null;
   }
 
-  /** [JUICE] Speak a line in an announcer voice right now (Locker preview); false when speech is unavailable. */
+  /** Speak a line in an announcer voice right now (Locker preview); false when speech is unavailable. */
   previewAnnouncerVoice(preset: AnnouncerVoice | null, text = 'Reinforcements have arrived. Construction complete.'): boolean {
     try {
       const keep = this.annVoice;
@@ -688,13 +688,13 @@ export class AudioSystem implements AudioApi {
   setMusicIntensity(v: number): void {
     if (!Number.isFinite(v)) return;
     this.heatIntensity = clamp(v, 0, 1);
-    // [JUICE] a big clash in view keeps the score at full battle intensity
+    // a big clash in view keeps the score at full battle intensity
     this.intensity = Math.max(this.heatIntensity, this.clashBoost);
     this.music?.setIntensity(this.intensity);
   }
 
   /**
-   * [JUICE] Big-battle level 0..1 (from the battle director): pushes the score to full intensity and layers
+   * Big-battle level 0..1 (from the battle director): pushes the score to full intensity and layers
    * the battle theme on top (taiko ostinato, brass, choir pad; see MusicEngine.setClash).
    */
   setClash(level: number): void {

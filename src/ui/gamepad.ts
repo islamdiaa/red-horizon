@@ -1,5 +1,5 @@
 /**
- * [CTRL] Gamepad support (Gamepad API, "standard" mapping: Xbox / PlayStation / Switch Pro layouts).
+ * Gamepad support (Gamepad API, "standard" mapping: Xbox / PlayStation / Switch Pro layouts).
  *
  * In battle
  *   Left stick   virtual cursor (push it against the screen edge to scroll)   Right stick  pan the camera
@@ -29,9 +29,9 @@ const axis = (v: number) => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) 
 
 const FOCUSABLE = 'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), .bitem, .grp, [role="button"]';
 const SIDEBAR_FOCUSABLE = '#sidebar .tab, #sidebar .bitem, #sidebar .supers button, #sidebar .mode-btn, #selpanel button, #groups .grp'
-  + ', #buildbar .tab, #buildbar .bitem, #buildbar .supers button, #buildbar .mode-btn' // [HUD] the Modern layout's bottom build bar
-  + ', .ar-chip button, #army-panel.on button' // [ARMY] army chip and overview
-  + ', #cmdpanel button'; // [DOCTRINE] commander powers panel
+  + ', #buildbar .tab, #buildbar .bitem, #buildbar .supers button, #buildbar .mode-btn' // the Modern layout's bottom build bar
+  + ', .ar-chip button, #army-panel.on button' // army chip and overview
+  + ', #cmdpanel button'; // commander powers panel
 
 interface Game { input: InputController; h: InputHost }
 
@@ -175,7 +175,7 @@ class GamepadManager {
       if (pressed(B.LB) || pressed(B.RB)) this.switchTab(pressed(B.RB) ? 1 : -1);
       if (pressed(B.A) && this.focusEl) this.click(this.focusEl, this.lb.down);
       if (pressed(B.X) && this.focusEl) this.focusEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
-      if (pressed(B.Y) && this.focusEl) this.focusEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, altKey: true, view: window })); // [ARMY] Y: loop the card
+      if (pressed(B.Y) && this.focusEl) this.focusEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, altKey: true, view: window })); // Y: loop the card
       return;
     }
 
@@ -229,17 +229,17 @@ class GamepadManager {
 
   /** Where D-pad focus starts in a battle: the first build card (else anything in the sidebar / panel). */
   private firstCard(): HTMLElement | null {
-    return this.firstIn('#sidebar .bitem:not(.locked), #buildbar .bitem:not(.locked)') ?? this.firstIn(SIDEBAR_FOCUSABLE); // [HUD] either layout
+    return this.firstIn('#sidebar .bitem:not(.locked), #buildbar .bitem:not(.locked)') ?? this.firstIn(SIDEBAR_FOCUSABLE); // either layout
   }
 
   private switchTab(d: number) {
-    const tabs = [...document.querySelectorAll<HTMLElement>('#sidebar .tab, #buildbar .tab')].filter((t) => t.offsetParent); // [HUD] either layout
+    const tabs = [...document.querySelectorAll<HTMLElement>('#sidebar .tab, #buildbar .tab')].filter((t) => t.offsetParent); // either layout
     if (!tabs.length) return;
     const cur = tabs.findIndex((t) => t.classList.contains('on') || t.classList.contains('active'));
     const next = tabs[(Math.max(0, cur) + d + tabs.length) % tabs.length];
     next.click();
     // the grid rebuilds on the next HUD update: focus its first card then
-    setTimeout(() => { if (this.sidebar) this.setFocus(this.firstIn('#sidebar .bitem, #buildbar .bitem') ?? next); }, 120); // [HUD] either layout
+    setTimeout(() => { if (this.sidebar) this.setFocus(this.firstIn('#sidebar .bitem, #buildbar .bitem') ?? next); }, 120); // either layout
   }
 
   private ensureCursor() {

@@ -1,5 +1,5 @@
 /**
- * How the local player perceives the round-4 content: what is visible at all (fog + cloak + detection),
+ * How the local player perceives naval, stealth and deception content: what is visible at all (fog + cloak + detection),
  * which model an enemy sees (decoys look real, a disguised spy looks like a rifleman) and the extra
  * animation inputs (submarine dive, parachutes, deploy ramps/dishes, own-cloak shimmer).
  * Pure helpers so the entity renderer only needs a few calls.

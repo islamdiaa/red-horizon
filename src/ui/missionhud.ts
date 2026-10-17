@@ -2,7 +2,7 @@ import type { MissionEvent, MissionRuntime, Objective, Portrait } from '../sim/m
 import { formatTime } from '../core/util';
 import { castPortrait } from './campaign';
 import { esc } from './dom';
-import { ICONS } from './icons'; // [HUD]
+import { ICONS } from './icons';
 
 const CSS = `
 .mh-obj { position: absolute; top: calc(var(--rem, 1px) * 0 + 58px); left: 12px; width: 330px; z-index: 6; pointer-events: none;
@@ -51,7 +51,7 @@ body:not(.hud-modern):has(#selpanel.on) .mh-tx, body:not(.hud-modern):has(#group
 .mh-score.on { display: block; }
 .mh-score small { display: block; font-family: var(--font, sans-serif); font-size: 10px; letter-spacing: 0.3em; color: #c8b070; }
 body.cine-active .mh-obj, body.cine-active .mh-tx, body.cine-active .mh-timer, body.cine-active .mh-score { opacity: 0 !important; }
-/* [HUD] Modern layout: the checklist is the objectives panel of the top-left column (countdown and score inline),
+/* Modern layout: the checklist is the objectives panel of the top-left column (countdown and score inline),
    the radio sits above the minimap, the big countdown only appears for the final minute */
 .mh-ic, .mh-trow, .mh-srow { display: none; }
 body.hud-modern .mh-obj { position: relative; top: auto; left: auto; width: 100%; z-index: auto; padding: 0.55rem 0.75rem 0.6rem; border-radius: 0.7rem;
@@ -98,7 +98,7 @@ export class MissionHud {
   private full = '';
   private textEl: HTMLElement | null = null;
   private timerLabel = '';
-  /** [HUD] The checklist, and the Modern layout's inline countdown / score rows. */
+  /** The checklist, and the Modern layout's inline countdown / score rows. */
   private list: HTMLElement;
   private trow: HTMLElement;
   private srow: HTMLElement;
@@ -114,7 +114,7 @@ export class MissionHud {
     const ui = document.getElementById('ui')!;
     this.obj = document.createElement('div');
     this.obj.className = 'mh-obj';
-    // [HUD] list + inline countdown / score (the rows only show in the Modern layout)
+    // list + inline countdown / score (the rows only show in the Modern layout)
     this.list = document.createElement('div');
     this.list.className = 'mh-list';
     this.trow = document.createElement('div');
@@ -129,7 +129,7 @@ export class MissionHud {
     this.scoreEl = document.createElement('div');
     this.scoreEl.className = 'mh-score';
     ui.append(this.obj, this.tx, this.timer, this.scoreEl);
-    // [HUD] Modern: the checklist heads the top-left column (the HUD moves it back if the layout changes)
+    // Modern: the checklist heads the top-left column (the HUD moves it back if the layout changes)
     const col = document.getElementById('topbar');
     if (col && document.body.classList.contains('hud-modern')) col.prepend(this.obj);
     this.renderObjectives();
@@ -151,7 +151,7 @@ export class MissionHud {
       case 'score':
         this.scoreEl.classList.add('on');
         this.scoreEl.innerHTML = `${Math.round(ev.value).toLocaleString('en-US')}<small>${esc(ev.label.toUpperCase())}</small>`;
-        this.srow.classList.add('on'); // [HUD]
+        this.srow.classList.add('on');
         this.srow.innerHTML = `${ICONS.trophy}<span class="lb">${esc(ev.label)}</span><span class="tm">${Math.round(ev.value).toLocaleString('en-US')}</span>`;
         break;
     }
@@ -159,7 +159,7 @@ export class MissionHud {
 
   private renderObjectives(flashId?: string) {
     const list = this.runtime.objectives;
-    this.obj.classList.toggle('empty', !list.length); // [HUD] Modern drops the empty panel from the column
+    this.obj.classList.toggle('empty', !list.length); // Modern drops the empty panel from the column
     if (!list.length) { this.obj.style.opacity = '0'; return; }
     this.obj.style.opacity = '1';
     const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${esc(o.text)}</span>${o.progress ? `<span class="pg">${esc(String(o.progress))}</span>` : ''}</div>`;
@@ -200,9 +200,9 @@ export class MissionHud {
     if (this.timerLabel && t !== null) {
       this.timer.classList.add('on');
       this.timer.classList.toggle('urgent', t < 30);
-      this.timer.classList.toggle('soon', t < 60); // [HUD] Modern shows the big countdown for the final minute only
+      this.timer.classList.toggle('soon', t < 60); // Modern shows the big countdown for the final minute only
       this.timer.innerHTML = `<div class="lb">${esc(this.timerLabel.toUpperCase())}</div><div class="tm">${formatTime(Math.ceil(t))}</div>`;
-      // [HUD] inline countdown row of the Modern checklist
+      // inline countdown row of the Modern checklist
       const tk = `${this.timerLabel}|${Math.ceil(t)}`;
       if (tk !== this.trowKey) {
         this.trowKey = tk;

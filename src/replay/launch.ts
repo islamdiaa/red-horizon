@@ -1,7 +1,7 @@
 /**
  * Starting matches from maps, map codes and replays: the setup a replay is watched with, and the
  * URL test parameters (?autostart=1&map=<id> · &mapcode=<code> · &replay=<id>|latest[&view=<n>|obs]).
- * [MODES] &replay=…&seek=<seconds>[&take=<player>] (take command there) · &koth=1[&kothmin=<minutes>] ·
+ * &replay=…&seek=<seconds>[&take=<player>] (take command there) · &koth=1[&kothmin=<minutes>] ·
  * &challenge=<built-in or stored id> · &mission=survival&allies=<difficulty>[,<difficulty>] (co-op survival).
  */
 import type { GameSetup, OpponentSetup } from '../game';
@@ -11,8 +11,8 @@ import { decodeMapCode } from '../maps/code';
 import type { ReplayData } from './format';
 import { getReplay, listReplays } from './store';
 import type { AIDifficulty } from '../sim/ai';
-import { getChallenge } from '../modes/store'; // [MODES]
-import { challengeGameSetup } from '../modes/author'; // [MODES]
+import { getChallenge } from '../modes/store';
+import { challengeGameSetup } from '../modes/author';
 
 /** The GameSetup that watches a replay. */
 export function playbackSetup(data: ReplayData, quality: Quality, extra: { view?: number } = {}): GameSetup {
@@ -34,14 +34,14 @@ export async function resolveTestSetup(params: URLSearchParams, setup: GameSetup
     if (data) {
       const v = params.get('view');
       const ps = playbackSetup(data, setup.quality, { view: v === 'obs' ? -1 : v ? +v : undefined });
-      // [MODES] seek=<seconds> (paused there) and take=<player>: take command at that moment
+      // seek=<seconds> (paused there) and take=<player>: take command at that moment
       const seek = params.get('seek'), take = params.get('take');
       if (seek || take) ps.replay = { ...ps.replay!, seekTo: seek ? Math.round(+seek * 20) : data.ticks, paused: true, takeCommand: take ? { local: +take } : undefined };
       return ps;
     }
     console.warn(`replay ${rid} not found; starting a normal match`);
   }
-  // [MODES] challenges, King of the Hill, co-op survival allies
+  // challenges, King of the Hill, co-op survival allies
   const cid = params.get('challenge');
   if (cid) {
     const c = await getChallenge(cid);

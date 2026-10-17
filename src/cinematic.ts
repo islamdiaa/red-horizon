@@ -22,7 +22,7 @@ body.cine-active #ui > * { pointer-events: none !important; }
 #ui, .overlay-canvas { transition: opacity 0.8s ease-out; }
 `;
 
-/** [FX] Ease the cinematic lens (depth of field 0..1, camera motion blur 0..1) to new values. */
+/** Ease the cinematic lens (depth of field 0..1, camera motion blur 0..1) to new values. */
 interface LensHost { cinematicDof: number; cinematicBlur: number }
 const lensAnims = new WeakMap<LensHost, number>();
 function lensTo(gfx: LensHost, dof: number, blur: number, seconds: number) {
@@ -153,7 +153,7 @@ export function playIntro(game: Game, onDone: () => void) {
     cam.targetYaw = 0;
     cam.flyToPoint(start.x, start.y + 1, 4.2);
     cam.targetDist = 22;
-    // [FX] lens: shallow focus on the base below, motion blur through the dive
+    // lens: shallow focus on the base below, motion blur through the dive
     lensTo(game.gfx, 0.55, 0.7, 1.0);
   }, 600));
   const l1 = text.querySelector('[data-l="1"]') as HTMLElement;
@@ -224,7 +224,7 @@ export function nukeCinematic(game: Game, silo: { x: number; y: number }, target
   cam.zoomDamp = 0.2;
   cam.flyToPoint(silo.x, silo.y, 0.7);
   cam.targetDist = 18;
-  lensTo(game.gfx, 0.45, 0.6, 0.6); // [FX] cinematic lens while following the missile
+  lensTo(game.gfx, 0.45, 0.6, 0.6); // cinematic lens while following the missile
   const timers: number[] = [];
   let done = false;
   // satellite uplink: the strike is watched through a partly lifted fog of war (shroud would show only black)
@@ -293,7 +293,7 @@ export function endingCinematic(won: boolean, subtitle: string, gfx?: LensHost):
   body.append(...bars, t);
   body.classList.add('cine-active');
   requestAnimationFrame(() => { body.classList.add('cine-on'); t.classList.add('on'); });
-  if (gfx) lensTo(gfx, 0.65, 0.25, 2.0); // [FX] slow-motion finale through a shallow lens
+  if (gfx) lensTo(gfx, 0.65, 0.25, 2.0); // slow-motion finale through a shallow lens
   return () => {
     if (gfx) lensTo(gfx, 0, 0, 0.8);
     body.classList.remove('cine-on', 'cine-active');

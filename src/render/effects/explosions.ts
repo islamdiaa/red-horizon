@@ -24,7 +24,7 @@ const WATER_SIZE: Partial<Record<ExplosionKind, number>> = { piff: 0.3, small: 0
 let overWater = false;
 
 /**
- * Extra (round 5) kinds accepted on top of ExplosionKind, so the sim can name them in impact events:
+ * Extra kinds accepted on top of ExplosionKind, so the sim can name them in impact events:
  * 'mad' / 'seismic' (M.A.D. tank pulse) and 'demo' / 'mininuke' (demolition truck).
  */
 export type ExtraExplosionKind = 'mad' | 'seismic' | 'demo' | 'mininuke';
@@ -469,7 +469,7 @@ function nuke(ctx: FxContext, x: number, _y: number, z: number, gy: number, s: n
 }
 
 // ---------------------------------------------------------------------------------------------
-// Round 5: Aftermath units
+// Aftermath units
 
 /**
  * M.A.D. tank seismic pulse: thudding ground rings racing out to `radius`, a rolling dust wave, dirt

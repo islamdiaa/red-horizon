@@ -1,5 +1,5 @@
 /**
- * [CTRL] Shared unit-control UI: the 2D order layer drawn on the overlay canvas (patrol routes, escort links,
+ * Shared unit-control UI: the 2D order layer drawn on the overlay canvas (patrol routes, escort links,
  * rally-to-unit lines, planned structures, the patrol route being placed), the formation selector of the
  * selection panel, a radial menu (touch long-press, gamepad), the icons for the new orders, and the CSS for
  * touch / gamepad / radial UI (injected once, so styles.css stays untouched).
@@ -518,7 +518,7 @@ body.gamepad-ui #gp-help { display: flex; }
 #gp-help b { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; margin-right: 0.25rem; border-radius: 50%; font-size: 0.65rem; color: #08121c; background: #cfe6f7; }
 #gp-help b.A { background: #5ee08a; } #gp-help b.B { background: #ff6a5a; } #gp-help b.X { background: #5ab4ff; } #gp-help b.Y { background: #ffd34d; }
 
-/* [HUD] Modern layout: planned tag above the card's name, touch toolbar under the objectives column (wraps on short
+/* Modern layout: planned tag above the card's name, touch toolbar under the objectives column (wraps on short
    screens), larger build tabs for fingers */
 body.hud-modern #buildbar .bitem[data-planned]::after { left: 50%; top: auto; bottom: 2.45rem; transform: translateX(-50%); white-space: nowrap; }
 body.hud-modern #touch-bar { top: calc(var(--edge, 0.7rem) + var(--tl-h, 7rem) + 0.6rem); transform: none; flex-wrap: wrap; align-content: flex-start;

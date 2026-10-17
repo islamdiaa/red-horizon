@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// [PIPE] In-game check of HD models (headless Chromium + SwiftShader): a benchmark scene, optionally focused on
+// In-game check of HD models (headless Chromium + SwiftShader): a benchmark scene, optionally focused on
 // one entity type, with HD on or off. Prints draw calls / triangles / HD status / console errors.
 //
 //   node tools/assets/view.mjs --port 5231 --scene A --out /tmp/a.png                  # scene A, HD per settings
@@ -8,7 +8,7 @@
 //   node tools/assets/view.mjs --port 5231 --scene B --focus 3tnk --dist 6 --yaw 0.6 --out /tmp/tank.png
 //   options: --extra 'q=medium&hdlazy=1' (more URL params) --nth N (focus the Nth entity of that type, -1 = last) --wait ms (settle time, default 9000) --night (scene E) --size WxH (default 1600x900)
 //            --prep "<js on g>" (run before the shot, e.g. damage: "g.world.buildings[0].hp *= 0.3")
-// Scenes (tools / Phase A contract): A Soviet winter base, B winter battle, C Allied temperate base,
+// Scenes: A Soviet winter base, B winter battle, C Allied temperate base,
 // D desert battle, E night base. Run your own no-HMR vite server (copy tools/vite.test.config.ts, own port).
 import { chromium } from 'playwright';
 import path from 'node:path';

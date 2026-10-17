@@ -2,7 +2,7 @@
  * Infantry + attack dog. Face +X, feet at y=0. One skinned body per soldier: bones body / torso / armL / armR /
  * legL / legR (+ the parachute), all on the shared per-team body material.
  *
- * [UNITS] Readable at the ~1.5x render scale: team-colour jacket and helmet, faction trousers, webbing and
+ * Readable at the ~1.5x render scale: team-colour jacket and helmet, faction trousers, webbing and
  * packs, a distinct weapon silhouette per class. Shared classes (rifle, rocket, engineer) dress by faction
  * (Soviet SSh-40 helmet, AK, canvas sack / Allied M1 helmet, M16, ALICE pack and vest). Close-up detail (pouches,
  * straps, gloves, sights) is dropped from the distant body.
@@ -48,7 +48,7 @@ interface SoldierSpec {
   armband?: Mat;
 }
 
-// [UNITS] palette
+// palette
 const SOV_TROUSERS: Mat = { c: 0x5a5641, m: 0, r: 0.86, d: 2 };
 const ALLY_TROUSERS: Mat = { c: 0x474b37, m: 0, r: 0.86, d: 2 };
 const VEST: Mat = { c: 0x3f4231, m: 0, r: 0.8, d: 2 };
@@ -283,7 +283,7 @@ function soldier(spec: SoldierSpec, fac: ModelFaction = 'allies'): ModelTemplate
   }
   spec.build?.(torso, armL, armR);
   torso.node('m0', [0.2, 0.06, 0.03]);
-  // [UNITS] only paratroopers (rifle infantry) carry the hidden parachute rig: ~180 triangles saved elsewhere
+  // only paratroopers (rifle infantry) carry the hidden parachute rig: ~180 triangles saved elsewhere
   if (spec.chute) parachute(r);
 
   const fire = spec.fire ?? 'rifle';
@@ -556,7 +556,7 @@ function deathPose(c: Ctx, s: ModelAnimState, body: THREE.Object3D): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Weapons and kit [UNITS]
+// Weapons and kit
 // ---------------------------------------------------------------------------------------------
 
 const ROTX: [number, number, number] = [0, 0, -Math.PI / 2];
@@ -1054,7 +1054,7 @@ function dog(): ModelTemplate {
   });
 }
 
-/** [UNITS] Builders take the owner's faction; e1 / e3 / e6 are dressed per faction (see FACTION_DRESSED_UNITS). */
+/** Builders take the owner's faction; e1 / e3 / e6 are dressed per faction (see FACTION_DRESSED_UNITS). */
 export const INFANTRY_BUILDERS: Record<string, (fac?: ModelFaction) => ModelTemplate> = {
   e1: (fac = 'allies') => soldier(E1(fac), fac),
   e2: () => soldier(E2('soviet'), 'soviet'),

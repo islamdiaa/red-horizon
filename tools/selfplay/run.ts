@@ -4,7 +4,7 @@
  *   node --import tsx tools/selfplay/run.ts [options]
  *
  *   --mode faction        Allies vs Soviets, same difficulty and personality (balance check; default)
- *   --mode legacy         current AI vs the frozen round-4 AI (both factions, both sides)
+ *   --mode legacy         current AI vs the frozen legacy AI (both factions, both sides)
  *   --mode personalities  round-robin of every personality pair (both factions, both sides)
  *   --mode gauntlet       every personality against the legacy AI (both factions, both sides)
  *   --mode diff           difficulty ladder: each difficulty against the next one up (same faction mix)
@@ -20,7 +20,7 @@
  *   --prefer JSON         unit weight multipliers for the current AI's personality, e.g. '{"2tnk":2}'
  *   --adiff d             faction mode: the Allies play at this difficulty instead (how big is the faction gap?)
  *   --apers JSON          faction mode: personality fields for the Allied side only (experiments)
- *   --ai legacy           faction / diff modes: play both sides with the frozen round-4 AI (the "before" numbers)
+ *   --ai legacy           faction / diff modes: play both sides with the frozen legacy AI (the "before" numbers)
  *   --seed 1              first seed
  *   --workers N           worker threads (default: cores - 4, max 12; env WORKERS)
  *   --json file           dump every MatchResult
@@ -193,7 +193,7 @@ function report(results: MatchResult[]) {
     }
   }
   if (mode === 'legacy') {
-    log('\n## New AI vs legacy (round-4) AI');
+    log('\n## New AI vs legacy AI');
     for (const kind of ['land', 'sea', 'curated']) {
       const rs = byKind(kind);
       if (!rs.length) continue;

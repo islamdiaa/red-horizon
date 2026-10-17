@@ -1,5 +1,5 @@
 /**
- * [JUICE] Game-feel director: turns the sim's event feed into impact feedback and battle payoff.
+ * Game-feel director: turns the sim's event feed into impact feedback and battle payoff.
  *
  *  - Camera shake: trauma model (juicelogic.ts) fed by the effects' distance-attenuated shake; smooth noise;
  *    none at all with settings.reduceMotion / prefers-reduced-motion.
@@ -13,7 +13,7 @@
  *  - Progress: veterancy chevron bursts, superweapon online / first heavy unit milestones.
  *
  * Client-side only (reads the sim, never writes it). One instance per Game (game.ts: `juice`), disposed with
- * the game's attachments. `?juice=0` restores the pre-JUICE behaviour for A/B comparisons.
+ * the game's attachments. `?juice=0` turns the game-feel layer off for A/B comparisons.
  */
 import * as THREE from 'three';
 import { Building, Unit, type Entity } from '../../sim/entities';
@@ -256,7 +256,7 @@ export class JuiceDirector {
     const cam = g.gfx.cam;
     const fx = g.effects;
     if (!JUICE.on) {
-      // pre-JUICE behaviour (A/B): white-noise shake decayed here
+      // game-feel layer off (A/B): plain white-noise shake decayed here
       const shake = Math.min(1.2, fx.shake);
       fx.shake = Math.max(0, fx.shake - dt * 2.5) * Math.pow(0.02, dt);
       cam.shakeOffset.set((Math.random() - 0.5) * shake * 0.5, (Math.random() - 0.5) * shake * 0.3, (Math.random() - 0.5) * shake * 0.5);
@@ -348,7 +348,7 @@ export class JuiceDirector {
     g.overlay?.addFloat(x, gy + 2.2, y, text, '#ffd76a');
   }
 
-  /** Turn every JUICE layer on / off at runtime (A/B benches: tools/qa/juice_bench.mjs INTERLEAVE=1). */
+  /** Turn every game-feel layer on / off at runtime (A/B benches: tools/qa/juice_bench.mjs INTERLEAVE=1). */
   setEnabled(on: boolean): void {
     JUICE.on = on;
     this.g.effects.setJuice(on);

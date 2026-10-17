@@ -1,5 +1,5 @@
 /**
- * Round-4 support structures:
+ * Support structures:
  *   gap Gap Generator, hbox Camo Pillbox, minp / minv mines (structures, 1x1, front +Z)
  *
  * anim.cloak (0..1) shows the owner's cloak shimmer on the camo pillbox and mines.
@@ -23,7 +23,7 @@ function swapFx(c: Ctx, node: string, mat: THREE.Material): void {
   }
 }
 
-// [STRUCT] the minelayer, mobile gap generator and radar jammer vehicles now live in vehicles.ts (UNITS)
+// the minelayer, mobile gap generator and radar jammer vehicles are in vehicles.ts (UNITS)
 
 const MINE_OLIVE: Mat = { c: 0x4a5236, m: 0.35, r: 0.6, d: 0 };
 
@@ -34,7 +34,7 @@ const MINE_OLIVE: Mat = { c: 0x4a5236, m: 0.35, r: 0.6, d: 0 };
 function gapGenerator(): ModelTemplate {
   const r = new NB('root');
   r.ao = DEF_AO;
-  r.snow = 1; // [STRUCT]
+  r.snow = 1;
   r.cavity = true;
   // RA footprint is 1x2: tower on the back cell, generator annex on the front cell
   foundation(r, 1, 2, 0.04, 0.05, M.concreteDark);
@@ -77,7 +77,7 @@ function gapGenerator(): ModelTemplate {
     M.steel,
     { p: [0, y0 + 0.2, 0] },
   );
-  t.add(ringGeo(0.26, 0.31, 0.03, 8), M.team, { p: [0, y0 + 0.205, 0], r: [0, Math.PI / 8, 0] }); // [STRUCT] team trim, not a slab
+  t.add(ringGeo(0.26, 0.31, 0.03, 8), M.team, { p: [0, y0 + 0.205, 0], r: [0, Math.PI / 8, 0] }); // team trim, not a slab
   t.box(M.darker, 0.14, 0.12, 0.02, 0, y0 + 0.07, 0.301, { b: 0 });
   lamp(t, G.warm, [0, y0 + 0.16, 0.31], 0.012);
   for (const s of [-1, 1]) grille(t, 0.1, 0.08, [0.302 * s, y0 + 0.1, 0], 4, [0, 0, -(Math.PI / 2) * s]);
@@ -129,11 +129,11 @@ function gapGenerator(): ModelTemplate {
   rB.add(new THREE.TorusGeometry(0.16, 0.006, 4, 20), M.copper, { r: [Math.PI / 2, 0, 0] });
   const haze = t.node('haze', [0, ey, 0]);
   haze.sph(M.dark, 0.13, 0, 0, 0, { seg: 12, slot: 'fx:add:b050ff:1' });
-  warnLight(t, [0.16, y0 + 0.26, -0.16], false, 0.013); // [STRUCT] baked blink
+  warnLight(t, [0.16, y0 + 0.26, -0.16], false, 0.013); // baked blink
   // generator annex on the front cell: transformer housing, cooling fins, cable trench to the tower
   r.box(M.concreteLight, 0.6, 0.22, 0.42, 0, y0 + 0.11, 0.48, { b: 0.02 });
   r.box(M.team, 0.64, 0.03, 0.46, 0, y0 + 0.235, 0.48, { b: 0.008 });
-  r.box(M.steel, 0.58, 0.02, 0.4, 0, y0 + 0.25, 0.48, { b: 0.004 }); // [STRUCT] roof inside the trim
+  r.box(M.steel, 0.58, 0.02, 0.4, 0, y0 + 0.25, 0.48, { b: 0.004 }); // roof inside the trim
   emblem(r, 'allies', 0.06, [-0.18, y0 + 0.12, 0.692], [0, 0, 0], true);
   floodlight(r, [0.26, y0 + 0.26, 0.66], 0, 0.8, 0.035);
   for (let i = 0; i < 6; i++) r.box(M.gun, 0.012, 0.16, 0.44, -0.24 + i * 0.096, y0 + 0.1, 0.48, { b: 0 });
@@ -167,7 +167,7 @@ function gapGenerator(): ModelTemplate {
       c.setGlow('glow:gap', on > 0.05 ? 0.25 + on * (0.55 + 0.45 * pulse) : 0.05);
       // energy rising up the conduit
       c.setGlow('glow:gapc', on * (0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 6 - 1))));
-      setBodyTime(s.time); // [STRUCT] baked light animation clock
+      setBodyTime(s.time); // baked light animation clock
       const hz = c.n['fx:haze'];
       if (hz) {
         hz.visible = on > 0.2;
@@ -208,7 +208,7 @@ function netDome(rad: number, h: number, seed: number): THREE.BufferGeometry {
 function camoPillbox(): ModelTemplate {
   const r = new NB('root');
   r.ao = DEF_AO;
-  r.snow = 0.8; // [STRUCT]
+  r.snow = 0.8;
   const y0 = 0.0;
   // dug-in concrete box (mostly hidden), embrasure facing +X like the regular pillbox
   r.add(prismXZ(hexPts(0.3), 0.13, 0.03), M.concreteDark, { p: [0, y0, 0] });

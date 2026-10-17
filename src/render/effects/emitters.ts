@@ -10,10 +10,10 @@ import { M } from './particles';
 import { rnd, range, spread } from './rand';
 import { smokeFrame, sparks, flash } from './blocks';
 import { gpuFire, gpuSmoke } from './gpufx';
-import { columnPuff } from './spectacle'; // [JUICE]
+import { columnPuff } from './spectacle';
 
 const TAU = Math.PI * 2;
-const COLUMN_GLOW = { flicker: 0.45, priority: 0.6 }; // [JUICE] reused light options
+const COLUMN_GLOW = { flicker: 0.45, priority: 0.6 }; // reused light options
 const FIRE_GLOW = { flicker: 0.4, priority: 0.8 };
 const SPARK_GLOW = { flicker: 0.3 };
 
@@ -47,7 +47,7 @@ export class Emitter implements EmitterHandle {
     this.intensity = Math.max(0, v);
   }
 
-  /** [JUICE] 'column' only: 0..1 fire glow at the base of the smoke column. */
+  /** 'column' only: 0..1 fire glow at the base of the smoke column. */
   heat = 0;
 
   setHeat(v: number): void {
@@ -120,11 +120,11 @@ export class Emitter implements EmitterHandle {
           g.push = 0.6;
           ctx.glow.emit(g);
         }
-        // [FX] GPU embers and a turbulent smoke column; the fire lights its surroundings
+        // GPU embers and a turbulent smoke column; the fire lights its surroundings
         if (ctx.gpu) gpuFire(ctx.gpu, this.x, this.y, this.z, I, sz, this.gacc, dt);
         if (ctx.dyn) {
           const k = Math.min(I, 2);
-          ctx.dyn.add(this.x, this.y + 0.45 * sz, this.z, 0xff7a2e, 2.4 * k, 3.4 + 1.3 * k, 0, FIRE_GLOW); // [JUICE] no per-frame option object
+          ctx.dyn.add(this.x, this.y + 0.45 * sz, this.z, 0xff7a2e, 2.4 * k, 3.4 + 1.3 * k, 0, FIRE_GLOW); // no per-frame option object
         }
         break;
       }
@@ -181,7 +181,7 @@ export class Emitter implements EmitterHandle {
         break;
       }
       case 'column': {
-        // [JUICE] tall smoke column: intensity ≈ structure size (1 small … 3 large); heat = still burning
+        // tall smoke column: intensity ≈ structure size (1 small … 3 large); heat = still burning
         this.a0 += dt * 1.5 * Math.min(I, 3) * k;
         const sz = 0.8 + 0.25 * Math.min(I, 3);
         while (this.a0 >= 1) {

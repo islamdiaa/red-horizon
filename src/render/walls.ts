@@ -8,7 +8,7 @@ import { M, S, FSTYLE, banner, floodlight, ladder, mergeChild, warnLight, type F
 import { bodyMaterialInstanced, freshBodyMaterial, shadowDepthMaterial } from './models/materials';
 
 /**
- * [STRUCT] Auto-connecting walls, rendered with instancing and the shared body material (weathering, snow,
+ * Auto-connecting walls, rendered with instancing and the shared body material (weathering, snow,
  * team colour): concrete walls get watch towers at their ends and corners and team banners on some spans,
  * sandbags and barbed wire stay low. A post sits at every wall cell, arms (length 0.5 along +X) reach toward
  * each connected neighbour. One instanced mesh per (kind, piece, owner colour / faction) that is in use.

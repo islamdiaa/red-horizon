@@ -1,5 +1,5 @@
 #!/bin/bash
-# [PIPE] (Re)start a no-HMR vite test server for HD-model checks: tools/assets/restart-view-server.sh [port=5231]
+# (Re)start a no-HMR vite test server for HD-model checks: tools/assets/restart-view-server.sh [port=5231]
 # Needs tools/vite.<name>.config.ts with that port (copy tools/vite.test.config.ts). Restart after building a NEW
 # model: vite's public-file list is frozen when file watching is off, so new .glb files 404 (index.html) until then.
 cd "$(dirname "$0")/../.."

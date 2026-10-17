@@ -336,11 +336,11 @@ export function setBodyTime(t: number): void {
   uBodyTime.value = t;
 }
 
-/** [STRUCT] Climate snow cover shared by every body material (0 = none, 1 = deep winter). */
+/** Climate snow cover shared by every body material (0 = none, 1 = deep winter). */
 const uRhSnow = { value: 0 };
 
 /**
- * [STRUCT] Snow that has settled on models: 1 for the winter climate, 0 elsewhere. Settles on up-facing
+ * Snow that has settled on models: 1 for the winter climate, 0 elsewhere. Settles on up-facing
  * surfaces (scaled per part by Mat.snow and per model by NB.snow; kept out of crevices). Falling snow is
  * added on top by the weather surface patch (uWxSnow). The bridge renderer sets it from the map climate.
  */
@@ -348,18 +348,18 @@ export function setModelSnow(k: number): void {
   uRhSnow.value = Math.max(0, Math.min(1, k));
 }
 
-/** [HD] The clock and settled-snow uniforms shared by every body material (HD materials bind them too). */
+/** The clock and settled-snow uniforms shared by every body material (HD materials bind them too). */
 export const BODY_SHARED_UNIFORMS = { uBodyTime, uRhSnow };
 
-/** [STRUCT] Current settled-snow level (thumbnails render clean and restore it afterwards). */
+/** Current settled-snow level (thumbnails render clean and restore it afterwards). */
 export function getModelSnow(): number {
   return uRhSnow.value;
 }
 
-/** [STRUCT] Body shader detail: 0 = Low preset (no edge wear / streak / bump work), 1 = full. */
+/** Body shader detail: 0 = Low preset (no edge wear / streak / bump work), 1 = full. */
 let bodyDetail = 1;
 
-/** [STRUCT] Switch the body shader detail (recompiles the cached body materials when it changes). */
+/** Switch the body shader detail (recompiles the cached body materials when it changes). */
 export function setBodyDetail(level: number): void {
   const l = level > 0 ? 1 : 0;
   if (l === bodyDetail) return;
@@ -385,10 +385,10 @@ export function setLitMaterialPatch(fn: ((m: THREE.MeshStandardMaterial) => void
   if (!fn) return;
   for (const m of bodyCache.values()) applyLitPatch(m);
   for (const m of trackMats ?? []) applyLitPatch(m);
-  for (const m of extraLit) applyLitPatch(m); // [HD]
+  for (const m of extraLit) applyLitPatch(m);
 }
 
-/** [HD] Other lit model materials (HD models, hd.ts): patched like the body materials, now and later. */
+/** Other lit model materials (HD models, hd.ts): patched like the body materials, now and later. */
 const extraLit = new Set<THREE.MeshStandardMaterial>();
 export function registerLitMaterial(m: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
   extraLit.add(m);
@@ -420,7 +420,7 @@ export function conditionTeamColor(hex: number): THREE.Color {
   return team;
 }
 
-// [META] Cosmetic paint schemes (render only; src/meta/unlocks.ts, applied by src/meta/cosmetics.ts): the local
+// Cosmetic paint schemes (render only; src/meta/unlocks.ts, applied by src/meta/cosmetics.ts): the local
 // player's units can wear a paint scheme (Arctic White, Desert Tan, Night Black, Parade Gloss...) with a hint of
 // the team colour showing through. Body materials (procedural and HD) read their team colour and gloss from
 // shared values per team colour, so a scheme change repaints existing materials in place: no recompile.
@@ -438,20 +438,20 @@ function paintTeamColor(out: THREE.Color, hex: number, scale: number): THREE.Col
   }
   return out.multiplyScalar(scale);
 }
-/** [META] The shared uTeam value of a team colour (`scale`: HD bodies divide out their baked grey). */
+/** The shared uTeam value of a team colour (`scale`: HD bodies divide out their baked grey). */
 export function teamUniform(hex: number, scale = 1): { value: THREE.Color } {
   const key = `${hex}|${scale}`;
   let c = teamColorVals.get(key);
   if (!c) teamColorVals.set(key, (c = paintTeamColor(new THREE.Color(), hex, scale)));
   return { value: c };
 }
-/** [META] The shared gloss uniform of a team colour (0 = as modelled, 1 = polished paint). */
+/** The shared gloss uniform of a team colour (0 = as modelled, 1 = polished paint). */
 export function teamGlossUniform(hex: number): { value: number } {
   let u = teamGlossVals.get(hex);
   if (!u) teamGlossVals.set(hex, (u = { value: hex === paintHex && paintNow ? paintNow.gloss : 0 }));
   return u;
 }
-/** [META] Repaint the models of one team colour with a scheme (null: factory colours). One scheme at a time. */
+/** Repaint the models of one team colour with a scheme (null: factory colours). One scheme at a time. */
 export function setPaintScheme(hex: number, scheme: PaintScheme | null): void {
   const prev = paintHex;
   paintHex = scheme ? hex : -1;
@@ -473,8 +473,8 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
   });
   if (!bodyDetail) mat.defines = { RH_LOW: '' };
   const uniforms = {
-    uTeam: teamUniform(teamHex), // [META] shared per team colour (paint schemes)
-    uRhGloss: teamGlossUniform(teamHex), // [META]
+    uTeam: teamUniform(teamHex), // shared per team colour (paint schemes)
+    uRhGloss: teamGlossUniform(teamHex),
     uScorch: { value: VARIANT_SCORCH[variant] ?? 0 },
     uEmber: { value: VARIANT_EMBER[variant] ?? 0 },
     uFlash: { value: variant === BodyVariant.Electro ? new THREE.Color(0.9, 1.4, 3.2) : new THREE.Color(0, 0, 0) },
@@ -488,7 +488,7 @@ function makeBodyMaterial(teamHex: number, variant: number, powered: boolean): T
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        // [STRUCT] wear: edge wear, streaks, cavity, snow/seed (see builder.ts wearAttr); vRhP: model-space
+        // wear: edge wear, streaks, cavity, snow/seed (see builder.ts wearAttr); vRhP: model-space
         // position for snow noise; vRhPh: per-instance phase of animated emissive lights
         '#include <common>\nattribute vec4 pbr;\nattribute vec4 wear;\nvarying vec4 vPbr;\nvarying vec4 vWear;\nvarying vec3 vRhN;\nvarying vec3 vRhP;\nvarying float vRhPh;',
       )
@@ -537,13 +537,13 @@ float detail = dSel < 0.5 ? dTex.r : ( dSel < 1.5 ? dTex.g : ( dSel < 2.5 ? dTex
 detail *= 1.15;
 diffuseColor.rgb *= mix( vec3( 1.0 ), uTeam, vPbr.z ) * detail * ( emisK > 0.0 ? 0.3 : 1.0 );
 float rhUp = clamp( normalize( vRhN ).y, 0.0, 1.0 );
-// [STRUCT] material flags packed above the roughness (builder.ts MAT_*): camo, mud, soot
+// material flags packed above the roughness (builder.ts MAT_*): camo, mud, soot
 float rhFlags = floor( vPbr.y * 0.5 + 0.0001 );
 float rhRough = vPbr.y - 2.0 * rhFlags;
 float rhCamoF = mod( rhFlags, 2.0 );
 float rhMudF = mod( floor( rhFlags * 0.5 ), 2.0 );
 float rhSootF = floor( rhFlags * 0.25 );
-// [STRUCT] weathering v5: per-part tone, large-scale mottling, cavity occlusion
+// weathering: per-part tone, large-scale mottling, cavity occlusion
 float rhSeed = fract( vWear.w );
 float rhSnowK = floor( vWear.w + 0.001 ) * ( 1.0 / 7.0 );
 float rhVar = texture2D( uDmg, vMapUv * 0.083 + rhSeed * 0.7 ).a;
@@ -585,7 +585,7 @@ if ( uRhSnow > 0.0 ) {
       )
       .replace(
         '#include <color_fragment>',
-        // [STRUCT] colour replacements go after the vertex colour is applied: bare steel in paint chips, snow
+        // colour replacements go after the vertex colour is applied: bare steel in paint chips, snow
         `#include <color_fragment>
 // camouflage: blotches of a dark shade and a light tone (sand, or snow white in winter) over the team paint
 if ( rhCamoF > 0.5 ) {
@@ -626,7 +626,7 @@ roughnessFactor = clamp( roughnessFactor + ( rhSeed - 0.5 ) * 0.1 * surfK, 0.04,
 roughnessFactor = mix( roughnessFactor, 0.95, max( rhMudK, rhSootK ) );
 roughnessFactor = mix( roughnessFactor, 0.8, rhSnow );
 #ifndef RH_LOW
-roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.35, uRhGloss * vPbr.z * surfK ); // [META] parade gloss (not on Low)
+roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.35, uRhGloss * vPbr.z * surfK ); // parade gloss (not on Low)
 #endif
 // #include <roughnessmap_fragment>`,
       )
@@ -656,7 +656,7 @@ roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.35, uRhGloss * vPbr.
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-// [STRUCT] baked emissive animation (Glow.a): 1 blink, 2 pulse, 3 fire flicker, 4 strobe
+// baked emissive animation (Glow.a): 1 blink, 2 pulse, 3 fire flicker, 4 strobe
 float rhEA = 1.0;
 if ( emisK > 0.0 && vWear.x > 0.5 ) {
   float rhMode = floor( vWear.x );
@@ -697,7 +697,7 @@ export function bodyMaterial(teamHex: number, variant: number = BodyVariant.Norm
 const instCache = new Map<number, THREE.MeshStandardMaterial>();
 
 /**
- * [STRUCT] Body material for instanced meshes (walls): same shader and team colour as bodyMaterial, but its
+ * Body material for instanced meshes (walls): same shader and team colour as bodyMaterial, but its
  * own material object (three re-resolves the program when one material alternates instanced / plain).
  */
 export function bodyMaterialInstanced(teamHex: number): THREE.MeshStandardMaterial {
@@ -711,7 +711,7 @@ export function bodyMaterialInstanced(teamHex: number): THREE.MeshStandardMateri
   return m;
 }
 
-/** [STRUCT] A fresh, uncached body material (for previews that dispose their materials). */
+/** A fresh, uncached body material (for previews that dispose their materials). */
 export function freshBodyMaterial(teamHex: number): THREE.MeshStandardMaterial {
   return makeBodyMaterial(teamHex, BodyVariant.Normal, true);
 }

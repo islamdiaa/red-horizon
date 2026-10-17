@@ -1,5 +1,5 @@
 /**
- * [VARIETY] Procedural models of the neutral tech structures (sim/neutral.ts) and the supply convoy's truck
+ * Procedural models of the neutral tech structures (sim/neutral.ts) and the supply convoy's truck
  * (sim/events.ts). Team-coloured trim reads neutral grey until a commander captures the structure.
  *
  *   oild  Oil Derrick (2x2): lattice derrick with a rocking pumpjack, storage tanks

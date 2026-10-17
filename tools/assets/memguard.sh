@@ -1,5 +1,5 @@
 #!/bin/bash
-# [PIPE] Memory guard for the shared box (Plex, Immich... run here too): wait until /proc/meminfo MemAvailable
+# Memory guard for shared machines: wait until /proc/meminfo MemAvailable
 # is at least <MB> (default 3072), polling every 30 s. Run it before starting a headless browser or Blender:
 #   tools/assets/memguard.sh 3072 && node tools/assets/view.mjs ...
 NEED=${1:-3072}

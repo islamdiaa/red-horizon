@@ -1,5 +1,5 @@
 /**
- * Round-5 MODES data types (no DOM, no runtime code): branching replays ("rewind & take command"),
+ * Game-mode data types (no DOM, no runtime code): branching replays ("rewind & take command"),
  * challenges, King of the Hill and co-op survival. They travel inside GameSetup (src/game.ts), save
  * games and replay files, so everything here is plain JSON.
  */

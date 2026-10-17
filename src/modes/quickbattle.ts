@@ -1,5 +1,5 @@
 /**
- * [VARIETY] Quick Battle: one click into a well-tuned random skirmish. DOM-free: the roll is a pure function of a
+ * Quick Battle: one click into a well-tuned random skirmish. DOM-free: the roll is a pure function of a
  * seed and the commander's record, so the menu, the tests and "play again with the same setup" agree.
  *
  * Rolled: a good map (a curated two-player map or a generated battlefield with balanced parameters), climate, time

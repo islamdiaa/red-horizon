@@ -1,5 +1,5 @@
 /**
- * [ARMY] Repeat production ("loop"): a unit type switched on at a factory keeps being built while money allows.
+ * Repeat production ("loop"): a unit type switched on at a factory keeps being built while money allows.
  *
  * Red Alert builds one item per production strip; Red Horizon queues up to QUEUE_LIMIT, and a loop keeps one
  * copy of each looped type in its queue. The next copy is only queued once the player can pay for all of it, so
@@ -15,7 +15,7 @@ import { UNITS } from '../data/rules';
 import { Building } from './entities';
 import { queueKindOf, type Player } from './player';
 import { QUEUE_LIMIT, factoriesFor } from './production';
-import { costOf } from './doctrine'; // [DOCTRINE] doctrine prices (= cost under Classic rules)
+import { costOf } from './doctrine'; // doctrine prices (= cost under Classic rules)
 import type { Command } from './types';
 import type { World } from './world';
 

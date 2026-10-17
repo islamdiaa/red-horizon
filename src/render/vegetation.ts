@@ -329,7 +329,7 @@ class TriBuilder {
 }
 
 /**
- * [ENV] Conifer of drooping, jagged tiers (branch tips stick out, the rim sags). `snow` 0..1: a white mantle
+ * Conifer of drooping, jagged tiers (branch tips stick out, the rim sags). `snow` 0..1: a white mantle
  * lies on the upper part of every tier, leaving the dark undersides and branch tips showing (snow-laden).
  */
 function tieredPineGeometry(seed: number, tall: number, snow: number, lod = false, green: [number, number, number] = [0.045, 0.13, 0.065]): THREE.BufferGeometry {
@@ -380,7 +380,7 @@ function tieredPineGeometry(seed: number, tall: number, snow: number, lod = fals
 }
 
 /**
- * [ENV] Stratified rock: irregular slabs stacked like sedimentary layers, each its own tone, flat tops (snow in
+ * Stratified rock: irregular slabs stacked like sedimentary layers, each its own tone, flat tops (snow in
  * winter), the upper layers stepped back. `elong` stretches it into a wall for cliff edges.
  */
 function strataRockGeometry(seed: number, tint: [number, number, number], lod: boolean, snow: number, layers = 4, taper = 0.13, elong = 1): THREE.BufferGeometry {
@@ -439,7 +439,7 @@ function strataRockGeometry(seed: number, tint: [number, number, number], lod: b
   return b.geometry();
 }
 
-/** [ENV] Chunky boulder: few big facets, banded like the cliffs, snow cap in winter. */
+/** Chunky boulder: few big facets, banded like the cliffs, snow cap in winter. */
 function chunkyBoulderGeometry(seed: number, tint: [number, number, number], lod: boolean, snow: number): THREE.BufferGeometry {
   const g = lumpy(new THREE.DodecahedronGeometry(0.5, 0), 0.32, seed, true);
   g.scale(1.15, 0.72, 0.95);
@@ -462,7 +462,7 @@ function chunkyBoulderGeometry(seed: number, tint: [number, number, number], lod
   return f;
 }
 
-/** [ENV] A second shrub shape: a spray of upright fronds / twigs (fern, dry scrub or snowy shrub). */
+/** A second shrub shape: a spray of upright fronds / twigs (fern, dry scrub or snowy shrub). */
 function shrubGeometry(seed: number, color: [number, number, number], snow: number): THREE.BufferGeometry {
   const b = new TriBuilder();
   const n = 7;
@@ -580,7 +580,7 @@ export class Vegetation {
 
     // ---- trees -------------------------------------------------------------
     const treeSet = (lod: boolean): THREE.BufferGeometry[] => {
-      // [ENV] winter: snow-laden firs of drooping tiers (one lightly dusted); temperate: tiered firs and broadleaves
+      // winter: snow-laden firs of drooping tiers (one lightly dusted); temperate: tiered firs and broadleaves
       if (climate === 'winter') return [tieredPineGeometry(1, 1.0, 0.9, lod), tieredPineGeometry(2, 1.3, 0.85, lod, [0.04, 0.115, 0.07]), tieredPineGeometry(5, 1.12, 1, lod), tieredPineGeometry(6, 0.9, 0.55, lod, [0.05, 0.12, 0.06])];
       if (climate === 'desert') return [tintFoliage(broadleafGeometry(3, lod), 0.17, 0.17, 0.08), tintFoliage(broadleafGeometry(4, lod), 0.2, 0.18, 0.09), tintFoliage(pineGeometry(7, 0.8, lod), 0.12, 0.14, 0.07, 0.4), tintFoliage(broadleafGeometry(8, lod), 0.23, 0.2, 0.1)];
       return [tieredPineGeometry(1, 1.0, 0, lod), tieredPineGeometry(2, 1.28, 0, lod, [0.05, 0.15, 0.06]), broadleafGeometry(3, lod), broadleafGeometry(4, lod)];
@@ -606,7 +606,7 @@ export class Vegetation {
       treeItems[v].push({ m: mat4(), c: new THREE.Color(tint * (0.95 + hash2(cx, cy, 9) * 0.1), tint, tint * 0.95), x, y });
       treeCells[v].push(i);
       treePos[v].push([x, z, y]);
-      // [ENV] denser forest: a smaller companion tree in many forest cells (not on low)
+      // denser forest: a smaller companion tree in many forest cells (not on low)
       if (lodOn && hash2(cx, cy, 11) < (climate === 'desert' ? 0.25 : 0.6)) {
         const v2 = (v + 1 + Math.floor(hash2(cx, cy, 12) * 3)) % 4;
         const a = hash2(cx, cy, 13) * Math.PI * 2;
@@ -645,7 +645,7 @@ export class Vegetation {
     });
 
     // ---- rock: layered outcrops, cliff walls along the edges of rocky ground, chunky boulders -------------
-    // [ENV] (was: lumpy boulders) three geometries as before: outcrop, cliff wall, boulder (+ their LODs)
+    // three geometries: outcrop, cliff wall, boulder (+ their LODs)
     const rockTint: [number, number, number] = climate === 'winter' ? [0.17, 0.172, 0.19] : climate === 'desert' ? [0.42, 0.28, 0.19] : [0.27, 0.25, 0.22];
     const rockSnow = climate === 'winter' ? 0.92 : 0;
     const rockSet = (lod: boolean) => [
@@ -722,7 +722,7 @@ export class Vegetation {
         bushItems.push({ m: mat4(), x, y });
       }
     }
-    // [ENV] variety: about a third of them are a second shrub shape (ferns / dry scrub / snowy twigs; not on low)
+    // variety: about a third of them are a second shrub shape (ferns / dry scrub / snowy twigs; not on low)
     const shrubItems: Item[] = [];
     if (lodOn) {
       for (let k = bushItems.length - 1; k >= 0; k--) {
@@ -752,7 +752,7 @@ export class Vegetation {
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
       const i = m.idx(cx, cy);
       const t = m.terrain[i];
-      // [ENV] reeds: tall, lush tufts crowd the banks (temperate; sand banks too)
+      // reeds: tall, lush tufts crowd the banks (temperate; sand banks too)
       const bank = climate === 'temperate' && lodOn && (isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1));
       if (((t !== T.Clear && t !== T.Dirt) && !(bank && t === T.Sand)) || m.tree[i] || m.ore[i]) continue;
       const lush = gn.fbm(cx * 0.12, cy * 0.12, 3);
@@ -780,11 +780,6 @@ export class Vegetation {
   private add(c: CulledInstances): CulledInstances {
     this.all.push(c);
     return c;
-  }
-
-  /** @deprecated scenery trees are passed to the constructor now (shared draw calls); kept for API compatibility. */
-  addSceneryTrees(spots: [number, number, number][]) {
-    void spots;
   }
 
   private addCellRef(cell: number, inst: CulledInstances, index: number) {

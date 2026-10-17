@@ -156,7 +156,7 @@ export class CinematicPass extends Pass {
 }
 
 // ---------------------------------------------------------------------------------------------
-// [JUICE] Battle flourishes: a moment of slow motion under letterbox bars and a shallow lens when a
+// Battle flourishes: a moment of slow motion under letterbox bars and a shallow lens when a
 // superweapon lands on screen or an enemy's last structure falls. Never in normal combat, never with
 // reduceMotion, never while another cinematic owns the screen. The player keeps full control.
 

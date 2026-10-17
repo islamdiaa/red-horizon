@@ -46,7 +46,7 @@ function shard(r: number, h: number, x: number, z: number, lean: number, dir: nu
   return g.translate(x, -0.02, z);
 }
 
-/** [ENV] Ore pile: a rusty, lumpy mound bristling with golden crystal shards (was: plain golden lumps). */
+/** Ore pile: a rusty, lumpy mound bristling with golden crystal shards. */
 function goldCluster(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const mound = lumpy(new THREE.IcosahedronGeometry(0.17, 0), 0.4, 101);
@@ -63,7 +63,7 @@ function goldCluster(): THREE.BufferGeometry {
   return mergeGeometries(parts)!.scale(1.25, 1.25, 1.25);
 }
 
-/** [ENV] Gem cluster: tall glowing crystals on a dark rock base. */
+/** Gem cluster: tall glowing crystals on a dark rock base. */
 function gemCluster(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const base = lumpy(new THREE.DodecahedronGeometry(0.12, 0), 0.4, 111);
@@ -101,7 +101,7 @@ function sparkleMaterial(params: THREE.MeshStandardMaterialParameters, uTime: { 
         {
           vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
           float ph = fract(sin(dot(ip.xz + transformed.xz * 13.0, vec2(12.9898, 78.233))) * 43758.5453);
-          // [ENV] crystals glint more often (rock never)
+          // crystals glint more often (rock never)
           vSpark = pow(max(0.0, sin(uTime * (0.7 + ph * 1.5) + ph * 40.0)), 40.0) * step(0.55, ph) * aMetal;
         }`);
     shader.fragmentShader = shader.fragmentShader

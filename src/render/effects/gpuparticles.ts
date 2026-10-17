@@ -72,7 +72,7 @@ export interface BurstOptions {
   jitter?: number;
 }
 
-/** What effect recipes (and DEST's destruction code) call. */
+/** What effect recipes (and the destruction code) call. */
 export interface GpuParticleApi {
   readonly capacity: number;
   /** 0..1 count multiplier for the quality preset (bursts scale by it; emit() does not). */

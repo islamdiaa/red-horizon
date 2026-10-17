@@ -4,8 +4,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // The project lives on a network share where inotify events are unreliable; poll instead,
-    // and skip the large reference source tree.
+    // Poll for changes (inotify events are unreliable on network shares) and skip large local-only
+    // folders: reference/ (an optional checkout of the original Red Alert source) and screenshots/.
     watch: { usePolling: true, interval: 300, ignored: ['**/reference/**', '**/screenshots/**', '**/node_modules/**'] },
   },
   // pre-bundle three.js add-ons together so the dev server never loads two copies of three
@@ -20,7 +20,7 @@ export default defineConfig({
       'three/examples/jsm/shaders/FXAAShader.js',
       'three/examples/jsm/environments/RoomEnvironment.js',
       'three/examples/jsm/utils/BufferGeometryUtils.js',
-      'three/examples/jsm/loaders/GLTFLoader.js', // [HD] baked models (src/render/models/hd.ts)
+      'three/examples/jsm/loaders/GLTFLoader.js', // baked models (src/render/models/hd.ts)
     ],
   },
   build: {

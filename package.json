@@ -2,6 +2,25 @@
   "name": "red-horizon",
   "private": true,
   "version": "0.1.0",
+  "description": "The gameplay of Command & Conquer: Red Alert, rebuilt for the browser in real-time 3D (TypeScript, three.js, no copyrighted assets).",
+  "keywords": [
+    "rts",
+    "real-time-strategy",
+    "red-alert",
+    "game",
+    "threejs",
+    "webgl",
+    "typescript",
+    "browser-game"
+  ],
+  "homepage": "https://github.com/islamdiaa/red-horizon#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/islamdiaa/red-horizon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/islamdiaa/red-horizon/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite --host",

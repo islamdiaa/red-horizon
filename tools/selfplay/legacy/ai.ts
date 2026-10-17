@@ -1,6 +1,7 @@
-// Frozen copy of the round-4 skirmish AI (src/sim/ai*.ts before the round-5 AI work), used by the self-play
-// harness as a fixed benchmark opponent ("legacy"). Only change: the Aftermath-content hook (aftermathAI / aiManaged) the
-// live AI also calls, so both build the same units. Otherwise do not edit: it is the yardstick for "is the new AI better?".
+// Frozen copy of an earlier skirmish AI (src/sim/ai*.ts before intel, scouting, counter-composition and
+// personalities were added), used by the self-play harness as a fixed benchmark opponent ("legacy"). Only change:
+// the Aftermath-content hook (aftermathAI / aiManaged) the live AI also calls, so both build the same units.
+// Otherwise do not edit: it is the yardstick for "is the new AI better?".
 import { BUILDINGS, UNITS, type BuildingTypeDef, type Faction } from '../../../src/data/rules';
 import { Building, Entity, Unit } from '../../../src/sim/entities';
 import type { Player } from '../../../src/sim/player';

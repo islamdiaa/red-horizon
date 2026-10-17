@@ -1,4 +1,4 @@
-// [META] Contracts, Commendations and cosmetic unlocks (src/meta/contracts.ts, src/meta/unlocks.ts, MetaTracker):
+// Contracts, Commendations and cosmetic unlocks (src/meta/contracts.ts, src/meta/unlocks.ts, MetaTracker):
 // deterministic rotation by date, progress from synthetic game events, rewards paid exactly once, rerolls,
 // migration of old profiles and robustness against corrupted / imported profile data.
 import { test, describe } from 'node:test';

@@ -1,4 +1,4 @@
-// [JUICE] CPU cost of the effect recipes, base vs. with the JUICE layers, on the real particle / beam batches
+// CPU cost of the effect recipes, base vs. with the game-feel layers, on the real particle / beam batches
 // and dynamic-light store (no GPU needed: batches only fill typed arrays). Prints µs per call.
 //   node --import tsx tools/qa/juice_cpu.ts
 import * as THREE from 'three';

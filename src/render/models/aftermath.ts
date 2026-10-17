@@ -1,5 +1,5 @@
 /**
- * Aftermath / Counterstrike vehicles (round 5). Face +X, origin at ground centre.
+ * Aftermath / Counterstrike vehicles. Face +X, origin at ground centre.
  *   ttnk Tesla Tank       tracked hull, rotating turret carrying a tesla coil (orb glow follows charge / firing)
  *   qtnk M.A.D. Tank      heavy chassis with a seismic hammer rig: anim.deployed lowers the outriggers,
  *                         anim.charge (0..1, deploy -> last pulse) raises the ram while arming, then slams
@@ -86,7 +86,7 @@ function skirt(nb: NB, x0: number, x1: number, y: number, z: number, h: number, 
 
 function teslaTank(): ModelTemplate {
   const r = root();
-  // [UNITS] olive drab with team panels, road wheels with hubs close up
+  // olive drab with team panels, road wheels with hubs close up
   runningGear(r, { L: 0.84, H: 0.15, W: 0.13, Z: 0.22, wheels: 6, wheelK: 0.38 });
   r.box(P.sovDark, 0.76, 0.08, 0.32, 0, 0.095, 0, { b: 0.01 });
   r.add(
@@ -348,7 +348,7 @@ function madAnim(c: Ctx, s: ModelAnimState): void {
 
 function chronoTank(): ModelTemplate {
   const r = root();
-  // [UNITS] Allied team paint with camouflage
+  // Allied team paint with camouflage
   runningGear(r, { L: 0.8, H: 0.13, W: 0.12, Z: 0.205, wheels: 5, wheelK: 0.38 });
   r.box(P.allyDark, 0.72, 0.07, 0.3, 0, 0.085, 0, { b: 0.01 });
   r.add(
@@ -657,10 +657,7 @@ function phaseTransport(): ModelTemplate {
   });
 }
 
-/**
- * [UNITS] The minelayer / mobile gap generator / radar jammer rebuilt in vehicles.ts ride along here: index.ts
- * spreads AFTERMATH_BUILDERS after SUPPORT_BUILDERS, so these supersede the support.ts versions.
- */
+/** Aftermath vehicles, plus the minelayer / mobile gap generator / radar jammer from vehicles.ts. */
 export const AFTERMATH_BUILDERS: Record<string, (fac?: ModelFaction) => ModelTemplate> = {
   ...SUPPORT_VEHICLE_BUILDERS,
   ttnk: teslaTank,

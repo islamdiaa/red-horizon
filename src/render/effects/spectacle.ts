@@ -1,5 +1,5 @@
 /**
- * [JUICE] Battle spectacle recipes layered on top of the base effects: hit flashes, flak air bursts, heavy
+ * Battle spectacle recipes layered on top of the base effects: hit flashes, flak air bursts, heavy
  * vehicle cook-offs, explosion variety (dirt geysers, spark showers, shock rings), veterancy chevron bursts,
  * milestone light pillars and the tall smoke columns rising from burning structures and wrecks.
  *

@@ -86,7 +86,7 @@ function explosion(s: Synth, dest: AudioNode, t: number, size: number, verb: IrK
   }
 }
 
-/** [JUICE] Metal groan: a resonant, band-passed saw bending down (a hull creaking and settling). */
+/** Metal groan: a resonant, band-passed saw bending down (a hull creaking and settling). */
 function groan(s: Synth, dest: AudioNode, t: number, len: number, f: number, level: number): void {
   const o = s.osc('sawtooth', f, t, len + 0.4);
   s.sweep(o.frequency, t, f * 1.08, t + len, f * 0.72);
@@ -100,7 +100,7 @@ function groan(s: Synth, dest: AudioNode, t: number, len: number, f: number, lev
   s.metal(dest, t + len * 0.3, s.r(300, 420), [1, 1.73, 2.9], 0.12, level * 0.35);
 }
 
-/** [JUICE] Debris raining back down: a dense, then thinning clatter of stones and metal bits. */
+/** Debris raining back down: a dense, then thinning clatter of stones and metal bits. */
 function debrisTail(s: Synth, dest: AudioNode, t: number, span: number, level: number): void {
   const n = Math.round(26 * span);
   for (let i = 0; i < n; i++) {
@@ -792,7 +792,7 @@ export const RECIPES: Record<AnyKey, Recipe> = {
     },
   },
 
-  // [JUICE] kill punches: a sub drop under the blast, the hull ringing and groaning, debris raining back
+  // kill punches: a sub drop under the blast, the hull ringing and groaning, debris raining back
   kill_armor: {
     dur: 3.4, peak: -4, vars: 3, range: 1.3, maxVoices: 3,
     build(s, t) {

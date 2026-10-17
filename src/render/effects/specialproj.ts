@@ -1,5 +1,5 @@
 /**
- * Round-4 projectile visuals that need more than a sprite + ribbon:
+ * Projectile visuals that need more than a sprite + ribbon:
  *   torpedo     – dark shape gliding just under the surface, foam wake line and bubbles
  *   depthcharge – tumbling barrel (3D body) that splashes into the water
  *   bomb        – falling bomb (3D body) with a faint air streak; raises the 'bomb' cue (whistle)

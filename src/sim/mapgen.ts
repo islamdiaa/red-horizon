@@ -13,7 +13,7 @@ export interface MapGenOptions {
   ore: number;           // 0..1 ore richness
   /** Lay bridges over narrow water that would otherwise force a long detour (default: on, except sea maps; bridges.ts). */
   bridges?: boolean;
-  /** [CONQ] 0..1 extra rock / cliff ridges (mountain battlefields); default 0 = the classic amount. */
+  /** 0..1 extra rock / cliff ridges (mountain battlefields); default 0 = the classic amount. */
   rocks?: number;
 }
 
@@ -127,7 +127,7 @@ export function generateMap(opts: MapGenOptions): GameMap {
       let t: number = T.Clear;
       if (sea && seaAt(cx + 0.5, cy + 0.5, (noise.fbm(cx * 0.11 + 500, cy * 0.11 + 500, 2) - 0.5) * 3)) t = T.Water;
       else if (lakes > 0 && wf < waterT && ds > baseR + 5) t = T.Water;
-      else if (rf > 0.7 - (opts.rocks ?? 0) * 0.12 && ds > baseR + 3) t = T.Rock; // [CONQ] rocks
+      else if (rf > 0.7 - (opts.rocks ?? 0) * 0.12 && ds > baseR + 3) t = T.Rock; // rocks
       else if (df > 0.66) t = T.Dirt;
       map.terrain[i] = t;
     }
@@ -408,7 +408,7 @@ export function floodReach(map: GameMap, sx: number, sy: number): Uint8Array {
 }
 
 // =====================================================================================================
-// [VARIETY] Neutral tech structures (Commander rules, sim/neutral.ts)
+// Neutral tech structures (Commander rules, sim/neutral.ts)
 // =====================================================================================================
 
 /** A neutral tech structure to raise: type id and top-left footprint cell. */
@@ -508,7 +508,7 @@ export function neutralSites(map: GameMap, players: number, seed: number): Neutr
 }
 
 /**
- * [VARIETY] The symmetry a map was built with, read off its terrain: 'rot2' (two players, point symmetry),
+ * The symmetry a map was built with, read off its terrain: 'rot2' (two players, point symmetry),
  * 'mirror4' or 'rot4' (three or four players), or null when it has none of them (no neutral structures then).
  */
 export function mapSymmetry(map: GameMap, players: number): 'rot2' | 'mirror4' | 'rot4' | null {

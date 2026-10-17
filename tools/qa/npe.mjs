@@ -1,8 +1,8 @@
 // QA: new-player experience -- the first ~5 game minutes from the real main menu, real mouse/keyboard for every action.
 // node tools/qa/npe.mjs   (server on :5192)
 // Harness notes:
-//  * QA_SHIM (default on) clamps rAF timestamps to performance.now() to work around the negative-dt bug in
-//    Game.frame (see negdt_probe.mjs); without it a slow machine shows a white screen and frozen HUD for minutes.
+//  * QA_SHIM (default on) clamps rAF timestamps to performance.now(), so a slow renderer never hands
+//    Game.frame a timestamp older than the one it started from (QA_SHIM=0 runs without it).
 //  * Waiting periods are skipped with __game.fastForward(2) chunks (events still processed) because SwiftShader runs at ~1-10 FPS.
 import { launch, shot, state, toScreen, toasts, sleep, BASE, report } from './browser.mjs';
 

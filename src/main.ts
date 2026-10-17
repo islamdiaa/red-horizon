@@ -20,17 +20,17 @@ import { detectQuality } from './platform/gpu';
 import { registerServiceWorker } from './platform/pwa';
 import { enterFullscreen } from './platform/fullscreen';
 import { hdModelsWanted, loadSettings, saveSettings } from './ui/settings';
-import { hdModelsEnabled, hdStatus, prefetchHdFiles, setHdModels } from './render/models/hd'; // [HD]
-import { preloadHd as preloadHdModelsFor } from './render/models'; // [HD]
-import { attachPlayback } from './replay/playback'; // [D] replays
+import { hdModelsEnabled, hdStatus, prefetchHdFiles, setHdModels } from './render/models/hd';
+import { preloadHd as preloadHdModelsFor } from './render/models';
+import { attachPlayback } from './replay/playback'; // replays
 import { resolveTestSetup } from './replay/launch';
-import { customMissionSetup, initEditorStore } from './editor/store'; // [EDIT]
-import { activeModSet, showModBadge, showMods } from './mods'; // [EDIT] mods
-import { attachModes, modesOnEnd, offerMoments, setModeHost } from './modes/ui'; // [MODES] KOTH, challenges, branches, co-op
-import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conquest'; // [CONQ]
-import { attachVariety } from './ui/variety-hud'; // [VARIETY]
-import { showQuickCard } from './ui/variety'; // [VARIETY]
-import './ui/doctrine-picker'; // [DOCTRINE] registers the doctrine picker in the skirmish Rules tab
+import { customMissionSetup, initEditorStore } from './editor/store';
+import { activeModSet, showModBadge, showMods } from './mods'; // mods
+import { attachModes, modesOnEnd, offerMoments, setModeHost } from './modes/ui'; // KOTH, challenges, branches, co-op
+import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conquest';
+import { attachVariety } from './ui/variety-hud';
+import { showQuickCard } from './ui/variety';
+import './ui/doctrine-picker'; // registers the doctrine picker in the skirmish Rules tab
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -52,7 +52,7 @@ const numParam = (name: string, def: number, lo: number, hi: number): number => 
 const audio = new AudioSystem();
 let game: Game | null = null;
 let lastSetup: GameSetup | null = null;
-/** [EDIT] A playtest started from the editor: leaving the match goes back to the editor. */
+/** A playtest started from the editor: leaving the match goes back to the editor. */
 let returnToEditor = false;
 const loading = document.getElementById('loading')!;
 const loadingBar = loading.querySelector('.bar div') as HTMLElement;
@@ -80,17 +80,17 @@ const menus = new Menus(audio, {
   start: (setup) => void startGame(setup),
   resume: () => game?.resume(),
   // same map, same opponents, from the beginning (a loaded game restarts its map from scratch)
-  restart: (newMap) => { if (newMap && lastSetup?.quick && !lastSetup.replay) { menus.quickBattle(); return; } /* [VARIETY] "Play again" after a Quick Battle rolls a new one */ if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap && !lastSetup.branch && !lastSetup.challenge ? { seed: (Math.random() * 1e9) | 0 } : {}) }); }, // [MODES] a branch / challenge restarts from its moment
-  quit: () => { if (game?.setup.conquest && !game.world.gameOver) game.save('auto'); /* [CONQ] the campaign can resume this battle */ if (applyUpdate) return applyUpdate(); audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); }, // [EDIT] playtests return to the editor
+  restart: (newMap) => { if (newMap && lastSetup?.quick && !lastSetup.replay) { menus.quickBattle(); return; } /* "Play again" after a Quick Battle rolls a new one */ if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap && !lastSetup.branch && !lastSetup.challenge ? { seed: (Math.random() * 1e9) | 0 } : {}) }); }, // a branch / challenge restarts from its moment
+  quit: () => { if (game?.setup.conquest && !game.world.gameOver) game.save('auto'); /* the campaign can resume this battle */ if (applyUpdate) return applyUpdate(); audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); }, // playtests return to the editor
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
-  openConquest: () => openConquest(), // [CONQ]
-  conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? `Turn ${r.turn}` : null; }, // [CONQ]
+  openConquest: () => openConquest(),
+  conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? `Turn ${r.turn}` : null; },
   openChallenges: () => openChallenges(),
   openProfile: () => openProfile(),
   openBootCamp: () => deployMission('bootcamp'),
-  openEditor: () => openEditorScreen(), // [EDIT]
-  openMods: () => showMods({ play: (k) => audio.play(k), onBack: () => menus.showMain() }), // [EDIT]
+  openEditor: () => openEditorScreen(),
+  openMods: () => showMods({ play: (k) => audio.play(k), onBack: () => menus.showMain() }),
   continueInfo: () => {
     const s = latestSave();
     return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
@@ -101,7 +101,7 @@ const menus = new Menus(audio, {
   },
   saveGame: () => game?.save('manual') ?? false,
 });
-// [MODES] how mode screens (challenges, result, end-screen offers) start games and return to the menus
+// how mode screens (challenges, result, end-screen offers) start games and return to the menus
 setModeHost({ start: (s) => void startGame(s), quality: () => menus.settings.quality, toMenu: () => { audio.stopMusic(); startDemo(); }, openChallenges: () => openChallenges(), openReplays: () => menus.showReplays() });
 
 function latestSave(): SaveData | null {
@@ -118,7 +118,7 @@ setToastSound((k) => (k === 'rank' ? audio.stinger('promotion') : audio.play(k =
 
 /** Start a scripted mission (campaign, special operation or daily challenge); the mission defines the rest. */
 function deployMission(id: string) {
-  // [EDIT] a custom mission (editor) travels with its content, so saves rebuild it even if it is edited later
+  // a custom mission (editor) travels with its content, so saves rebuild it even if it is edited later
   const custom = customMissionSetup(id) ?? (lastSetup?.mission === id && lastSetup.customMission ? { customMission: lastSetup.customMission, customMap: lastSetup.customMap } : null);
   void startGame({
     faction: 'allies', color: 0x3d7be0, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
@@ -126,7 +126,7 @@ function deployMission(id: string) {
   });
 }
 
-/** [EDIT] Map & mission editor (the menu backdrop battle is stopped while it is open). */
+/** Map & mission editor (the menu backdrop battle is stopped while it is open). */
 function openEditorScreen() {
   returnToEditor = false;
   game?.dispose();
@@ -150,7 +150,7 @@ function openCampaign() {
   showCampaign({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onDeploy: (id) => deployMission(id) });
 }
 
-/** [CONQ] Conquest: the roguelite campaign across Europe (src/ui/conquest.ts). */
+/** Conquest: the roguelite campaign across Europe (src/ui/conquest.ts). */
 function openConquest(demo?: string) {
   // the strategic map screens load on demand (their own chunk)
   void import('./ui/conquest').then(({ showConquest }) => showConquest({
@@ -162,7 +162,7 @@ function openConquest(demo?: string) {
   })).catch((e) => reportError(e));
 }
 
-/** [CONQ] Start a conquest battle (the mission is built from the frozen battle spec). */
+/** Start a conquest battle (the mission is built from the frozen battle spec). */
 function deployConquest(c: ConquestSetup) {
   void startGame({
     faction: c.battle.faction, color: c.battle.faction === 'allies' ? 0x3d7be0 : 0xd23a2c, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
@@ -196,7 +196,7 @@ function hideLoading() {
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 /**
- * [HD] Load the baked HD models of the match's factions on the loading screen (both factions when they are
+ * Load the baked HD models of the match's factions on the loading screen (both factions when they are
  * not known up front: missions, saves, replays, random opponents). Bounded: a slow network starts the match
  * with procedural models rather than waiting.
  */
@@ -214,7 +214,7 @@ async function preloadHd(setup: GameSetup): Promise<void> {
 }
 
 /**
- * [HD] Everything the battle starts with (structures, start units, scenario / mission / save content) loads
+ * Everything the battle starts with (structures, start units, scenario / mission / save content) loads
  * before the first frame, so none of it has to swap from procedural later; the rest loads lazily
  * (EntityRenderer: structures when placed or seen, units when first produced).
  */
@@ -230,26 +230,26 @@ async function preloadHdWorld(g: Game): Promise<void> {
 
 async function startGame(setup: GameSetup) {
   if (menus.settings.skipIntro && !params.get('autostart')) setup = { ...setup, intro: false };
-  // [EDIT] a new match runs with the enabled mods (loads and replays keep the mods they were recorded with)
+  // a new match runs with the enabled mods (loads and replays keep the mods they were recorded with)
   if (!setup.load && !setup.replay && !setup.demo && !('mods' in setup)) setup = { ...setup, mods: activeModSet() ?? undefined };
   // still inside the Deploy click, so the browser allows it
   if (menus.settings.fullscreen !== false && !params.get('autostart')) void enterFullscreen();
   menus.hide();
   setLoading(0, 'Initialising');
-  if (setup.quick && !setup.load && !setup.replay) showQuickCard(setup.quick); // [VARIETY] what the Quick Battle rolled
+  if (setup.quick && !setup.load && !setup.replay) showQuickCard(setup.quick); // what the Quick Battle rolled
   await nextFrame();
   game?.dispose();
   game = null;
   lastSetup = setup;
-  await preloadHd(setup); // [HD] the match's factions' baked models (procedural meanwhile / on failure)
+  await preloadHd(setup); // the match's factions' baked models (procedural meanwhile / on failure)
   try {
     game = new Game(setup, audio, {
       onPause: () => menus.showPause(game!),
       onEnd: (g, won) => {
-        if (g.setup.replay) return; // [D] replay playback shows its own end panel
+        if (g.setup.replay) return; // replay playback shows its own end panel
         g.paused = true;
-        if (modesOnEnd(g, won)) return; // [MODES] challenge result screen · mode medals
-        if (g.setup.conquest) { // [CONQ] the result goes back to the campaign: battle report, then the strategic map
+        if (modesOnEnd(g, won)) return; // challenge result screen · mode medals
+        if (g.setup.conquest) { // the result goes back to the campaign: battle report, then the strategic map
           const conquest = g.setup.conquest;
           void import('./ui/conquest').then(({ showConquestAfterBattle }) => showConquestAfterBattle(g.world, conquest, {
             play: (k) => audio.play(k),
@@ -259,27 +259,27 @@ async function startGame(setup: GameSetup) {
           return;
         }
         const def = g.missionDef, res = g.missionResult;
-        if (!def || !res) { menus.showEnd(g, won); offerMoments(g, won); return; } // [MODES] "make this a challenge" offers
+        if (!def || !res) { menus.showEnd(g, won); offerMoments(g, won); return; } // "make this a challenge" offers
         // campaign / special operation: debrief with objectives, stars and the next mission
         const next = won && def.campaign !== 'special' ? campaignMissions(def.campaign).find((m) => m.index === def.index + 1) : undefined;
         showDebrief(res, def, {
           onNext: next ? () => deployMission(next.id) : undefined,
           onRetry: () => deployMission(def.id),
-          onMenu: () => { audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); menus.hide(); openCampaign(); }, // [EDIT] playtests return to the editor
+          onMenu: () => { audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); menus.hide(); openCampaign(); }, // playtests return to the editor
         });
       },
       onProgress: (f, l) => setLoading(f, l),
     });
     applySettings(game, menus.settings);
-    showModBadge(game.setup.mods); // [EDIT] "Modded" badge
+    showModBadge(game.setup.mods); // "Modded" badge
     exposeDebug(game);
     (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
-    await preloadHdWorld(game); // [HD]
-    // [D] watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
+    await preloadHdWorld(game);
+    // watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
     if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
-    attachModes(game); // [MODES] KOTH HUD, branch / challenge badge, moment tracking
-    attachVariety(game); // [VARIETY] mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
+    attachModes(game); // KOTH HUD, branch / challenge badge, moment tracking
+    attachVariety(game); // mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
     game.start();
   } catch (e) {
     reportError(e, true);
@@ -307,7 +307,7 @@ function applyTestParams(g: Game) {
   if (params.get('hour')) g.hours = numParam('hour', 12, 0, 24);
   const sp = params.get('selfplay');
   if (sp) g.world.ais.push(new AIController(g.world, g.local, sp as AIDifficulty));
-  if (sc || params.get('charge') || sp) { g.recorder?.discard(); g.recorder = null; } // [D] edited worlds can't be replayed
+  if (sc || params.get('charge') || sp) { g.recorder?.discard(); g.recorder = null; } // edited worlds can't be replayed
   if (params.get('speed')) g.speed = numParam('speed', 1, 0.1, 16);
   if (params.get('sel') === 'army') {
     for (const u of g.world.units) if (u.alive && u.owner === g.local && u.weapons.length) g.selection.add(u.id);
@@ -316,15 +316,15 @@ function applyTestParams(g: Game) {
 
 /** Test / dev hook. Only exposed in dev builds or test runs, so a quit game isn't kept alive. */
 function exposeDebug(g: Game | null) {
-  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) { (window as any).__game = g; (window as any).__hdStatus = hdStatus; } // [HD] status for tests
+  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) { (window as any).__game = g; (window as any).__hdStatus = hdStatus; } // status for tests
 }
 
 function startDemo() {
   game?.dispose();
   exposeDebug(null);
   game = null;
-  returnToEditor = false; // [EDIT]
-  showModBadge(null); // [EDIT]
+  returnToEditor = false;
+  showModBadge(null);
   if (params.get('demo') !== '0') {
     try {
       const tods: TimeOfDay[] = ['day', 'dusk', 'night'];
@@ -346,7 +346,7 @@ function startDemo() {
 }
 
 if (params.get('autostart') && params.get('conquest')) {
-  // [CONQ] ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
+  // ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
   void import('./conquest/testing').then(({ runWithBattle }) => {
     const { run, setup } = runWithBattle(numParam('seed', 7, 0, 0x7fffffff) | 0, (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
     saveRun(run);
@@ -354,7 +354,7 @@ if (params.get('autostart') && params.get('conquest')) {
   });
 } else if (params.get('autostart')) {
   // Testing shortcut: ?autostart=1&faction=soviet&ai=hard&size=64&fog=0&tod=dusk&units=heavy&ceasefire=<minutes>|inf
-  // [D] plus map=<curated id> · mapcode=<code> · replay=<id>|latest (resolveTestSetup)
+  // plus map=<curated id> · mapcode=<code> · replay=<id>|latest (resolveTestSetup)
   void resolveTestSetup(params, {
     faction: (params.get('faction') as Faction) ?? 'allies',
     color: params.get('faction') === 'soviet' ? 0xd23a2c : 0x3d7be0,
@@ -364,18 +364,18 @@ if (params.get('autostart') && params.get('conquest')) {
     quality: (params.get('q') as any) ?? menus.settings.quality, seed: numParam('seed', 1234, 0, 0x7fffffff) | 0,
     dayCycle: params.get('cycle') === '1', weather: params.get('wx') ?? 'clear', intro: params.get('intro') === '1', climate: params.get('climate') ?? 'temperate', mission: params.get('mission') ?? undefined,
     ceasefire: params.get('ceasefire') === 'inf' ? -1 : numParam('ceasefire', 0, 0, 600) || undefined, // build-up time
-    // [DOCTRINE] &rules=commander[&doctrine=<id>]: Commander rules (doctrines, command points, commander powers)
+    // &rules=commander[&doctrine=<id>]: Commander rules (doctrines, command points, commander powers)
     ...(params.get('rules') === 'commander' ? { rules: 'commander' as const, doctrines: [params.get('doctrine')] } : {}),
-    // [VARIETY] &mut=<id,id>: mutators · &events=0: no battlefield events · &dyn=1: dynamic difficulty
+    // &mut=<id,id>: mutators · &events=0: no battlefield events · &dyn=1: dynamic difficulty
     ...(params.get('mut') ? { mutators: params.get('mut')!.split(',').slice(0, 8) } : {}), ...(params.get('events') === '0' ? { events: false } : {}), ...(params.get('dyn') === '1' ? { dynamicDifficulty: true } : {}),
   }).then(startGame);
 } else {
   setLoading(0.5, 'Loading');
-  // [EDIT] custom maps / missions are listed in the menus: load the editor library first (bounded wait)
+  // custom maps / missions are listed in the menus: load the editor library first (bounded wait)
   setTimeout(() => void Promise.race([initEditorStore(), new Promise((r) => setTimeout(r, 1500))]).finally(startDemo), 30);
 }
 
-// [CONQ] ?conquest=ui|fresh|mid[&seed=N&faction=soviet&cqdemo=new|select|preview|research|army|perks|perk|event|report|summary|threat] opens the campaign screen
+// ?conquest=ui|fresh|mid[&seed=N&faction=soviet&cqdemo=new|select|preview|research|army|perks|perk|event|report|summary|threat] opens the campaign screen
 if (params.get('conquest') && !params.get('autostart')) {
   const t0 = performance.now();
   const wait = async () => {

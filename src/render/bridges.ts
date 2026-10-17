@@ -114,7 +114,7 @@ export class BridgeRenderer {
     this.wl = opts.waterLevel ?? WATER_LEVEL;
     this.style = STYLES[opts.climate ?? 'temperate'];
     this.fx = opts.effects ?? null;
-    // [STRUCT] the bridge renderer is created per map with its climate: winter maps get snow on every model
+    // the bridge renderer is created per map with its climate: winter maps get snow on every model
     setModelSnow(opts.climate === 'winter' ? 1 : 0);
     this.group.name = 'bridges';
   }
@@ -304,7 +304,7 @@ export class BridgeRenderer {
     const st = this.style;
 
     const r = new NB('root');
-    r.snow = 1; // [STRUCT] bridges collect snow in winter
+    r.snow = 1; // bridges collect snow in winter
     const segs: string[] = [];
     const rails: string[] = [];
     const segN = Math.max(1, Math.round(L));
@@ -478,7 +478,7 @@ export class BridgeRenderer {
       rl.box(st.stone, len, 0.075, 0.055, 0, 0.037, sd * (halfW - 0.03), { b: 0.01 });
       rl.box(st.road, len + 0.004, 0.018, 0.07, 0, 0.083, sd * (halfW - 0.03), { b: 0.005 });
     }
-    // [STRUCT] iron railing on the parapets
+    // iron railing on the parapets
     for (const sd of [-1, 1]) railLine(rl, [-hx, 0.092, sd * (halfW - 0.03)], [hx, 0.092, sd * (halfW - 0.03)], 0.045, M.dark);
     // pedestrian refuge bays over the cutwaters at the pier end, with lamp posts
     if (refuge) {
@@ -537,7 +537,7 @@ export class BridgeRenderer {
     const dz = Math.hypot(len, halfW * 2);
     rl.box(STEEL_DARK, dz, 0.02, 0.02, 0, H, 0, { b: 0, r: [0, Math.atan2(halfW * 2, len), 0] });
     if (i === 0) warnLight(sg, [-hx, H + 0.05, halfW], false, 0.016);
-    // [STRUCT] Warren web with mid verticals, gusset plates, a pedestrian railing inside the truss and lamps
+    // Warren web with mid verticals, gusset plates, a pedestrian railing inside the truss and lamps
     for (const sd of [-1, 1]) {
       const z = sd * halfW;
       const ang2 = Math.atan2(H, len / 2);

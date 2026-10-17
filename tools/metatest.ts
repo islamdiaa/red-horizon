@@ -56,7 +56,7 @@ eq(rankIndexFor(10_000_000), 14, 'XP beyond the top stays at Field Marshal');
 const rp = rankProgress(RANKS[6].xp + (RANKS[7].xp - RANKS[6].xp) / 2, 'soviet');
 eq(rp.name, 'Captain', 'soviet name at rank 6');
 ok(Math.abs(rp.frac - 0.5) < 1e-9, 'half-way progress fraction');
-eq(ACHIEVEMENTS.length, 52, 'fifty-two achievements'); // [MODES] +5 (challenger, textbook, king-of-the-hill, brothers-in-arms, alternate-history)
+eq(ACHIEVEMENTS.length, 52, 'fifty-two achievements');
 ok(new Set(ACHIEVEMENTS.map((a) => a.id)).size === ACHIEVEMENTS.length, 'unique achievement ids');
 ok(ACHIEVEMENTS.filter((a) => a.hidden).length >= 5, 'at least five hidden medals');
 ok(ACHIEVEMENTS.filter((a) => (a.tiers?.length ?? 0) === 3).length >= 10, 'at least ten tiered (bronze/silver/gold) medals');
@@ -162,9 +162,9 @@ section('Persistence & migration');
 const again = new MetaTracker({ storage: store, now: () => clock });
 eq(again.profile.xp, meta.profile.xp, 'XP survives a reload');
 eq(again.profile.medals['tank-buster']?.tier, 1, 'medals survive a reload');
-eq(JSON.parse(store.data.get(PROFILE_KEY)!).v, 2, 'version field written'); // [META] v2: contracts, Commendations, cosmetics
+eq(JSON.parse(store.data.get(PROFILE_KEY)!).v, 2, 'version field written'); // v2: contracts, Commendations, cosmetics
 const migrated = normalizeProfile({ name: 'Old Timer', xp: 1234, rank: 3, stats: { kills: 'x', wins: 4, winsByFaction: { soviet: 2 } }, medals: { 'first-blood': { tier: 1, at: [5] }, junk: 7 }, history: [{ won: 1, time: 'bad' }], future: { keep: true } }) as any;
-eq(migrated.v, 2, 'v0 -> v2'); // [META]
+eq(migrated.v, 2, 'v0 -> v2');
 eq(migrated.xp, 1234, 'xp kept');
 eq(migrated.rank, undefined, 'dropped legacy field');
 eq(migrated.stats.kills, 0, 'malformed number replaced by default');

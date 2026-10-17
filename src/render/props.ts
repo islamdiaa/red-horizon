@@ -8,7 +8,7 @@ import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather'
 import type { DynamicLightApi } from './dynlights';
 
 /**
- * [ENV] Base dressing: render-only set dressing derived from the map and the structures the local player can
+ * Base dressing: render-only set dressing derived from the map and the structures the local player can
  * see (their footprints; sim state is only read).
  *
  * - Ground (no geometry): the terrain shader's base mask (TerrainMesh.baseData, BASE_RES texels per cell) gets

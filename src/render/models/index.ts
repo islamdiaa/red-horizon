@@ -20,14 +20,14 @@ import { DEFENSE_BUILDERS } from './defenses';
 import { NAVAL_BUILDERS } from './naval';
 import { SUPPORT_BUILDERS } from './support';
 import { AFTERMATH_BUILDERS } from './aftermath';
-import { NEUTRAL_BUILDERS } from './neutral'; // [VARIETY] neutral tech structures, supply truck
+import { NEUTRAL_BUILDERS } from './neutral'; // neutral tech structures, supply truck
 import { createProjectile } from './projectiles';
-import { hdModelsEnabled, hdWrap, holdHd, preloadHdModels, requestHd } from './hd'; // [HD]
+import { hdModelsEnabled, hdWrap, holdHd, preloadHdModels, requestHd } from './hd';
 
 export type { ModelInstance, ModelAnimState, ProjectileModelKind } from './types';
 export type { ModelFaction } from './builder';
 
-// [STRUCT] structure builders take the owner's faction (shared buildings get Soviet / Allied dressing)
+// structure builders take the owner's faction (shared buildings get Soviet / Allied dressing)
 const BUILDERS: Record<string, (fac: ModelFaction) => ModelTemplate> = {
   ...INFANTRY_BUILDERS,
   ...VEHICLE_BUILDERS,
@@ -36,8 +36,8 @@ const BUILDERS: Record<string, (fac: ModelFaction) => ModelTemplate> = {
   ...NAVAL_BUILDERS,
   ...SUPPORT_BUILDERS,
   ...AFTERMATH_BUILDERS,
-  ...STRUCTURE_BUILDERS, // [STRUCT] last: the naval yards are structures too
-  ...NEUTRAL_BUILDERS, // [VARIETY]
+  ...STRUCTURE_BUILDERS, // last: the naval yards are structures too
+  ...NEUTRAL_BUILDERS,
 };
 
 /**
@@ -75,7 +75,7 @@ function fallbackTemplate(): ModelTemplate {
 }
 
 /**
- * [STRUCT] Faction of a team colour when the caller does not know the owner's faction: reds, oranges and
+ * Faction of a team colour when the caller does not know the owner's faction: reds, oranges and
  * browns read as Soviet, everything else as Allied.
  */
 export function guessFaction(color: THREE.Color): ModelFaction {
@@ -91,7 +91,7 @@ function templateKey(typeId: string, fac: ModelFaction): string {
 const keyCache: Record<ModelFaction, Map<string, string>> = { soviet: new Map(), allies: new Map() };
 
 /**
- * [STRUCT] Geometry key of a type as seen for an owner faction: the type id itself, or 'type|faction' for the
+ * Geometry key of a type as seen for an owner faction: the type id itself, or 'type|faction' for the
  * structures dressed per faction. Accepted wherever a type id is (modelAliasOf, modelBodyGeometry), so caches
  * keyed by it (fracture bakes) keep the two dressings apart. Allocation-free after the first call per type.
  */
@@ -144,9 +144,9 @@ export function createModel(typeId: string, teamColor: THREE.Color, faction?: Mo
   const fac = faction ?? guessFaction(c);
   const tpl = getTemplate(typeId, fac);
   const inst = instantiate(tpl, c, typeId);
-  if (!hdModelsEnabled()) return inst; // [HD]
+  if (!hdModelsEnabled()) return inst;
   const base = ALIASES[typeId] ?? typeId;
-  return hdWrap(inst, tpl, base, fac, c.getHex(), FACTION_DRESSED.has(base)); // [HD] baked model on the procedural rig
+  return hdWrap(inst, tpl, base, fac, c.getHex(), FACTION_DRESSED.has(base)); // baked model on the procedural rig
 }
 
 /** Create a projectile model (faces +X). */
@@ -168,7 +168,7 @@ export function modelAliasOf(typeId: string): string {
   return ALIASES[typeId] ?? typeId;
 }
 
-/** [EDIT] Mod variants (src/mods): render a cloned type with its base type's model (null removes the alias). */
+/** Mod variants (src/mods): render a cloned type with its base type's model (null removes the alias). */
 export function setModelAlias(typeId: string, baseId: string | null): void {
   if (baseId) ALIASES[typeId] = ALIASES[baseId] ?? baseId;
   else delete ALIASES[typeId];
@@ -195,7 +195,7 @@ export function prewarmModels(ids: string[] = listModelIds()): void {
 }
 
 /**
- * [HD] Start loading a type's HD model as seen by an owner faction (lazy per-type loading): 'ready' = models
+ * Start loading a type's HD model as seen by an owner faction (lazy per-type loading): 'ready' = models
  * created now are HD; 'pending' = loading (procedural meanwhile, see hdReadyVersion); 'none' = no HD model.
  */
 export function requestHdModel(typeId: string, faction: ModelFaction): 'ready' | 'pending' | 'none' {
@@ -203,7 +203,7 @@ export function requestHdModel(typeId: string, faction: ModelFaction): 'ready' |
   return requestHd(base, faction, FACTION_DRESSED.has(base));
 }
 
-/** [HD] Load the factions' common units plus the given (type, owner faction) pairs; resolves when ready or failed. */
+/** Load the factions' common units plus the given (type, owner faction) pairs; resolves when ready or failed. */
 export function preloadHd(factions: ModelFaction[], types: Iterable<[string, ModelFaction]> = [], onProgress?: (done: number, total: number) => void): Promise<void> {
   const list: [string, ModelFaction, boolean][] = [];
   for (const [t, f] of types) {
@@ -213,7 +213,7 @@ export function preloadHd(factions: ModelFaction[], types: Iterable<[string, Mod
   return preloadHdModels(factions, list, onProgress);
 }
 
-/** [HD] A pending ref on a type's HD template (a view waiting to swap); release with releaseHd(key). */
+/** A pending ref on a type's HD template (a view waiting to swap); release with releaseHd(key). */
 export function holdHdModel(typeId: string, faction: ModelFaction): string | null {
   const base = ALIASES[typeId] ?? typeId;
   return holdHd(base, faction, FACTION_DRESSED.has(base));

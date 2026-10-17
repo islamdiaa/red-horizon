@@ -7,7 +7,7 @@ import { isUnlocked, loadProgress, type MissionRecord } from '../missions/progre
 import { MissionRuntime, type MissionDef, type Objective, type Portrait } from '../sim/mission';
 import { BUILDINGS, UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
-import { customMissionDefs } from '../editor/store'; // [EDIT] custom missions from the editor
+import { customMissionDefs } from '../editor/store'; // custom missions from the editor
 
 type Tab = 'allies' | 'soviet' | 'special';
 
@@ -470,7 +470,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   const render = () => {
     localStorage.setItem('rh.campaign.tab', tab);
     document.body.classList.toggle('faction-soviet', tab === 'soviet');
-    const missions = tab === 'special' ? [...campaignMissions(tab), ...customMissionDefs()] : campaignMissions(tab); // [EDIT] + custom missions
+    const missions = tab === 'special' ? [...campaignMissions(tab), ...customMissionDefs()] : campaignMissions(tab); // + custom missions
     const order = missions.map((m) => m.id);
     const prog = loadProgress();
     // campaigns unlock in order; special operations (survival, daily) are always open
@@ -527,7 +527,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   const briefing = (m: MissionDef, r: MissionRecord | undefined, missions: MissionDef[], t: Tab) => {
     const who = BRIEFER[t];
     const tech = newTech(m, missions);
-    const kick = m.scored ? 'SPECIAL OPERATION' : m.id.startsWith('custom-') ? 'CUSTOM MISSION' : `MISSION ${m.index} OF ${missions.length}`; // [EDIT]
+    const kick = m.scored ? 'SPECIAL OPERATION' : m.id.startsWith('custom-') ? 'CUSTOM MISSION' : `MISSION ${m.index} OF ${missions.length}`;
     return `<div class="cmp-panel cmp-brief">
       <div class="kick"><span class="cmp-kick">${kick} · BRIEFING</span>${r?.completed ? starsHtml(r.stars) : ''}</div>
       <h1>${esc(m.title.toUpperCase())}</h1>

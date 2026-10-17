@@ -1,5 +1,5 @@
 /**
- * In-game glue for the round-5 modes (called from src/main.ts):
+ * In-game glue for the game modes (called from src/main.ts):
  *   setModeHost(...)      how mode screens start games / return to the menus
  *   attachModes(game)     KOTH HUD, branch / challenge badge, moment tracking for "make this a challenge"
  *   modesOnEnd(game, won) medals; a challenge's result screen (returns true when it handled the end)

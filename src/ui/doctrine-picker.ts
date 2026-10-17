@@ -1,12 +1,12 @@
 /**
- * [DOCTRINE] Doctrine picker for the skirmish setup (Commander rules).
+ * Doctrine picker for the skirmish setup (Commander rules).
  *
  * Two parts:
  *  - `createDoctrinePicker(opts)`: a compact selector (one row: the chosen doctrine's icon, name and its bonuses /
  *    drawback at a glance) that opens a chooser overlay with a card per doctrine of the side: icon, two bonuses
  *    (green), one drawback (red), and a lock with the commander rank that opens it. Mouse, touch, keyboard (Tab /
  *    Enter / Esc) and gamepad (the menu focus walks the buttons) all work.
- *  - The registration into VARIETY's skirmish "Rules" tab slot (ui/variety.ts `registerDoctrineSlot`), done when this
+ *  - The registration into the skirmish "Rules" tab slot (ui/variety.ts `registerDoctrineSlot`), done when this
  *    module loads (main.ts imports it).
  *
  * Unlock gating is a UI rule: two doctrines per faction from the start, the others by commander rank (meta/ranks.ts,
@@ -169,7 +169,7 @@ export function createDoctrinePicker(opts: DoctrinePickerOptions): DoctrinePicke
   };
 }
 
-// [VARIETY] slot in the skirmish "Rules" tab
+// slot in the skirmish "Rules" tab
 registerDoctrineSlot((host, ctx) => {
   const rank = profileRank();
   // (the prefs hold null both for "none" and "never chosen": the pick remembered per side decides, a new player

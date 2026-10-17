@@ -4,14 +4,14 @@
  * Draw calls (always): decals 1, main particles 1, beams 1, projectile sprites 1, glow particles 1
  * (+1 per active Iron Curtain shell). Particles/beams are GPU-animated ring buffers: the CPU only
  * writes newly spawned elements; update() advances the clock, runs emitters and uploads new data.
- * Round 5 (FX): GPU-simulated particles (gpuparticles.ts: 8k / 32k / 64k by quality, +1 draw, +1-2 small sim
+ * GPU-simulated particles (gpuparticles.ts: 8k / 32k / 64k by quality, +1 draw, +1-2 small sim
  * passes while alive) layered on explosions, fires and splashes; light flashes become dynamic lights
  * (render/dynlights.ts, hundreds at once, no THREE.Light); ctx.terrain digs persistent craters / ruts.
  *
- * [JUICE] Game-feel layers on top (spectacle.ts, director in juice.ts): explosion variety and flak air bursts,
+ * Game-feel layers on top (spectacle.ts, director in juice.ts): explosion variety and flak air bursts,
  * hit flashes, heavy-vehicle cook-offs, smoke columns ('column' emitters), richer tesla bolts, MG tracer bursts,
  * calibre-scaled muzzle lights, veterancy / milestone bursts. No new draw calls; skipped off-screen (lodAt),
- * scaled by quality (`juice`: Low 0 = the original cost, Medium 0.65, High 1) and off with ?juice=0. Shake is
+ * scaled by quality (`juice`: Low 0 = no extra layers, Medium 0.65, High 1) and off with ?juice=0. Shake is
  * attenuated by the distance from the camera focus (setFocus) before it reaches `shake`.
  *
  * Usage:
@@ -35,9 +35,9 @@ import { ShellPool } from './shells';
 import { explosion as explode } from './explosions';
 import { spawnProjectile } from './projectiles';
 import { muzzleFlash, tracer, teslaBolt, flameStream, tracerBurst, setTeslaStyle } from './weapons';
-import { explosionExtras, flakField, heavyDeath, hitFlash, milestoneBurst, promotionBurst } from './spectacle'; // [JUICE]
-import { shakeFalloff } from './juicelogic'; // [JUICE]
-import { JUICE } from './juiceflags'; // [JUICE]
+import { explosionExtras, flakField, heavyDeath, hitFlash, milestoneBurst, promotionBurst } from './spectacle';
+import { shakeFalloff } from './juicelogic';
+import { JUICE } from './juiceflags';
 import { healPulse, dust, constructionBurst, chronoFlash, ironCurtainPulse, oreSparkle, orderMarker, AmbientMotes } from './misc';
 import { Emitter } from './emitters';
 import { rnd, range } from './rand';
@@ -81,9 +81,9 @@ const BEAM_CAPACITY = 8192;
 const SPRITE_CAPACITY = 768;
 const DECAL_CAPACITY = 200;
 const LIGHT_COUNT = 6;
-/** [JUICE] Spectacle level per quality preset (Low keeps the original cost: no extra layers). */
+/** Spectacle level per quality preset (Low: no extra layers). */
 const JUICE_LEVEL: Record<'low' | 'medium' | 'high', number> = { low: 0, medium: 0.65, high: 1 };
-// [JUICE] reused light options (no allocation per shot)
+// reused light options (no allocation per shot)
 const MUZZLE_BIG = { attack: 0.006, flicker: 0, priority: 0.8 };
 const MUZZLE_SMALL = { attack: 0.004, flicker: 0.35, priority: 0.45 };
 const _lod = new THREE.Vector3();
@@ -139,7 +139,7 @@ export class Effects implements EffectsApi {
   /** The game renderer runs the GPU particle simulation itself (inside its frame, counted in its stats). */
   private simHook = false;
   private scene: THREE.Scene;
-  // [JUICE] camera focus (shake falloff), the position of the effect being spawned, spectacle level
+  // camera focus (shake falloff), the position of the effect being spawned, spectacle level
   private camera: THREE.PerspectiveCamera;
   private focusX = 0;
   private focusZ = 0;
@@ -147,7 +147,7 @@ export class Effects implements EffectsApi {
   private shX = 0;
   private shZ = 0;
   private shAt = false;
-  /** [JUICE] 0 = no spectacle layers (Low preset or ?juice=0), 0.65 medium, 1 high (see setJuice). */
+  /** 0 = no spectacle layers (Low preset or ?juice=0), 0.65 medium, 1 high (see setJuice). */
   juice: number;
   private juiceLevel = 1;
 
@@ -169,11 +169,11 @@ export class Effects implements EffectsApi {
     this.bodies = new BodyPool(0);
     this.scene = opts.scene;
     this.camera = opts.camera;
-    // [FX] GPU particles (float MRT) and the renderer's terrain for collisions and craters
+    // GPU particles (float MRT) and the renderer's terrain for collisions and craters
     const ud = opts.scene.userData;
     const terrain = (ud.terrain as TerrainMesh | undefined) ?? null;
     const quality = (ud.fxQuality as 'low' | 'medium' | 'high' | undefined) ?? 'high';
-    this.juiceLevel = JUICE_LEVEL[quality] ?? 1; // [JUICE]
+    this.juiceLevel = JUICE_LEVEL[quality] ?? 1;
     this.juice = JUICE.on ? this.juiceLevel : 0;
     setTeslaStyle(this.juice > 0 ? 1.5 : 1);
     if (gpuParticlesSupported(opts.renderer)) {
@@ -234,7 +234,7 @@ export class Effects implements EffectsApi {
         self.cueP.push(x, y, z);
       },
       addShake(amount: number, delay = 0) {
-        // [JUICE] scaled by how close to the view centre the effect is (off-screen blasts don't rock the view)
+        // scaled by how close to the view centre the effect is (off-screen blasts don't rock the view)
         if (self.shAt && self.focusR > 0 && JUICE.on) amount *= shakeFalloff(self.shX - self.focusX, self.shZ - self.focusZ, self.focusR);
         if (!(amount > 0)) return;
         if (delay <= 0) self.shake += amount;
@@ -329,7 +329,7 @@ export class Effects implements EffectsApi {
   explosion(pos: THREE.Vector3, kind: ExplosionKind, scale = 1): void {
     const s = scale > 0 ? scale : 1;
     const dug = this.deformCalls;
-    this.shakeAt(pos.x, pos.z); // [JUICE]
+    this.shakeAt(pos.x, pos.z);
     explode(this.ctx, kind, pos.x, pos.y, pos.z, s);
     if (this.juice > 0 && kind !== 'none' && kind !== 'nuke') {
       const lod = this.lodAt(pos.x, pos.y, pos.z);
@@ -367,7 +367,7 @@ export class Effects implements EffectsApi {
     const dyn = this.ctx.dyn;
     if (!dyn) return;
     if (this.juice > 0) {
-      // [JUICE] guns light their surroundings by calibre: cannons throw a warm, punchy flash; small arms flicker
+      // guns light their surroundings by calibre: cannons throw a warm, punchy flash; small arms flicker
       if (this.lodAt(pos.x, pos.y, pos.z) <= 0) return;
       if (size >= 0.95) dyn.add(pos.x + dir.x * 0.3, pos.y + 0.15, pos.z + dir.z * 0.3, 0xffb066, 4.2 * size, 3 + 2.2 * size, 0.12, MUZZLE_BIG);
       else dyn.add(pos.x + dir.x * 0.2, pos.y + 0.1, pos.z + dir.z * 0.2, 0xffd08a, 1.7 * size, 1.6 + 1.4 * size, 0.06, MUZZLE_SMALL);
@@ -376,7 +376,7 @@ export class Effects implements EffectsApi {
     dyn.add(pos.x + dir.x * 0.25, pos.y + 0.12, pos.z + dir.z * 0.25, 0xffc27a, 2.4 * size, 2.4 + 1.6 * size, 0.09, MUZZLE_BIG);
   }
 
-  /** `burst` [JUICE]: extra machine-gun rounds drawn a few tens of ms apart (visual only). */
+  /** `burst`: extra machine-gun rounds drawn a few tens of ms apart (visual only). */
   tracer(from: THREE.Vector3, to: THREE.Vector3, color?: number, burst = 0): void {
     tracer(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z, color);
     if (burst > 0 && this.juice > 0) {
@@ -387,7 +387,7 @@ export class Effects implements EffectsApi {
   }
 
   teslaBolt(from: THREE.Vector3, to: THREE.Vector3): void {
-    this.shakeAt(to.x, to.z); // [JUICE]
+    this.shakeAt(to.x, to.z);
     teslaBolt(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z);
     this.shAt = false;
     this.ctx.dyn?.add(from.x, from.y + 0.2, from.z, 0x8fb4ff, 10, 6.5, 0.35, { attack: 0.01, flicker: 0.5 });
@@ -466,7 +466,7 @@ export class Effects implements EffectsApi {
   }
 
   // -------------------------------------------------------------------------------------------
-  // [JUICE] game feel: hit flashes, flak, heavy deaths, progress moments, LOD and shake focus
+  // game feel: hit flashes, flak, heavy deaths, progress moments, LOD and shake focus
 
   /**
    * Where the camera looks (map x / z in world units) and half the visible width: explosion shake fades with
@@ -526,7 +526,7 @@ export class Effects implements EffectsApi {
     milestoneBurst(this.ctx, pos.x, this.ctx.getHeight(pos.x, pos.z), pos.z, size);
   }
 
-  /** [JUICE] Switch the spectacle layers on (at this quality's level) or off at runtime (A/B benches). */
+  /** Switch the spectacle layers on (at this quality's level) or off at runtime (A/B benches). */
   setJuice(on: boolean): void {
     this.juice = on ? this.juiceLevel : 0;
     setTeslaStyle(this.juice > 0 ? 1.5 : 1);
@@ -539,11 +539,11 @@ export class Effects implements EffectsApi {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Round 4: naval, support powers
+  // naval, support powers
 
   /** Something lands in open water. pos.y is ignored (the water surface is used). size 1 = tank shell, 2 = 8-inch shell, 0.3 = bullets. */
   waterSplash(pos: THREE.Vector3, size = 1): void {
-    this.shakeAt(pos.x, pos.z); // [JUICE]
+    this.shakeAt(pos.x, pos.z);
     waterSplash(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
     this.shAt = false;
     this.gpuP?.burst(GK.SPRAY, pos.x, this.ctx.waterLevel + 0.02, pos.z, 26 * size, 2.6 * Math.sqrt(size), { life: [0.5, 1.1], size0: 0.06 * size, size1: 0.22 * size, alpha: 0.6, up: 0.95, radius: 0.1 * size });
@@ -551,7 +551,7 @@ export class Effects implements EffectsApi {
 
   /** Underwater detonation (depth charge, torpedo hit): flash under the surface, bulge, tall water column, foam slick. */
   underwaterBlast(pos: THREE.Vector3, size = 1): void {
-    this.shakeAt(pos.x, pos.z); // [JUICE]
+    this.shakeAt(pos.x, pos.z);
     underwaterBlast(this.ctx, pos.x, this.ctx.waterLevel, pos.z, size);
     this.shAt = false;
   }
@@ -573,7 +573,7 @@ export class Effects implements EffectsApi {
    */
   mineBlast(pos: THREE.Vector3, kind: 'ap' | 'at', withExplosion = true): void {
     const gy = this.ctx.getHeight(pos.x, pos.z);
-    this.shakeAt(pos.x, pos.z); // [JUICE]
+    this.shakeAt(pos.x, pos.z);
     if (withExplosion) explode(this.ctx, kind === 'at' ? 'medium' : 'small', pos.x, gy + 0.08, pos.z, kind === 'at' ? 1.2 : 0.9);
     if (!this.ctx.isWater(pos.x, pos.z)) mineBlast(this.ctx, pos.x, gy, pos.z, kind === 'at');
     this.shAt = false;
@@ -613,7 +613,7 @@ export class Effects implements EffectsApi {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Round 5 (FX): dynamic lights, GPU particles, terrain damage
+  // dynamic lights, GPU particles, terrain damage
 
   /**
    * A dynamic light (hundreds at once, lit in the atmosphere pass). `duration` > 0: timed flash (fast

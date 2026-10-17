@@ -75,7 +75,7 @@ export interface AITuning {
   mapHack: number;
 }
 
-/** Defaults (tuned with tools/selfplay/optimize.ts; see the round-5 AI report). */
+/** Defaults (tuned with tools/selfplay/optimize.ts). */
 export const DEFAULT_TUNING: AITuning = {
   retreatHp: 0.3,
   fallbackRatio: 0.55,

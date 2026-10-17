@@ -1,5 +1,5 @@
 /**
- * [UNITS] Unit-only modelling kit: faction paint schemes, level-of-detail blocks and the recurring pieces of
+ * Unit-only modelling kit: faction paint schemes, level-of-detail blocks and the recurring pieces of
  * military hardware (running gear, fenders, skirts, stowage, hatches with commanders, exhausts, lights, tow
  * hooks, muzzle brakes, smoke dischargers, camouflage, appliqué plates...).
  *
@@ -15,8 +15,8 @@ import { M, G, prismXY, flatXZ, trackBelt } from './parts';
 import { FACTION_DRESSED } from './structures';
 
 /**
- * [UNITS] Unit types both sides build that dress per faction (Soviet / Allied helmet, rifle, kit): index.ts
- * builds one template per faction for every id in STRUCT's FACTION_DRESSED set, so they join it here.
+ * Unit types both sides build that dress per faction (Soviet / Allied helmet, rifle, kit): index.ts
+ * builds one template per faction for every id in the FACTION_DRESSED set, so they join it here.
  */
 export const FACTION_DRESSED_UNITS = ['e1', 'e3', 'e6', 'harv', 'mcv', 'tran', 'mnly'];
 for (const id of FACTION_DRESSED_UNITS) FACTION_DRESSED.add(id);

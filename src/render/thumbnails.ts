@@ -4,7 +4,7 @@ import { BUILDINGS, UNITS } from '../data/rules';
 import { createModel, guessFaction, type ModelFaction } from './models';
 import { WallRenderer } from './walls';
 import { getModelSnow, setBodyTime, setModelSnow } from './models/materials';
-import { hdOffscreen } from './models/hd'; // [HD] closed HD bitmaps can't upload into this GL context
+import { hdOffscreen } from './models/hd'; // closed HD bitmaps can't upload into this GL context
 
 interface ThumbStage { renderer: THREE.WebGLRenderer; scene: THREE.Scene; canvas: HTMLCanvasElement }
 let stage: ThumbStage | null = null;
@@ -44,8 +44,8 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
   scene.environment = env.texture;
   const cam = new THREE.PerspectiveCamera(30, w / h, 0.05, 100);
   const color = new THREE.Color(teamColor);
-  const fac = faction ?? guessFaction(color); // [STRUCT] Soviet / Allied dressing of shared structures
-  // [STRUCT] clean portraits: no winter snow, baked blinkers lit
+  const fac = faction ?? guessFaction(color); // Soviet / Allied dressing of shared structures
+  // clean portraits: no winter snow, baked blinkers lit
   const snow = getModelSnow();
   setModelSnow(0);
   setBodyTime(0.1);
@@ -53,7 +53,7 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
 
-  hdOffscreen(true); // [HD] closed HD bitmaps can't upload into this GL context: those types render procedural here
+  hdOffscreen(true); // closed HD bitmaps can't upload into this GL context: those types render procedural here
   for (const id of ids) {
     try {
       const m = BUILDINGS[id]?.wall
@@ -83,8 +83,8 @@ export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 
       console.warn('thumbnail failed', id, e);
     }
   }
-  hdOffscreen(false); // [HD] (the loop body catches its own errors)
-  setModelSnow(snow); // [STRUCT]
+  hdOffscreen(false); // (the loop body catches its own errors)
+  setModelSnow(snow);
   scene.environment = null;
   env.dispose();
   pmrem.dispose();

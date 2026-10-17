@@ -4,7 +4,7 @@
  * Plus export to / import from .json files.
  */
 import { MAX_REPLAYS, isReplayData, type ReplayData } from './format';
-import { pruneTrees } from './branch'; // [MODES] branches are pruned with their tree
+import { pruneTrees } from './branch'; // branches are pruned with their tree
 import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
 
 const DB = 'rh-replays';
@@ -96,14 +96,14 @@ export async function saveReplay(data: ReplayData): Promise<void> {
   if (db) {
     try {
       await tx(db, 'readwrite', (s) => { s.put(data); });
-      const stale = pruneTrees(await listReplays(), MAX_REPLAYS).drop; // [MODES] whole trees, most recently active first
+      const stale = pruneTrees(await listReplays(), MAX_REPLAYS).drop; // whole trees, most recently active first
       if (stale.length) await tx(db, 'readwrite', (s) => { for (const r of stale) s.delete(r.id); });
       return;
     } catch { /* fall back */ }
   }
   const list = lsRead().filter((r) => r.id !== data.id);
   list.push(data);
-  lsWrite(pruneTrees(list, MAX_REPLAYS).keep.sort(recentFirst)); // [MODES] whole trees
+  lsWrite(pruneTrees(list, MAX_REPLAYS).keep.sort(recentFirst)); // whole trees
 }
 
 export async function deleteReplay(id: string): Promise<void> {

@@ -1,4 +1,4 @@
-// [PIPE] HD runtime check: damage stages, construction hologram and collapse of a structure type in scene A.
+// HD runtime check: damage stages, construction hologram and collapse of a structure type in scene A.
 //   node tools/assets/hdcheck.mjs [port=5231] [outDir=/tmp/rh-assets] [hd=1] [type=powr]
 // Prints the HD status and console warnings / errors; screenshots chk-*.png in outDir.
 import { chromium } from 'playwright';

@@ -51,9 +51,9 @@ export interface MissionMapSpec {
   hour?: number;
   weather?: string;
   dayCycle?: boolean;
-  /** [CONQ] Rock / cliff density for the generator (mapgen `rocks`, 0..1). */
+  /** Rock / cliff density for the generator (mapgen `rocks`, 0..1). */
   rocks?: number;
-  /** [CONQ] Curated map id (src/maps) used instead of the generator. */
+  /** Curated map id (src/maps) used instead of the generator. */
   mapId?: string;
 }
 
@@ -65,7 +65,7 @@ export interface MissionPlayerSpec {
   /** AI behaviour; omit for the human player (index 0). */
   ai?: AIMode;
   credits?: number;
-  /** [CONQ] AI commander personality id (src/sim/ai-personality.ts), passed to PlayerSetup.personality. */
+  /** AI commander personality id (src/sim/ai-personality.ts), passed to PlayerSetup.personality. */
   personality?: string;
 }
 
@@ -145,7 +145,7 @@ export class MissionRuntime {
   get time(): number {
     return this.world.time;
   }
-  /** [MODES] Index of the human player (0 for missions; a branch / challenge can hand any player to the human). */
+  /** Index of the human player (0 for missions; a branch / challenge can hand any player to the human). */
   humanId = 0;
   get human(): Player {
     return this.world.players[this.humanId] ?? this.world.players[0];
@@ -630,7 +630,7 @@ export class MissionRuntime {
     this.events.push({ e: 'message', speaker, text, portrait, faction: this.human.faction });
   }
   announce(key: AnnouncerKey) {
-    this.world.events.push({ e: 'announce', player: this.humanId, key }); // [MODES] humanId (0 in missions)
+    this.world.events.push({ e: 'announce', player: this.humanId, key }); // humanId (0 in missions)
   }
   camera(x: number, y: number) {
     this.events.push({ e: 'camera', x, y });

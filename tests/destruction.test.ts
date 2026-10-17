@@ -1,4 +1,4 @@
-// [DEST] Destruction & physics visuals: fracture baking, the rigid-body solver, ragdolls, crater policy,
+// Destruction & physics visuals: fracture baking, the rigid-body solver, ragdolls, crater policy,
 // model LODs and the Aftermath unit models. Pure render-side code exercised without a WebGL context.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -154,7 +154,7 @@ describe('models: LODs and the Aftermath units', () => {
     }
   });
 
-  test('every round-5 unit id has its own model within budget', () => {
+  test('every Aftermath / Counterstrike unit id has its own model within budget', () => {
     const ids = listModelIds();
     const budget: Record<string, number> = { ttnk: 1800, qtnk: 1900, ctnk: 1600, dtrk: 1500, stnk: 1200, shok: 900, mech: 900, msub: 2200 };
     for (const [id, max] of Object.entries(budget)) {

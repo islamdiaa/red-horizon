@@ -173,7 +173,7 @@ export class MusicEngine {
   target = 0;
   /** Debug/diagnostics: when set, only these instruments sound (e.g. ['kick', 'bass']). */
   only: Set<string> | null = null;
-  /** [JUICE] 0..1 big-battle "battle theme" layer on top of the battle layer (taiko, brass, choir pad). */
+  /** 0..1 big-battle "battle theme" layer on top of the battle layer (taiko, brass, choir pad). */
   clash = 0;
   private clashTarget = 0;
 
@@ -323,7 +323,7 @@ export class MusicEngine {
     }
   }
 
-  /** [JUICE] Battle theme level 0..1 (eases in over ~2 s, out over ~5 s). */
+  /** Battle theme level 0..1 (eases in over ~2 s, out over ~5 s). */
   setClash(v: number): void {
     this.clashTarget = clamp(Number.isFinite(v) ? v : 0, 0, 1);
   }
@@ -333,7 +333,7 @@ export class MusicEngine {
     this.lastSmoothWall = performance.now();
     if (!this.running) return;
     const d = clamp(dt, 0, 0.5);
-    this.clash += (this.clashTarget - this.clash) * (1 - Math.exp(-d / (this.clashTarget > this.clash ? 2 : 5))); // [JUICE]
+    this.clash += (this.clashTarget - this.clash) * (1 - Math.exp(-d / (this.clashTarget > this.clash ? 2 : 5)));
     const tau = this.target > this.intensity ? 1.6 : 4.5;
     this.intensity += (this.target - this.intensity) * (1 - Math.exp(-d / tau));
     if (Math.abs(this.intensity - this.applied) > 0.006) this.applyLevels(this.ctx.currentTime, 0.12);
@@ -516,12 +516,12 @@ export class MusicEngine {
     if (audible(1)) this.build(sec, step, secBar, s16, t, chord);
     if (audible(2)) {
       this.battle(sec, secBar, s16, t, chord);
-      if (this.clash > 0.05) this.anthem(sec, secBar, s16, t, chord); // [JUICE]
+      if (this.clash > 0.05) this.anthem(sec, secBar, s16, t, chord);
     }
   }
 
   /**
-   * [JUICE] Battle theme for big clashes, layered over the battle layer: a taiko ostinato, brass stabs on the
+   * Battle theme for big clashes, layered over the battle layer: a taiko ostinato, brass stabs on the
    * chord changes, a wide choir-like pad, crashes on the phrase and the lead doubled an octave up.
    */
   private anthem(sec: Section, secBar: number, s16: number, t: number, chord: number): void {

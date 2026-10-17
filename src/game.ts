@@ -8,15 +8,15 @@ import type { AIDifficulty } from './sim/ai';
 import { Building, Unit } from './sim/entities';
 import { GameRenderer, type Quality, type TimeOfDay } from './render/renderer';
 import { Effects } from './render/effects';
-import { JuiceDirector } from './render/effects/juice'; // [JUICE] game-feel director
+import { JuiceDirector } from './render/effects/juice'; // game-feel director
 import { EntityRenderer } from './render/entities';
 import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
-import { setModelDetail } from './render/models/builder'; // [STRUCT]
-import { hdModelsEnabled, hdReleaseAll, hdReleaseUploaded, hdRestoreTextures, hdTextures, onHdReady, setHdModels } from './render/models/hd'; // [HD] baked HD models
-import { hdModelsWanted, loadSettings } from './ui/settings'; // [HD]
+import { setModelDetail } from './render/models/builder';
+import { hdModelsEnabled, hdReleaseAll, hdReleaseUploaded, hdRestoreTextures, hdTextures, onHdReady, setHdModels } from './render/models/hd'; // baked HD models
+import { hdModelsWanted, loadSettings } from './ui/settings';
 import { releaseGpuResources } from './render/gpuregistry';
 import { ShipWakes, type WakeShip } from './render/wakes';
 import { GapField, type GapSource } from './render/gapfield';
@@ -27,7 +27,7 @@ import { CrateRenderer } from './render/crates';
 import { TrackMarks } from './render/tracks';
 import { Rubble } from './render/rubble';
 import { AmbientLife } from './render/ambientlife';
-import { BaseDressing } from './render/props'; // [ENV] base dressing
+import { BaseDressing } from './render/props'; // base dressing
 import { WallRenderer } from './render/walls';
 import { TargetReticle } from './render/reticle';
 import { randomWeatherSequence, type WeatherKind, type WeatherStep } from './render/weather';
@@ -50,25 +50,25 @@ import { ceasefireForSetup } from './sim/ceasefire';
 import { guardFrame } from './platform/errors';
 import { watchContextLoss, type ContextWatch } from './platform/webgl';
 import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
-import type { MatchSummary } from './meta'; // [META]
-import { BattleReport } from './meta/report'; // [META] battle report sampler (not sim state)
-import { applyMatchCosmetics, clearMatchCosmetics, playVictoryFanfare } from './meta/cosmetics'; // [META] paint scheme, HUD theme, announcer, fanfare (presentation only)
-import { loadCuratedMap } from './maps'; // [D] curated skirmish maps
-import { ReplayRecorder } from './replay/recorder'; // [D] replays
-import { buildMap, type MapDef } from './maps'; // [EDIT] custom maps from the editor
-import { customMissionDef, type CustomMissionSetup } from './editor/mission'; // [EDIT] custom missions
-import { applyModSet } from './mods/engine'; // [EDIT] mods
-import { mutateSetup, varietyOptions, withMutatorMods } from './modes/mutators'; // [VARIETY]
-import type { QuickInfo } from './modes/quickbattle'; // [VARIETY]
-import type { ModSet } from './mods/format'; // [EDIT]
+import type { MatchSummary } from './meta';
+import { BattleReport } from './meta/report'; // battle report sampler (not sim state)
+import { applyMatchCosmetics, clearMatchCosmetics, playVictoryFanfare } from './meta/cosmetics'; // paint scheme, HUD theme, announcer, fanfare (presentation only)
+import { loadCuratedMap } from './maps'; // curated skirmish maps
+import { ReplayRecorder } from './replay/recorder'; // replays
+import { buildMap, type MapDef } from './maps'; // custom maps from the editor
+import { customMissionDef, type CustomMissionSetup } from './editor/mission'; // custom missions
+import { applyModSet } from './mods/engine'; // mods
+import { mutateSetup, varietyOptions, withMutatorMods } from './modes/mutators';
+import type { QuickInfo } from './modes/quickbattle';
+import type { ModSet } from './mods/format';
 import type { PlaybackOptions } from './replay/format';
-import type { Personality } from './sim/ai-personality'; // [AI]
-import type { RivalRef } from './meta/rivals'; // [AI]
-import { attachRivals } from './ui/rivals'; // [AI] rivals radio
-import { attachCommanderPanel, commanderVisual } from './ui/commander'; // [DOCTRINE] commander powers panel + visuals
-import { applyRoster, attachModeRuntime, isWhatIf, prepareModeSetup, startModes } from './modes/runtime'; // [MODES]
-import type { AllySetup, BranchInfo, ChallengeDef } from './modes/types'; // [MODES]
-import { conquestMission, type ConquestSetup } from './conquest/battle'; // [CONQ] conquest battles
+import type { Personality } from './sim/ai-personality';
+import type { RivalRef } from './meta/rivals';
+import { attachRivals } from './ui/rivals'; // rivals radio
+import { attachCommanderPanel, commanderVisual } from './ui/commander'; // commander powers panel + visuals
+import { applyRoster, attachModeRuntime, isWhatIf, prepareModeSetup, startModes } from './modes/runtime';
+import type { AllySetup, BranchInfo, ChallengeDef } from './modes/types';
+import { conquestMission, type ConquestSetup } from './conquest/battle'; // conquest battles
 
 const _viewProbe = new THREE.Vector3(); // scratch for Game.inView
 
@@ -82,9 +82,9 @@ meta.onUnlock = (a) => showAchievementToast(a);
 export interface OpponentSetup {
   faction: Faction | 'random';
   difficulty: AIDifficulty;
-  /** [AI] Commander personality (id or full trait object, src/sim/ai-personality.ts); default = balanced. */
+  /** Commander personality (id or full trait object, src/sim/ai-personality.ts); default = balanced. */
   personality?: string | Personality;
-  /** [AI] A persistent rival (src/meta/rivals.ts): name, portrait and the counter-plan chosen before the match. */
+  /** A persistent rival (src/meta/rivals.ts): name, portrait and the counter-plan chosen before the match. */
   rival?: RivalRef;
 }
 
@@ -115,26 +115,26 @@ export interface GameSetup {
   mission?: string;
   /** Resume from a saved game. */
   load?: SaveData;
-  /** [D] Curated skirmish map id (src/maps); used instead of the generated map. */
+  /** Curated skirmish map id (src/maps); used instead of the generated map. */
   mapId?: string;
-  /** [D] Watch a recorded match (src/replay): the human player's orders come from the recording. */
+  /** Watch a recorded match (src/replay): the human player's orders come from the recording. */
   replay?: PlaybackOptions;
-  /** [EDIT] Custom map content (editor): built instead of a curated / generated map; saves and replays carry it. */
+  /** Custom map content (editor): built instead of a curated / generated map; saves and replays carry it. */
   customMap?: MapDef;
-  /** [EDIT] Custom mission content (editor) for `mission` = its id; the map comes from `customMap`. */
+  /** Custom mission content (editor) for `mission` = its id; the map comes from `customMap`. */
   customMission?: CustomMissionSetup;
-  /** [EDIT] Mods (content + hash) applied to the rules before the World exists; recorded in saves and replays. */
+  /** Mods (content + hash) applied to the rules before the World exists; recorded in saves and replays. */
   mods?: ModSet;
-  /** [MODES] Rewind & take command: a live game from a replay moment (src/modes, src/replay/branch.ts). */
+  /** Rewind & take command: a live game from a replay moment (src/modes, src/replay/branch.ts). */
   branch?: BranchInfo;
-  /** [MODES] A challenge attempt: start state, side, goal, time limit (src/modes/challenge.ts). */
+  /** A challenge attempt: start state, side, goal, time limit (src/modes/challenge.ts). */
   challenge?: ChallengeDef;
-  /** [MODES] King of the Hill skirmish (src/modes/koth.ts); kothMinutes = hold time to win (default 5). */
+  /** King of the Hill skirmish (src/modes/koth.ts); kothMinutes = hold time to win (default 5). */
   koth?: boolean;
   kothMinutes?: number;
-  /** [MODES] AI teammates for co-op survival (same team, own bases). */
+  /** AI teammates for co-op survival (same team, own bases). */
   allies?: AllySetup[];
-  /** [CONQ] A Conquest battle: the run and territory it belongs to, plus the frozen battle spec its mission is built from. */
+  /** A Conquest battle: the run and territory it belongs to, plus the frozen battle spec its mission is built from. */
   conquest?: ConquestSetup;
   /**
    * Build-up time (sim/ceasefire.ts): minutes of ceasefire at the start (the AI builds and only defends),
@@ -142,21 +142,21 @@ export interface GameSetup {
    */
   ceasefire?: number;
   /**
-   * [VARIETY] Skirmish rules (shared with [DOCTRINE]): 'commander' = doctrines, commander powers, battlefield events,
+   * Skirmish rules: 'commander' = doctrines, commander powers, battlefield events,
    * neutral tech structures (the default for new skirmishes); 'classic' / undefined = pure Red Alert (missions,
    * campaigns, old saves and replays).
    */
   rules?: 'classic' | 'commander';
-  /** [VARIETY] Mutator ids (src/modes/mutators.ts): daily modifiers and skirmish additions. */
+  /** Mutator ids (src/modes/mutators.ts): daily modifiers and skirmish additions. */
   mutators?: string[];
-  /** [VARIETY] Battlefield events (src/sim/events.ts); Commander rules only, undefined = on. */
+  /** Battlefield events (src/sim/events.ts); Commander rules only, undefined = on. */
   events?: boolean;
-  /** [VARIETY] Dynamic difficulty: the AI's economy and aggression flex to keep the match close. */
+  /** Dynamic difficulty: the AI's economy and aggression flex to keep the match close. */
   dynamicDifficulty?: boolean;
-  /** [VARIETY] A Quick Battle: what was rolled (loading card, end screen "play again"). */
+  /** A Quick Battle: what was rolled (loading card, end screen "play again"). */
   quick?: QuickInfo;
   /**
-   * [DOCTRINE] Commander rules: doctrine id per player (src/sim/doctrine.ts; index 0 = the human). null / missing =
+   * Commander rules: doctrine id per player (src/sim/doctrine.ts; index 0 = the human). null / missing =
    * none for a human, the AI's own pick (personality + seed) for an AI. Ignored under Classic rules.
    */
   doctrines?: (string | null)[];
@@ -184,7 +184,7 @@ export class Game {
   tracks: TrackMarks;
   rubble: Rubble;
   life: AmbientLife;
-  /** [ENV] Paths, concrete aprons and props around the structures the local player can see. */
+  /** Paths, concrete aprons and props around the structures the local player can see. */
   props: BaseDressing;
   walls: WallRenderer;
   reticle: TargetReticle;
@@ -194,7 +194,7 @@ export class Game {
   private nukeWatched = new Set<number>();
   private endCine: (() => void) | null = null;
   private nukeCine: (() => void) | null = null;
-  // round-4 content renderers: ship wakes, gap-generator shroud domes, bridges
+  // content renderers: ship wakes, gap-generator shroud domes, bridges
   private wakes!: ShipWakes;
   private gapField!: GapField;
   bridges!: BridgeRenderer;
@@ -217,15 +217,15 @@ export class Game {
   missionHud: MissionHud | null = null;
   /** Result of a finished mission (stars, time, score). */
   missionResult: { won: boolean; stars: number; time: number; score: number } | null = null;
-  /** [D] Records the local player's commands for replays (skirmish only). */
+  /** Records the local player's commands for replays (skirmish only). */
   recorder: ReplayRecorder | null = null;
-  /** [D] Extra per-match UI (replay controls) torn down with the game. */
+  /** Extra per-match UI (replay controls) torn down with the game. */
   attachments: { dispose(): void }[] = [];
-  /** [META] Battle report: army value, income, kills and losses per player every 10 s (src/meta/report.ts; not sim state). */
+  /** Battle report: army value, income, kills and losses per player every 10 s (src/meta/report.ts; not sim state). */
   report: BattleReport | null = null;
-  /** [META] This battle's progression summary (XP, contracts, unlocks) for the results screen. */
+  /** This battle's progression summary (XP, contracts, unlocks) for the results screen. */
   metaSummary: MatchSummary | null = null;
-  juice!: JuiceDirector; // [JUICE]
+  juice!: JuiceDirector;
   local;
   selection = new Set<number>();
   paused = false;
@@ -251,9 +251,9 @@ export class Game {
 
   constructor(readonly setup: GameSetup, readonly audio: AudioSystem, private cb: GameCallbacks) {
     cb.onProgress?.(0.05, 'Generating battlefield');
-    setup = (this as { setup: GameSetup }).setup = mutateSetup(prepareModeSetup(setup)); // [MODES] branch / challenge moment as the load · co-op allies · [VARIETY] mutators' conditions
-    applyModSet(withMutatorMods(setup.mods, setup.mutators)); // [EDIT] the match's mods (none: base rules), before anything reads the rules · [VARIETY] plus the mutators' rule changes
-    const def = setup.conquest ? conquestMission(setup.conquest) /* [CONQ] */ : setup.mission ? (setup.customMission && setup.customMap ? customMissionDef(setup.customMission, setup.customMap) : getMission(setup.mission)) ?? null : null; // [EDIT] custom missions
+    setup = (this as { setup: GameSetup }).setup = mutateSetup(prepareModeSetup(setup)); // branch / challenge moment as the load · co-op allies · mutators' conditions
+    applyModSet(withMutatorMods(setup.mods, setup.mutators)); // the match's mods (none: base rules), before anything reads the rules, plus the mutators' rule changes
+    const def = setup.conquest ? conquestMission(setup.conquest) : setup.mission ? (setup.customMission && setup.customMap ? customMissionDef(setup.customMission, setup.customMap) : getMission(setup.mission)) ?? null : null; // custom missions
     this.missionDef = def;
     if (def) {
       // missions define the battlefield themselves
@@ -264,11 +264,11 @@ export class Game {
       (this as { setup: GameSetup }).setup = setup;
     }
     const nPlayers = def ? def.map.players : 1 + setup.opponents.length;
-    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) /* [CONQ] */ : null; // [D] curated skirmish map · [EDIT] custom map
+    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) : null; // editor map, curated skirmish map, or the curated map a mission names (Conquest battles)
     const climate = curated?.climate ?? (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
     const map = curated ?? generateMap({
       size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
-      rocks: def?.map.rocks, // [CONQ] mountain battlefields
+      rocks: def?.map.rocks, // mountain battlefields
       // deserts are dry, except that a sea map (water >= 0.9) becomes a desert coastline
       water: climate === 'desert' && setup.water < 0.9 ? Math.min(setup.water, 0.2) : setup.water,
       trees: climate === 'desert' ? setup.trees * 0.35 : climate === 'winter' ? Math.min(1, setup.trees * 1.2) : setup.trees,
@@ -281,17 +281,17 @@ export class Game {
       const color = TEAM_COLORS.find((c) => !usedColors.has(c))!;
       usedColors.add(color);
       const faction = o.faction === 'random' ? rngFaction(i + 1) : o.faction;
-      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // [AI] rivals / personalities
+      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // rivals / personalities
     });
     if (def) {
       players.length = 0;
       def.players.forEach((ps, i) => players.push({
         name: ps.name, faction: ps.faction, color: ps.color ?? TEAM_COLORS[i], team: ps.team ?? i, isHuman: i === 0,
         ai: i === 0 ? undefined : ps.ai === 'passive' || ps.ai === 'defensive' || !ps.ai ? 'normal' : ps.ai,
-        personality: i === 0 ? undefined : ps.personality, // [CONQ] commander personalities in missions
+        personality: i === 0 ? undefined : ps.personality, // commander personalities in missions
       }));
     }
-    if (!def) applyRoster(players, setup); // [MODES] branch / challenge: the chosen player is human, the rest AI
+    if (!def) applyRoster(players, setup); // branch / challenge: the chosen player is human, the rest AI
     // shuffle start positions so the player isn't always bottom-left
     if (!setup.demo && !def && (setup.seed & 2)) map.startPositions.reverse();
     this.world = new World({
@@ -300,16 +300,16 @@ export class Game {
       creditsPer: def ? def.players.map((ps, i) => (i === 0 ? def.credits : ps.credits ?? 5000)) : undefined,
       fog: setup.fog && !setup.demo, seed: setup.seed,
       ceasefireUntil: ceasefireForSetup(setup, !!def), // build-up time (saves restore their own below)
-      ...varietyOptions(setup, !!def), // [VARIETY] rules, mutators, battlefield events, dynamic difficulty (skirmish only)
-      doctrines: def ? undefined : setup.doctrines, // [DOCTRINE] (only read under Commander rules)
+      ...varietyOptions(setup, !!def), // rules, mutators, battlefield events, dynamic difficulty (skirmish only)
+      doctrines: def ? undefined : setup.doctrines, // (only read under Commander rules)
     });
     this.local = this.world.players[0];
-    attachModeRuntime(this.world, setup, !!def); // [MODES] KOTH / challenge runtime, restored by the load below
+    attachModeRuntime(this.world, setup, !!def); // KOTH / challenge runtime, restored by the load below
     if (setup.load) {
-      deserializeWorld(this.world, setup.load.world, this.world.mission); // [MODES] mode runtimes restore with the world (missions attach theirs below)
+      deserializeWorld(this.world, setup.load.world, this.world.mission); // mode runtimes restore with the world (missions attach theirs below)
     }
-    if (!def) this.local = startModes(this.world, setup); // [MODES] hand the chosen player over, start fresh modes
-    if (!def && !setup.demo && !setup.replay) this.recorder = new ReplayRecorder(this, setup.load?.game?.replay); // [D] replays
+    if (!def) this.local = startModes(this.world, setup); // hand the chosen player over, start fresh modes
+    if (!def && !setup.demo && !setup.replay) this.recorder = new ReplayRecorder(this, setup.load?.game?.replay); // replays
     if (def) {
       const rt = new MissionRuntime(this.world, def);
       this.world.mission = rt;
@@ -320,7 +320,7 @@ export class Game {
       for (const p of this.world.players) { this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
     }
 
-    applyMatchCosmetics({ teamColor: this.local.color, commanded: !setup.demo && !setup.replay, audio: this.audio }); // [META] before the first model / portrait
+    applyMatchCosmetics({ teamColor: this.local.color, commanded: !setup.demo && !setup.replay, audio: this.audio }); // before the first model / portrait
     cb.onProgress?.(0.2, 'Assembling armies');
     prewarmModels();
     cb.onProgress?.(0.3, 'Rendering terrain');
@@ -332,7 +332,7 @@ export class Game {
     this.gfx = new GameRenderer(this.canvas, map, { quality: setup.quality, timeOfDay: setup.timeOfDay, climate });
     this.contextWatch = watchContextLoss(this.canvas, {
       onLost: () => { this.pausedBeforeLoss = this.paused; this.paused = true; },
-      onRestored: () => { this.gfx.restoreAfterContextLoss(); void hdRestoreTextures(); this.paused = this.pausedBeforeLoss; this.last = performance.now(); }, // [HD] re-decode the closed HD atlases
+      onRestored: () => { this.gfx.restoreAfterContextLoss(); void hdRestoreTextures(); this.paused = this.pausedBeforeLoss; this.last = performance.now(); }, // re-decode the closed HD atlases
       onTimeout: () => { if (!this.setup.demo) this.save('auto'); }, // the overlay then offers a reload
     });
     this.gfx.fog.enabled = this.world.fog;
@@ -345,10 +345,10 @@ export class Game {
     this.gfx.scene.add(this.bridges.group);
     this.effects.setSunDirection?.(this.gfx.sunDir);
     if (setup.quality === 'low') this.effects.setDensity?.(0.5);
-    setModelDetail(setup.quality === 'low' ? 0 : setup.quality === 'medium' ? 1 : 2); // [STRUCT] model LOD reach / Low: light bodies + shader
-    setHdModels(hdModelsWanted(loadSettings(), setup.quality), setup.quality === 'high' ? 'high' : 'medium'); // [HD] memory tier; loaded on the loading screen (main.ts) and lazily per type
+    setModelDetail(setup.quality === 'low' ? 0 : setup.quality === 'medium' ? 1 : 2); // model LOD reach / Low: light bodies + shader
+    setHdModels(hdModelsWanted(loadSettings(), setup.quality), setup.quality === 'high' ? 'high' : 'medium'); // memory tier; loaded on the loading screen (main.ts) and lazily per type
     this.ents = new EntityRenderer(this.gfx.scene, this.world, this.effects, this.local, this.gfx.fog);
-    this.juice = new JuiceDirector(this); this.attachments.push(this.juice); // [JUICE] shake, kill punches, battle music / call-outs, moments
+    this.juice = new JuiceDirector(this); this.attachments.push(this.juice); // shake, kill punches, battle music / call-outs, moments
     this.ents.deckHeight = (x, y) => this.bridges.deckHeightAt(x, y);
     this.ents.weatherUniforms = this.gfx.weather.surfaceUniforms;
     this.placement = new PlacementGhost(map);
@@ -363,7 +363,7 @@ export class Game {
     this.rubble = new Rubble(map);
     this.gfx.scene.add(this.rubble.mesh);
     this.life = new AmbientLife(map, (x, y) => this.gfx.terrain.renderHeight(x, y));
-    // [ENV] base dressing (render only): reads the shown structures' footprints, never sim state changes
+    // base dressing (render only): reads the shown structures' footprints, never sim state changes
     this.props = new BaseDressing(map, this.gfx.terrain, {
       quality: setup.quality, climate, weather: this.gfx.weather.surfaceUniforms,
       shown: (id) => this.ents.isShown(id), hideClutter: (cells) => this.gfx.vegetation.hideCells(cells),
@@ -412,8 +412,8 @@ export class Game {
         const t = BUILDINGS[id] ?? UNITS[id];
         return t.owner.includes(this.local.faction);
       });
-      this.thumbs = renderThumbnails(ids, this.local.color, undefined, undefined, this.local.faction); // [STRUCT] faction dressing
-      // [HD] a type whose HD model arrives later (lazy loading) gets its portrait re-rendered
+      this.thumbs = renderThumbnails(ids, this.local.color, undefined, undefined, this.local.faction); // faction dressing
+      // a type whose HD model arrives later (lazy loading) gets its portrait re-rendered
       const own = new Set(ids);
       const off = onHdReady((type) => {
         if (!own.has(type)) return;
@@ -445,7 +445,7 @@ export class Game {
           if (jump) this.input?.centreOn(ids); // the group's middle, not just its first member
         },
         stats: () => `${this.gfx.stats.calls} calls · ${(this.gfx.stats.tris / 1000).toFixed(0)}k tris`,
-        overlay: this.overlay, // [ARMY] auto-group numbers and factory badges
+        overlay: this.overlay, // auto-group numbers and factory badges
       });
       this.hud.minimap.structures = () => this.ents.structureMarkers();
       const game = this;
@@ -465,8 +465,8 @@ export class Game {
       });
       this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost' || key === 'ceasefire_warning' || key === 'ceasefire_over');
       if (!this.world.mission) this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
-      if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // [AI] rival radio + habit tracking (not in replay branches / challenges)
-      if (this.world.commander) this.attachments.push(attachCommanderPanel(this)); // [DOCTRINE] commander powers panel (Commander rules)
+      if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // rival radio + habit tracking (not in replay branches / challenges)
+      if (this.world.commander) this.attachments.push(attachCommanderPanel(this)); // commander powers panel (Commander rules)
       if (this.world.mission) {
         this.missionHud = new MissionHud(this.world.mission, (k) => this.audio.play(k));
       }
@@ -484,16 +484,16 @@ export class Game {
       this.demoCam.ty = map.h / 2;
     }
     if (setup.load) this.restoreView(setup.load);
-    if (!setup.demo && !setup.replay && !isWhatIf(setup)) { // [MODES] branches / challenges are "what if" games: no progression
+    if (!setup.demo && !setup.replay && !isWhatIf(setup)) { // branches / challenges are "what if" games: no progression
       meta.onGameStart({
         mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
         difficulties: this.missionDef ? undefined : setup.opponents.map((o) => o.difficulty),
         faction: this.local.faction, opponents: this.world.players.filter((p) => this.local.isEnemy(p)).length, seed: setup.seed,
         climate: map.climate, weather: this.wxSeq ? this.wxSeq[this.wxIdx]?.kind : setup.weather,
-        rivals: this.missionDef ? 0 : setup.opponents.filter((o) => o.rival).length, // [META] contracts: "beat a rival"
+        rivals: this.missionDef ? 0 : setup.opponents.filter((o) => o.rival).length, // contracts: "beat a rival"
       });
     }
-    if (!setup.demo && !setup.replay) this.report = new BattleReport(this.world, () => this.local, (s) => meta.onSample(s)); // [META]
+    if (!setup.demo && !setup.replay) this.report = new BattleReport(this.world, () => this.local, (s) => meta.onSample(s));
     if (!setup.demo) {
       // (the menu backdrop doesn't need it, and skipping it keeps "return to menu" quick)
       cb.onProgress?.(0.95, 'Compiling shaders');
@@ -503,8 +503,8 @@ export class Game {
   }
 
   issue(cmd: Command) {
-    if (this.setup.replay) return; // [D] spectating a replay: no orders
-    this.recorder?.record(cmd); // [D] replays
+    if (this.setup.replay) return; // spectating a replay: no orders
+    this.recorder?.record(cmd); // replays
     this.world.issue(cmd);
   }
 
@@ -567,7 +567,7 @@ export class Game {
     }
     this.wakeShips.length = n;
     this.wakes.update(this.wakeShips, fdt);
-    if (fdt > 0) this.gfx.water.driveShips(this.wakeShips); // [FX] bows push the interactive water surface
+    if (fdt > 0) this.gfx.water.driveShips(this.wakeShips); // bows push the interactive water surface
     let g = 0;
     const put = (x: number, y: number, r: number) => {
       const s = this.gapSources[g] ?? (this.gapSources[g] = { x: 0, y: 0, radius: 1 });
@@ -597,7 +597,7 @@ export class Game {
     try {
       const r = this.gfx.renderer;
       this.effects.prepareCompile(true); // pooled 3D effect bodies join the warm-up
-      for (const t of hdTextures()) r.initTexture(t); // [HD] upload the atlases now, not on first sight
+      for (const t of hdTextures()) r.initTexture(t); // upload the atlases now, not on first sight
       if (r.extensions.has('KHR_parallel_shader_compile')) void r.compileAsync(this.gfx.scene, this.gfx.cam.camera).catch(() => {});
       else r.compile(this.gfx.scene, this.gfx.cam.camera); // blocking, but on the loading screen rather than mid-battle
       this.effects.prepareCompile(false);
@@ -609,7 +609,7 @@ export class Game {
   }
 
   /**
-   * [HD] Compile the HD body program and upload the HD atlases loaded after the constructor's warm-up (main.ts
+   * Compile the HD body program and upload the HD atlases loaded after the constructor's warm-up (main.ts
    * calls it once the battle's own types are loaded), so the first frame doesn't stall on them.
    */
   warmHd() {
@@ -697,7 +697,7 @@ export class Game {
       // up to 12 ticks a frame: x5 (100 ticks/s) still holds down to ~9 fps before time is dropped
       while (this.acc >= DT && steps < 12) {
         world.step();
-        this.report?.afterStep(); // [META] (reads this step's events before they are drained)
+        this.report?.afterStep(); // (reads this step's events before they are drained)
         this.processEvents();
         this.acc -= DT;
         steps++;
@@ -742,7 +742,7 @@ export class Game {
     this.walls.update();
     if (!this.paused) this.tracks.update(this.alpha, this.time);
     this.life.update(fdt, this.time, this.gfx.night, this.gfx.cam.x, this.gfx.cam.y);
-    this.props.update(world.buildings, this.gfx.night, dt); // [ENV]
+    this.props.update(world.buildings, this.gfx.night, dt);
     if (this.timedEmitters.length) {
       for (const t of this.timedEmitters) if (this.time > t.until) t.h.dispose();
       this.timedEmitters = this.timedEmitters.filter((t) => this.time <= t.until);
@@ -754,7 +754,7 @@ export class Game {
     this.updateContentVisuals(fdt);
     this.effects.update(fdt, this.time);
 
-    // camera shake ([JUICE] distance-scaled trauma, off with reduceMotion), battle music / call-outs, moments
+    // camera shake (distance-scaled trauma, off with reduceMotion), battle music / call-outs, moments
     this.juice.update(dt);
 
     // incoming enemy nukes: warning banner + marked blast zone
@@ -771,7 +771,7 @@ export class Game {
       }
     }
     this.gfx.render(dt, this.time);
-    hdReleaseUploaded(this.gfx.renderer); // [HD] upload new HD atlases and close their decoded bitmaps
+    hdReleaseUploaded(this.gfx.renderer); // upload new HD atlases and close their decoded bitmaps
     if (!this.setup.demo && !this.paused) this.gfx.adaptResolution(dt * 1000);
     if (this.overlay) this.overlay.draw(this.gfx.cam.camera, world, this.ents, this.local, this.selection, this.input?.hovered ?? 0, this.alpha, fdt);
     const rt = this.world.mission;
@@ -834,8 +834,8 @@ export class Game {
       const deadEnt = ev.e === 'death' ? this.ents.views.get(ev.id)?.ent : undefined;
       if (!demo) meta.onEvent(ev, { localPlayerId: this.local.id, world, dead: deadEnt });
       this.ents.handleEvent(ev);
-      this.juice.onEvent(ev, deadEnt); // [JUICE]
-      if (ev.e === 'produced') this.hud?.army.simEvent(ev); // [ARMY] auto-groups, idle-factory watch
+      this.juice.onEvent(ev, deadEnt);
+      if (ev.e === 'produced') this.hud?.army.simEvent(ev); // auto-groups, idle-factory watch
       switch (ev.e) {
         case 'fire': {
           const vis = fog.visibilityAt(ev.fx, ev.fy) > 0.25;
@@ -885,7 +885,7 @@ export class Game {
         case 'power':
           this.powerVisual(ev);
           break;
-        case 'commander': // [DOCTRINE] commander power visuals, rings, panel flashes
+        case 'commander': // commander power visuals, rings, panel flashes
           if (!demo) commanderVisual(this, ev);
           break;
         case 'infiltrate':
@@ -977,18 +977,18 @@ export class Game {
         case 'gameover':
           if (!demo) {
             const won = world.winnerTeam === this.local.team;
-            if (world.mission && this.missionDef) this.recordMission(world.mission); // [MODES] KOTH / challenge runtimes keep no campaign record
+            if (world.mission && this.missionDef) this.recordMission(world.mission); // KOTH / challenge runtimes keep no campaign record
             const summary = meta.onGameEnd({
               won, time: world.time, mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
               stars: this.missionResult?.stars, score: world.mission?.score, stats: this.local.stats, weather: this.gfx.weather.kind, world,
             });
-            this.metaSummary = summary; // [META] results screen
+            this.metaSummary = summary; // results screen
             if (summary) window.setTimeout(() => showXpSummary(summary), 5200);
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
-            if (!(won && playVictoryFanfare())) this.audio.stinger(won ? 'victory' : 'defeat'); // [META] equipped victory fanfare
+            if (!(won && playVictoryFanfare())) this.audio.stinger(won ? 'victory' : 'defeat'); // equipped victory fanfare
             this.endTimer = 4.5;
-            const sub = this.missionDef ? `Operation ${this.missionDef.codename}` : world.mission?.endReason ?? (won ? 'All enemy forces destroyed' : 'Your forces have been overrun'); // [MODES] KOTH / challenge reason
-            this.endCine = endingCinematic(won, sub, this.gfx); // [FX] lens
+            const sub = this.missionDef ? `Operation ${this.missionDef.codename}` : world.mission?.endReason ?? (won ? 'All enemy forces destroyed' : 'Your forces have been overrun'); // KOTH / challenge reason
+            this.endCine = endingCinematic(won, sub, this.gfx); // lens
             // slow-motion sweep to the final explosion
             this.speed = 0.35;
             if (this.lastDeath) this.gfx.cam.flyToPoint(this.lastDeath[0], this.lastDeath[1]);
@@ -1012,7 +1012,7 @@ export class Game {
       this.gfx.cam.dist = this.gfx.cam.targetDist = g.cam.dist;
       this.gfx.cam.yaw = this.gfx.cam.targetYaw = g.cam.yaw ?? 0;
     }
-    this.hud?.army.loadState(g.army); // [ARMY] factory auto-groups
+    this.hud?.army.loadState(g.army); // factory auto-groups
     if (this.input && g.groups) {
       this.input.groups = new Map(g.groups);
       for (const [k, ids] of this.input.groups) for (const id of ids) this.overlay?.groups.set(id, k);
@@ -1036,11 +1036,11 @@ export class Game {
         setup, label, hours: this.hours, wxIdx: this.wxIdx, wxTimer: this.wxTimer, time: this.world.time,
         cam: { x: cam.x, y: cam.y, dist: cam.targetDist, yaw: cam.targetYaw },
         groups: this.input ? [...this.input.groups.entries()] : [],
-        army: this.hud?.army.saveState(), // [ARMY] factory auto-groups
-        replay: this.recorder?.snapshot(), // [D] the replay continues after loading
+        army: this.hud?.army.saveState(), // factory auto-groups
+        replay: this.recorder?.snapshot(), // the replay continues after loading
       },
     };
-    if (this.setup.conquest && slot === 'auto') writeSave('conquest', data); // [CONQ] the run can always resume its battle
+    if (this.setup.conquest && slot === 'auto') writeSave('conquest', data); // the run can always resume its battle
     return writeSave(slot, data);
   }
 
@@ -1129,10 +1129,10 @@ export class Game {
   }
 
   dispose() {
-    this.recorder?.finish(); // [D] store the replay of a match left before its end
+    this.recorder?.finish(); // store the replay of a match left before its end
     for (const a of this.attachments) a.dispose();
     if (!this.setup.demo && meta.active) meta.abandon(); // quit / restart mid-battle
-    clearMatchCosmetics(); // [META] factory colours again
+    clearMatchCosmetics(); // factory colours again
     this.contextWatch?.dispose(); // first: forceContextLoss below must not trigger the lost-context overlay
     this.contextWatch = null;
     this.running = false;
@@ -1151,7 +1151,7 @@ export class Game {
     this.effects.dispose?.();
     // shared/cached resources hold dispose listeners that would pin this renderer in memory forever
     releaseGpuResources();
-    hdReleaseAll(); // [HD] the next battle re-decodes from the cached GLB bytes (its own renderer, maybe another tier)
+    hdReleaseAll(); // the next battle re-decodes from the cached GLB bytes (its own renderer, maybe another tier)
     this.gfx.dispose();
     this.gfx.renderer.forceContextLoss();
     this.overlay?.dispose();

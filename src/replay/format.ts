@@ -15,7 +15,7 @@ import type { GameSetup } from '../game';
 export const REPLAY_VERSION = 1;
 /** State hash interval in ticks (10 s at 20 Hz). */
 export const HASH_EVERY = 200;
-/** Replays kept in storage (oldest are pruned; [MODES] whole trees of branches are kept or pruned together). */
+/** Replays kept in storage (oldest are pruned; whole trees of branches are kept or pruned together). */
 export const MAX_REPLAYS = 16;
 
 /**
@@ -82,7 +82,7 @@ export interface PlaybackOptions {
   speed?: number;
   /** Start paused (after a seek while paused). */
   paused?: boolean;
-  /** [MODES] "Continue": once the seek is done, take command of this player (a branch at that tick). */
+  /** "Continue": once the seek is done, take command of this player (a branch at that tick). */
   takeCommand?: { local: number; ai?: import('../sim/ai').AIDifficulty };
 }
 

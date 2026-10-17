@@ -1,4 +1,4 @@
-"""[VEH] Ore truck (harv) shared by the Soviet and Allied scripts (harv_soviet.py / harv_allies.py).
+"""Ore truck (harv) shared by the Soviet and Allied scripts (harv_soviet.py / harv_allies.py).
 
 Tracked chassis, glazed cab front-left with roof work lights and the amber beacon ('glow:beacon', blinks
 while harvesting / moving), exhaust stack (smoke 'exhaust'), front intake housing with the collector drum

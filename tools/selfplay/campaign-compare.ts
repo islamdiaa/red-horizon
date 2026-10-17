@@ -1,6 +1,6 @@
 /**
  * Campaign check for AI changes: every campaign mission played by its autopilot (tools/campaign-pilots*.ts) with the
- * current AI and with the frozen round-4 AI (tools/selfplay/legacy), over several RNG jitters, so a changed result
+ * current AI and with the frozen legacy AI (tools/selfplay/legacy), over several RNG jitters, so a changed result
  * can be told apart from chance (one run per mission is a single roll of the dice).
  *
  *   node --import tsx tools/selfplay/campaign-compare.ts [jitters=4] [missions=all|allies|soviet|<id>] [minutes=40]

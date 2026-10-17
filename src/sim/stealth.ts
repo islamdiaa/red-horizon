@@ -15,7 +15,7 @@ import type { Player } from './player';
 import { recalcPlayerEconomy } from './production';
 import { TICK_HZ } from './types';
 import type { World } from './world';
-import { cmdGap } from './doctrine'; // [DOCTRINE]
+import { cmdGap } from './doctrine';
 
 /** A Camo Pillbox stays visible this long after its last shot. */
 const CAMO_REVEAL_TICKS = TICK_HZ * 3;
@@ -86,10 +86,10 @@ function gapFields(world: World): GapField[] {
   const out: GapField[] = [];
   for (const b of world.buildings) {
     // RA: a gap generator only jams at full power
-    if (b.alive && b.bt.gapRadius && b.active && !b.owner.lowPower) out.push({ x: b.x, y: b.y, r: b.owner.cmd ? b.bt.gapRadius * cmdGap(b.owner) : b.bt.gapRadius, owner: b.owner }); // [DOCTRINE] Shadow Network
+    if (b.alive && b.bt.gapRadius && b.active && !b.owner.lowPower) out.push({ x: b.x, y: b.y, r: b.owner.cmd ? b.bt.gapRadius * cmdGap(b.owner) : b.bt.gapRadius, owner: b.owner }); // Shadow Network
   }
   for (const u of world.units) {
-    if (u.alive && u.ut.gapRadius && !u.transport) out.push({ x: u.x, y: u.y, r: u.owner.cmd ? u.ut.gapRadius * cmdGap(u.owner) : u.ut.gapRadius, owner: u.owner }); // [DOCTRINE] Shadow Network
+    if (u.alive && u.ut.gapRadius && !u.transport) out.push({ x: u.x, y: u.y, r: u.owner.cmd ? u.ut.gapRadius * cmdGap(u.owner) : u.ut.gapRadius, owner: u.owner }); // Shadow Network
   }
   fieldCache.set(world, { tick: world.tick, n, fields: out });
   return out;

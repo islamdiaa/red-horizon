@@ -1,4 +1,4 @@
-// Editor / mods screenshot driver (EDIT agent): node tools/edit-shot.mjs <scenario> [port=5213]
+// Editor / mods screenshot driver: node tools/edit-shot.mjs <scenario> [port=5213]
 // Scenarios: editor (paint, check, 3D, mission), mods (Mods screen), picker (skirmish map picker with a custom map),
 // playtest (start a skirmish on a custom map), campaign (custom mission in Special operations).
 import { chromium } from 'playwright';

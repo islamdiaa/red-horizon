@@ -3,7 +3,7 @@
  * Self-contained DOM with injected CSS; safe to call from anywhere (no-ops without a document).
  */
 import { insigniaSvg, picto } from './art';
-import type { ContractProgress } from './contracts'; // [META]
+import type { ContractProgress } from './contracts';
 
 export interface ToastInfo {
   title: string;
@@ -11,7 +11,7 @@ export interface ToastInfo {
   /** Medal or insignia markup (inline SVG). */
   icon: string;
   xp: number;
-  kind?: 'medal' | 'rank' | 'contract' | 'unlock'; // [META] contract complete / cosmetic unlocked
+  kind?: 'medal' | 'rank' | 'contract' | 'unlock'; // contract complete / cosmetic unlocked
   /** e.g. "Silver" or "Legendary". */
   tier?: string;
   rarity?: 'common' | 'rare' | 'epic' | 'legendary';
@@ -34,7 +34,7 @@ export interface XpSummary {
   medals: number;
   won: boolean;
   dailyScore?: number;
-  // [META] contracts, Commendations and unlocks (src/meta/contracts.ts, unlocks.ts)
+  // contracts, Commendations and unlocks (src/meta/contracts.ts, unlocks.ts)
   contracts?: ContractProgress[];
   /** Commendations earned in this battle / balance after it. */
   commendations?: number;
@@ -182,7 +182,7 @@ function next() {
   const rank = a.kind === 'rank';
   const life = queue.length > 2 ? 2600 : rank ? 5200 : 4300;
   const el = document.createElement('div');
-  el.className = `rhx-t ${rank ? 'rank' : a.kind === 'contract' || a.kind === 'unlock' ? a.kind : a.rarity ?? 'epic'}`; // [META]
+  el.className = `rhx-t ${rank ? 'rank' : a.kind === 'contract' || a.kind === 'unlock' ? a.kind : a.rarity ?? 'epic'}`;
   el.style.setProperty('--life', `${life}ms`);
   let sparks = '';
   for (let i = 0; i < 9; i++) {
@@ -190,7 +190,7 @@ function next() {
     const r = 2.2 + (i % 3) * 0.9;
     sparks += `<i class="rhx-sp" style="--x:${(Math.cos(ang) * r).toFixed(2)};--y:${(Math.sin(ang) * r).toFixed(2)};--d:${((i % 4) * 0.07).toFixed(2)}"></i>`;
   }
-  const kicker = rank ? 'Promotion' : a.kind === 'contract' ? `Contract complete${a.tier ? ' · ' + a.tier : ''}` : a.kind === 'unlock' ? `Unlocked${a.tier ? ' · ' + a.tier : ''}` : `Medal unlocked${a.tier ? ' · ' + a.tier : ''}`; // [META]
+  const kicker = rank ? 'Promotion' : a.kind === 'contract' ? `Contract complete${a.tier ? ' · ' + a.tier : ''}` : a.kind === 'unlock' ? `Unlocked${a.tier ? ' · ' + a.tier : ''}` : `Medal unlocked${a.tier ? ' · ' + a.tier : ''}`;
   el.innerHTML = `<div class="rhx-medal"><div class="rhx-rays"></div>${sparks}${a.icon}</div>
     <div class="rhx-txt"><div class="rhx-k"><i></i><span>${escHtml(kicker)}</span></div><div class="rhx-ti">${escHtml(a.title)}</div><div class="rhx-d">${escHtml(a.desc)}</div></div>
     ${a.xp > 0 ? `<div class="rhx-xp">+${a.xp.toLocaleString('en-US')}<small>XP</small></div>` : ''}
@@ -209,7 +209,7 @@ function next() {
  */
 export function showXpSummary(s: XpSummary, ms = 11000) {
   if (typeof document === 'undefined') return;
-  if (document.querySelector('.rr-results')) return; // [META] the results screen has it
+  if (document.querySelector('.rr-results')) return; // the results screen has it
   ensureCss();
   document.querySelector('.rhx-sum')?.remove();
   const el = document.createElement('div');
@@ -231,7 +231,7 @@ export function showXpSummary(s: XpSummary, ms = 11000) {
   window.setTimeout(close, ms + (s.contracts?.length ? 3000 : 0));
 }
 
-/** [META] Contracts that moved this battle, Commendations, and the next unlock (XP card). */
+/** Contracts that moved this battle, Commendations, and the next unlock (XP card). */
 function contractsHtml(s: XpSummary): string {
   const list = (s.contracts ?? []).filter((c) => c.after > c.before || c.justDone).slice(0, 3);
   let out = '';

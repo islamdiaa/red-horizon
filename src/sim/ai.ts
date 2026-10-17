@@ -8,15 +8,15 @@ import { TICK_HZ } from './types';
 import type { World } from './world';
 import { aiNavalStructure, aiNavalThink, aiPlacement } from './ai-naval';
 import { contentAI } from './ai-content';
-import { aftermathAI, aiManaged } from './aftermath'; // [CONTENT] Aftermath units: production share + special-unit use
+import { aftermathAI, aiManaged } from './aftermath'; // Aftermath units: production share + special-unit use
 import { apparentType } from './infiltration';
 import { AIIntel } from './ai-intel';
 import { bestFitness, counterWeights } from './ai-counter';
 import { DEFAULT_TUNING, resolvePersonality, trait, type AITuning, type Personality } from './ai-personality';
 import { expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
 import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
-import { commanderAI } from './ai-commander'; // [DOCTRINE]
-import { doctrineDefences, doctrinePrefer } from './doctrine'; // [DOCTRINE]
+import { commanderAI } from './ai-commander';
+import { doctrineDefences, doctrinePrefer } from './doctrine';
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
@@ -50,7 +50,7 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
 
 /**
  * [type, how many] goals in priority order. Power is handled separately.
- * (Allies, round 5: the third refinery, second war factory and service depot now come before the Tech Center, whose
+ * (Allies: the third refinery, second war factory and service depot come before the Tech Center, whose
  * $1500 and 200 power cost the Allies the decisive first battles in self-play, and the decoys, gap generator and
  * second helipad wait until the core is built: Allied win share on generated land maps at equal difficulty went from
  * about 15-20% to 30-38% (tools/selfplay/run.ts).)
@@ -134,7 +134,7 @@ export class AIController {
   lastDefend = -9999;
   deployTries = 0;
   behaviour: 'full' | 'passive' | 'defensive' = 'full';
-  // --- round-5 strategic state (saved by saveState)
+  // --- strategic state (saved by saveState)
   /** Part of the current wave sent on a flanking / feint attack. */
   flank = new Set<number>();
   flankTarget: [number, number] | null = null;
@@ -256,8 +256,8 @@ export class AIController {
     this.airStrikes();
     this.superweapons();
     contentAI(this);
-    if (this.world.commander) commanderAI(this); // [DOCTRINE] commander powers (Commander rules only)
-    aftermathAI(this); // [CONTENT] builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
+    if (this.world.commander) commanderAI(this); // commander powers (Commander rules only)
+    aftermathAI(this); // builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
     if (this.chatter.length > 40) this.chatter.splice(0, this.chatter.length - 40);
   }
 
@@ -398,7 +398,7 @@ export class AIController {
   }
 
   private defenceCap(): number {
-    return this.d.defenses + Math.round((this.personality.defence - 0.5) * 8) + (this.world.time > 900 ? 2 : 0) + (this.p.cmd ? doctrineDefences(this.p) : 0); // [DOCTRINE]
+    return this.d.defenses + Math.round((this.personality.defence - 0.5) * 8) + (this.world.time > 900 ? 2 : 0) + (this.p.cmd ? doctrineDefences(this.p) : 0);
   }
 
   private allowed(t: string): boolean {
@@ -579,7 +579,7 @@ export class AIController {
     const pers = this.personality;
     const out: [string, number][] = base.map(([t, w]) => {
       let m = pers.prefer?.[t] ?? 1;
-      if (this.p.cmd) m *= doctrinePrefer(this.p, t); // [DOCTRINE] lean into the doctrine
+      if (this.p.cmd) m *= doctrinePrefer(this.p, t); // lean into the doctrine
       if (ARTILLERY.has(t)) m *= trait(pers.artillery, 0.25, 3);
       if (t === '4tnk' || t === 'e7') m *= trait(pers.tech, 0.5, 1.6);
       if (FAST_RAIDERS.has(t)) m *= trait(pers.harass, 0.8, 1.5);
@@ -638,7 +638,7 @@ export class AIController {
   // Army
   // ---------------------------------------------------------------------------
   army(): Unit[] {
-    return this.myUnits().filter((u) => u.weapons.length && !u.ut.harvester && !u.ut.deploysInto && !u.ut.medic && u.kind !== 'aircraft' && u.kind !== 'naval' && !aiManaged(u)); // [CONTENT] aiManaged: demolition trucks / M.A.D. tanks
+    return this.myUnits().filter((u) => u.weapons.length && !u.ut.harvester && !u.ut.deploysInto && !u.ut.medic && u.kind !== 'aircraft' && u.kind !== 'naval' && !aiManaged(u)); // aiManaged: demolition trucks / M.A.D. tanks
   }
 
   /** Army units free for waves and defence (not scouting, raiding, escorting or being repaired). */

@@ -1,4 +1,4 @@
-// [ARMY] Repeat production (sim/repeat.ts): loops for every unit queue, the low-funds pause and resume, the
+// Repeat production (sim/repeat.ts): loops for every unit queue, the low-funds pause and resume, the
 // primary factory, power, losing the factory, invalid commands, save / load mid-loop and replay sync.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

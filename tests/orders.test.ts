@@ -1,4 +1,4 @@
-// [CTRL] Unit control: formations, patrol, escort / guard, rally to a unit, build plans, focus fire, kiting,
+// Unit control: formations, patrol, escort / guard, rally to a unit, build plans, focus fire, kiting,
 // and determinism / save-load with all of them in flight.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

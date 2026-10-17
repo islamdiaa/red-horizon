@@ -1,5 +1,5 @@
 /**
- * [DOCTRINE] Commander rules, part 1: doctrines.
+ * Commander rules, part 1: doctrines.
  *
  * A doctrine is a per-player rule set picked before a Commander skirmish: two clear bonuses and one drawback,
  * expressed as multipliers on unit / structure stats (cost, build time, health, speed, damage taken, power drain)

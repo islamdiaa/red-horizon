@@ -14,12 +14,12 @@ export interface EmitterHandle {
   setPosition(pos: THREE.Vector3): void;
   /** 0 = off, 1 = normal, >1 = heavier. */
   setIntensity(v: number): void;
-  /** [JUICE] 'column' emitters: 0..1 fire glow at the base (still burning). */
+  /** 'column' emitters: 0..1 fire glow at the base (still burning). */
   setHeat?(v: number): void;
   dispose(): void;
 }
 
-/** [JUICE] 'column': tall smoke column over a burning structure / wreck (visible from far away). */
+/** 'column': tall smoke column over a burning structure / wreck (visible from far away). */
 export type EmitterKind = 'smoke' | 'fire' | 'chimney' | 'sparks' | 'steam' | 'exhaust' | 'column';
 
 export interface EffectsOptions {

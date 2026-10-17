@@ -26,17 +26,17 @@ import { toggleFullscreen } from '../platform/fullscreen';
 import { FORMATION_INFO, OrderViz, injectCtrlStyles } from './orderui';
 import { TouchController } from './touch';
 import { attachGamepad, gamepadFrame } from './gamepad';
-import { visualScale } from '../render/scale'; // [LOOK]
+import { visualScale } from '../render/scale';
 
 export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines'
-  /** [CTRL] click patrol waypoints (Shift: more) / click a unit or structure to guard / click to plan a structure. */
+  /** click patrol waypoints (Shift: more) / click a unit or structure to guard / click to plan a structure. */
   | 'patrol' | 'guard' | 'plan'
   /** Chrono Tank: click where to chronoshift (D). */
   | 'chrono'
-  /** [DOCTRINE] Aim a commander power (ui/commander.ts): click the target point / structure. */
+  /** Aim a commander power (ui/commander.ts): click the target point / structure. */
   | 'aim';
 
-/** [DOCTRINE] A ground-aimed action started from outside the input layer (commander powers, ui/commander.ts). */
+/** A ground-aimed action started from outside the input layer (commander powers, ui/commander.ts). */
 export interface AimRequest {
   /** Reticle radius (cells) and colour. */
   r: number;
@@ -120,7 +120,7 @@ export class InputController {
   mode: Mode = 'normal';
   placeType: string | null = null;
   superKind: SuperKind | null = null;
-  /** [DOCTRINE] Commander power being aimed (mode 'aim'). */
+  /** Commander power being aimed (mode 'aim'). */
   aim: AimRequest | null = null;
   groups = new Map<number, number[]>();
   mouseX = window.innerWidth / 2;
@@ -149,17 +149,17 @@ export class InputController {
   /** Camera follows the selection (F). */
   follow = false;
   private idleCursor = 0;
-  /** [CTRL] Patrol waypoints placed so far (patrol mode). */
+  /** Patrol waypoints placed so far (patrol mode). */
   patrolPts: [number, number][] = [];
-  /** [CTRL] Plan-mode ghost is on a plannable spot. */
+  /** Plan-mode ghost is on a plannable spot. */
   planOk = false;
-  /** [CTRL] Camera bookmarks (F6–F9): x, y, zoom, yaw. */
+  /** Camera bookmarks (F6–F9): x, y, zoom, yaw. */
   bookmarks = new Map<string, [number, number, number, number]>();
   readonly touch: TouchController;
   private viz: OrderViz;
-  /** [CTRL] Timestamp of the touch tap being handled (double taps are timed on event timestamps). */
+  /** Timestamp of the touch tap being handled (double taps are timed on event timestamps). */
   tapTime = 0;
-  /** [CTRL] Camera pan from a gamepad's right stick (-1..1 per axis). */
+  /** Camera pan from a gamepad's right stick (-1..1 per axis). */
   padPan: [number, number] = [0, 0];
 
   constructor(private h: InputHost) {
@@ -185,7 +185,7 @@ export class InputController {
     on(window, 'keydown', (e: KeyboardEvent) => this.onKey(e, true));
     on(window, 'keyup', (e: KeyboardEvent) => this.onKey(e, false));
     on(window, 'blur', () => { this.keys.clear(); this.exitX = this.exitY = 0; });
-    // [CTRL] order layer, touch and gamepad
+    // order layer, touch and gamepad
     injectCtrlStyles();
     const self = this;
     this.viz = new OrderViz({
@@ -252,7 +252,7 @@ export class InputController {
       const wy = map.surfaceAt(x, y) + top * 0.5 + (u.kind === 'aircraft' ? u.altitude : 0);
       const [px, py] = this.project(x, wy, y);
       const depth = cam.position.distanceTo(_v.set(x, wy, y));
-      const rpx = Math.max(10 * slack, (u.ut.radius * visualScale(u.kind, u.type.id) * 1.5 + 0.1) * focal / depth * slack); // [LOOK] units are drawn larger than their sim radius
+      const rpx = Math.max(10 * slack, (u.ut.radius * visualScale(u.kind, u.type.id) * 1.5 + 0.1) * focal / depth * slack); // units are drawn larger than their sim radius
       const d = Math.hypot(px - sx, py - sy);
       if (d < rpx && d < bestD) { bestD = d; best = u; }
     }
@@ -280,7 +280,7 @@ export class InputController {
   /** Width of the right-hand sidebar (it scales with the viewport), so "on screen" means the map area. */
   /** Width of the sidebar; measured on resize only (reading offsetWidth every frame forces a layout). */
   private sidebarW(): number {
-    if (document.body.classList.contains('hud-modern')) return 0; // [HUD] the Modern layout floats over the map: the whole width is "on screen"
+    if (document.body.classList.contains('hud-modern')) return 0; // the Modern layout floats over the map: the whole width is "on screen"
     if (this.sidebarWidth < 0) {
       const el = document.getElementById('sidebar');
       if (!el) return 312;
@@ -433,7 +433,7 @@ export class InputController {
     this.h.audio.play('click');
   }
 
-  /** [CTRL] Formation of the selected ground units (they form up on the spot when idle). */
+  /** Formation of the selected ground units (they form up on the spot when idle). */
   setFormation(shape: FormationShape) {
     if (this.spectator) return;
     const ids = this.ownSelectedUnits().filter(isGroundUnit).map((u) => u.id);
@@ -443,7 +443,7 @@ export class InputController {
     this.h.audio.play('click');
   }
 
-  /** [CTRL] L: next formation (Shift: previous). */
+  /** L: next formation (Shift: previous). */
   cycleFormation(dir = 1) {
     const units = this.ownSelectedUnits().filter(isGroundUnit);
     if (!units.length) return;
@@ -452,7 +452,7 @@ export class InputController {
     this.setFormation(FORMATION_SHAPES[(i + dir + FORMATION_SHAPES.length) % FORMATION_SHAPES.length]);
   }
 
-  /** [CTRL] Recall control group g (add: to the selection); a quick second recall centres the camera on it. */
+  /** Recall control group g (add: to the selection); a quick second recall centres the camera on it. */
   recallGroup(g: number, add = false) {
     const ids = (this.groups.get(g) ?? []).filter((id) => this.h.world.getEntity(id)?.alive);
     if (!ids.length) return;
@@ -474,7 +474,7 @@ export class InputController {
     this.h.gfx.cam.flyToPoint(bd < 4 ? x : best.x, bd < 4 ? y : best.y);
   }
 
-  /** [CTRL] Ctrl+N: assign / Shift+N: add the selected units to group g. */
+  /** Ctrl+N: assign / Shift+N: add the selected units to group g. */
   assignGroup(g: number, add: boolean) {
     const ids = this.ownSelectedUnits().map((u) => u.id);
     if (!ids.length) return;
@@ -502,10 +502,10 @@ export class InputController {
       this.h.gfx.terrain.uniforms.uGrid.value.w = 0;
     }
     if (m !== 'super') this.superKind = null;
-    if (m !== 'aim') this.aim = null; // [DOCTRINE]
+    if (m !== 'aim') this.aim = null;
   }
 
-  /** [DOCTRINE] Aim a commander power: the next primary click on the map calls `req.onTarget` (right click / Esc cancels). */
+  /** Aim a commander power: the next primary click on the map calls `req.onTarget` (right click / Esc cancels). */
   beginAim(req: AimRequest) {
     if (this.spectator) return;
     this.setMode('aim');
@@ -522,7 +522,7 @@ export class InputController {
     this.h.placement.set(type, new THREE.Color(this.h.local.color));
   }
 
-  /** [CTRL] Plan mode: click to add the structure to the build plan (Shift: keep planning). */
+  /** Plan mode: click to add the structure to the build plan (Shift: keep planning). */
   beginPlan(type: string) {
     if (this.spectator || !BUILDINGS[type]) return;
     this.setMode('plan');
@@ -709,7 +709,7 @@ export class InputController {
         this.setMode('normal');
         return;
       }
-      case 'aim': { // [DOCTRINE] commander power target
+      case 'aim': { // commander power target
         const req = this.aim;
         if (req && req.onTarget(gx, gy, this.pickAt(e.clientX, e.clientY) ?? null) === false) return;
         this.setMode('normal');
@@ -857,7 +857,7 @@ export class InputController {
     if (!units.length) {
       const fac = this.ownSelectedBuildings().filter((b) => b.bt.factory && b.bt.factory !== 'building');
       if (!fac.length) return;
-      // [CTRL] right click an own unit: new units join it (rally to a unit)
+      // right click an own unit: new units join it (rally to a unit)
       const t = e.altKey ? null : this.pickAt(e.clientX, e.clientY);
       const rallyTo = fac.filter((b) => b.bt.factory !== 'aircraft');
       if (t instanceof Unit && t.owner === local && selectableUnit(t) && t.kind !== 'aircraft' && rallyTo.length) {
@@ -873,7 +873,7 @@ export class InputController {
     const t = e.altKey ? null : this.pickAt(e.clientX, e.clientY);
     const voice = voiceOf(units[0]);
     if (t && t.owner !== local && local.isEnemy(this.apparentOwner(t))) {
-      // [CTRL] whoever can't hurt the target (rifles vs aircraft, medics…) attack-moves there with the others
+      // whoever can't hurt the target (rifles vs aircraft, medics…) attack-moves there with the others
       const able = units.filter((u) => canEngage(u, t));
       const rest = units.filter((u) => !able.includes(u)).map((u) => u.id);
       if (able.length) this.h.issue({ c: 'attack', player: local.id, units: able.map((u) => u.id), target: t.id });
@@ -895,7 +895,7 @@ export class InputController {
       this.voice('move', voice);
       return;
     }
-    // [CTRL] right click a friendly unit outside the selection: escort it (follow and defend)
+    // right click a friendly unit outside the selection: escort it (follow and defend)
     if (t instanceof Unit && !this.h.selection.has(t.id) && this.guardable(t)) {
       const escorts = units.filter((u) => u.kind !== 'aircraft');
       if (escorts.length) {
@@ -921,7 +921,7 @@ export class InputController {
         return;
       }
     }
-    // [VARIETY] engineers walk up to a neutral tech structure (sim/neutral.ts: reaching it captures it)
+    // engineers walk up to a neutral tech structure (sim/neutral.ts: reaching it captures it)
     if (t instanceof Building && t.bt.tech && t.owner.id < 0 && units.some((u) => u.ut.engineer)) {
       const eng = units.filter((u) => u.ut.engineer);
       const [px, py] = t.closestPoint(eng[0].x, eng[0].y);
@@ -1013,7 +1013,7 @@ export class InputController {
       this.setStance(STANCE_KEYS[k]);
       return;
     }
-    // [CTRL] camera bookmarks: F6–F9 jump, Ctrl / Shift + F6–F9 store
+    // camera bookmarks: F6–F9 jump, Ctrl / Shift + F6–F9 store
     if (BOOKMARK_KEYS.includes(k)) {
       e.preventDefault();
       this.bookmark(k, e.ctrlKey || e.metaKey || e.shiftKey);
@@ -1043,7 +1043,7 @@ export class InputController {
     this.keyCommand(k);
   }
 
-  /** [CTRL] Store or recall a camera bookmark. */
+  /** Store or recall a camera bookmark. */
   bookmark(key: string, store: boolean) {
     const cam = this.h.gfx.cam;
     const n = BOOKMARK_KEYS.indexOf(key) + 6;
@@ -1080,7 +1080,7 @@ export class InputController {
         if (ids.length) this.h.issue({ c: 'scatter', player: local.id, units: ids });
         break;
       case 'd': {
-        // Chrono Tanks pick a destination; everything else deploys / unloads / detonates as before
+        // Chrono Tanks pick a destination; everything else deploys / unloads / detonates
         const chrono = units.filter((u) => u.ut.chronoShift);
         const rest = ids.filter((id) => !chrono.some((u) => u.id === id));
         if (rest.length) this.h.issue({ c: 'deploy', player: local.id, units: rest });
@@ -1102,14 +1102,14 @@ export class InputController {
         else this.setMode(this.mode === 'repair' ? 'normal' : 'repair');
         break;
       case 'p':
-        // [CTRL] units: patrol (click waypoints, Shift-click for more); a factory: primary
+        // units: patrol (click waypoints, Shift-click for more); a factory: primary
         if (units.some((u) => u.kind !== 'aircraft')) {
           this.setMode(this.mode === 'patrol' ? 'normal' : 'patrol');
           if (this.mode === 'patrol') this.h.message('Patrol: click the far end of the route (Shift-click: add waypoints)');
         } else if (blds.length === 1) this.h.issue({ c: 'primary', player: local.id, building: blds[0].id });
         break;
       case 'c':
-        // [CTRL] guard / escort: click the unit or structure to protect
+        // guard / escort: click the unit or structure to protect
         if (units.some((u) => u.kind !== 'aircraft')) {
           this.setMode(this.mode === 'guard' ? 'normal' : 'guard');
           if (this.mode === 'guard') this.h.message('Guard: click a unit to escort or a structure to defend');
@@ -1156,7 +1156,7 @@ export class InputController {
           document.head.appendChild(st);
         }
         document.body.classList.toggle('photo-mode');
-        this.h.gfx.setPhotoMode?.(document.body.classList.contains('photo-mode')); // [FX] depth-of-field panel
+        this.h.gfx.setPhotoMode?.(document.body.classList.contains('photo-mode')); // depth-of-field panel
         break;
       case '[': case ']':
         if (!this.spectator) this.h.stepSpeed?.(k === ']' ? 1 : -1);
@@ -1238,7 +1238,7 @@ export class InputController {
     if (this.mode === 'super' && this.superKind && this.h.reticle) {
       const ret = SUPER_RETICLE[this.superKind] ?? { r: 1.5, color: 0xffffff };
       this.h.reticle.show(this.groundX, this.groundY, Math.max(0.9, ret.r), ret.color, time);
-    } else if (this.mode === 'aim' && this.aim && this.h.reticle) { // [DOCTRINE]
+    } else if (this.mode === 'aim' && this.aim && this.h.reticle) {
       this.h.reticle.show(this.groundX, this.groundY, Math.max(0.9, this.aim.r), this.aim.color, time);
     } else if (this.mode === 'chrono' && this.h.reticle) {
       const ok = !!chronoTarget(this.h.world, this.h.local, this.groundX, this.groundY);
@@ -1259,7 +1259,7 @@ export class InputController {
       case 'sell': c = t instanceof Building && t.owner === local ? 'sell' : 'nomove'; break;
       case 'repair': c = t instanceof Building && t.owner === local && t.hp < t.maxHp ? 'repair' : 'nomove'; break;
       case 'attackMove': case 'attackGround': c = 'attack'; break;
-      case 'super': case 'layMines': case 'aim': c = 'target'; break; // [DOCTRINE] aim
+      case 'super': case 'layMines': case 'aim': c = 'target'; break; // aim
       case 'patrol': c = 'patrol'; break;
       case 'chrono': c = chronoTarget(this.h.world, local, this.groundX, this.groundY) ? 'target' : 'nomove'; break;
       case 'guard': c = t && this.guardable(t) ? 'guard' : 'nomove'; break;
@@ -1280,7 +1280,7 @@ export class InputController {
         } else if (t instanceof Building && t.owner === local && ((t.bt.dock && units.some((u) => u.ut.harvester)) || (t.bt.repairPad && units.some((u) => u.kind === 'vehicle')) || (units.some((u) => u.ut.engineer) && t.hp < t.maxHp))) {
           c = 'enter';
         } else if (t instanceof Building && t.bt.tech && t.owner.id < 0 && units.some((u) => u.ut.engineer)) {
-          c = 'enter'; // [VARIETY] capture a neutral tech structure
+          c = 'enter'; // capture a neutral tech structure
         } else if (t instanceof Unit && !this.h.selection.has(t.id) && this.guardable(t) && units.some((u) => u.kind !== 'aircraft')) {
           c = 'guard';
         } else if (t) {

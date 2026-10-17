@@ -1,5 +1,5 @@
 /**
- * [META] The Locker: browse, preview, claim and equip cosmetics (src/meta/unlocks.ts). Paint schemes show a
+ * The Locker: browse, preview, claim and equip cosmetics (src/meta/unlocks.ts). Paint schemes show a
  * rendered tank in your colour, HUD themes a mini HUD, portraits / titles / banners your commander card,
  * announcer styles and fanfares play a sample. Locked items say exactly what earns them. Claims spend
  * Commendations (earned from contracts; nothing is for sale).

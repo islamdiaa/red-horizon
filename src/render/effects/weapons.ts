@@ -12,7 +12,7 @@ import { flash, star, sparks, smoke, embers, smokeFrame } from './blocks';
 
 const TAU = Math.PI * 2;
 const tmpColor = new THREE.Color();
-const TESLA_LINGER = { attack: 0.02, flicker: 0.6, priority: 1.2 }; // [JUICE]
+const TESLA_LINGER = { attack: 0.02, flicker: 0.6, priority: 1.2 };
 
 export function muzzleFlash(ctx: FxContext, px: number, py: number, pz: number, dx: number, dy: number, dz: number, size: number): void {
   const l = Math.hypot(dx, dy, dz) || 1;
@@ -65,7 +65,7 @@ export function tracer(ctx: FxContext, ax: number, ay: number, az: number, bx: n
   for (let layer = 0; layer < 2; layer++) {
     const s = bb.begin();
     s.from(ax, ay, az).to(bx, by, bz);
-    s.tA = s.tB = delay; // [JUICE] bursts stagger their rounds
+    s.tA = s.tB = delay; // bursts stagger their rounds
     s.life = life;
     s.mode = BM.TRACER;
     s.style = BS.GLOW;
@@ -78,7 +78,7 @@ export function tracer(ctx: FxContext, ax: number, ay: number, az: number, bx: n
 }
 
 /**
- * [JUICE] Machine-gun burst: the main tracer plus `n` follow-up rounds a few tens of ms apart, each landing
+ * Machine-gun burst: the main tracer plus `n` follow-up rounds a few tens of ms apart, each landing
  * a little off the aim point (the sim fires one shot per report; the burst is purely visual).
  */
 export function tracerBurst(ctx: FxContext, ax: number, ay: number, az: number, bx: number, by: number, bz: number, n: number, color?: number): void {
@@ -93,7 +93,7 @@ export function tracerBurst(ctx: FxContext, ax: number, ay: number, az: number, 
 // Tesla bolt: jagged branching lightning, re-randomised several times (pre-scheduled with delays).
 
 const BOLT_N = 16;
-const BOLT_N_RICH = 28; // [JUICE] finer, more jagged main channel
+const BOLT_N_RICH = 28; // finer, more jagged main channel
 const pts = new Float32Array((BOLT_N_RICH + 1) * 3);
 const bpts = new Float32Array(6 * 3);
 
@@ -112,7 +112,7 @@ function displace(i0: number, i1: number, mag: number, dx: number, dy: number, d
   displace(mid, i1, mag * 0.55, dx, dy, dz);
 }
 
-/** [JUICE] Bolt thickness multiplier (1 = the original look; the director sets 1.5 on medium / high). */
+/** Bolt thickness multiplier (1 = the base look; the director sets 1.5 on medium / high). */
 let BOLT_W = 1;
 export function setTeslaStyle(width: number): void {
   BOLT_W = width;
@@ -141,7 +141,7 @@ function boltSeg(ctx: FxContext, ax: number, ay: number, az: number, bx: number,
   b.emit(s);
 }
 
-/** [JUICE] Lingering afterglow of the final strike path: a fading violet-blue ghost of the bolt and ionised haze. */
+/** Lingering afterglow of the final strike path: a fading violet-blue ghost of the bolt and ionised haze. */
 function boltAfterglow(ctx: FxContext, n: number): void {
   const b = ctx.beams;
   for (let i = 0; i < n; i++) {
@@ -169,7 +169,7 @@ export function teslaBolt(ctx: FxContext, ax: number, ay: number, az: number, bx
   if (L < 0.02) return;
   const dx = (bx - ax) / L, dy = (by - ay) / L, dz = (bz - az) / L;
   const flickers = 5;
-  const rich = BOLT_W > 1; // [JUICE]
+  const rich = BOLT_W > 1;
   const NB = rich ? BOLT_N_RICH : BOLT_N;
   for (let f = 0; f < flickers; f++) {
     const t0 = f * 0.055;
@@ -181,7 +181,7 @@ export function teslaBolt(ctx: FxContext, ax: number, ay: number, az: number, bx
       const o = i * 3;
       boltSeg(ctx, pts[o], pts[o + 1], pts[o + 2], pts[o + 3], pts[o + 4], pts[o + 5], t0, life, 1);
     }
-    // branches ([JUICE] richer: more of them, and some fork again)
+    // branches (richer: more of them, and some fork again)
     const nb = rich ? 2 + irand(3) : 1 + irand(3);
     for (let k = 0; k < nb; k++) {
       const i = 2 + irand(NB - 5);
@@ -219,7 +219,7 @@ export function teslaBolt(ctx: FxContext, ax: number, ay: number, az: number, bx
     if (rich && f === flickers - 1) boltAfterglow(ctx, NB);
   }
   if (rich) {
-    // [JUICE] scorched, ionised ground and a lingering blue glow where it struck
+    // scorched, ionised ground and a lingering blue glow where it struck
     const gy = ctx.getHeight(bx, bz);
     if (by - gy < 0.8) {
       const r = ctx.glow.begin();

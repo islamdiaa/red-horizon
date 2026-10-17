@@ -1,4 +1,4 @@
-"""[ALLB] Shared Allied dressing for the Allied HD structures (imported by the model scripts in this directory;
+"""Shared Allied dressing for the Allied HD structures (imported by the model scripts in this directory;
 build.mjs skips files starting with '_').
 
 Allied look: clean white-painted steel and glass, dark steel frames, blue (team) trims and eagle banners, white

@@ -1,6 +1,6 @@
-// [JUICE] Big-battle cost probe: scenario "battle" plus extra armies (100+ units), fast-forwarded to contact,
+// Big-battle cost probe: scenario "battle" plus extra armies (100+ units), fast-forwarded to contact,
 // then N frames measured at x1 speed: draw calls, triangles, particles, dynamic lights, audio voices and the
-// CPU time of the per-frame client systems. A/B with ?juice=0 (pre-JUICE behaviour).
+// CPU time of the per-frame client systems. A/B with ?juice=0 (game-feel layer off).
 //   QA_BASE=http://localhost:5264/ node tools/qa/juice_bench.mjs <high|medium|low> <0|1> [frames=90] [shot.png]
 // SwiftShader frame times are not GPU numbers: compare the JS-side costs and the counts, not the FPS.
 import { launch, sleep, BASE } from './browser.mjs';
@@ -64,7 +64,7 @@ const res = await page.evaluate(async ([FRAMES, INTERLEAVE]) => {
   wrap(g.effects, 'update', 'effects');
   if (g.juice) wrap(g.juice, 'update', 'juice');
   wrap(g.world, 'step', 'sim');
-  // every Effects API entry point (base recipes + the JUICE layers they now add) and the director's event hook
+  // every Effects API entry point (base recipes + the game-feel layers on top) and the director's event hook
   const T2 = { fxApi: [0, 0] };
   for (const m of ['explosion', 'muzzleFlash', 'tracer', 'teslaBolt', 'flameStream', 'hitFlash', 'flakBurst', 'heavyDeath', 'promotionBurst', 'milestoneBurst', 'createEmitter', 'scorch', 'dust']) {
     if (typeof g.effects[m] !== 'function') continue;

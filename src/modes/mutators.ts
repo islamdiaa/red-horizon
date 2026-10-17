@@ -1,5 +1,5 @@
 /**
- * [VARIETY] Skirmish mutators: the 16 Daily Challenge modifiers (src/meta/daily.ts) plus new ones, picked in the
+ * Skirmish mutators: the 16 Daily Challenge modifiers (src/meta/daily.ts) plus skirmish-only ones, picked in the
  * skirmish setup, rolled by "Surprise me" or by Quick Battle. DOM-free and deterministic.
  *
  * A match's mutators live in GameSetup.mutators (so saves, replays and branches carry them) and act in three
@@ -9,7 +9,7 @@
  *                                     applies and restores them exactly like any mod
  *   3. world  MUTATOR_EFFECTS         economy multipliers, bans and live effects, run by src/sim/events.ts inside
  *                                     the deterministic tick
- * META's contracts can reference mutators by id (MUTATORS / MUTATOR_BY_ID).
+ * Contracts (src/meta/contracts.ts) can reference mutators by id (MUTATORS / MUTATOR_BY_ID).
  */
 import { DAILY_MODIFIERS, type Climate, type DailyFaction } from '../meta/daily';
 import { Rng } from '../core/rng';

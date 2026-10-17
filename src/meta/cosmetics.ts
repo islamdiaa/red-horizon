@@ -103,7 +103,7 @@ function voiceSpecFor(ctx: UnlockCtx): VoiceSpec | null {
 }
 
 /**
- * Give the announcer the equipped voice style. [JUICE] Uses the engine's public announcer-voice preset
+ * Give the announcer the equipped voice style. Uses the engine's public announcer-voice preset
  * (AudioSystem.setAnnouncerVoice) instead of wrapping its speech instance: the preset's fields are getters on
  * `voiceNow`, read each time an announcement is spoken, so refreshVoice() takes effect at once. No style
  * equipped (default) = undefined fields = the default announcer. Unit voices are untouched.
@@ -111,7 +111,7 @@ function voiceSpecFor(ctx: UnlockCtx): VoiceSpec | null {
 export function bindCosmeticsAudio(audio: AudioSystem) {
   boundAudio = audio;
   voiceNow = voiceSpecFor(unlockContext());
-  if (typeof audio.setAnnouncerVoice !== 'function') return; // [JUICE]
+  if (typeof audio.setAnnouncerVoice !== 'function') return;
   audio.setAnnouncerVoice({
     get voiceHint() { return voiceNow?.gender; },
     get pitch() { return voiceNow?.pitch; },

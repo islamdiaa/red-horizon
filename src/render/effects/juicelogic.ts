@@ -1,5 +1,5 @@
 /**
- * [JUICE] Pure, GPU-free logic behind the game feel director (render/effects/juice.ts): screen-shake
+ * Pure, GPU-free logic behind the game feel director (render/effects/juice.ts): screen-shake
  * trauma, clash detection for the battle music / announcer, and throttled "moment" call-outs. No three.js,
  * no DOM, no allocations per call: everything here is unit-tested in node (tests/juice.test.ts).
  *

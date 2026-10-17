@@ -22,7 +22,7 @@ export interface ReplayTreeActions {
   del(r: ReplayData): Promise<void>;
 }
 
-/** "Custom map" / "Modded" markers ([EDIT] setups carry the map content and the mod set). */
+/** "Custom map" / "Modded" markers (setups carry the map content and the mod set). */
 function tags(r: ReplayData): string {
   const mods = r.setup.mods?.mods ?? [];
   return (r.setup.customMap ? ' · <span class="rpl-tag" title="Made in the map editor">custom map</span>' : '')

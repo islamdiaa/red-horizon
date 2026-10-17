@@ -1,4 +1,4 @@
-/** Styles for the round-5 mode UIs (replay moment panel, King of the Hill HUD, challenges). Injected once. */
+/** Styles for the game-mode UIs (replay moment panel, King of the Hill HUD, challenges). Injected once. */
 const CSS = `
 /* ---------- shared ---------- */
 .mx-overlay { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,.35), rgba(0,0,0,.78) 75%);
