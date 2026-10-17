@@ -3,6 +3,7 @@ import type { AnnouncerKey } from '../audio/types';
 import type { PlanItem, QueueKind } from './types';
 import type { SuperKind } from './superweapons';
 import type { PlayerCmd } from './doctrine';
+import { econBuildable, tierAllows, type PlayerEcon } from './economy-data';
 
 export interface QueueItem {
   type: string;
@@ -128,6 +129,8 @@ export class Player {
    * so Classic players and their saves carry no extra field.
    */
   declare cmd?: PlayerCmd;
+  /** Commander rules economy (tech tier, research; sim/economy.ts): non-enumerable like `cmd`, undefined under Classic rules. */
+  declare econ?: PlayerEcon;
 
   constructor(opts: { id: number; name: string; faction: Faction; color: number; team: number; isHuman: boolean; cash: number; mapCells: number }) {
     this.id = opts.id;
@@ -201,10 +204,11 @@ export class Player {
   /** Whether this player may build the type right now (tech + factory present). */
   canBuild(typeId: string): boolean {
     const t = getType(typeId);
-    if (!t.buildable || DISABLED_TYPES.has(typeId)) return false;
+    if ((!t.buildable && !(this.econ && econBuildable(this, t))) || DISABLED_TYPES.has(typeId)) return false; // (Commander structures)
     if (this.allowedTypes && !this.allowedTypes.has(typeId)) return false;
     if (!t.owner.includes(this.faction)) return false;
     if (!this.prereqsMet(t)) return false;
+    if (this.econ && !tierAllows(this, typeId)) return false; // Commander tech tiers
     return this.hasFactoryFor(typeId);
   }
 

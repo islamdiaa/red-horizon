@@ -26,6 +26,7 @@ import { CEASEFIRE_WARNING } from './ceasefire';
 import { commanderCommand, commanderKill, commanderSpawn, commanderTick, initCommander, type CommanderState } from './commander';
 import { costOf } from './doctrine';
 import { initVariety, varietyCommand, varietyTick, type VarietyState } from './events';
+import { econCombat, econCommand, econKilled, econSight, econTick, initEcon, outpostSiteOk, type EconState } from './economy';
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -85,6 +86,8 @@ export interface WorldOptions {
   mutators?: string[];
   events?: boolean;
   dynamicDifficulty?: boolean;
+  /** Commander economy and tech tiers (sim/economy.ts): on with Commander rules unless false. */
+  econ?: boolean;
 }
 
 /** Spatial hash of units per map cell (rebuilt every tick). */
@@ -166,6 +169,8 @@ export class World {
   commander: CommanderState | null = null;
   /** Mutators, battlefield events, neutral tech structures, dynamic difficulty (sim/events.ts); null = none. Saved. */
   variety: VarietyState | null = null;
+  /** Commander economy: tech tiers, research, upgrades (sim/economy.ts); null = Classic rules. Saved. */
+  econ: EconState | null = null;
   private nextId = 1;
   /** Projectile ids (their own namespace; renderers key effects by them). */
   nextProjectileId = 1;
@@ -195,6 +200,7 @@ export class World {
       if (ps.ai) this.ais.push(new AIController(this, p, ps.ai, ps.personality)); // personality
     });
     if (opts.rules === 'commander') initCommander(this, opts.doctrines, opts.seed); // before the starting units exist
+    if (opts.rules === 'commander' && opts.econ !== false) initEcon(this); // tech tiers, upgrades, research
     this.setupStart(opts.startUnits, opts.startUnitsPer);
     initVariety(this, { rules: opts.rules, mutators: opts.mutators, events: opts.events, dynamicDifficulty: opts.dynamicDifficulty, seed: opts.seed }); // (null for Classic without options)
     for (const p of this.players) {
@@ -328,6 +334,7 @@ export class World {
     // a mine going off / being shot is no "structure lost"
     if (e instanceof Building && e.bt.mine) how = 'sold';
     if (this.commander) commanderKill(this, e, how, killer); // command points
+    if (this.econ && e instanceof Building) econKilled(this, e, how); // bunker garrison out, upgrade / research refunded
     // a dog sniffed out a disguised spy
     if (e instanceof Unit && e.ut.spy && e.disguise >= 0 && killer instanceof Unit && killer.ut.dog) this.announce(killer.owner, 'spy_detected', 4);
     e.alive = false;
@@ -703,6 +710,9 @@ export class World {
       case 'battleEvent': // answer a battlefield event (events.ts)
         varietyCommand(this, cmd);
         break;
+      case 'upgrade': case 'research': case 'evacuate': // Commander economy (economy.ts)
+        if (this.econ) econCommand(this, cmd);
+        break;
     }
   }
 
@@ -846,9 +856,9 @@ export class World {
     // base adjacency: structures need a (non-wall) structure within 2 cells. Walls may be placed
     // up to 6 cells from any own structure, wall chains included, but never more than 10 cells
     // from a real (non-wall) structure, so sandbag lines can't creep a base across the map.
-    if (bt.wall) {
+    if (bt.wall || bt.gate) { // (fortress gates go into wall lines: sim/economy.ts)
       if (!this.isAdjacentToBase(p, bt, cx, cy, 6) || !this.isAdjacentToBase(p, bt, cx, cy, WALL_REACH, true)) return 'distance';
-    } else if (!this.isAdjacentToBase(p, bt, cx, cy, 2, true)) return 'distance';
+    } else if (!this.isAdjacentToBase(p, bt, cx, cy, 2, true) && !(bt.outpost && this.econ && outpostSiteOk(this, p, bt, cx, cy))) return 'distance'; // (mining outposts: by any ore field in view)
     return null;
   }
 
@@ -856,6 +866,7 @@ export class World {
   isAdjacentToBase(p: Player, bt: BuildingTypeDef, cx: number, cy: number, gap = 2, ignoreWalls = false): boolean {
     for (const b of this.buildings) {
       if (!b.alive || b.owner !== p || b.bt.mine || b.bt.tech || (ignoreWalls && b.bt.wall)) continue; // captured tech structures don't extend the base
+      if (b.bt.outpost && bt.category !== 'defense') continue; // a mining outpost only extends the base for defences
       const gx = Math.max(b.cx - (cx + bt.size[0]), cx - (b.cx + b.w), 0);
       const gy = Math.max(b.cy - (cy + bt.size[1]), cy - (b.cy + b.h), 0);
       if (Math.max(gx, gy) <= gap) return true;
@@ -910,6 +921,11 @@ export class World {
         this.setOrder(u, { type: 'idle' });
       }
     }
+  }
+
+  /** The unit lists changed outside a tick's own bookkeeping (a unit went into a bunker: sim/economy.ts). */
+  listsChanged() {
+    this.dirtyLists = true;
   }
 
   /** Put an infantry unit inside a transport. */
@@ -1014,7 +1030,7 @@ export class World {
         continue;
       }
       n++;
-      const path = this.pathfinder.find(sx, sy, gx, gy, maxNodes, u.exitBuilding, u.kind === 'naval' ? 'naval' : 'ground');
+      const path = this.pathfinder.find(sx, sy, gx, gy, maxNodes, u.exitBuilding, u.kind === 'naval' ? 'naval' : 'ground', this.econ ? u.owner.team : -1); // (own fortress gates)
       budget -= this.pathfinder.expandedLastSearch + 50;
       const last = path && path.length ? path[path.length - 1] : null;
       const reached = !!last && Math.floor(last.x) === gx && Math.floor(last.y) === gy;
@@ -1059,7 +1075,7 @@ export class World {
       }
     };
     for (const u of this.units) if (u.alive && u.owner.team === p.team) stamp(u.x, u.y, u.ut.sight + 0.5);
-    for (const b of this.buildings) if (b.alive && b.owner.team === p.team) stamp(b.x, b.y, b.bt.sight + Math.max(b.w, b.h) / 2);
+    for (const b of this.buildings) if (b.alive && b.owner.team === p.team) stamp(b.x, b.y, b.upgrades ? b.bt.sight + Math.max(b.w, b.h) / 2 + econSight(b) : b.bt.sight + Math.max(b.w, b.h) / 2); // (Satellite Uplink)
     contentVisibility(this, p);
   }
 
@@ -1125,6 +1141,7 @@ export class World {
     contentPreTick(this);
     ordersPreTick(this); // formations, build plans
     if (this.commander) commanderTick(this); // command points, timed power effects, barrages
+    if (this.econ) econTick(this); // upgrades, research, gates, repairs and recharges
     this.deferDeaths = true;
     for (const b of this.buildings) if (b.alive) this.updateBuilding(b);
     this.processPaths();
@@ -1138,6 +1155,7 @@ export class World {
       for (let k = 0; k < n; k++) this.stepUnit(units[(start + k) % n]);
     }
     resolveCollisions(this);
+    if (this.econ) econCombat(this); // bunker garrisons fire
     contentPostMove(this);
     updateProjectiles(this);
     this.deferDeaths = false;

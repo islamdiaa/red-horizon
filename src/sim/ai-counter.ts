@@ -16,6 +16,7 @@ import { ARMOR_INDEX, UNITS, WARHEADS, WEAPONS, RA_TICKS_PER_SECOND, type UnitTy
 import type { AIIntel } from './ai-intel';
 import { TICK_HZ } from './types';
 import { MATCHUPS } from './ai-matchups';
+import { appliedModSet } from '../mods/engine'; // (see dpsCached)
 
 /** Damage per second of `a`'s best weapon against unit type `t` (0 if it can't engage it). */
 function dps(a: UnitTypeDef, t: UnitTypeDef): number {
@@ -44,7 +45,11 @@ function canEngage(w: WeaponDef, a: UnitTypeDef, t: UnitTypeDef): boolean {
 }
 
 const cache = new Map<string, number>();
+/** The rules the cache was filled under: a match with other mods or mutators must not see stale values. */
+let cacheRules = '';
 function dpsCached(a: string, t: string): number {
+  const rules = appliedModSet()?.hash ?? '';
+  if (rules !== cacheRules) { cache.clear(); cacheRules = rules; }
   const k = a + '>' + t;
   let v = cache.get(k);
   if (v === undefined) {

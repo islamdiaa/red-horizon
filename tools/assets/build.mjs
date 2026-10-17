@@ -8,7 +8,7 @@
 //   options: --quick (half-res atlas, few samples: iteration only, never commit)
 //            --preview (Cycles stills next to the log: /tmp/rh-assets/<key>-rts.png, -close.png)
 //            --threads N (default 4, max 6)  --out DIR (default public/models)
-//            --min-mem MB (default 3072: wait until /proc/meminfo MemAvailable reaches it before each
+//            --min-mem MB (default 4096: wait until /proc/meminfo MemAvailable reaches it before each
 //            Blender run, for shared machines; RH_MIN_MEM_MB overrides; 0 disables)
 //            --list (print the model scripts and exit)
 //            --reindex (rebuild manifest.json from the GLBs on disk: recovers entries lost to parallel builds)
@@ -28,16 +28,22 @@ const LOGS = process.env.RH_ASSET_LOGS ?? '/tmp/rh-assets';
 const BUDGET = {
   structure: { bytes: 1_000_000, tris: 8000 }, defense: { bytes: 1_000_000, tris: 8000 }, naval: { bytes: 1_000_000, tris: 8000 },
   vehicle: { bytes: 400_000, tris: 5000 }, aircraft: { bytes: 400_000, tris: 5000 }, infantry: { bytes: 250_000, tris: 2500 },
+  anim: { bytes: 800_000, tris: 0 }, // rig clip sets (vertex animation textures)
+  nature: { bytes: 200_000, tris: 1200 },
 };
-const FACTION_BUDGET = 15_000_000;
-const TOTAL_BUDGET = 30_000_000;
+const FACTION_BUDGET = 23_000_000;
+const TOTAL_BUDGET = 45_000_000;
 
 const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
 const opt = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 const out = resolve(REPO, opt('--out', 'public/models'));
+/** Nature models (models/nature: trees, rocks; render/vegetation.ts) keep their own folder and manifest. */
+/** So do the rigged infantry (models/infantry: soldiers, dogs, the clip sets; render/models/infantry-hd.ts). */
+const OWN_FOLDER = new Set(['nature', 'infantry']);
+const outFor = (s) => (OWN_FOLDER.has(s.group) && !args.includes('--out') ? resolve(REPO, `public/models/${s.group}`) : out);
 const threads = Math.max(1, Math.min(6, Number(opt('--threads', 4)) || 4));
-const minMemMB = Number(opt('--min-mem', process.env.RH_MIN_MEM_MB ?? 3072));
+const minMemMB = Number(opt('--min-mem', process.env.RH_MIN_MEM_MB ?? 4096));
 const wanted = args.filter((a, i) => !a.startsWith('--') && !['--out', '--threads', '--min-mem'].includes(args[i - 1]));
 
 /** MemAvailable in MB (Linux), or Infinity where /proc/meminfo is missing. */
@@ -84,7 +90,7 @@ function scripts() {
 function runBlender(s) {
   mkdirSync(LOGS, { recursive: true });
   const log = join(LOGS, `${s.key}.log`);
-  const a = ['-b', '--factory-startup', '-t', String(threads), '--python', join(HERE, 'kit', 'run.py'), '--', '--model', s.path, '--out', out, '--threads', String(threads)];
+  const a = ['-b', '--factory-startup', '-t', String(threads), '--python', join(HERE, 'kit', 'run.py'), '--', '--model', s.path, '--out', outFor(s), '--threads', String(threads)];
   if (flag('--quick')) a.push('--quick');
   if (flag('--preview')) a.push('--preview', join(LOGS, `${s.key}.png`));
   return new Promise((res) => {
@@ -242,12 +248,12 @@ async function main() {
     const rep = r.report;
     const extra = { seconds: rep.seconds };
     if (rep.quick) extra.quick = true;
-    const { key, entry } = entryFromGlb(join(out, rep.file), extra);
+    const { key, entry } = entryFromGlb(join(outFor(s), rep.file), extra);
     entry.tris = rep.tris;
     entry.parts = rep.parts;
     entry.points = rep.points;
     // merged into the manifest right away (under the lock), so a later failure or a parallel run loses nothing
-    if (s.group !== 'test') man = await updateManifest(manPath, { [key]: entry });
+    if (s.group !== 'test') man = await updateManifest(outFor(s) === out ? manPath : join(outFor(s), 'manifest.json'), { [key]: entry });
     rows.push([key, entry]);
   }
   console.log('\nmodel                  tris    KB   budget  time');

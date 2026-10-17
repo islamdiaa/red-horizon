@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "models": {
+    "acacia": {
+      "file": "acacia.glb",
+      "bytes": 142676,
+      "hash": "1bee3078c3",
+      "type": "acacia",
+      "faction": null,
+      "kind": "nature",
+      "tris": 657,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 47924,
+        "orm": 18266,
+        "normal": 54604,
+        "mask": 42
+      },
+      "seconds": 98.4
+    },
+    "boulder": {
+      "file": "boulder.glb",
+      "bytes": 139168,
+      "hash": "385b659717",
+      "type": "boulder",
+      "faction": null,
+      "kind": "nature",
+      "tris": 335,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 53158,
+        "orm": 11626,
+        "normal": 61646,
+        "mask": 42
+      },
+      "seconds": 115.9
+    },
+    "boulder_snow": {
+      "file": "boulder_snow.glb",
+      "bytes": 139604,
+      "hash": "0430a12fae",
+      "type": "boulder_snow",
+      "faction": null,
+      "kind": "nature",
+      "tris": 335,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 51306,
+        "orm": 12532,
+        "normal": 63018,
+        "mask": 42
+      },
+      "seconds": 108.3
+    },
+    "linden": {
+      "file": "linden.glb",
+      "bytes": 148144,
+      "hash": "ee89f8d405",
+      "type": "linden",
+      "faction": null,
+      "kind": "nature",
+      "tris": 775,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 49408,
+        "orm": 21406,
+        "normal": 51466,
+        "mask": 42
+      },
+      "seconds": 93
+    },
+    "oak": {
+      "file": "oak.glb",
+      "bytes": 140044,
+      "hash": "b0da27081c",
+      "type": "oak",
+      "faction": null,
+      "kind": "nature",
+      "tris": 747,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 47058,
+        "orm": 20480,
+        "normal": 47624,
+        "mask": 42
+      },
+      "seconds": 100.3
+    },
+    "pine": {
+      "file": "pine.glb",
+      "bytes": 139264,
+      "hash": "d2dab9e614",
+      "type": "pine",
+      "faction": null,
+      "kind": "nature",
+      "tris": 572,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 34484,
+        "orm": 13696,
+        "normal": 72170,
+        "mask": 42
+      },
+      "seconds": 74
+    },
+    "pine_snow": {
+      "file": "pine_snow.glb",
+      "bytes": 155768,
+      "hash": "c41808d783",
+      "type": "pine_snow",
+      "faction": null,
+      "kind": "nature",
+      "tris": 730,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 48766,
+        "orm": 19202,
+        "normal": 62454,
+        "mask": 42
+      },
+      "seconds": 72.2
+    },
+    "pine_snow_light": {
+      "file": "pine_snow_light.glb",
+      "bytes": 158488,
+      "hash": "f0fa17a3a1",
+      "type": "pine_snow_light",
+      "faction": null,
+      "kind": "nature",
+      "tris": 535,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 55248,
+        "orm": 16268,
+        "normal": 68908,
+        "mask": 42
+      },
+      "seconds": 72.2
+    },
+    "pine_snow_tall": {
+      "file": "pine_snow_tall.glb",
+      "bytes": 144984,
+      "hash": "b44de17a2e",
+      "type": "pine_snow_tall",
+      "faction": null,
+      "kind": "nature",
+      "tris": 790,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 41234,
+        "orm": 17474,
+        "normal": 59320,
+        "mask": 42
+      },
+      "seconds": 70.3
+    },
+    "pine_tall": {
+      "file": "pine_tall.glb",
+      "bytes": 138620,
+      "hash": "957a5ae094",
+      "type": "pine_tall",
+      "faction": null,
+      "kind": "nature",
+      "tris": 629,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 34454,
+        "orm": 13492,
+        "normal": 70132,
+        "mask": 42
+      },
+      "seconds": 83.7
+    },
+    "rock_outcrop": {
+      "file": "rock_outcrop.glb",
+      "bytes": 179124,
+      "hash": "7fbceaa2a7",
+      "type": "rock_outcrop",
+      "faction": null,
+      "kind": "nature",
+      "tris": 628,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 58112,
+        "orm": 9538,
+        "normal": 90702,
+        "mask": 42
+      },
+      "seconds": 94.5
+    },
+    "rock_outcrop_snow": {
+      "file": "rock_outcrop_snow.glb",
+      "bytes": 182436,
+      "hash": "d95c2e6e1e",
+      "type": "rock_outcrop_snow",
+      "faction": null,
+      "kind": "nature",
+      "tris": 693,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 59076,
+        "orm": 10924,
+        "normal": 89170,
+        "mask": 42
+      },
+      "seconds": 117.6
+    },
+    "rock_wall": {
+      "file": "rock_wall.glb",
+      "bytes": 170584,
+      "hash": "72bb9ea7ff",
+      "type": "rock_wall",
+      "faction": null,
+      "kind": "nature",
+      "tris": 700,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 58844,
+        "orm": 8656,
+        "normal": 81166,
+        "mask": 42
+      },
+      "seconds": 100.9
+    },
+    "rock_wall_snow": {
+      "file": "rock_wall_snow.glb",
+      "bytes": 179228,
+      "hash": "bb6b317d57",
+      "type": "rock_wall_snow",
+      "faction": null,
+      "kind": "nature",
+      "tris": 775,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 60928,
+        "orm": 9136,
+        "normal": 84866,
+        "mask": 42
+      },
+      "seconds": 104.9
+    },
+    "scrub": {
+      "file": "scrub.glb",
+      "bytes": 145648,
+      "hash": "f96fc022df",
+      "type": "scrub",
+      "faction": null,
+      "kind": "nature",
+      "tris": 609,
+      "parts": [
+        "root"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 44298,
+        "orm": 19338,
+        "normal": 60018,
+        "mask": 42
+      },
+      "seconds": 94.4
+    }
+  }
+}

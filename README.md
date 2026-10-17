@@ -27,15 +27,21 @@ install and no account.
   - Daily challenges.
   - Replays you can take command of.
 - **Skirmish with depth.**
-  - *Commander* rules: doctrines, commander powers, battlefield events, capturable tech and 24
-    mutators.
+  - *Commander* rules:
+    - an economy that evolves: Construction Yard tiers, visible building upgrades, research, and
+      new buildings (mining outposts, bunkers, gates);
+    - doctrines, commander powers, battlefield events, capturable tech and 24 mutators.
   - *Classic* rules: pure Red Alert.
+- **Multiplayer.** Online matches for up to 4 players, through a small relay you host yourself.
+  Leaderboards verify every score by replaying the run.
 - **Reasons to come back.**
   - Ranks, medals, and daily and weekly contracts.
   - Earned cosmetic unlocks.
   - A results screen with battle charts and one-key *Play again*.
 - **Looks the part.**
-  - HD texture-baked models, dynamic lights and GPU particles.
+  - HD texture-baked models, and HD infantry with real animation that holds up in crowds of hundreds.
+  - Scanned terrain materials and roads.
+  - Dynamic lights, GPU particles and heat haze; battle scars that persist.
   - Weather, a day-night cycle and physics destruction.
   - Adaptive music.
 - **Smart AI.**
@@ -68,15 +74,24 @@ included. You need Node.js 20.19+ and a WebGL 2 browser.
 - [Development](docs/DEVELOPMENT.md): architecture, testing, the HD model factory, deployment,
   and test URL parameters.
 - [Tools](tools/README.md): headless simulation, autopilots, self-play and screenshots.
+- [Distribution](docs/DISTRIBUTION.md): itch.io, game portals, desktop builds, Vercel, link
+  previews, share links, clips and the trailer.
+- [Multiplayer](docs/MULTIPLAYER.md): online matches and verified leaderboards, and how to host the
+  relay server.
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## Privacy and security
 
-Red Horizon is a static site:
+The game itself is a static site:
 - no server, no accounts, no analytics, no cookies, and no third-party requests;
 - saves and settings stay in your browser;
-- imported files are validated and never treated as code or HTML;
-- the shipped nginx and Vercel configurations send a strict Content-Security-Policy.
+- imported files and share links are validated and never treated as code or HTML;
+- share links carry their content after the `#`, which browsers never send to a server, and clips
+  are recorded on your device;
+- the shipped nginx and Vercel configurations send a strict Content-Security-Policy;
+- multiplayer and the leaderboards are optional and use a relay server you host yourself. It keeps no
+  accounts and no personal data: a callsign you choose is shown to your room and on the boards you
+  submit to ([details](docs/MULTIPLAYER.md#privacy-and-security)).
 
 ## License and legal
 

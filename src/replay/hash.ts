@@ -41,6 +41,10 @@ export function worldHash(world: World): string {
     num(c.points); int(c.unlocked.length); int(c.eliteLeft); int(c.rally.size + c.aegis.size + c.offline.size);
     for (const id of c.unlocked) int(c.ready[id] ?? 0);
   }
+  if (world.econ) { // Commander economy (Classic worlds: nothing)
+    for (const e of world.econ.players) { int(e.tier); for (const k in e.levels) int(e.levels[k]); }
+    for (const b of world.buildings) { if (b.task) num(b.task.progress); if (b.upgrades) int(b.upgrades.length); if (b.garrison) int(b.garrison.length); }
+  }
   const vr = world.variety; // event schedule and dynamic difficulty (Classic worlds: nothing)
   if (vr) { int(vr.rng); int(vr.rng2); int(vr.next); int(vr.active.length); int(vr.dd.level); int(vr.captures); }
   const ore = world.map.ore;

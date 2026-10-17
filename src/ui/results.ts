@@ -24,6 +24,7 @@ import {
 import type { BattleReport, ReportSample } from '../meta/report';
 import { commanderLook } from '../meta/cosmetics';
 import { showLocker } from './locker';
+import { SHARE_ICONS } from '../share/dialog'; // clip button icon
 
 export interface ResultsCallbacks {
   playAgain(): void;
@@ -33,6 +34,8 @@ export interface ResultsCallbacks {
   keepWatching(): void;
   menu(): void;
   copyCode?(code: string, el: HTMLElement): void;
+  /** Record a highlight clip of the moment `t` (seconds into the battle) from this match's replay. */
+  recordClip?(t: number, label: string): void;
 }
 
 const CSS = `
@@ -148,6 +151,11 @@ const CSS = `
 .rr-hl div { display: flex; gap: .55rem; align-items: center; font-size: .76rem; color: var(--text-2); }
 .rr-hl div em { font-style: normal; font-family: var(--mono); font-size: .7rem; color: var(--muted); min-width: 2.6rem; }
 .rr-hl div .mx-ic { color: rgb(var(--accent-rgb)); flex-shrink: 0; }
+.rr-hl div span { flex: 1; min-width: 0; }
+.rr-clip { display: inline-flex; align-items: center; gap: .3rem; margin-left: auto; flex-shrink: 0; height: 1.5rem; padding: 0 .5rem; border-radius: .4rem; border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.04); color: var(--text-2); cursor: pointer; font: inherit; font-size: .62rem; letter-spacing: .18em; text-transform: uppercase; }
+.rr-clip b { font-weight: 700; }
+.rr-clip:hover { color: #fff; border-color: rgba(255,90,60,.7); background: rgba(255,90,60,.2); }
 .rr-results .mom-offers { margin: 0; }
 /* buttons */
 .rr-btns { display: flex; gap: .6rem; justify-content: center; align-items: stretch; flex-wrap: wrap; }
@@ -276,7 +284,7 @@ function scoreboard(game: Game): HTMLElement {
 
 const HL_ICON: Record<string, string> = { 'first-blood': 'crosshair', superweapon: 'nuke', elite: 'chevrons', capture: 'capture', eliminated: 'skull', peak: 'tank', clash: 'flames', comeback: 'phoenix', chrono: 'chrono' };
 
-function mvpAndHighlights(game: Game, won: boolean, report: BattleReport | null): HTMLElement {
+function mvpAndHighlights(game: Game, won: boolean, report: BattleReport | null, clip?: (t: number, label: string) => void): HTMLElement {
   const wrap = el('div', 'rr-bottom');
   const me = game.local;
   const m = report?.mvp() ?? (() => {
@@ -293,7 +301,10 @@ function mvpAndHighlights(game: Game, won: boolean, report: BattleReport | null)
     wrap.appendChild(el('div', 'end-mvp none', `<div class="mvp-tag">${ICONS.trophy}<span>MVP</span></div><div class="mvp-info"><b>No kills on record</b><small>Next time, take the fight to them</small></div>`));
   }
   const hl = report?.highlights(won) ?? [];
-  wrap.appendChild(el('div', 'rr-hl', `<h5>Highlights</h5>${hl.length ? hl.map((h) => `<div><em>${formatTime(h.t)}</em>${picto(HL_ICON[h.kind] ?? 'flag')}<span>${esc(h.text)}</span></div>`).join('') : '<div><span>A quiet battle.</span></div>'}`));
+  const box = el('div', 'rr-hl', `<h5>Highlights</h5>${hl.length ? hl.map((h, i) => `<div><em>${formatTime(h.t)}</em>${picto(HL_ICON[h.kind] ?? 'flag')}<span>${esc(h.text)}</span>${clip ? `<button class="rr-clip" data-hl="${i}" title="Record a highlight clip of this moment (video)">${SHARE_ICONS.record}<b>Clip</b></button>` : ''}</div>`).join('') : '<div><span>A quiet battle.</span></div>'}`);
+  // "Record clip": the replay plays this moment through a cinematic camera and records it
+  if (clip) box.querySelectorAll<HTMLElement>('[data-hl]').forEach((b) => { const h = hl[+b.dataset.hl!]; if (h) b.onclick = () => clip(h.t, h.text); });
+  wrap.appendChild(box);
   return wrap;
 }
 
@@ -383,7 +394,7 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   // ---------------------------------------------------------------- battle report
   const rep = el('section', 'rr-col panel rr-report');
   rep.innerHTML = `<div class="rr-h">${picto('chart')}<span>Battle report</span><i class="sp"></i><small>every ${10} s</small></div>`;
-  rep.append(battleReport(game, opts.report), scoreboard(game), mvpAndHighlights(game, won, opts.report));
+  rep.append(battleReport(game, opts.report), scoreboard(game), mvpAndHighlights(game, won, opts.report, opts.recordClip ? (t, label) => { done(); opts.recordClip!(t, label); } : undefined)); // clips
   grid.append(prog, rep);
   wrap.appendChild(grid);
   // ---------------------------------------------------------------- buttons

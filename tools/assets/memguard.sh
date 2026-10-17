@@ -1,8 +1,8 @@
 #!/bin/bash
 # Memory guard for shared machines: wait until /proc/meminfo MemAvailable
-# is at least <MB> (default 3072), polling every 30 s. Run it before starting a headless browser or Blender:
-#   tools/assets/memguard.sh 3072 && node tools/assets/view.mjs ...
-NEED=${1:-3072}
+# is at least <MB> (default 4096), polling every 30 s. Run it before starting a headless browser or Blender:
+#   tools/assets/memguard.sh 4096 && node tools/assets/view.mjs ...
+NEED=${1:-4096}
 while true; do
   AVAIL=$(awk '/^MemAvailable:/ {print int($2 / 1024)}' /proc/meminfo)
   [ -z "$AVAIL" ] && exit 0

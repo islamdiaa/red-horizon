@@ -16,6 +16,7 @@
 import { Building, Unit, type Entity } from '../sim/entities';
 import type { Command, FormationShape, Stance } from '../sim/types';
 import { canCarry } from '../sim/naval';
+import { canGarrison } from '../sim/economy'; // Commander economy: bunkers
 import { CTRL_ICONS, FORMATION_INFO, RadialMenu, type RadialItem } from './orderui';
 import type { InputController, InputHost, PtrLike } from './input';
 import { armyTools } from './army';
@@ -338,7 +339,7 @@ export class TouchController {
     if (t instanceof Unit) return !!t.ut.passengers && units.some((u) => canCarry(t, u));
     if (t instanceof Building) {
       return (!!t.bt.dock && units.some((u) => u.ut.harvester)) || (!!t.bt.repairPad && units.some((u) => u.kind === 'vehicle' && !u.ut.harvester))
-        || (t.hp < t.maxHp && units.some((u) => u.ut.engineer));
+        || (t.hp < t.maxHp && units.some((u) => u.ut.engineer)) || (!!t.bt.garrison && units.some((u) => canGarrison(u, t))); // (bunker: Commander economy)
     }
     return false;
   }
@@ -400,6 +401,7 @@ export function orderMenu(inp: InputController, issue: (c: Command) => void, gx:
     const b = blds[0];
     items.push({ id: 'sell', label: 'Sell', icon: CTRL_ICONS.sell, key: 'Z', run: () => issue({ c: 'sell', player, building: b.id }) });
     items.push({ id: 'repair', label: b.repairing ? 'Stop repair' : 'Repair', icon: CTRL_ICONS.repair, key: 'R', on: b.repairing, run: () => issue({ c: 'repair', player, building: b.id }) });
+    if (b.garrison?.length) items.push({ id: 'evacuate', label: 'Evacuate', icon: CTRL_ICONS.deploy, key: 'D', run: () => issue({ c: 'evacuate', player, building: b.id }) }); // bunker (Commander economy)
     if (b.bt.factory && b.bt.factory !== 'building') {
       items.push({ id: 'primary', label: 'Primary', icon: CTRL_ICONS.primary, key: 'P', on: b.primary, run: () => issue({ c: 'primary', player, building: b.id }) });
       const facs = blds.filter((o) => o.bt.factory && o.bt.factory !== 'building');

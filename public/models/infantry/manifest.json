@@ -1,0 +1,346 @@
+{
+  "version": 1,
+  "models": {
+    "anim.dog": {
+      "file": "anim.dog.glb",
+      "bytes": 70084,
+      "hash": "cfdb050ed9",
+      "type": "anim.dog",
+      "faction": "dog",
+      "kind": "anim",
+      "tris": 0,
+      "parts": [],
+      "points": [],
+      "textures": {},
+      "seconds": 0.1
+    },
+    "anim.human": {
+      "file": "anim.human.glb",
+      "bytes": 452148,
+      "hash": "059c62b867",
+      "type": "anim.human",
+      "faction": "human",
+      "kind": "anim",
+      "tris": 0,
+      "parts": [],
+      "points": [],
+      "textures": {},
+      "seconds": 0.6
+    },
+    "dog.soviet": {
+      "file": "dog.soviet.glb",
+      "bytes": 132112,
+      "hash": "635a96c2d5",
+      "type": "dog",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 1166,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 26700,
+        "orm": 15282,
+        "normal": 17184,
+        "mask": 140
+      },
+      "seconds": 22.2
+    },
+    "e1.allies": {
+      "file": "e1.allies.glb",
+      "bytes": 233088,
+      "hash": "6e1b33b7ee",
+      "type": "e1",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 2436,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 30598,
+        "orm": 16164,
+        "normal": 29114,
+        "mask": 4186
+      },
+      "seconds": 35.9
+    },
+    "e1.soviet": {
+      "file": "e1.soviet.glb",
+      "bytes": 223340,
+      "hash": "5463c85db9",
+      "type": "e1",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 2500,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 28126,
+        "orm": 16330,
+        "normal": 30382,
+        "mask": 1652
+      },
+      "seconds": 33.4
+    },
+    "e2.soviet": {
+      "file": "e2.soviet.glb",
+      "bytes": 204012,
+      "hash": "0a89295cce",
+      "type": "e2",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 2268,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 28866,
+        "orm": 15034,
+        "normal": 23592,
+        "mask": 3534
+      },
+      "seconds": 34.6
+    },
+    "e3.allies": {
+      "file": "e3.allies.glb",
+      "bytes": 213036,
+      "hash": "9c29a010bb",
+      "type": "e3",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 2252,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 31134,
+        "orm": 16110,
+        "normal": 26524,
+        "mask": 4138
+      },
+      "seconds": 30.4
+    },
+    "e3.soviet": {
+      "file": "e3.soviet.glb",
+      "bytes": 208492,
+      "hash": "52a4e9fd5a",
+      "type": "e3",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 2188,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 30726,
+        "orm": 15944,
+        "normal": 26258,
+        "mask": 4318
+      },
+      "seconds": 25.7
+    },
+    "e4.soviet": {
+      "file": "e4.soviet.glb",
+      "bytes": 208924,
+      "hash": "79a268dacc",
+      "type": "e4",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 2272,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 27386,
+        "orm": 15188,
+        "normal": 30644,
+        "mask": 1430
+      },
+      "seconds": 31.9
+    },
+    "e6.allies": {
+      "file": "e6.allies.glb",
+      "bytes": 201880,
+      "hash": "de853113d2",
+      "type": "e6",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 2044,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 33892,
+        "orm": 15400,
+        "normal": 24980,
+        "mask": 5424
+      },
+      "seconds": 28.2
+    },
+    "e6.soviet": {
+      "file": "e6.soviet.glb",
+      "bytes": 200720,
+      "hash": "61cef21e2d",
+      "type": "e6",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 2044,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 32878,
+        "orm": 15348,
+        "normal": 24920,
+        "mask": 5388
+      },
+      "seconds": 24.9
+    },
+    "e7.allies": {
+      "file": "e7.allies.glb",
+      "bytes": 180096,
+      "hash": "8727138b56",
+      "type": "e7",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 1916,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 27602,
+        "orm": 14552,
+        "normal": 20758,
+        "mask": 2194
+      },
+      "seconds": 29.2
+    },
+    "mech.allies": {
+      "file": "mech.allies.glb",
+      "bytes": 185056,
+      "hash": "08cce08f6e",
+      "type": "mech",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 1928,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 25854,
+        "orm": 15334,
+        "normal": 26158,
+        "mask": 1266
+      },
+      "seconds": 25.4
+    },
+    "medi.allies": {
+      "file": "medi.allies.glb",
+      "bytes": 168248,
+      "hash": "e5413ff63c",
+      "type": "medi",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 1808,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 28774,
+        "orm": 14090,
+        "normal": 22594,
+        "mask": 1614
+      },
+      "seconds": 29.3
+    },
+    "shok.soviet": {
+      "file": "shok.soviet.glb",
+      "bytes": 222468,
+      "hash": "6072549a0e",
+      "type": "shok",
+      "faction": "soviet",
+      "kind": "infantry",
+      "tris": 2424,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 28612,
+        "orm": 16790,
+        "normal": 31110,
+        "mask": 1664
+      },
+      "seconds": 29.7
+    },
+    "spy.allies": {
+      "file": "spy.allies.glb",
+      "bytes": 159860,
+      "hash": "d387e5f2eb",
+      "type": "spy",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 1808,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 20444,
+        "orm": 14614,
+        "normal": 22056,
+        "mask": 676
+      },
+      "seconds": 26.6
+    },
+    "thf.allies": {
+      "file": "thf.allies.glb",
+      "bytes": 154576,
+      "hash": "826642a312",
+      "type": "thf",
+      "faction": "allies",
+      "kind": "infantry",
+      "tris": 1824,
+      "parts": [
+        "skin"
+      ],
+      "points": [],
+      "atlas": 512,
+      "textures": {
+        "base": 17478,
+        "orm": 14164,
+        "normal": 19782,
+        "mask": 562
+      },
+      "seconds": 29.2
+    }
+  }
+}

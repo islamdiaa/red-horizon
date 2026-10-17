@@ -1,0 +1,66 @@
+{
+  "name": "red-horizon-desktop",
+  "productName": "Red Horizon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Red Horizon as a desktop app: an Electron window around the relative-base web build.",
+  "license": "GPL-3.0-or-later",
+  "author": "Red Horizon contributors",
+  "main": "main.cjs",
+  "scripts": {
+    "prepare-app": "node scripts/prepare.mjs",
+    "dev": "node scripts/prepare.mjs && electron .",
+    "start": "electron .",
+    "build": "node scripts/prepare.mjs && electron-builder --publish never",
+    "build:dir": "node scripts/prepare.mjs && electron-builder --dir --publish never",
+    "smoke": "node scripts/prepare.mjs && electron scripts/smoke.cjs --ozone-platform=headless"
+  },
+  "devDependencies": {
+    "electron": "44.9.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "org.redhorizon.desktop",
+    "productName": "Red Horizon",
+    "copyright": "Copyright \u00a9 2026 Red Horizon contributors (GPL-3.0-or-later)",
+    "directories": {
+      "output": "out",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "app/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Game",
+      "icon": "build/icon.png",
+      "executableName": "red-horizon"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.strategy-games",
+      "icon": "build/icon.png"
+    }
+  }
+}

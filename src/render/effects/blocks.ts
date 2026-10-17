@@ -332,7 +332,9 @@ export function lightFlash(ctx: FxContext, x: number, y: number, z: number, colo
 export function scorchDecal(ctx: FxContext, x: number, z: number, size: number, delay = 0, frame = -1, intensity = 0.85, life = 50): void {
   if (ctx.isWater(x, z)) return;
   const f = frame >= 0 ? frame : rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B;
-  ctx.decals.add(x, z, size, f, intensity, life * range(0.85, 1.15), rnd() * TAU, delay);
+  // the marks of real blasts last the whole match (scars.ts budget); small ones fade
+  if (ctx.scars && size >= 0.8 && life >= 45) ctx.scars.add(x, z, size, f, intensity, rnd() * TAU, delay);
+  else ctx.decals.add(x, z, size, f, intensity, life * range(0.85, 1.15), rnd() * TAU, delay);
 }
 
 /** Random point offset helper (writes into out). */

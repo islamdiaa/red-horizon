@@ -18,6 +18,13 @@
 
 **Classic** is pure Red Alert. **Commander**, the default, adds:
 
+- **Economy and tech evolution.** See [ECONOMY.md](ECONOMY.md) for the full guide.
+  - The Construction Yard grows from tier 1 to 3.
+  - Visible building upgrades: refinery processor, turbines, assembly line, armour shop,
+    training ground, reinforced defences, satellite uplink.
+  - Research at the Research Lab.
+  - New structures: Mining Outpost, Ore Purifier or Smelter, Logistics Centre, garrisonable
+    Bunker, Fortress Gate.
 - **Doctrines.** Pick one before the match, for example *Armoured Fist*, *Human Wave*,
   *Blitzkrieg* or *Fortress Europe*. Each has two bonuses and one drawback, and more unlock as
   your rank rises.
@@ -127,6 +134,21 @@ All controls are also listed in-game under **Controls**.
   - Mods are validated on import.
   - Saves and replays record them.
   - Examples are in [`public/mods/`](../public/mods/).
+
+## Sharing
+
+- **Share links.** **Copy link** in the editor, the scenario challenge list and the Replays list.
+  - The map, challenge or short replay travels inside the link, after the `#`. Browsers never send that
+    part to a server, and nothing is uploaded.
+  - Whoever opens the link sees what it holds and chooses to import or play it.
+  - Content too big for a link (long replays, large challenge snapshots) downloads as a file instead.
+- **Highlight clips.** **Clip** next to a highlight on the results screen, or the camera button in the
+  replay player.
+  - The moment replays through a cinematic camera and is recorded with its sound: about 18 seconds of WebM
+    video (MP4 in Safari).
+  - Download it, or share it from a phone.
+- **Trailer.** Open the game with `?trailer=1` for an ~85-second cut of a staged battle, which can be
+  recorded too.
 
 ## Faithful to Red Alert
 

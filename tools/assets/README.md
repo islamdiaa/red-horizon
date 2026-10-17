@@ -13,11 +13,16 @@ tools/assets/
   view.mjs                in-game screenshot of a benchmark scene / focused type, HD on or off, + stats
   hdcheck.mjs             in-game damage stages / construction hologram / collapse of a structure type
   hdlazy.mjs              in-game lazy loading: a structure built and a unit produced while their HD model loads
+  modview.mjs             in-game structures in a row, before / after their upgrade modules build in (+ draw calls)
+  footprint.ts            top-view height map of a structure (procedural and HD): roofs and yards for module anchors
   restart-view-server.sh  (re)start your no-HMR vite server (needed after adding a NEW .glb)
   memguard.sh <MB>        wait until that much memory is available (run before a headless browser)
   STYLE.md                art direction and budgets
-  kit/                    the Python API (runs inside Blender): core, shapes, materials, decals, patterns, bake, export
-  models/<group>/<id>.py  one script per model (groups: allies, soviet, vehicles; test = kit checks)
+  kit/                    the Python API (runs inside Blender): core, shapes, materials, decals, patterns, bake, export;
+                          rig, anim, skin, vat (rigged infantry)
+  models/<group>/<id>.py  one script per model (groups: allies, soviet, vehicles, infantry, aircraft, naval; test = kit checks)
+  infantry.mjs            HD infantry: clip contact sheets, in-game battles, benchmarks (see Rigged infantry)
+  terrain/                scanned ground materials (build.mjs, bake.py, textures.json) and shots.mjs (terrain screenshots)
 ```
 
 ## Setup (once per machine)
@@ -42,7 +47,7 @@ node tools/assets/build.mjs --all                # everything except models/test
   ~1–1.5 min, a vehicle ~15–45 s.
 - **Memory guard:** before each Blender run build.mjs waits until `/proc/meminfo` MemAvailable is ≥ 3 GB
   (`--min-mem MB`, `RH_MIN_MEM_MB`), polling every 30 s, so a shared machine is never pushed into swap.
-  Run `tools/assets/memguard.sh 3072` before starting a headless browser (view.mjs, hdcheck.mjs).
+  Run `tools/assets/memguard.sh 4096` before starting a headless browser (view.mjs, hdcheck.mjs).
 - Logs: `/tmp/rh-assets/<key>.log`. Debug maps: run the kit directly with `--debug DIR` (see `kit/run.py`).
 - The runner prints triangles, KB and budget checks per model and the set / per-faction totals, and merges each
   built model into `public/models/manifest.json` (id -> file, bytes, hash, type, faction, kind, tris, parts,
@@ -257,6 +262,72 @@ that touches nothing prints `[kit] WARNING: decal ... touches no faces` (check p
   settled snow, and the weather (wet / snow) + rim-light patches. Textures and geometry are shared per template;
   at most 2 materials per model (body + glass) plus the shared track / glow materials.
 
+## Rigged infantry (`kit.rig`, `kit.anim`, `kit.skin`, `kit.vat`)
+
+Soldiers and dogs are skinned models on two shared rigs, animated by baked clips and drawn as an instanced crowd
+(`src/render/models/infantry-hd.ts`). Everything lives in `models/infantry/` and builds into `public/models/infantry/`
+with its own `manifest.json` (build.mjs routes the group there):
+
+```sh
+node tools/assets/build.mjs anim.human anim.dog        # the clip sets (vertex animation textures), ~1 s each
+node tools/assets/build.mjs anim.human --preview       # + a stick-figure contact sheet: /tmp/rh-assets/anim.human-N.png
+node tools/assets/build.mjs e1                         # both riflemen (e1.soviet, e1.allies), ~1-2.5 min each
+node tools/assets/infantry.mjs sheet --port <port> --out /tmp/e1.png --q 'type=e1&fac=soviet&clips=rifle.,death.'
+node tools/assets/infantry.mjs battle --port <port> --n 100 --out /tmp/battle.png     # an in-game infantry battle
+node tools/assets/infantry.mjs bench --port <port> --n 300                             # calls / tris / frame time per preset
+```
+
+- **Rigs** (`kit.rig`): `HUMAN` (hips, spine, chest, neck, head, upper arm / forearm / hand, thigh / shin / foot per
+  side, plus `weapon` and `prop` bones for what the right and left hands hold) and `DOG` (pelvis, spine, chest, neck,
+  head, jaw, two tail bones, three bones per leg). Game frame, rest orientation = identity for every bone, so a pose is
+  just a world matrix per bone and the skinning matrix is `W @ inverse(T(rest))`. Helpers: `rx / ry / rz / lean`,
+  `ik2` (two-bone IK), `frame_rot`, `hand_rot`.
+- **Clips** (`kit.anim`): procedural key-pose animation, no motion capture. `HumanBody` builds a pose: the trunk by
+  forward kinematics (`torso(hips_pos, hips_rot, spine, chest, neck, head)`, `look`), legs and arms by IK
+  (`leg(side, ankle, foot_rot)`, `arm_ik(side, wrist, hand, pole)`, `arm_fk`), props (`weapon(m4)`, `prop(m4)`; scale 0
+  hides one: a thrown grenade). `Keys` interpolates key values (numbers, tuples, vectors, rotations) with easing,
+  `Gait` / `WALK` / `RUN` / `legs_for_gait` give planted-foot locomotion with hip bob, sway, yaw and roll, `kick` /
+  `spring` give recoil envelopes, `noise1(t, seed, period)` breathing and sway that loop. `Clip(name, duration, fn,
+  loop, fps, **meta)`; meta like `stride` (model units per cycle: the game locks the playback rate to the ground speed),
+  `shot`, `release`. The clip content is in `models/infantry/_clips.py` (humans: one set per weapon kind) and `_dog.py`.
+- **VAT** (`kit.vat`): `bake(skeleton, clips)` samples every clip at its fps into an RGBA16F texture, texel
+  (3 * bone + row, frame) = a row of the bone's skinning matrix, clips stacked; a loop repeats its first frame at its
+  end so the shader's linear filter interpolates every frame pair. The run checks bone lengths (rigid within 3 mm),
+  loop closure and IK reach (`over_3mm` lists clips whose hands miss their grips). `write_anim` stores the skeleton as
+  glTF nodes plus the texture as an embedded half-float buffer (`extras.rh_anim`: bones, parents, rest, clips, vat).
+  `key_actions` keys every clip on a Blender armature (`--keep-blend out.blend` saves it for inspection).
+- **Skinned geometry** (`kit.skin`): `Skin(m, HUMAN)` adds a `skin` part whose bmesh carries bone weights (vertex
+  groups = bone indices). `tube(mats, [ring(at, a, b, weights)...])` makes smooth limbs and torsos (weights blend
+  across the joints), `rigid(shape, bone)` puts any kit shape on one bone, `blend(shape, fn)` custom weights. The bake
+  runs as for every model (bind pose = an A-pose with the props floating in front, so their AO stays clean).
+  `write_skinned` exports a glTF skinned mesh (JOINTS_0 / WEIGHTS_0, two bones per vertex, inverse bind matrices with
+  the dequantisation folded in), a decimated `body_lod1` (30 %: the crowd's far LOD) and points (muzzles) under their bones.
+- **Soldiers** (`models/infantry/_soldier.py`): `Soldier(m, faction)`, `body(...)` (torso, trousers, boots, sleeves,
+  gloves, head; `coat=True` for the greatcoat), `helmet('m1' | 'ssh40' | 'ushanka' | 'hardhat' | 'medic' | 'gasmask' |
+  'fedora' | 'beanie' | 'cap' | 'tanya')`, kit (`belt`, `pouches`, `straps`, `pack`, `skatka`, `grenades`, ...), weapons
+  in the weapon bone's frame (`rifle('ak' | 'm16' | 'tesla')`, `launcher('rpg' | 'dragon')`, `flamer()`, `pistols()`,
+  `held(...)`), `finish(set=...)`. Team colour: the outer torso garment and the helmet (team mask) plus team decals.
+  Weapon grips (where the clips put the hands) are shared in `_gear.py`.
+- Budgets: infantry 2500 triangles (body; the far LOD ~30 %) and 250 KB per GLB; a clip set < 800 KB.
+
+## Terrain materials and nature (`tools/assets/terrain`, `models/nature`)
+
+**Ground.** `node tools/assets/terrain/build.mjs` fetches the pinned 1k scans (`terrain/textures.json`, md5-checked,
+into the shared texture cache) and bakes each material in headless Blender (numpy) into
+`public/textures/terrain/<name>.albedo.webp` (RGB, crevice AO folded in, large-scale lighting flattened so the tiling
+does not show) and `<name>.nrm.webp` (normal X/Y, height, 128 + 127 x roughness in alpha), 512 px, plus
+`manifest.json` (about 5 MB in all). `build.mjs grass rock` rebakes some; `--pin <id>` pins new Poly Haven ids.
+The climate layer sets (ten slots: ground, variation, dirt, rock, sand, gravel, road, mud, snow, concrete) and their
+tiling and colour grading are in `src/render/terrain-materials.ts`; the shader is in `src/render/terrain.ts`.
+
+**Trees and rocks.** `models/nature/*.py` (helpers in `_nature.py`, `_rocks.py`; KIND `nature`) build into
+`public/models/nature/` with their own manifest (budget: 1200 triangles, 200 KB). Origin at the trunk base / rock
+centre on the ground, the procedural model's size (it stays the far LOD). Rocks are baked neutral grey: the game
+tints them per climate. `src/render/vegetation.ts` instances them for the near blocks (wind sway, weather, felled
+trees as before). `node tools/assets/terrain/shots.mjs --port <port> --out DIR --tag after` shoots the benchmark
+scenes and close-ups (roads, cliffs, trees, snow, aprons); `?terrain=classic` / `?nature=classic` show the
+procedural look for A/B.
+
 ## Gotchas
 - **Restart the view server after building a new model** (no file watching: new public files 404 until restart).
 - Thin parts (< 0.01) and tiny parts waste texels: prefer decals.
@@ -270,7 +341,11 @@ that touches nothing prints `[kit] WARNING: decal ... touches no faces` (check p
 ## Credits
 - Texture inputs: [Poly Haven](https://polyhaven.com) (CC0): rusty_painted_metal, rusty_metal_02, metal_plate,
   corrugated_iron_02, concrete_wall_008, rough_concrete, painted_metal_shutter, rusty_metal_grid, green_metal_rust,
-  container_side. Used only as inputs; the shipped atlases are our own bakes.
+  container_side, cliff_side, rock_face. Used only as inputs; the shipped atlases are our own bakes.
+- Terrain materials: Poly Haven (CC0) scans, re-baked into our own tiling sets: leafy_grass, forrest_ground_01,
+  forest_ground_04, rock_face_03, coast_sand_01, ganges_river_pebbles, asphalt_04, asphalt_snow, brown_mud_02,
+  snow_01, snow_02, cracked_concrete, rocks_ground_05, coast_sand_05, brown_mud_rocks_01, sand_01, mud_cracked_dry_03,
+  dry_ground_rocks, cliff_side, rocky_trail_02, gravel_road, dense_sand.
 - Decal fonts: Rajdhani Bold (SIL OFL, already shipped in public/fonts) for Latin text; **Russo One** (Jovanny
   Lemonad, SIL Open Font License 1.1, google/fonts `ofl/russoone/` at a pinned commit, sha256-checked by
   fetch-textures.mjs into ~/.cache/red-horizon/fonts/, with its OFL.txt) for Cyrillic. Both are build-time

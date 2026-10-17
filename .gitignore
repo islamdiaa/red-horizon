@@ -32,3 +32,11 @@ tools/vite.*.config.ts
 # Blender's Python bytecode for tools/assets/kit
 __pycache__/
 *.pyc
+
+# release builds (npm run build:itch, npm run desktop:build)
+/dist-*/
+/release/
+desktop/node_modules/
+desktop/app/
+desktop/build/
+desktop/out/

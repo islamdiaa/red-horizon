@@ -26,6 +26,8 @@ import {
 import { AI_MODES, OBJECTIVE_KINDS, PORTRAITS, TRIGGER_DOS, TRIGGER_WHENS, defaultMission, type MissionSpec, type ObjectiveSpec, type Placement, type TriggerAction, type TriggerSpec } from './mission';
 import { PLAYER_COLORS, type OverlayState } from './overlay';
 import { deleteDoc, docToFile, fileName, getDoc, initEditorStore, listDocs, loadDraft, parseRhMap, saveDoc, saveDraft } from './store';
+import { openShareDialog, SHARE_ICONS } from '../share/dialog'; // share links
+import { mapShareData } from '../share/content'; // share links
 import { injectEditorCss } from './styles';
 import { footprintProblem, validateMap, validateMission, type Check, type MapReport } from './validate';
 import { View2D } from './view2d';
@@ -223,6 +225,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     button(`${IC.save}<span>Save</span>`, () => void save(), '', 'Save to your library (Ctrl+S)'),
     button(`${IC.up}<span>Import</span>`, () => fileInput.click(), '', 'Import a .rhmap.json file'),
     button(`${IC.down}<span>Export</span>`, () => exportFile(), '', 'Download as .rhmap.json'),
+    button(`${SHARE_ICONS.link}<span>Copy link</span>`, () => void openShareDialog({ kind: 'map', title: model.doc.map.name, data: mapShareData(model.doc), exportFile, play: () => play('click') }), '', 'Share this map as a link (no upload: the map travels inside the link)'), // share links
     el('span', 'ed-sep'),
     button(`${IC.play}<span>Playtest</span>`, () => playtestMenu(), 'pri', 'Play this map now'),
     button(IC.x, () => exit(), '', 'Back to the main menu (Esc)'));

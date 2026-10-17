@@ -31,6 +31,9 @@ import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conques
 import { attachVariety } from './ui/variety-hud';
 import { showQuickCard } from './ui/variety';
 import './ui/doctrine-picker'; // registers the doctrine picker in the skirmish Rules tab
+import { createAttractGame } from './share/attract'; // directed menu backdrop
+import type { LobbyHost } from './ui/lobby'; // multiplayer lobby (loaded on demand)
+import { boardOfSetup, portableMathFor, withPortableFlag } from './net/boards'; // multiplayer and ranked runs: portable maths, verified leaderboards
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -91,6 +94,8 @@ const menus = new Menus(audio, {
   openBootCamp: () => deployMission('bootcamp'),
   openEditor: () => openEditorScreen(),
   openMods: () => showMods({ play: (k) => audio.play(k), onBack: () => menus.showMain() }),
+  openMultiplayer: () => void import('./ui/lobby').then((m) => m.openLobby(lobbyHost)).catch((e) => reportError(e)),
+  backToLobby: () => void import('./ui/lobby').then((m) => { m.keepConnection(); audio.stopMusic(); startDemo(); menus.hide(); m.openLobby(lobbyHost); }).catch((e) => reportError(e)), // after a match: back to its room
   continueInfo: () => {
     const s = latestSave();
     return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
@@ -242,6 +247,8 @@ async function startGame(setup: GameSetup) {
   game = null;
   lastSetup = setup;
   await preloadHd(setup); // the match's factions' baked models (procedural meanwhile / on failure)
+  setup = withPortableFlag(setup); // multiplayer and ranked runs: the same maths on every machine, recorded with the game
+  await setPortable(portableMathFor(setup));
   try {
     game = new Game(setup, audio, {
       onPause: () => menus.showPause(game!),
@@ -276,10 +283,14 @@ async function startGame(setup: GameSetup) {
     (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
     applyTestParams(game);
     await preloadHdWorld(game);
+    // scanned terrain materials and HD trees in place before the first frame (bounded: a slow network starts anyway)
+    await Promise.race([Promise.all([game.gfx.terrain.texturesReady, game.gfx.vegetation.hdReady]), new Promise<void>((r) => setTimeout(r, 8000))]);
     // watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
     if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
     attachModes(game); // KOTH HUD, branch / challenge badge, moment tracking
     attachVariety(game); // mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
+    if (setup.net && !setup.replay) (await import('./net/game-link')).attachNetMatch(game, { quit: () => { menus.hide(); audio.stopMusic(); startDemo(); }, play: (k) => audio.play(k) }); // a multiplayer match: lockstep, network status, desync dialog
+    if (boardOfSetup(game.setup)) (await import('./net/leaderboard')).attachLeaderboard(game, { tainted: !!(params.get('scenario') || params.get('charge') || params.get('selfplay')), play: (k) => audio.play(k) }); // ranked runs
     game.start();
   } catch (e) {
     reportError(e, true);
@@ -321,20 +332,14 @@ function exposeDebug(g: Game | null) {
 
 function startDemo() {
   game?.dispose();
+  void setPortable(false);
   exposeDebug(null);
   game = null;
   returnToEditor = false;
   showModBadge(null);
   if (params.get('demo') !== '0') {
     try {
-      const tods: TimeOfDay[] = ['day', 'dusk', 'night'];
-      game = new Game({
-        faction: 'allies', color: 0x3d7be0, opponents: [{ faction: 'soviet', difficulty: 'hard' }], mapSize: 64, water: 0.5, trees: 0.6, ore: 0.8,
-        credits: 10000, startUnits: 'heavy', fog: false, timeOfDay: tods[Math.floor(Math.random() * 3)], quality: menus.settings.quality,
-        seed: (Math.random() * 1e9) | 0, demo: true,
-      }, audio, { onPause: () => {}, onEnd: () => {} });
-      // fast-forward so the menu opens on an established battlefield
-      for (let i = 0; i < 20 * 150; i++) { game.world.step(); game.world.events.length = 0; }
+      game = createDemo(); // the directed attract mode (src/share/attract.ts)
       exposeDebug(game);
       game.start();
     } catch (e) {
@@ -343,6 +348,42 @@ function startDemo() {
   }
   menus.showMain();
   hideLoading();
+}
+
+/**
+ * The menu backdrop: a directed battle (src/share/attract.ts) that a fresh battlefield replaces behind a
+ * fade every few loops, without touching the menus. ?attract=0 keeps the old free-running AI battle.
+ */
+function createDemo(): Game {
+  if (params.get('attract') !== '0') {
+    try {
+      return createAttractDemo();
+    } catch (e) {
+      console.warn('attract mode failed, using the free-running backdrop', e);
+    }
+  }
+  const tods: TimeOfDay[] = ['day', 'dusk', 'night'];
+  const g = new Game({
+    faction: 'allies', color: 0x3d7be0, opponents: [{ faction: 'soviet', difficulty: 'hard' }], mapSize: 64, water: 0.5, trees: 0.6, ore: 0.8,
+    credits: 10000, startUnits: 'heavy', fog: false, timeOfDay: tods[Math.floor(Math.random() * 3)], quality: menus.settings.quality,
+    seed: (Math.random() * 1e9) | 0, demo: true,
+  }, audio, { onPause: () => {}, onEnd: () => {} });
+  // fast-forward so the menu opens on an established battlefield
+  for (let i = 0; i < 20 * 150; i++) { g.world.step(); g.world.events.length = 0; }
+  return g;
+}
+
+function createAttractDemo(): Game {
+  const g: Game = createAttractGame({
+    makeGame: (setup) => new Game(setup, audio, { onPause: () => {}, onEnd: () => {} }), quality: menus.settings.quality, tod: params.get('tod'), climate: params.get('climate'),
+    rebuild: () => {
+      if (game !== g) return; // a real match (or the editor) took over meanwhile
+      g.dispose();
+      game = null;
+      try { game = createDemo(); exposeDebug(game); game.start(); } catch (e) { console.warn('demo failed', e); }
+    },
+  });
+  return g;
 }
 
 if (params.get('autostart') && params.get('conquest')) {
@@ -369,10 +410,17 @@ if (params.get('autostart') && params.get('conquest')) {
     // &mut=<id,id>: mutators · &events=0: no battlefield events · &dyn=1: dynamic difficulty
     ...(params.get('mut') ? { mutators: params.get('mut')!.split(',').slice(0, 8) } : {}), ...(params.get('events') === '0' ? { events: false } : {}), ...(params.get('dyn') === '1' ? { dynamicDifficulty: true } : {}),
   }).then(startGame);
+} else if (params.get('trailer')) {
+  // ?trailer=1: the ~85 s trailer cut with title cards, recorded to WebM (src/share/trailer.ts)
+  setLoading(0.5, 'Loading');
+  void import('./share/trailer').then(({ startTrailer }) => {
+    startTrailer({ audio, makeGame: (setup) => new Game(setup, audio, { onPause: () => {}, onEnd: () => {} }), quality: menus.settings.quality, setGame: (g) => { game = g; exposeDebug(g); }, exit: () => { location.href = location.pathname; } }, params);
+    hideLoading();
+  }).catch((e) => reportError(e, true));
 } else {
   setLoading(0.5, 'Loading');
   // custom maps / missions are listed in the menus: load the editor library first (bounded wait)
-  setTimeout(() => void Promise.race([initEditorStore(), new Promise((r) => setTimeout(r, 1500))]).finally(startDemo), 30);
+  setTimeout(() => void Promise.race([initEditorStore(), new Promise((r) => setTimeout(r, 1500))]).finally(() => { startDemo(); openShare(); openInvite(); }), 30); // share links · invite links
 }
 
 // ?conquest=ui|fresh|mid[&seed=N&faction=soviet&cqdemo=new|select|preview|research|army|perks|perk|event|report|summary|threat] opens the campaign screen
@@ -397,6 +445,34 @@ if (params.get('conquest') && !params.get('autostart')) {
   };
   setTimeout(wait, 100);
 }
+
+// Share links (#share=…, src/share): loaded on demand, decoded as untrusted input, imported only after a confirmation.
+function openShare() {
+  if (!/[#&]share=/.test(location.hash)) return;
+  void import('./share/open').then((m) => m.openShareLink({ start: (s) => void startGame(s), quality: () => menus.settings.quality, play: (k) => audio.play(k) })).catch((e) => reportError(e));
+}
+window.addEventListener('hashchange', openShare);
+
+// The multiplayer lobby (src/ui/lobby.ts); invite links (#join=CODE) open it with the code filled in.
+const lobbyHost: LobbyHost = {
+  play: (k) => audio.play(k),
+  quality: () => menus.settings.quality,
+  back: () => menus.showMain(),
+  start: (s) => void startGame(s),
+};
+function openInvite() {
+  const code = /[#&]join=([A-Za-z0-9]{6})/.exec(location.hash)?.[1];
+  if (!code || (game && !game.setup.demo)) return;
+  menus.hide();
+  void import('./ui/lobby').then((m) => m.openLobby(lobbyHost, { join: m.inviteFromHash() ?? undefined })).catch((e) => reportError(e));
+}
+/** Portable maths for the running game (src/net/dmath.ts, loaded the first time it is needed). */
+let dmath: typeof import('./net/dmath') | null = null;
+async function setPortable(on: boolean) {
+  if (on && !dmath) dmath = await import('./net/dmath');
+  dmath?.setGamePortableMath(on);
+}
+window.addEventListener('hashchange', openInvite);
 
 // Offline support. A downloaded update is applied only between matches (never mid-game).
 let applyUpdate: (() => void) | null = null;

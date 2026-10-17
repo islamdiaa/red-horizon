@@ -156,6 +156,144 @@ export class CinematicPass extends Pass {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Rain on the lens: in the rain, the camera of a cinematic moment (mission intro, nuke cam, finale,
+// flourish) and photo mode collects drops on its lens. Never in normal play, never on Low.
+
+/**
+ * How much rain the lens should hold (pure; tests): the rain level during a cinematic moment or photo mode on
+ * medium / high, otherwise 0.
+ */
+export function lensRainTarget(o: { quality: 'low' | 'medium' | 'high'; moment: boolean; rain: number }): number {
+  if (o.quality === 'low' || !o.moment || !(o.rain > 0.02)) return 0;
+  return Math.min(1, o.rain);
+}
+
+/**
+ * Ease the lens rain towards `target`: drops gather over ~1.5 s, dry over ~3 s while the moment lasts, and are
+ * gone within half a second once it ends (so none linger into normal play).
+ */
+export function stepLensRain(cur: number, target: number, dt: number, moment: boolean): number {
+  const d = Math.max(0, Math.min(0.25, dt));
+  if (target > cur) return Math.min(target, cur + d * 0.7);
+  const rate = moment ? 0.35 : 2.2;
+  return Math.max(target, cur - d * rate);
+}
+
+/**
+ * Final-pass GLSL (renderer.ts, DISTORT): `lensRain(uv)` returns the screen offset (xy) the drops bend the
+ * image by, a rim darkening (z) and a sky glint (w). `uLens` = (amount 0..1, time s, 1 = drops run down
+ * (0 with reduced motion), aspect width / height).
+ *
+ * Two layers of beads sit on the glass (each a tiny lens: the scene behind it shows upside down and shrunk,
+ * with a dark rim and a glint on top; they condense, sit a while and evaporate), and runners: heavier drops
+ * that lurch down the glass in stick-slip steps, leaving a wet trail with beads behind them.
+ */
+export const LENS_RAIN_GLSL = /* glsl */ `
+uniform vec4 uLens;
+float lr_hash(vec2 p) {
+  p = fract(p * vec2(233.34, 851.73));
+  p += dot(p, p + 23.45);
+  return fract(p.x * p.y);
+}
+// one bead per cell (where the rain has put one): offset (p units), rim, glint; inside = 1 when covered
+vec4 lr_beads(vec2 p, float cells, float amt, float t, float seed, out float inside) {
+  inside = 0.0;
+  vec2 g = p * cells;
+  vec2 id = floor(g);
+  vec2 f = fract(g) - 0.5;
+  float h1 = lr_hash(id + seed), h2 = lr_hash(id + seed + 7.31), h3 = lr_hash(id + seed + 3.17);
+  if (h1 > amt) return vec4(0.0);
+  // condenses quickly, sits, then slowly evaporates
+  float life = 4.0 + 10.0 * h2;
+  float ph = fract(t / life + h3);
+  float r = (0.14 + 0.22 * h2) * smoothstep(0.0, 0.05, ph) * (1.0 - smoothstep(0.72, 1.0, ph));
+  if (r < 0.03) return vec4(0.0);
+  vec2 c = (vec2(h3, h1 / max(amt, 1e-3)) - 0.5) * (1.0 - 2.4 * r);
+  vec2 d = f - c;
+  // not a perfect circle: water sags (fuller below) and the edge wobbles a little
+  vec2 e = vec2(d.x, d.y * (d.y > 0.0 ? 1.12 : 0.92));
+  float wob = 1.0 + 0.1 * sin(atan(e.y, e.x) * 3.0 + h2 * 6.28) * step(0.5, fract(h3 * 13.0));
+  float k = length(e) / (r * wob);
+  if (k >= 1.0) return vec4(0.0);
+  // soft (anti-aliased) edge
+  inside = smoothstep(1.0, 0.88, k);
+  float cap = sqrt(1.0 - k * k);
+  // a little lens: the image behind it, upside down and shrunk
+  vec2 off = -d * (1.0 + 2.2 * cap) / cells;
+  float glint = smoothstep(0.3, 0.0, length(d / r - vec2(-0.32, 0.4))) * cap * smoothstep(0.12, 0.25, r);
+  return vec4(off, smoothstep(0.75, 0.97, k) * 0.6, glint) * inside;
+}
+// heavier drops running down the glass (one per column at most), with a beaded wet trail
+vec4 lr_runner(vec2 p, float cols, float amt, float t, out float inside) {
+  inside = 0.0;
+  float cx = floor(p.x * cols);
+  float h1 = lr_hash(vec2(cx, 1.7)), h2 = lr_hash(vec2(cx, 9.1)), h3 = lr_hash(vec2(cx, 4.3));
+  if (h1 > amt * 0.7) return vec4(0.0);
+  float period = 2.5 + 4.0 * h2;
+  float tt = t + h3 * period;
+  float cyc = floor(tt / period), ph = fract(tt / period);
+  float hc = lr_hash(vec2(cx, cyc + 0.5));
+  // stick-slip: it holds, then lurches down, five times per run
+  float s = ph * 5.0;
+  float slide = (floor(s) + smoothstep(0.35, 1.0, fract(s))) / 5.0;
+  float y0 = 1.05 - 0.45 * hc;
+  float y = y0 - slide * (0.9 + 0.5 * hc);
+  float lx = (fract(p.x * cols) - 0.5) / cols;
+  float x = (hc - 0.5) * 0.45 / cols + 0.05 / cols * sin(p.y * 17.0 + hc * 6.3);
+  float r = (0.24 + 0.12 * h2) / cols;
+  vec2 d = vec2(lx - x, p.y - y);
+  d.y *= d.y > 0.0 ? 0.6 : 1.0; // a tear: longer above
+  float k = length(d) / r;
+  if (k < 1.0) {
+    inside = smoothstep(1.0, 0.88, k);
+    float cap = sqrt(1.0 - k * k);
+    return vec4(-d * (1.0 + 2.0 * cap), smoothstep(0.75, 0.97, k) * 0.6, smoothstep(0.3, 0.0, length(d / r - vec2(-0.3, 0.35))) * cap) * inside;
+  }
+  float above = p.y - y;
+  if (above <= 0.0 || above > y0 - y + 0.02) return vec4(0.0);
+  float fade = 1.0 - smoothstep(0.0, 0.4, above);
+  // beads left behind along the trail
+  float seg = 0.032;
+  float hb = lr_hash(vec2(cx * 3.1 + floor(above / seg), cyc));
+  vec2 bd = vec2(lx - x, mod(above, seg) - seg * 0.5);
+  float br = r * (0.22 + 0.2 * hb) * step(hb, 0.5 * fade + 0.1);
+  float bk = br > 0.0 ? length(bd) / br : 2.0;
+  if (bk < 1.0) {
+    inside = smoothstep(1.0, 0.85, bk);
+    float bc = sqrt(1.0 - bk * bk);
+    return vec4(-bd * (1.0 + 2.0 * bc), smoothstep(0.7, 0.97, bk) * 0.5, 0.0) * inside;
+  }
+  // the wet streak itself: a faint, narrow lens
+  float tw = r * 0.32 * fade;
+  float tx = lx - x;
+  if (abs(tx) < tw) {
+    inside = 1.0;
+    float q = tx / tw;
+    return vec4(vec2(-tx * 1.5, 0.0), 0.25 * fade * q * q, 0.0);
+  }
+  return vec4(0.0);
+}
+vec4 lensRain(vec2 uv) {
+  float amt = uLens.x;
+  vec2 p = uv * vec2(uLens.w, 1.0);
+  float t = uLens.y;
+  vec4 res = vec4(0.0);
+  float ins;
+  // fine droplets, a few big drops over them, runners on top (each layer covers the ones below)
+  vec4 f = lr_beads(p, 34.0, amt * 0.45, t, 0.0, ins);
+  res = mix(res, f / max(ins, 1e-3), ins);
+  f = lr_beads(p + 0.37, 13.0, amt * 0.26, t * 0.8, 11.0, ins);
+  res = mix(res, f / max(ins, 1e-3), ins);
+  if (uLens.z > 0.5) {
+    f = lr_runner(p, 11.0, amt, t, ins);
+    res = mix(res, f / max(ins, 1e-3), ins);
+  }
+  res.xy *= vec2(1.0 / uLens.w, 1.0);
+  return res;
+}
+`;
+
+// ---------------------------------------------------------------------------------------------
 // Battle flourishes: a moment of slow motion under letterbox bars and a shallow lens when a
 // superweapon lands on screen or an enemy's last structure falls. Never in normal combat, never with
 // reduceMotion, never while another cinematic owns the screen. The player keeps full control.

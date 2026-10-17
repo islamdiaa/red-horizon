@@ -35,6 +35,15 @@ const ALERTS: Alert[] = [
     text: 'Enemy attack waves usually arrive within a few minutes. Cover your refinery with a <b>Pillbox</b>, <b>Turret</b> or <b>Flame Tower</b>.',
     when: (w, p) => w.time > 210 && w.time < 600 && !hasDefences(w, p) && w.buildings.some((b) => b.alive && b.owner === p && b.bt.id === 'proc'),
   },
+  // Commander economy (sim/economy.ts)
+  {
+    text: 'Your Construction Yard can climb to <b>Tier 2</b>: select it and pick the upgrade. It opens the Research Lab, the Tech Centre, the Ore Purifier and more.',
+    when: (w, p) => !!p.econ && p.econ.tier === 1 && w.time > 240 && p.credits >= 1000 && p.has('proc') && (p.has('tent') || p.has('barr')) && !w.buildings.some((b) => b.owner === p && b.task),
+  },
+  {
+    text: 'Your <b>Research Lab</b> is idle: select it and open the <b>research tree</b>. Research upgrades your whole army.',
+    when: (w, p) => !!p.econ && !Object.keys(p.econ.levels).length && w.buildings.some((b) => b.alive && b.owner === p && b.bt.id === 'rlab' && b.buildAnim >= 1 && !b.task),
+  },
 ];
 
 /** Small contextual tips for new players. */

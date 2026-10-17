@@ -3,6 +3,10 @@ import { angleDiff, turnTowards } from '../core/util';
 import { Building, Unit } from './entities';
 import { DT, TICK_HZ } from './types';
 import type { World } from './world';
+import { PROCESSOR_UNLOAD, harvestCapacity, oreValueMul } from './economy-data';
+
+/** Ore Truck capacity in bails (Commander rules: Improved Harvesters research). */
+const capOf = (u: Unit) => (u.owner.econ ? harvestCapacity(u.owner) : BAIL_COUNT);
 
 const HARVEST_TIME = 0.34;  // seconds per bail
 const UNLOAD_TIME = 0.08;   // seconds per bail
@@ -86,13 +90,24 @@ function findOre(world: World, u: Unit, fromX: number, fromY: number, maxR = 200
   seen[q[0]] = 1;
   let head = 0;
   let fallback: [number, number] | null = null;
+  const gates = world.pathfinder.gates;
+  // Commander rules: skip ore where enemy fighters are in sight (checked per 4x4 block, a few blocks per search)
+  let wary = u.owner.econ ? 16 : 0;
+  const blocks = wary ? new Map<number, boolean>() : null;
   while (head < q.length) {
     const i = q[head++];
     const x = i % m.w, y = (i / m.w) | 0;
     if (Math.abs(x - sx) > maxR || Math.abs(y - sy) > maxR) continue;
     if (m.ore[i] > 0) {
-      if (claimCount(world, x, y, u) === 0) return [x, y];
-      if (!fallback) fallback = [x, y];
+      let danger = false;
+      if (blocks) {
+        const key = (y >> 2) * 4096 + (x >> 2);
+        const known = blocks.get(key);
+        if (known !== undefined) danger = known;
+        else if (wary > 0) { wary--; danger = dangerAt(world, u, (x & ~3) + 1.5, (y & ~3) + 1.5); blocks.set(key, danger); }
+      }
+      if (!danger && claimCount(world, x, y, u) === 0) return [x, y];
+      if (!fallback && !danger) fallback = [x, y];
     }
     for (let k = 0; k < 4; k++) {
       const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
@@ -100,12 +115,22 @@ function findOre(world: World, u: Unit, fromX: number, fromY: number, maxR = 200
       const j = ny * m.w + nx;
       if (seen[j]) continue;
       seen[j] = 1;
-      // start cell may be inside a building (factory exit)
-      if (!m.passableIdx(j) && !(m.occupant[j] === u.exitBuilding && u.exitBuilding)) continue;
+      // start cell may be inside a building (factory exit); own fortress gates open for the truck
+      if (!m.passableIdx(j) && !(m.occupant[j] === u.exitBuilding && u.exitBuilding) && !(gates.size && gates.get(j) === u.owner.team)) continue;
       q.push(j);
     }
   }
   return fallback;
+}
+
+/** An enemy combat unit the truck's owner can see within 6 cells of the point (x, y) (the middle of a 4x4 block). */
+function dangerAt(world: World, u: Unit, x: number, y: number): boolean {
+  let hit = false;
+  world.grid.query(x, y, 6, (o) => {
+    if (hit || !o.alive || !o.weapons.length || o.ut.harvester || !u.owner.isEnemy(o.owner)) return;
+    if (Math.hypot(o.x - x, o.y - y) <= 6 && world.canSee(u.owner, o)) hit = true;
+  });
+  return hit;
 }
 
 function nearestRefinery(world: World, u: Unit, except?: Building): Building | null {
@@ -127,7 +152,7 @@ export function updateHarvester(world: World, u: Unit) {
       break;
 
     case 'seek': {
-      if (u.cargo >= BAIL_COUNT) { u.hstate = 'toRefinery'; u.dockAt = 0; break; }
+      if (u.cargo >= capOf(u)) { u.hstate = 'toRefinery'; u.dockAt = 0; break; }
       if (u.waitTimer > 0) { u.waitTimer -= DT; break; }
       const from = u.lastOreX >= 0 ? [u.lastOreX, u.lastOreY] : [u.x, u.y];
       const cell = findOre(world, u, from[0], from[1]);
@@ -166,7 +191,7 @@ export function updateHarvester(world: World, u: Unit) {
       const i = m.idx(cx, cy);
       if (m.ore[i] <= 0) {
         u.lastOreX = cx; u.lastOreY = cy;
-        u.hstate = u.cargo >= BAIL_COUNT ? 'toRefinery' : 'seek';
+        u.hstate = u.cargo >= capOf(u) ? 'toRefinery' : 'seek';
         break;
       }
       u.harvesting = true;
@@ -179,7 +204,7 @@ export function updateHarvester(world: World, u: Unit) {
         u.cargoValue += gems ? GEM_VALUE : GOLD_VALUE;
         u.lastOreX = cx; u.lastOreY = cy;
         world.events.push({ e: 'harvest', x: u.x, y: u.y, gems });
-        if (u.cargo >= BAIL_COUNT) { u.hstate = 'toRefinery'; u.dockAt = 0; }
+        if (u.cargo >= capOf(u)) { u.hstate = 'toRefinery'; u.dockAt = 0; }
       }
       break;
     }
@@ -261,9 +286,10 @@ export function updateHarvester(world: World, u: Unit) {
       u.harvestTimer -= DT;
       r.load = 1;
       if (u.harvestTimer <= 0) {
-        u.harvestTimer = UNLOAD_TIME;
+        u.harvestTimer = r.upgrades ? UNLOAD_TIME * (r.upgrades.includes('proc_processor') ? PROCESSOR_UNLOAD : 1) : UNLOAD_TIME; // (Ore Processor)
         if (u.cargo > 0) {
-          const value = (u.cargoValue / u.cargo) * u.owner.incomeBias;
+          let value = (u.cargoValue / u.cargo) * u.owner.incomeBias;
+          if (u.owner.econ) value *= oreValueMul(u.owner, r); // Commander: Ore Processor, Purifier / Smelter
           u.cargoValue -= u.cargoValue / u.cargo;
           u.cargo--;
           const took = u.owner.depositOre(value);

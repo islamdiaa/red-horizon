@@ -162,6 +162,28 @@ export class AudioSystem implements AudioApi {
   get context(): AudioContext | null { return this.ctx; }
   /** Fraction of SFX variations rendered (0..1). */
   get loadProgress(): number { return this.bank?.progress ?? 0; }
+  /** The final mix (the limiter), for recording. */
+  private output: AudioNode | null = null;
+  private captureNode: MediaStreamAudioDestinationNode | null = null;
+  /**
+   * Clip / trailer recording: a copy of the final mix as a MediaStream (the speakers keep playing as before).
+   * Null before unlock or where MediaStreamAudioDestinationNode is missing.
+   */
+  captureStream(): MediaStream | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.output || typeof ctx.createMediaStreamDestination !== 'function') return null;
+    if (!this.captureNode) {
+      this.captureNode = ctx.createMediaStreamDestination();
+      this.output.connect(this.captureNode);
+    }
+    return this.captureNode.stream;
+  }
+  /** Stop feeding the capture stream (recording finished). */
+  releaseCapture(): void {
+    if (!this.captureNode) return;
+    try { this.output?.disconnect(this.captureNode); } catch { /* already gone */ }
+    this.captureNode = null;
+  }
   /** Resolves when every SFX variation has been pre-rendered (resolves immediately if audio is unavailable). */
   whenSfxReady(): Promise<void> { return this.bank ? this.bank.done : Promise.resolve(); }
 
@@ -218,6 +240,7 @@ export class AudioSystem implements AudioApi {
     limiter.attack.value = 0.003;
     limiter.release.value = 0.15;
     limiter.connect(ctx.destination);
+    this.output = limiter; // clip recording taps the final mix here
     const mk = (v: number, to: AudioNode) => { const g = ctx.createGain(); g.gain.value = v; g.connect(to); return g; };
     this.master = mk(curve(this.vol.master), limiter);
     // big nearby blasts briefly low-pass and dip everything diegetic + the score ("ears ringing" thump)

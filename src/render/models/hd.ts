@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ModelAnimState, ModelInstance } from './types';
+import { assetUrl } from '../../platform/paths'; // base-path helper
 import { lodDistance, type ModelFaction, type ModelTemplate, type NodeT } from './builder';
 import {
   BODY_EMISSIVE_OFF, BODY_EMISSIVE_ON, BODY_SHARED_UNIFORMS, BodyVariant, conditionTeamColor, fxMaterial, getDamageTexture, teamGlossUniform, teamUniform, // paint schemes
@@ -133,6 +134,28 @@ const entries = new Map<string, Entry>();
 let readyVersion = 0;
 const readyListeners = new Set<(type: string, key: string) => void>();
 
+/**
+ * Other HD model families with their own loaders (rigged infantry: infantry-hd.ts) plug into the same lifecycle:
+ * their atlases are uploaded with hdTextures(), released by hdReleaseUploaded(), re-decoded by hdRestoreTextures()
+ * and dropped by hdReleaseAll().
+ */
+export interface HdExtension {
+  textures(): THREE.Texture[];
+  release(renderer: THREE.WebGLRenderer, max: number): number;
+  restore(): Promise<void>;
+  releaseAll(): void;
+}
+const extensions: HdExtension[] = [];
+export function registerHdExtension(x: HdExtension): void {
+  if (!extensions.includes(x)) extensions.push(x);
+}
+
+/** A template of an extension became ready: views waiting for it re-check, portraits refresh. */
+export function hdNotifyReady(type: string, key: string): void {
+  readyVersion++;
+  for (const fn of readyListeners) fn(type, key);
+}
+
 /** Unused templates are dropped after this long (ms)... */
 export const HD_IDLE_MS = 5 * 60 * 1000;
 /** ...on Medium always; on High only while the HD texture memory is above this budget. */
@@ -203,7 +226,7 @@ export function onHdReady(fn: (type: string, key: string) => void): () => void {
 }
 
 function baseUrl(): string {
-  return `${import.meta.env.BASE_URL ?? '/'}models/`;
+  return assetUrl('models/'); // base-path helper
 }
 
 /** Fetch the manifest once (cached for the page); false when there is none. */
@@ -395,6 +418,7 @@ let offscreen = false;
  */
 export function hdReleaseUploaded(renderer: THREE.WebGLRenderer, max = 2): number {
   let n = 0;
+  for (const x of extensions) n += x.release(renderer, max);
   const aniso = hdAnisotropy(renderer);
   while (releaseQueue.length && n < max) {
     const en = releaseQueue.shift()!;
@@ -430,6 +454,11 @@ function hdAnisotropy(renderer: THREE.WebGLRenderer): number {
  */
 export function hdOffscreen(on: boolean): void {
   offscreen = on;
+}
+
+/** Thumbnails are rendering in their own GL context right now. */
+export function hdIsOffscreen(): boolean {
+  return offscreen;
 }
 
 /** Decode the atlas images of a GLB again (same tier sizes) into the template's existing textures. */
@@ -485,6 +514,7 @@ function standInMaps(): HdTemplate['maps'] {
  * bytes (game.ts onRestored); the next frames upload and close them again.
  */
 export async function hdRestoreTextures(): Promise<void> {
+  for (const x of extensions) void x.restore();
   // the materials show neutral stand-ins right away (the closed atlases can't upload into the new context, and
   // three would warn every frame); the real atlases come back as their re-decodes land, templates in use first
   const list = [...entries.values()].filter((en) => en.tpl?.released).sort((a, b) => (b.refs + b.holds) - (a.refs + a.holds));
@@ -497,6 +527,7 @@ let restoring = 0;
 
 /** A battle ends (its renderer goes away): drop every template; the next battle re-decodes what it needs. */
 export function hdReleaseAll(): void {
+  for (const x of extensions) x.releaseAll();
   for (const en of entries.values()) if (en.tpl) dropTemplate(en);
   releaseQueue.length = 0;
 }
@@ -1201,6 +1232,7 @@ function setRest(o: THREE.Object3D, M: THREE.Matrix4): void {
 /** Every loaded HD texture (game.ts uploads them on the loading screen). */
 export function hdTextures(): THREE.Texture[] {
   const out: THREE.Texture[] = [];
+  for (const x of extensions) out.push(...x.textures());
   for (const en of entries.values()) if (en.tpl) out.push(en.tpl.maps.map, en.tpl.maps.orm, en.tpl.maps.normal, en.tpl.maps.mask);
   return out;
 }

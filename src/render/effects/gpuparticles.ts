@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { F, R, RAMP_ROWS } from './textures';
 import { premultipliedMaterialFlags, quadGeometry } from './particles';
+import { SMOKE_FRAG_DECL, SMOKE_VERT_DECL, smokeFragDyn, smokeFragSoft, smokeVertMain, type SmokeLightUniforms } from './smokelight';
 import { rnd, range, spread } from './rand';
 
 /** GPU particle kinds (behaviour + look). */
@@ -190,6 +191,7 @@ varying vec2 vRampUv;
 varying vec3 vRot;
 varying vec3 vSunV;
 const float ATLAS = 4.0;
+${SMOKE_VERT_DECL}
 void main() {
   int id = gl_InstanceID;
   ivec2 c = ivec2(id % int(uW), id / int(uW));
@@ -226,6 +228,7 @@ void main() {
     mv.xy += rc * k;
   }
   gl_Position = projectionMatrix * mv;
+${smokeVertMain('a.xyz', 'mv', 'sz', 'look.z > 0.5')}
   float fi = smoothstep(0.0, 0.06, t);
   float fo = 1.0 - smoothstep(0.55, 1.0, t);
   // embers and sparks twinkle
@@ -249,9 +252,11 @@ varying vec4 vTint;
 varying vec2 vRampUv;
 varying vec3 vRot;
 varying vec3 vSunV;
+${SMOKE_FRAG_DECL}
 void main() {
   vec4 tex = texture2D(uAtlas, vUv);
   float cov = tex.a * vTint.a;
+${smokeFragSoft('cov')}
   if (cov < 0.002) discard;
   vec4 ramp = texture2D(uRamp, vRampUv);
   vec3 base = tex.rgb;
@@ -261,6 +266,7 @@ void main() {
     vec3 n = normalize(vec3(n2, 0.8));
     float w = clamp(dot(n, vSunV) * 0.65 + 0.35, 0.0, 1.0);
     vec3 lit = mix(uShadowCol, uLightCol, w) * tex.b;
+${smokeFragDyn('lit', 'n', 'tex.b')}
     float fire = tex.b * (0.25 + smoothstep(0.6, 1.0, n.z));
     vec3 heat = vec3(fire, pow(fire, 1.7), pow(fire, 2.6)) * 1.1;
     base = mix(heat, lit, smoothstep(0.3, 0.85, ramp.a));
@@ -275,8 +281,10 @@ export interface GpuParticleOptions {
   height: number;
   atlas: THREE.Texture;
   ramp: THREE.Texture;
-  /** Shared particle uniforms (uTime, uWind, uSunDir, uLightCol, uShadowCol). */
-  shared: { uSunDir: { value: THREE.Vector3 }; uLightCol: { value: THREE.Color }; uShadowCol: { value: THREE.Color }; uWind: { value: THREE.Vector3 } };
+  /** Shared particle uniforms (uTime, uWind, uSunDir, uLightCol, uShadowCol, soft depth and fire light). */
+  shared: { uSunDir: { value: THREE.Vector3 }; uLightCol: { value: THREE.Color }; uShadowCol: { value: THREE.Color }; uWind: { value: THREE.Vector3 } } & Partial<SmokeLightUniforms>;
+  /** SOFT / DYNLIT particle lighting (smokelight.ts bindSmokeLight). */
+  defines?: Record<string, string>;
   noise: THREE.Texture;
   waterLevel: number;
   density: number;
@@ -391,7 +399,10 @@ export class GpuParticles implements GpuParticleApi {
         uShadowCol: o.shared.uShadowCol,
         uAtlas: { value: o.atlas },
         uRamp: { value: o.ramp },
+        ...(o.shared.tSoftDepth ? { tSoftDepth: o.shared.tSoftDepth, uSoftInvRes: o.shared.uSoftInvRes } : {}),
+        ...(o.shared.tDynLights ? { tDynLights: o.shared.tDynLights, tDynTiles: o.shared.tDynTiles, uDynK: o.shared.uDynK } : {}),
       },
+      defines: o.defines ?? {},
       vertexShader: DRAW_VS,
       fragmentShader: DRAW_FS,
       side: THREE.DoubleSide,

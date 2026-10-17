@@ -5,6 +5,7 @@ import { T, type GameMap } from '../sim/map';
 import { BASE_RES, type Climate } from './terrain';
 import { shadowDepthMaterial } from './models/materials';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
+import { roadsFor } from './roads';
 import type { DynamicLightApi } from './dynlights';
 
 /**
@@ -320,7 +321,7 @@ export class BaseDressing {
   private rebuild(added: Site[] | null, removed: Site[] | null) {
     // dirty region (cells): changed structures plus the reach of their paths
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    const reach = 11;
+    const reach = 16; // paths reach ~6 cells out of a factory and up to 9 more to a road
     for (const list of [added, removed]) if (list) for (const s of list) {
       x0 = Math.min(x0, s.cx - reach); y0 = Math.min(y0, s.cy - reach);
       x1 = Math.max(x1, s.cx + s.w + reach); y1 = Math.max(y1, s.cy + s.h + reach);
@@ -452,11 +453,28 @@ export class BaseDressing {
           const l = Math.hypot(vx, vy) || 1;
           vx = vx / l * 0.5; vy = vy / l * 0.5 + 0.8;
           const L = a.bt.factory === 'vehicle' ? 6 : 4;
-          out.push([{ x: a.dx, y: a.dy, seed: a.seed }, { x: a.dx + vx * L, y: a.dy + vy * L, seed: a.seed + 1 }]);
+          const ex = a.dx + vx * L, ey = a.dy + vy * L;
+          out.push([{ x: a.dx, y: a.dy, seed: a.seed }, { x: ex, y: ey, seed: a.seed + 1 }]);
+          // ... and on to the road network when a road passes close by (roads.ts)
+          const r = this.nearestRoad(ex, ey, 9);
+          if (r && Math.hypot(r[0] - ex, r[1] - ey) > 0.8) out.push([{ x: ex, y: ey, seed: a.seed + 1 }, { x: r[0], y: r[1], seed: a.seed + 2 }]);
         }
       }
     }
     return out;
+  }
+
+  /** The nearest point of a main road's centre line within `reach` cells of (x, y), or null. */
+  private nearestRoad(x: number, y: number, reach: number): [number, number] | null {
+    let best: [number, number] | null = null, bd = reach;
+    for (const s of roadsFor(this.map).segments) {
+      if (s.kind !== 'main') continue;
+      for (const p of s.points) {
+        const d = Math.hypot(p[0] - x, p[1] - y);
+        if (d < bd) { bd = d; best = p; }
+      }
+    }
+    return best;
   }
 
   private stampPath(ax: number, ay: number, bx: number, by: number, seed: number, c: { i0: number; i1: number; j0: number; j1: number }, hide: number[]) {

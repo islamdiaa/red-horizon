@@ -73,6 +73,8 @@ export interface AITuning {
   aaOn: number;
   swTimingOn: number;
   mapHack: number;
+  /** Commander economy (economy-ai.ts): tiers, upgrades, research and the new structures (0 = ignore them; experiments). */
+  econOn: number;
 }
 
 /** Defaults (tuned with tools/selfplay/optimize.ts). */
@@ -111,6 +113,7 @@ export const DEFAULT_TUNING: AITuning = {
   aaOn: 1,
   swTimingOn: 1,
   mapHack: 0,
+  econOn: 1,
 };
 
 export interface Personality {

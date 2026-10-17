@@ -10,6 +10,8 @@ import type { BodyPool } from './bodies';
 import type { DynamicLightApi } from '../dynlights';
 import type { GpuParticleApi } from './gpuparticles';
 import type { TerrainDeformApi } from '../terrain';
+import type { HeatApi } from './heathaze';
+import type { ScarApi } from './scars';
 
 /** Audio-facing moments raised by effects (see Effects.onCue). */
 export type FxCue = 'splash' | 'thump' | 'bomb' | 'sonar' | 'launch' | 'torpedo';
@@ -49,6 +51,10 @@ export interface FxContext {
   gpu: GpuParticleApi | null;
   /** Persistent craters, burn marks and tread ruts on the terrain (null without the game renderer). */
   terrain: TerrainDeformApi | null;
+  /** Hot air for the heat haze (heathaze.ts; null / absent on Low and preview pages). */
+  heat?: HeatApi | null;
+  /** Lasting scorch marks (scars.ts; absent in tests). */
+  scars?: ScarApi | null;
 }
 
 /** Scale a nominal particle count by quality, keeping at least `min`. */

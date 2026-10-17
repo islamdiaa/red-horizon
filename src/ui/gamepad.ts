@@ -28,7 +28,7 @@ const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 
 const axis = (v: number) => (Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) / (1 - DEAD));
 
 const FOCUSABLE = 'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), .bitem, .grp, [role="button"]';
-const SIDEBAR_FOCUSABLE = '#sidebar .tab, #sidebar .bitem, #sidebar .supers button, #sidebar .mode-btn, #selpanel button, #groups .grp'
+const SIDEBAR_FOCUSABLE = '#sidebar .tab, #sidebar .bitem, #sidebar .supers button, #sidebar .mode-btn, #selpanel button, #groups .grp, #rsch.on button, .econ-ro button' // (+ Commander economy: research tree, tier badge)
   + ', #buildbar .tab, #buildbar .bitem, #buildbar .supers button, #buildbar .mode-btn' // the Modern layout's bottom build bar
   + ', .ar-chip button, #army-panel.on button' // army chip and overview
   + ', #cmdpanel button'; // commander powers panel

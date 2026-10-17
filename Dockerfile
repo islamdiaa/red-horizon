@@ -8,7 +8,9 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build
+# the public address for link previews (absolute og:image URLs), e.g. --build-arg RH_SITE_URL=https://example.com/
+ARG RH_SITE_URL=
+RUN RH_SITE_URL="$RH_SITE_URL" npm run build
 
 # nginx as a non-root user (uid 101), listening on 8080
 FROM nginxinc/nginx-unprivileged:alpine

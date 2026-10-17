@@ -8,6 +8,7 @@ import { spawnNaval } from './naval';
 import { rallyNewUnit } from './orders';
 import { updateRepeat } from './repeat';
 import { cmdPower, cmdTimeMul, costOf } from './doctrine';
+import { econTrained } from './economy';
 
 const KINDS: QueueKind[] = ['structure', 'infantry', 'vehicle', 'aircraft', 'naval'];
 
@@ -161,6 +162,7 @@ export function spawnProduced(world: World, p: Player, typeId: string): boolean 
     u.exitBuilding = f.id;
     f.doorHold = 2.2;
   }
+  if (f.upgrades) econTrained(world, f, u); // Training Ground: veteran infantry (Commander economy)
   world.events.push({ e: 'sfx', key: ut.kind === 'infantry' ? 'door' : 'door', x: f.x, y: f.y });
   world.events.push({ e: 'produced', id: u.id, building: f.id, player: p.id }); // auto-groups, idle-factory watch
   if (ut.harvester) {

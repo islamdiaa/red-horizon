@@ -6,6 +6,7 @@
  * worker. Everything is deterministic for a given MatchSpec.
  */
 import { BUILDINGS, UNITS, WEAPONS, WARHEADS, type Faction } from '../../src/data/rules';
+import { UPGRADES } from '../../src/sim/economy-data';
 import { generateMap } from '../../src/sim/mapgen';
 import { GameMap } from '../../src/sim/map';
 import { World, type PlayerSetup } from '../../src/sim/world';
@@ -55,7 +56,7 @@ export interface MatchSpec {
    * Commander rules (src/sim/commander.ts): doctrine per slot (an id, 'none', or undefined = the AI picks
    * its own from personality and seed); `noPowers`: slots that never use commander powers (they still earn points).
    */
-  commander?: { doctrines?: (string | null)[]; noPowers?: number[] };
+  commander?: { doctrines?: (string | null)[]; noPowers?: number[]; econ?: boolean };
 }
 
 export interface PlayerResult {
@@ -88,6 +89,8 @@ export interface PlayerResult {
   doctrine?: string | null;
   cmdEarned?: number;
   cmdUses?: Record<string, number>;
+  /** Commander economy (src/sim/economy.ts): tier reached, research levels, upgrades installed, minute Tier 2 / 3 arrived. */
+  econ?: { tier: number; levels: Record<string, number>; upgrades: Record<string, number>; t2: number; t3: number; garrisoned: number };
 }
 
 export interface MatchResult {
@@ -162,7 +165,7 @@ export function buildMatch(spec: MatchSpec): World {
   } as PlayerSetup));
   const world = new World({
     map, players, credits: spec.credits ?? 10000, startUnits: spec.startUnits ?? 'light', fog: true, seed: spec.seed,
-    rules: spec.commander ? 'commander' : undefined, doctrines: spec.commander?.doctrines,
+    rules: spec.commander ? 'commander' : undefined, doctrines: spec.commander?.doctrines, econ: spec.commander?.econ,
   });
   for (const i of spec.commander?.noPowers ?? []) { const c = world.players[i]?.cmd; if (c) c.disabled = true; }
   // legacy slots: the frozen controller thinks in the slot order the world would give it
@@ -255,6 +258,14 @@ function playMatchInner(spec: MatchSpec): MatchResult {
         if (b instanceof Building && res[b.owner.id] && !b.bt.mine) res[b.owner.id].structures[b.bt.id] = (res[b.owner.id].structures[b.bt.id] ?? 0) + 1;
       }
     }
+    if (world.econ) for (const ev of world.events) {
+      if (ev.e !== 'econ' || ev.stage !== 'done' || !res[ev.player]) continue;
+      const e = (res[ev.player].econ ??= { tier: 1, levels: {}, upgrades: {}, t2: -1, t3: -1, garrisoned: 0 });
+      if (ev.id === 'cy_t2') e.t2 = Math.round(world.time / 6) / 10;
+      else if (ev.id === 'cy_t3') e.t3 = Math.round(world.time / 6) / 10;
+      else if (ev.id in UPGRADES) e.upgrades[ev.id] = (e.upgrades[ev.id] ?? 0) + 1;
+      else e.levels[ev.id] = ev.level;
+    }
     world.events.length = 0;
     if (t % 10 === 0) {
       for (const u of world.units) {
@@ -275,6 +286,12 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     r.spent = Math.round(p.stats.spent);
     r.score = Math.round(scores[p.id]);
     if (p.cmd) { r.doctrine = p.cmd.doctrine; r.cmdEarned = Math.round(p.cmd.earned * 10) / 10; r.cmdUses = { ...p.cmd.uses }; }
+    if (p.econ) {
+      const e = (r.econ ??= { tier: 1, levels: {}, upgrades: {}, t2: -1, t3: -1, garrisoned: 0 });
+      e.tier = p.econ.tier;
+      e.levels = { ...p.econ.levels };
+      for (const b of world.buildings) if (b.alive && b.owner === p && b.garrison) e.garrisoned += b.garrison.length;
+    }
   }
   let leader = 0;
   for (let i = 1; i < n; i++) if (scores[i] > scores[leader]) leader = i;

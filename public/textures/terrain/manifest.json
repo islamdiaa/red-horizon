@@ -1,0 +1,448 @@
+{
+  "version": 1,
+  "materials": {
+    "asphalt": {
+      "src": "asphalt_04",
+      "avg": [
+        0.5215,
+        0.5052,
+        0.4926
+      ],
+      "files": {
+        "albedo": {
+          "file": "asphalt.albedo.webp",
+          "bytes": 56808,
+          "hash": "72e89a84f4"
+        },
+        "nrm": {
+          "file": "asphalt.nrm.webp",
+          "bytes": 81154,
+          "hash": "1a018523d8"
+        }
+      }
+    },
+    "asphalt_snow": {
+      "src": "asphalt_snow",
+      "avg": [
+        0.4828,
+        0.4641,
+        0.4778
+      ],
+      "files": {
+        "albedo": {
+          "file": "asphalt_snow.albedo.webp",
+          "bytes": 112120,
+          "hash": "d7b90ec30f"
+        },
+        "nrm": {
+          "file": "asphalt_snow.nrm.webp",
+          "bytes": 185826,
+          "hash": "9110b70c59"
+        }
+      }
+    },
+    "concrete": {
+      "src": "cracked_concrete",
+      "avg": [
+        0.4696,
+        0.4122,
+        0.3441
+      ],
+      "files": {
+        "albedo": {
+          "file": "concrete.albedo.webp",
+          "bytes": 48344,
+          "hash": "a987aa9c27"
+        },
+        "nrm": {
+          "file": "concrete.nrm.webp",
+          "bytes": 96476,
+          "hash": "755f355d0e"
+        }
+      }
+    },
+    "cracked_earth": {
+      "src": "mud_cracked_dry_03",
+      "avg": [
+        0.7623,
+        0.6218,
+        0.4769
+      ],
+      "files": {
+        "albedo": {
+          "file": "cracked_earth.albedo.webp",
+          "bytes": 72534,
+          "hash": "8b22c70495"
+        },
+        "nrm": {
+          "file": "cracked_earth.nrm.webp",
+          "bytes": 162268,
+          "hash": "c76dc3ec4d"
+        }
+      }
+    },
+    "desert_dirt": {
+      "src": "dry_ground_rocks",
+      "avg": [
+        0.4976,
+        0.3863,
+        0.2633
+      ],
+      "files": {
+        "albedo": {
+          "file": "desert_dirt.albedo.webp",
+          "bytes": 95786,
+          "hash": "8c7057bd21"
+        },
+        "nrm": {
+          "file": "desert_dirt.nrm.webp",
+          "bytes": 175996,
+          "hash": "df61bb6da3"
+        }
+      }
+    },
+    "desert_gravel": {
+      "src": "rocky_trail_02",
+      "avg": [
+        0.4778,
+        0.3777,
+        0.2871
+      ],
+      "files": {
+        "albedo": {
+          "file": "desert_gravel.albedo.webp",
+          "bytes": 54138,
+          "hash": "ab3f6ee538"
+        },
+        "nrm": {
+          "file": "desert_gravel.nrm.webp",
+          "bytes": 185058,
+          "hash": "be605162da"
+        }
+      }
+    },
+    "dirt": {
+      "src": "forest_ground_04",
+      "avg": [
+        0.4065,
+        0.345,
+        0.2641
+      ],
+      "files": {
+        "albedo": {
+          "file": "dirt.albedo.webp",
+          "bytes": 83058,
+          "hash": "b20280be33"
+        },
+        "nrm": {
+          "file": "dirt.nrm.webp",
+          "bytes": 173494,
+          "hash": "daa40f7ee6"
+        }
+      }
+    },
+    "dune": {
+      "src": "sand_01",
+      "avg": [
+        0.6344,
+        0.5737,
+        0.4272
+      ],
+      "files": {
+        "albedo": {
+          "file": "dune.albedo.webp",
+          "bytes": 47098,
+          "hash": "57f702e960"
+        },
+        "nrm": {
+          "file": "dune.nrm.webp",
+          "bytes": 99550,
+          "hash": "cf10cc5ef2"
+        }
+      }
+    },
+    "frozen_dirt": {
+      "src": "rocks_ground_05",
+      "avg": [
+        0.4716,
+        0.4393,
+        0.4073
+      ],
+      "files": {
+        "albedo": {
+          "file": "frozen_dirt.albedo.webp",
+          "bytes": 87706,
+          "hash": "79ee110346"
+        },
+        "nrm": {
+          "file": "frozen_dirt.nrm.webp",
+          "bytes": 204528,
+          "hash": "9c517708ea"
+        }
+      }
+    },
+    "frozen_mud": {
+      "src": "brown_mud_rocks_01",
+      "avg": [
+        0.337,
+        0.2949,
+        0.2304
+      ],
+      "files": {
+        "albedo": {
+          "file": "frozen_mud.albedo.webp",
+          "bytes": 117342,
+          "hash": "360225c305"
+        },
+        "nrm": {
+          "file": "frozen_mud.nrm.webp",
+          "bytes": 256252,
+          "hash": "b4557ab8eb"
+        }
+      }
+    },
+    "grass": {
+      "src": "leafy_grass",
+      "avg": [
+        0.5625,
+        0.4883,
+        0.3333
+      ],
+      "files": {
+        "albedo": {
+          "file": "grass.albedo.webp",
+          "bytes": 98364,
+          "hash": "793bafc03a"
+        },
+        "nrm": {
+          "file": "grass.nrm.webp",
+          "bytes": 184486,
+          "hash": "1f0d54fd4a"
+        }
+      }
+    },
+    "gravel": {
+      "src": "ganges_river_pebbles",
+      "avg": [
+        0.4792,
+        0.4419,
+        0.3965
+      ],
+      "files": {
+        "albedo": {
+          "file": "gravel.albedo.webp",
+          "bytes": 62444,
+          "hash": "e73b4865e5"
+        },
+        "nrm": {
+          "file": "gravel.nrm.webp",
+          "bytes": 187872,
+          "hash": "81e30052d1"
+        }
+      }
+    },
+    "meadow": {
+      "src": "forrest_ground_01",
+      "avg": [
+        0.5029,
+        0.4656,
+        0.3298
+      ],
+      "files": {
+        "albedo": {
+          "file": "meadow.albedo.webp",
+          "bytes": 98310,
+          "hash": "5ea09e1805"
+        },
+        "nrm": {
+          "file": "meadow.nrm.webp",
+          "bytes": 202588,
+          "hash": "edd04156bc"
+        }
+      }
+    },
+    "mud": {
+      "src": "brown_mud_02",
+      "avg": [
+        0.2941,
+        0.2609,
+        0.211
+      ],
+      "files": {
+        "albedo": {
+          "file": "mud.albedo.webp",
+          "bytes": 61072,
+          "hash": "fb14d746be"
+        },
+        "nrm": {
+          "file": "mud.nrm.webp",
+          "bytes": 196958,
+          "hash": "b989a73c30"
+        }
+      }
+    },
+    "packed_sand": {
+      "src": "gravel_road",
+      "avg": [
+        0.4697,
+        0.3422,
+        0.2463
+      ],
+      "files": {
+        "albedo": {
+          "file": "packed_sand.albedo.webp",
+          "bytes": 18902,
+          "hash": "6f055f4c93"
+        },
+        "nrm": {
+          "file": "packed_sand.nrm.webp",
+          "bytes": 73860,
+          "hash": "7821c25ab3"
+        }
+      }
+    },
+    "rock": {
+      "src": "rock_face_03",
+      "avg": [
+        0.5048,
+        0.4051,
+        0.3101
+      ],
+      "files": {
+        "albedo": {
+          "file": "rock.albedo.webp",
+          "bytes": 56664,
+          "hash": "8981e9b3d2"
+        },
+        "nrm": {
+          "file": "rock.nrm.webp",
+          "bytes": 166070,
+          "hash": "b886577ba0"
+        }
+      }
+    },
+    "sand": {
+      "src": "coast_sand_01",
+      "avg": [
+        0.5071,
+        0.4475,
+        0.3592
+      ],
+      "files": {
+        "albedo": {
+          "file": "sand.albedo.webp",
+          "bytes": 66922,
+          "hash": "6e976de283"
+        },
+        "nrm": {
+          "file": "sand.nrm.webp",
+          "bytes": 96218,
+          "hash": "5ca54b8cc7"
+        }
+      }
+    },
+    "sandstone": {
+      "src": "cliff_side",
+      "avg": [
+        0.49,
+        0.3285,
+        0.1989
+      ],
+      "files": {
+        "albedo": {
+          "file": "sandstone.albedo.webp",
+          "bytes": 53308,
+          "hash": "f9504c0a62"
+        },
+        "nrm": {
+          "file": "sandstone.nrm.webp",
+          "bytes": 135114,
+          "hash": "9530830895"
+        }
+      }
+    },
+    "shore_grey": {
+      "src": "coast_sand_05",
+      "avg": [
+        0.2438,
+        0.2158,
+        0.1675
+      ],
+      "files": {
+        "albedo": {
+          "file": "shore_grey.albedo.webp",
+          "bytes": 54896,
+          "hash": "c15cd2d905"
+        },
+        "nrm": {
+          "file": "shore_grey.nrm.webp",
+          "bytes": 174102,
+          "hash": "13fa402c9a"
+        }
+      }
+    },
+    "shore_sand": {
+      "src": "dense_sand",
+      "avg": [
+        0.5705,
+        0.498,
+        0.3858
+      ],
+      "files": {
+        "albedo": {
+          "file": "shore_sand.albedo.webp",
+          "bytes": 30472,
+          "hash": "099b850e5e"
+        },
+        "nrm": {
+          "file": "shore_sand.nrm.webp",
+          "bytes": 109306,
+          "hash": "2fa63378dd"
+        }
+      }
+    },
+    "snow": {
+      "src": "snow_02",
+      "avg": [
+        0.593,
+        0.5927,
+        0.5998
+      ],
+      "files": {
+        "albedo": {
+          "file": "snow.albedo.webp",
+          "bytes": 12330,
+          "hash": "d1a43418c5"
+        },
+        "nrm": {
+          "file": "snow.nrm.webp",
+          "bytes": 109172,
+          "hash": "12fb99eb43"
+        }
+      }
+    },
+    "snow_wind": {
+      "src": "snow_01",
+      "avg": [
+        0.7075,
+        0.6982,
+        0.6931
+      ],
+      "files": {
+        "albedo": {
+          "file": "snow_wind.albedo.webp",
+          "bytes": 30024,
+          "hash": "7c67c2e81c"
+        },
+        "nrm": {
+          "file": "snow_wind.nrm.webp",
+          "bytes": 183572,
+          "hash": "121edab5fd"
+        }
+      }
+    }
+  },
+  "size": 512,
+  "source": "Poly Haven (CC0), https://polyhaven.com; baked by tools/assets/terrain/build.mjs",
+  "bytes": 4858562
+}

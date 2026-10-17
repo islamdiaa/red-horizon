@@ -14,3 +14,30 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+
+  # Multiplayer relay and verified leaderboards (docs/MULTIPLAYER.md). Not published on the host: the game's nginx
+  # proxies /relay to it, so players connect to the game's own address and the CSP stays connect-src 'self'.
+  relay:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: red-horizon-relay:latest
+    container_name: red-horizon-relay
+    restart: unless-stopped
+    environment:
+      RELAY_TRUST_PROXY: "1" # the client address comes from the game's nginx (rate limits only, never stored)
+    volumes:
+      - relay-data:/data # leaderboard.json (per-day tops, size-capped)
+    # as hardened as the game: read-only filesystem, no capabilities, no privilege escalation, bounded resources
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    pids_limit: 128
+
+volumes:
+  relay-data:

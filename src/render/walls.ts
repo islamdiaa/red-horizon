@@ -211,7 +211,7 @@ export class WallRenderer {
     // since the visibility of enemy walls depends on exploration
     let sig = 0, n = 0;
     for (const b of w.buildings) {
-      if (!b.alive || !b.bt.wall) continue;
+      if (!b.alive || !(b.bt.wall || b.bt.gate)) continue; // gates join the wall lines
       const seen = b.owner.team === this.local.team || this.fog.exploredAt(b.x, b.y) > 0.5 ? 1 : 2;
       sig = (Math.imul(sig ^ (b.id * 4 + seen), 0x9e3779b1) + n++) | 0;
     }
@@ -224,6 +224,7 @@ export class WallRenderer {
     const m = w.map;
     const at = new Map<number, string>();
     for (const b of walls) at.set(m.idx(b.cx, b.cy), b.bt.id);
+    for (const b of w.buildings) if (b.alive && b.bt.gate) at.set(m.idx(b.cx, b.cy), 'gate'); // any wall reaches into a gate
     // gather instance transforms per batch key first (counts decide the batch capacity)
     const lists = new Map<string, { kind: WallKind; piece: Piece; team: number; fac: Fac; mats: THREE.Matrix4[] }>();
     const push = (kind: WallKind, piece: Piece, team: number, fac: Fac, mat: THREE.Matrix4) => {
@@ -244,7 +245,9 @@ export class WallRenderer {
       const links: [number, number][] = [];
       for (const [dx, dy] of DIRS) {
         const nx = b.cx + dx, ny = b.cy + dy;
-        if (!m.inBounds(nx, ny) || at.get(m.idx(nx, ny)) !== b.bt.id) continue;
+        if (!m.inBounds(nx, ny)) continue;
+        const nk = at.get(m.idx(nx, ny));
+        if (nk !== b.bt.id && (nk !== 'gate' || (dx && dy))) continue; // gates: orthogonal arms only
         if (dx && dy && (at.get(m.idx(b.cx + dx, b.cy)) === b.bt.id || at.get(m.idx(b.cx, b.cy + dy)) === b.bt.id)) continue;
         links.push([dx, dy]);
       }

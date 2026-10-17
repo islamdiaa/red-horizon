@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import { RAMP_ROWS } from './textures';
+import { createSmokeLightUniforms, SMOKE_FRAG_DECL, SMOKE_VERT_DECL, smokeFragDyn, smokeFragSoft, smokeVertMain, type SmokeLightUniforms } from './smokelight';
 
 /** Particle orientation modes. */
 export const M = {
@@ -90,6 +91,7 @@ varying vec3 vRot;
 varying vec3 vSunV;
 const float ATLAS = 4.0;
 const float RAMP_ROWS = ${RAMP_ROWS.toFixed(1)};
+${SMOKE_VERT_DECL}
 
 void main() {
   float age = uTime - aLife.x;
@@ -150,7 +152,7 @@ void main() {
     }
   }
   gl_Position = projectionMatrix * mv;
-
+${smokeVertMain('p', 'mv', 'sz', 'mode == 4', 'mode == 2 || mode == 3')}
   float fi = aExtra.x > 0.0 ? smoothstep(0.0, aExtra.x, t) : 1.0;
   float fo = 1.0 - smoothstep(aExtra.y, 1.0, t);
   vTint = vec4(aColor.rgb, aColor.a * fi * fo);
@@ -174,9 +176,11 @@ varying vec4 vTint;
 varying vec2 vRampUv;
 varying vec3 vRot;
 varying vec3 vSunV;
+${SMOKE_FRAG_DECL}
 void main() {
   vec4 tex = texture2D(uAtlas, vUv);
   float cov = tex.a * vTint.a;
+${smokeFragSoft('cov')}
   if (cov < 0.002) discard;
   vec4 ramp = texture2D(uRamp, vRampUv);
   vec3 base = tex.rgb;
@@ -187,6 +191,7 @@ void main() {
     float ndl = dot(n, vSunV);
     float w = clamp(ndl * 0.65 + 0.35, 0.0, 1.0);
     vec3 lit = mix(uShadowCol, uLightCol, w) * tex.b;
+${smokeFragDyn('lit', 'n', 'tex.b')}
     // self-luminous phase (fireballs): billow centres brighter than crevices
     float fire = tex.b * (0.25 + 1.0 * smoothstep(0.6, 1.0, n.z));
     // black-body-ish: hot centres shift to yellow, cooler crevices to deep red
@@ -197,7 +202,7 @@ void main() {
 }
 `;
 
-export interface ParticleUniforms {
+export interface ParticleUniforms extends SmokeLightUniforms {
   uTime: { value: number };
   uWind: { value: THREE.Vector3 };
   uSunDir: { value: THREE.Vector3 };
@@ -216,6 +221,7 @@ export function createParticleUniforms(atlas: THREE.Texture, ramp: THREE.Texture
     uShadowCol: { value: new THREE.Color(0.42, 0.43, 0.48) },
     uAtlas: { value: atlas },
     uRamp: { value: ramp },
+    ...createSmokeLightUniforms(),
   };
 }
 
@@ -256,7 +262,8 @@ export class ParticleBatch {
   private spawnedThisFrame = 0;
   readonly spec = new ParticleSpec();
 
-  constructor(capacity: number, uniforms: ParticleUniforms, renderOrder: number) {
+  /** `defines`: SOFT / DYNLIT particle lighting (smokelight.ts bindSmokeLight). */
+  constructor(capacity: number, uniforms: ParticleUniforms, renderOrder: number, defines: Record<string, string> = {}) {
     this.capacity = capacity;
     this.data = new Float32Array(capacity * STRIDE);
     // all dead: spawn far in the past with zero life
@@ -280,6 +287,7 @@ export class ParticleBatch {
     this.geo = g;
     const mat = new THREE.ShaderMaterial({
       uniforms: uniforms as unknown as Record<string, THREE.IUniform>,
+      defines,
       vertexShader: VERT,
       fragmentShader: FRAG,
       side: THREE.DoubleSide,

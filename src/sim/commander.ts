@@ -336,7 +336,7 @@ export function commanderSpawn(world: World, e: Entity) {
 
 /** Engineer capture hook (unitlogic.ts): the structure now fights with its new owner's doctrine. */
 export function commanderCaptured(world: World, b: Building, from: Player) {
-  const frac = b.hp / (b.bt.strength * (from.cmd?.rules?.hp[b.bt.id] ?? 1));
+  const frac = b.hp / (b.bt.strength * (from.cmd?.rules?.hp[b.bt.id] ?? 1) * (b.hpBoost ?? 1)); // (a Reinforced defence keeps its boost: economy.ts)
   applyDoctrineToEntity(b);
   b.hp = Math.max(1, Math.min(b.maxHp, b.maxHp * frac));
   from.cmd?.offline.delete(b.id);

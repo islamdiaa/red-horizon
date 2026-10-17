@@ -6,6 +6,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILDINGS, UNITS } from '../src/data/rules';
 import { HD_HIGH_BUDGET, HD_IDLE_MS, hdSwapMoment, pickSweep, type SweepItem } from '../src/render/models/hd';
+import { MODULE_MODEL_IDS } from '../src/render/models/commander-structures'; // upgrade-module models
 
 const DIR = join(import.meta.dirname, '..', 'public', 'models');
 const MAN = join(DIR, 'manifest.json');
@@ -45,7 +46,7 @@ describe('HD models (public/models)', () => {
       assert.ok(existsSync(file), `${e.file} exists`);
       assert.equal(statSync(file).size, e.bytes, `${key}: manifest bytes match the file (rebuild with build.mjs)`);
       assert.equal(key, e.faction ? `${e.type}.${e.faction}` : e.type, `${key}: key = type[.faction]`);
-      assert.ok(BUILDINGS[e.type] || UNITS[e.type], `${key}: ${e.type} is a game type`);
+      assert.ok(BUILDINGS[e.type] || UNITS[e.type] || MODULE_MODEL_IDS.includes(e.type), `${key}: ${e.type} is a game type or an upgrade module`);
       const b = BUDGET[e.kind] ?? BUDGET.structure;
       assert.ok(e.bytes <= b.bytes, `${key}: ${e.bytes} bytes within ${b.bytes}`);
       assert.ok(e.tris <= b.tris, `${key}: ${e.tris} triangles within ${b.tris}`);

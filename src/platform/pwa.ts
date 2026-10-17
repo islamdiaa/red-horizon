@@ -6,6 +6,7 @@
  * clean-up of the previous caches. Updates never swap assets under a running game: a new worker
  * waits until applyUpdate() (or until every tab is closed).
  */
+import { assetUrl, baseUrl } from './paths'; // base-path helper
 
 export interface PwaOptions {
   /** A new version finished installing and is waiting; call apply() to switch (reloads the page). */
@@ -51,11 +52,12 @@ let registration: ServiceWorkerRegistration | null = null;
 export async function registerServiceWorker(opts: PwaOptions = {}): Promise<ServiceWorkerRegistration | null> {
   if (!import.meta.env.PROD) return null;
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !window.isSecureContext) return null;
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') return null; // the desktop app (app://) needs no offline cache
   if (document.readyState !== 'complete') await new Promise<void>((r) => window.addEventListener('load', () => r(), { once: true }));
-  const base = import.meta.env.BASE_URL || '/';
   try {
     const hadController = !!navigator.serviceWorker.controller;
-    const reg = await navigator.serviceWorker.register(`${base}sw.js?v=${encodeURIComponent(buildId())}`, { scope: base });
+    // the game's base (`/`, `/sub/` or `./` for relative builds: resolved against this page)
+    const reg = await navigator.serviceWorker.register(assetUrl(`sw.js?v=${encodeURIComponent(buildId())}`), { scope: baseUrl() });
     registration = reg;
 
     const apply = () => {

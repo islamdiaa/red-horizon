@@ -58,7 +58,7 @@ import { ReplayRecorder } from './replay/recorder'; // replays
 import { buildMap, type MapDef } from './maps'; // custom maps from the editor
 import { customMissionDef, type CustomMissionSetup } from './editor/mission'; // custom missions
 import { applyModSet } from './mods/engine'; // mods
-import { mutateSetup, varietyOptions, withMutatorMods } from './modes/mutators';
+import { mutateSetup, varietyOptions, withEconFlag, withMutatorMods } from './modes/mutators';
 import type { QuickInfo } from './modes/quickbattle';
 import type { ModSet } from './mods/format';
 import type { PlaybackOptions } from './replay/format';
@@ -69,7 +69,9 @@ import { attachCommanderPanel, commanderVisual } from './ui/commander'; // comma
 import { applyRoster, attachModeRuntime, isWhatIf, prepareModeSetup, startModes } from './modes/runtime';
 import type { AllySetup, BranchInfo, ChallengeDef } from './modes/types';
 import { conquestMission, type ConquestSetup } from './conquest/battle'; // conquest battles
-
+import { applyNetRoster, type NetSetup } from './net/roster'; // multiplayer roster
+import { hookRecordedDrops } from './net/takeover';
+import type { NetLink } from './net/types';
 const _viewProbe = new THREE.Vector3(); // scratch for Game.inView
 
 /** Hull lengths (cells) for wake sizes. */
@@ -147,6 +149,12 @@ export interface GameSetup {
    * campaigns, old saves and replays).
    */
   rules?: 'classic' | 'commander';
+  /**
+   * Commander economy: tech tiers, upgrades, research (src/sim/economy.ts). Made explicit when a match starts
+   * (withEconFlag: fresh Commander setups true), so replays and saves record it; recordings without the field
+   * predate the economy and play without it.
+   */
+  econ?: boolean;
   /** Mutator ids (src/modes/mutators.ts): daily modifiers and skirmish additions. */
   mutators?: string[];
   /** Battlefield events (src/sim/events.ts); Commander rules only, undefined = on. */
@@ -160,6 +168,13 @@ export interface GameSetup {
    * none for a human, the AI's own pick (personality + seed) for an AI. Ignored under Classic rules.
    */
   doctrines?: (string | null)[];
+  /** A multiplayer match (src/net): the roster, the player this client commands, drops (replays). */
+  net?: NetSetup;
+  /**
+   * Portable math (src/net/dmath.ts): multiplayer matches and ranked runs are simulated with maths every machine
+   * computes the same; recorded so replays, branches and saves reproduce (absent = the engine's maths).
+   */
+  dmath?: boolean;
 }
 
 export interface GameCallbacks {
@@ -219,6 +234,8 @@ export class Game {
   missionResult: { won: boolean; stars: number; time: number; score: number } | null = null;
   /** Records the local player's commands for replays (skirmish only). */
   recorder: ReplayRecorder | null = null;
+  /** The multiplayer match this game runs in (src/net/game-link.ts); null in single player. */
+  net: NetLink | null = null;
   /** Extra per-match UI (replay controls) torn down with the game. */
   attachments: { dispose(): void }[] = [];
   /** Battle report: army value, income, kills and losses per player every 10 s (src/meta/report.ts; not sim state). */
@@ -247,11 +264,13 @@ export class Game {
   private endTimer = -1;
   private lastDeath: [number, number] | null = null;
   private demoCam = { angle: 0, tx: 0, ty: 0, retarget: 0 };
+  /** While set, drives the camera every frame instead of the default menu drift (src/share/director.ts). */
+  cameraDirector: { update(dt: number): void; dispose?(): void } | null = null;
   private canvas: HTMLCanvasElement;
 
   constructor(readonly setup: GameSetup, readonly audio: AudioSystem, private cb: GameCallbacks) {
     cb.onProgress?.(0.05, 'Generating battlefield');
-    setup = (this as { setup: GameSetup }).setup = mutateSetup(prepareModeSetup(setup)); // branch / challenge moment as the load · co-op allies · mutators' conditions
+    setup = (this as { setup: GameSetup }).setup = withEconFlag(mutateSetup(prepareModeSetup(setup))); // branch / challenge moment as the load · co-op allies · mutators' conditions · the Commander economy flag (recorded with the match)
     applyModSet(withMutatorMods(setup.mods, setup.mutators)); // the match's mods (none: base rules), before anything reads the rules, plus the mutators' rule changes
     const def = setup.conquest ? conquestMission(setup.conquest) : setup.mission ? (setup.customMission && setup.customMap ? customMissionDef(setup.customMission, setup.customMap) : getMission(setup.mission)) ?? null : null; // custom missions
     this.missionDef = def;
@@ -291,6 +310,7 @@ export class Game {
         personality: i === 0 ? undefined : ps.personality, // commander personalities in missions
       }));
     }
+    if (!def && setup.net) applyNetRoster(players, setup.net); // multiplayer: the match roster
     if (!def) applyRoster(players, setup); // branch / challenge: the chosen player is human, the rest AI
     // shuffle start positions so the player isn't always bottom-left
     if (!setup.demo && !def && (setup.seed & 2)) map.startPositions.reverse();
@@ -309,6 +329,7 @@ export class Game {
       deserializeWorld(this.world, setup.load.world, this.world.mission); // mode runtimes restore with the world (missions attach theirs below)
     }
     if (!def) this.local = startModes(this.world, setup); // hand the chosen player over, start fresh modes
+    if (!def && setup.net && !setup.branch) { const me = this.world.players[setup.net.local]; if (me) this.local = me; if (setup.replay) hookRecordedDrops(this.world, setup.net); } // our seat; replays re-apply AI takeovers
     if (!def && !setup.demo && !setup.replay) this.recorder = new ReplayRecorder(this, setup.load?.game?.replay); // replays
     if (def) {
       const rt = new MissionRuntime(this.world, def);
@@ -434,7 +455,7 @@ export class Game {
         focusOn: (x, y) => this.gfx.cam.flyToPoint(x, y),
         minimapPoint: (x, y, b, drag) => this.minimapPoint(x, y, b, drag),
         openPauseMenu: () => this.pause(),
-        setSpeed: (s) => { this.speed = s; },
+        setSpeed: (s) => { if (!this.net) this.speed = s; }, // (multiplayer: one pace for everybody)
         getSpeed: () => this.speed,
         keyCommand: (k, b) => this.input?.keyCommand(k, b),
         getGroups: () => this.input?.groups ?? new Map(),
@@ -458,6 +479,7 @@ export class Game {
         message: (t, w) => this.hud?.message(t, w),
         openPauseMenu: () => this.pause(),
         stepSpeed: (dir) => {
+          if (this.net) return; // multiplayer: one pace for everybody
           const i = GAME_SPEEDS.findIndex((s) => Math.abs(s - this.speed) < 0.01);
           const next = GAME_SPEEDS[Math.max(0, Math.min(GAME_SPEEDS.length - 1, (i < 0 ? 0 : i) + dir))];
           if (next !== this.speed) { this.speed = next; this.hud?.message(`Game speed ×${next}`); }
@@ -504,6 +526,7 @@ export class Game {
 
   issue(cmd: Command) {
     if (this.setup.replay) return; // spectating a replay: no orders
+    if (this.net) { this.net.issue(cmd); return; } // multiplayer: through the lockstep (recorded when it runs)
     this.recorder?.record(cmd); // replays
     this.world.issue(cmd);
   }
@@ -659,6 +682,7 @@ export class Game {
 
   pause() {
     if (this.paused || this.setup.demo) return;
+    if (this.net?.active) { this.input?.setMode('normal'); this.cb.onPause(this); return; } // the match goes on: the menu opens over it
     this.paused = true;
     this.input?.setMode('normal');
     this.cb.onPause(this);
@@ -690,7 +714,11 @@ export class Game {
     const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
     this.last = now;
     const world = this.world;
-    if (!this.paused) {
+    if (this.net?.active) { // multiplayer: the lockstep paces the simulation
+      this.time += dt;
+      this.net.frame(dt, (fast) => { world.step(); this.report?.afterStep(); if (fast) world.events.length = 0; else this.processEvents(); }); // (fast: catching up, as fastForward)
+      this.acc = this.net.alpha * DT;
+    } else if (!this.paused) {
       this.time += dt;
       this.acc += dt * this.speed;
       let steps = 0;
@@ -713,7 +741,8 @@ export class Game {
       if (!e?.alive || (e instanceof Unit && e.transport)) this.selection.delete(id);
     }
 
-    if (this.setup.demo) this.updateDemoCamera(dt);
+    if (this.cameraDirector) this.cameraDirector.update(dt); // attract mode, trailer, highlight clips
+    else if (this.setup.demo) this.updateDemoCamera(dt);
     this.input?.update(dt, this.time);
     this.gfx.fog.update(this.local, dt);
     this.ents.update(this.alpha, fdt, this.time, this.selection, this.input?.hovered ?? 0);
@@ -749,6 +778,7 @@ export class Game {
     }
     for (const p of this.gfx.vegetation.syncTrees()) {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
+      this.ents.destruction.treeDown(p.x, p.y, p.z); // charred stump / fallen trunk
     }
     this.effects.setAmbientCenter?.(this.gfx.cam.x, this.gfx.cam.y);
     this.updateContentVisuals(fdt);
@@ -797,7 +827,7 @@ export class Game {
       }
     }
     // autosave every two minutes of play
-    if (!this.setup.demo && !this.paused && !world.gameOver) {
+    if (!this.setup.demo && !this.paused && !world.gameOver && !this.net) { // (no saves of multiplayer matches)
       this.autosaveT -= dt * this.speed;
       if (this.autosaveT <= 0) { this.autosaveT = 120; this.save('auto'); }
     }
@@ -1013,6 +1043,7 @@ export class Game {
       this.gfx.cam.yaw = this.gfx.cam.targetYaw = g.cam.yaw ?? 0;
     }
     this.hud?.army.loadState(g.army); // factory auto-groups
+    if (g.scars) this.ents.destruction.loadScars(g.scars); // the battlefield's scars (validated)
     if (this.input && g.groups) {
       this.input.groups = new Map(g.groups);
       for (const [k, ids] of this.input.groups) for (const id of ids) this.overlay?.groups.set(id, k);
@@ -1026,7 +1057,7 @@ export class Game {
 
   /** Snapshot the whole game into a save slot. */
   save(slot = 'auto'): boolean {
-    if (this.setup.demo || this.setup.replay || this.world.gameOver) return false;
+    if (this.setup.demo || this.setup.replay || this.world.gameOver || this.net) return false;
     const cam = this.gfx.cam;
     const { load: _ignore, ...setup } = this.setup;
     const label = this.missionDef ? `Operation ${this.missionDef.codename}` : `Skirmish · ${this.local.faction === 'allies' ? 'Allies' : 'Soviets'} vs ${this.world.players.length - 1}`;
@@ -1038,6 +1069,7 @@ export class Game {
         groups: this.input ? [...this.input.groups.entries()] : [],
         army: this.hud?.army.saveState(), // factory auto-groups
         replay: this.recorder?.snapshot(), // the replay continues after loading
+        scars: this.ents.destruction.saveScars(), // craters, burnt ground, scorch marks, burnt trees, rubble (render only)
       },
     };
     if (this.setup.conquest && slot === 'auto') writeSave('conquest', data); // the run can always resume its battle
@@ -1129,6 +1161,8 @@ export class Game {
   }
 
   dispose() {
+    this.cameraDirector?.dispose?.();
+    this.cameraDirector = null;
     this.recorder?.finish(); // store the replay of a match left before its end
     for (const a of this.attachments) a.dispose();
     if (!this.setup.demo && meta.active) meta.abandon(); // quit / restart mid-battle

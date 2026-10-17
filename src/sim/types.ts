@@ -81,7 +81,12 @@ export type Command =
   /** Spend command points to unlock a power of the commander tree (sim/commander.ts). */
   | { c: 'unlockPower'; player: number; power: string }
   /** Answer a battlefield event (sim/events.ts): hire the mercenaries on offer (event = its id). */
-  | { c: 'battleEvent'; player: number; event: number; act: 'hire' };
+  | { c: 'battleEvent'; player: number; event: number; act: 'hire' }
+  /** Commander economy (sim/economy.ts): start (or with `cancel`, stop and refund) a structure upgrade / a research project at a lab. */
+  | { c: 'upgrade'; player: number; building: number; upgrade: string; cancel?: boolean }
+  | { c: 'research'; player: number; building: number; tech: string; cancel?: boolean }
+  /** Commander economy: the infantry in a bunker come out. */
+  | { c: 'evacuate'; player: number; building: number };
 
 /** How a unit picks fights: chase anything seen / engage in range and return (default) / never move / never fire unprompted. */
 export type Stance = 'aggressive' | 'guard' | 'hold' | 'passive';
@@ -120,4 +125,10 @@ export type GameEvent =
    * announced to everybody ('warn'), a Tesla Storm bolt struck, reinforcements arrived, command points reached a
    * new whole number (`amount`) or the commander a new level (`amount`). x / y = -1 when there is no place.
    */
-  | { e: 'commander'; stage: 'unlock' | 'cast' | 'warn' | 'bolt' | 'arrive' | 'points' | 'level'; player: number; power: string; x: number; y: number; r?: number; amount?: number };
+  | { e: 'commander'; stage: 'unlock' | 'cast' | 'warn' | 'bolt' | 'arrive' | 'points' | 'level'; player: number; power: string; x: number; y: number; r?: number; amount?: number }
+  /**
+   * Commander economy (sim/economy.ts): an upgrade / research started, finished or was cancelled at `building`
+   * (`id` = upgrade or research id, `level` = research level), infantry garrisoned a bunker (`id` = unit type,
+   * `level` = occupants now) or came out of it (`level` = occupants left).
+   */
+  | { e: 'econ'; stage: 'start' | 'done' | 'cancel' | 'garrison' | 'evacuate'; player: number; building: number; id: string; level: number; x: number; y: number };

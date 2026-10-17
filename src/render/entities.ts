@@ -20,6 +20,8 @@ import { PARACHUTE_SECONDS } from '../sim/powers';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
 import { Destruction } from './destruction';
 import { applyVisualScale, patchModelRim } from './scale'; // render-only unit scale + rim light
+import { InfantryCrowd, setInfantryCrowd } from './models/infantry-hd'; // instanced HD infantry
+import { breakUpgradeModules, tickUpgradeModules, updateCommanderView } from './models/upgrade-modules'; // Commander structures
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -204,6 +206,8 @@ export class EntityRenderer {
     warm.add(new THREE.SkinnedMesh(sg, this.holoMatSk));
     scene.add(warm);
     this.destruction = new Destruction(scene, effects, world.map);
+    this.crowd = new InfantryCrowd(scene); // HD infantry: one instanced draw per soldier template
+    setInfantryCrowd(this.crowd);
   }
 
   private warm = new THREE.Group();
@@ -423,6 +427,7 @@ export class EntityRenderer {
           this.effects.scorch(p, Math.max(e.w, e.h) * 1.1);
           // the structure breaks apart into physics-driven chunks
           if (e.buildAnim >= 1 && e.selling < 0) v.collapsed = this.destruction.collapse(e.id, modelKey(v.ptype, e.owner.faction), this.teamColor(e.owner).getHex(), v.model, [e.w, e.h]); // modelKey
+          if (v.collapsed) breakUpgradeModules(v.model, this.destruction.physics); // modules topple off
         } else if (e.kind === 'vehicle' || e.kind === 'aircraft') {
           const u = e as Unit;
           this.destruction.onImpact(p.x, p.z, p.y, 'large', 1); // crater under the wreck
@@ -667,6 +672,7 @@ export class EntityRenderer {
 
     this.updateProjectiles(alpha);
     this.destruction.update(dt, time);
+    tickUpgradeModules(time, dt); // module build-in animations, module debris
     this.bracketMat.uniforms.uTime.value = time;
     this.primed = true;
   }
@@ -717,9 +723,12 @@ export class EntityRenderer {
         root.traverse((o) => { if ((o as THREE.Mesh).isMesh && (o as THREE.Mesh).material && !((o as THREE.Mesh).material as THREE.Material).transparent) o.castShadow = small; });
       }
     }
+    this.crowd.prepare(camera, small); // HD infantry instance buffers for this frame
   };
 
   private culled: THREE.Object3D[] = [];
+  /** HD infantry, drawn instanced (filled at the end of preRender, after the culling). */
+  readonly crowd: InfantryCrowd;
   private postRender = () => {
     for (const r of this.culled) r.visible = true;
     this.culled.length = 0;
@@ -784,6 +793,7 @@ export class EntityRenderer {
       if (!b.charging && b.weapons[0].cooldown > 0) anim.charge = Math.max(anim.charge, 0);
     } else anim.charge = 1;
     if (v.model.turret) v.model.turret.rotation.y = -b.turret;
+    if (b.upgrades || b.task || b.bt.commander) updateCommanderView(v, b, this.world); // upgrade modules, scaffold, lab glow, garrison, gate
 
     // chimney smoke
     if (v.model.smokePoints && v.model.smokePoints.length && b.buildAnim >= 1) {
@@ -1058,6 +1068,7 @@ export class EntityRenderer {
 
   dispose() {
     this.destruction.dispose();
+    this.crowd.dispose();
     this.warm.removeFromParent();
     if (this.scene.userData.preRender === this.preRender) delete this.scene.userData.preRender;
     for (const id of [...this.views.keys()]) this.removeView(id);

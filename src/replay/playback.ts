@@ -25,6 +25,8 @@ import { openMomentPanel, weather } from '../ui/moment';
 import { challengeGameSetup } from '../modes/author';
 import type { AIDifficulty } from '../sim/ai';
 import { picto } from '../meta';
+import { clipButton, recordClip, startPendingClip } from '../ui/clips';
+import { ensureModesCss } from '../ui/modes-css'; // the bar's Take command / challenge buttons are styled there // highlight clips
 
 export interface PlaybackHost {
   /** Start a new game from this setup (seeking backwards, watching again). */
@@ -92,6 +94,7 @@ export class ReplayPlayback {
     this.renderMissingThumbs();
     this.view = this.opts.view ?? this.data.local;
     this.hudPlayer = this.view >= 0 ? this.view : this.data.local;
+    ensureModesCss();
     this.bar = el('div', 'rp-bar panel');
     this.bar.id = 'replay-bar';
     this.panel = el('div', 'rp-players panel');
@@ -104,6 +107,12 @@ export class ReplayPlayback {
     this.timer = window.setInterval(() => this.refresh(), 250);
     this.refresh();
     if (this.opts.seekTo && this.opts.seekTo > world.tick) this.seek(this.opts.seekTo);
+    startPendingClip(game, this); // "Record clip" from the results screen: records once the seek is done
+  }
+
+  /** Fast-forwarding to a tick right now (clips wait for it). */
+  get isSeeking(): boolean {
+    return this.seeking;
   }
 
   dispose() {
@@ -395,7 +404,8 @@ export class ReplayPlayback {
     // rewind & take command · challenge from this moment
     const take = btn('rp-take', `${ICONS.flag}<span>Take command</span>`, 'Take command from this moment (T)', () => this.openMoment('take'));
     const chal = btn('rp-chal', picto('trophy', 'ic'), 'Make a challenge from this moment (C)', () => this.openMoment('challenge'));
-    right.append(take, chal, fog, sync, exit);
+    const clip = clipButton(() => void recordClip(this.game, this, { label: `${d.mapName} highlight` })); // highlight clips
+    right.append(take, chal, ...(clip ? [clip] : []), fog, sync, exit);
     const br = d.setup.branch;
     const tag = el('div', 'rp-tag', `${ICONS.replay}<span><b${br ? ' class="rp-branchtag"' : ''}>${br ? 'Branch' : 'Replay'}</b><small>${esc(d.mapName)}${br ? ` · from ${formatTime(br.tick * DT)}` : ''}</small></span>`);
     this.bar.append(tag, left, speeds, tl, right);

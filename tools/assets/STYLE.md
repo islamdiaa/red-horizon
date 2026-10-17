@@ -36,4 +36,4 @@ Every HD model must read at that distance first and reward a close-up second.
 |---|---|---|---|
 | structure / defence / naval | ~3k–8k | ≤ 1 MB | 1024² |
 | vehicle / aircraft | ~2k–5k | ≤ 400 KB | 512² |
-| whole set | | ≤ 30 MB, ≤ ~15 MB per faction | |
+| whole set | | ≤ 45 MB, ≤ ~23 MB per faction | |

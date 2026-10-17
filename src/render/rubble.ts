@@ -133,6 +133,16 @@ export class Rubble {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
+  /** Rubble piles laid so far (footprint + seed), for save games (destruction-scars.ts). */
+  snapshot(): { cx: number; cy: number; w: number; h: number; seed: number }[] {
+    return this.piles.filter((p) => !p.pending && p.count > 0).map((p) => ({ cx: p.cx, cy: p.cy, w: p.w, h: p.h, seed: p.seed }));
+  }
+
+  /** Lay saved piles again (scattered by their seed). */
+  restore(piles: readonly { cx: number; cy: number; w: number; h: number; seed: number }[]) {
+    for (const p of piles) if (!this.piles.some((q) => q.seed === p.seed)) this.add(p.cx, p.cy, p.w, p.h, p.seed);
+  }
+
   /** Remove rubble overlapping a new structure footprint. */
   clear(cx: number, cy: number, w: number, h: number) {
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);

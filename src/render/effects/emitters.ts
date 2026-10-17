@@ -11,6 +11,7 @@ import { rnd, range, spread } from './rand';
 import { smokeFrame, sparks, flash } from './blocks';
 import { gpuFire, gpuSmoke } from './gpufx';
 import { columnPuff } from './spectacle';
+import { emberHeat, exhaustHeat, fireHeat } from './heatfx';
 
 const TAU = Math.PI * 2;
 const COLUMN_GLOW = { flicker: 0.45, priority: 0.6 }; // reused light options
@@ -27,6 +28,7 @@ export class Emitter implements EmitterHandle {
   private a1 = rnd();
   private a2 = rnd();
   private a3 = rnd();
+  private a4 = rnd();
   private next = range(0.1, 0.6);
   /** GPU particle rate accumulators. */
   private gacc = new Float32Array(2);
@@ -120,12 +122,24 @@ export class Emitter implements EmitterHandle {
           g.push = 0.6;
           ctx.glow.emit(g);
         }
+        // the white-hot heart of the fire at its base (blooms), flickering under the flames (not on Low)
+        if (k > 0.55) this.a4 += dt * 9 * k;
+        while (this.a4 >= 1) {
+          this.a4 -= 1;
+          const c = ctx.glow.begin();
+          c.at(this.x + spread(0.08 * sz), this.y + 0.1 * sz, this.z + spread(0.08 * sz)).vel(0, range(0.15, 0.35) * sz, 0)
+            .motion(range(0.2, 0.34), 0, 1).size(0.3 * sz, 0.16 * sz).spin(rnd() * TAU)
+            .color(2.6, 1.6, 0.7, 0.5 * Math.min(1.2, I)).look(F.GLOW, R.WHITE).fade(0.2, 0.45);
+          c.push = 0.5;
+          ctx.glow.emit(c);
+        }
         // GPU embers and a turbulent smoke column; the fire lights its surroundings
         if (ctx.gpu) gpuFire(ctx.gpu, this.x, this.y, this.z, I, sz, this.gacc, dt);
         if (ctx.dyn) {
           const k = Math.min(I, 2);
           ctx.dyn.add(this.x, this.y + 0.45 * sz, this.z, 0xff7a2e, 2.4 * k, 3.4 + 1.3 * k, 0, FIRE_GLOW); // no per-frame option object
         }
+        if (ctx.heat) fireHeat(ctx.heat, this.x, this.y, this.z, I, sz);
         break;
       }
       case 'chimney': {
@@ -181,17 +195,20 @@ export class Emitter implements EmitterHandle {
         break;
       }
       case 'column': {
-        // tall smoke column: intensity ≈ structure size (1 small … 3 large); heat = still burning
-        this.a0 += dt * 1.5 * Math.min(I, 3) * k;
+        // tall smoke column: intensity ≈ structure size (1 small … 3 large); heat = still burning (a denser,
+        // fire-lit plume)
+        this.a0 += dt * 1.5 * Math.min(I, 3) * k * (1 + 0.6 * this.heat);
         const sz = 0.8 + 0.25 * Math.min(I, 3);
         while (this.a0 >= 1) {
           this.a0 -= 1;
           columnPuff(ctx, this.x, this.y, this.z, sz, this.heat);
         }
         if (this.heat > 0 && ctx.dyn) ctx.dyn.add(this.x, this.y + 0.4, this.z, 0xff6a24, 1.6 * this.heat * Math.min(I, 2), 2.6 + I, 0, COLUMN_GLOW);
+        if (this.heat > 0 && ctx.heat) emberHeat(ctx.heat, this.x, this.y, this.z, I, this.heat);
         break;
       }
       case 'exhaust': {
+        if (ctx.heat) exhaustHeat(ctx.heat, this.x, this.y, this.z, I);
         this.a0 += dt * 7 * I * k;
         while (this.a0 >= 1) {
           this.a0 -= 1;

@@ -1,12 +1,13 @@
 /** Tech-tree helpers for the sidebar: which items are locked and what they need. */
 import { BUILDINGS, UNITS, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, RA_TICKS_PER_SECOND, type Category, type Faction, type TypeDef } from '../data/rules';
 import { DISABLED_TYPES, type Player } from '../sim/player';
+import { tierOf } from '../sim/economy-data';
 
-/** Every type this faction could ever build in a sidebar category (cheapest first). */
-export function factionTypes(faction: Faction, cat: Category): string[] {
+/** Every type this faction could ever build in a sidebar category (cheapest first); `commander`: with the Commander economy's structures. */
+export function factionTypes(faction: Faction, cat: Category, commander = false): string[] {
   const out: string[] = [];
   for (const t of [...Object.values(BUILDINGS), ...Object.values(UNITS)]) {
-    if (t.category !== cat || !t.buildable || DISABLED_TYPES.has(t.id) || !t.owner.includes(faction)) continue;
+    if (t.category !== cat || !(t.buildable || (commander && isBuildingType(t) && t.commander)) || DISABLED_TYPES.has(t.id) || !t.owner.includes(faction)) continue;
     out.push(t.id);
   }
   return out.sort((a, b) => getType(a).cost - getType(b).cost);
@@ -31,6 +32,7 @@ function factoryNames(faction: Faction, t: TypeDef): string[] {
 export function missingRequirements(p: Player, id: string): string[] {
   const t = getType(id);
   const out: string[] = [];
+  if (p.econ && p.econ.tier < tierOf(id)) out.push(`Tier ${tierOf(id)} (Construction Yard upgrade)`); // Commander tech tiers
   for (const req of t.prereq) {
     const alts = req.split('|');
     if (alts.some((a) => p.has(a))) continue;

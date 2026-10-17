@@ -19,6 +19,7 @@ import { ordersUnitStep, updateCtrlOrder } from './orders';
 import { mayAutoEngage } from './ceasefire';
 import { cmdSpeed } from './doctrine';
 import { commanderCaptured } from './commander';
+import { garrisonEnter } from './economy';
 
 const LEASH = 5;
 
@@ -313,6 +314,7 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
     return;
   }
   stopMoving(u);
+  if (world.econ && t.bt.garrison && t.owner === u.owner && garrisonEnter(world, u, t)) return; // into a bunker (economy.ts)
   if (u.ut.engineer) {
     if (u.owner.isEnemy(t.owner)) {
       if (t.healthFrac <= ENGINEER_CAPTURE_LEVEL) {

@@ -3,6 +3,7 @@ import type { PathPoint } from './pathfinding';
 import type { Player } from './player';
 import type { Order } from './types';
 import type { FormationShape, Stance } from './types';
+import type { EconTask } from './economy-data';
 
 export class WeaponSlot {
   cooldown = 0;     // seconds until ready
@@ -73,9 +74,15 @@ export abstract class Entity {
     this.hp = hp;
   }
 
+  /**
+   * Commander rules: per-entity health multiplier (a Reinforced defence, sim/economy.ts). Declared only (no class
+   * field), so Classic entities and their saves carry nothing; set as a plain property when it applies.
+   */
+  declare hpBoost?: number;
+
   get maxHp(): number {
     const c = this.owner.cmd; // doctrine health (Commander rules only)
-    return c ? this.type.strength * (c.rules?.hp[this.type.id] ?? 1) : this.type.strength;
+    return c ? this.type.strength * (c.rules?.hp[this.type.id] ?? 1) * (this.hpBoost ?? 1) : this.type.strength;
   }
   get healthFrac(): number {
     return this.hp / this.maxHp; // maxHp = type.strength under Classic rules
@@ -248,6 +255,15 @@ export class Building extends Entity {
   spiedBy = 0;
   /** Radar dome / SAM site jammed by an enemy Mobile Radar Jammer in range. */
   jammed = false;
+  /**
+   * Commander rules economy (sim/economy.ts). Declared only (no class fields: Classic structures and saves carry
+   * nothing), set as plain properties when they apply, so saves restore them with the other fields.
+   * `upgrades`: completed upgrade modules (renderer: render/models/upgrade-modules.ts); `task`: the upgrade or
+   * research in progress here; `garrison`: ids of the infantry inside a bunker.
+   */
+  declare upgrades?: string[];
+  declare task?: EconTask;
+  declare garrison?: number[];
 
   constructor(id: number, type: BuildingTypeDef, owner: Player, cx: number, cy: number) {
     super(id, owner, cx + type.size[0] / 2, cy + type.size[1] / 2, type.strength);

@@ -52,6 +52,9 @@ def main():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     kind = getattr(mod, 'KIND', 'structure')
+    if kind == 'anim':
+        # a rig's clip set -> the vertex animation texture (kit.vat): no geometry, no bake
+        return anim_main(mod, a, t0)
     m = kit.Model(mod.ID, getattr(mod, 'FACTION', None), kind, getattr(mod, 'ATLAS', None), getattr(mod, 'SEED', 1))
     if a.quick:
         m.atlas //= 2
@@ -73,6 +76,11 @@ def main():
     if 'ao_distance' in tn:
         bake.AO_DISTANCE = float(tn['ao_distance'])
     objs = m.realize()
+    if getattr(m, 'skin', None) is not None:
+        # one vertex group per bone (group index = bone index, as written by kit.skin)
+        so = m.skin.part.obj
+        for n in m.skin.sk.names:
+            so.vertex_groups.new(name=n)
     culled = bake.cull_model(m)
     tris = m.tris()
     log(f'{m.id}: {tris} triangles ({culled} hidden faces culled), {len(m.parts)} parts, {len(m.decals)} decals, built in {time.time() - t0:.1f}s')
@@ -111,7 +119,12 @@ def main():
     q = {'base': 86, 'orm': 84, 'normal': 88, 'mask': 100}
     images = {k: export.save_webp(maps[k], os.path.join(tmp, f'{k}.webp'), q[k]) for k in ('base', 'orm', 'normal', 'mask')}
     path = os.path.join(a.out, key + '.glb')
-    st = export.write(m, images, path, {'id': m.id, 'faction': m.faction, 'kind': m.kind, 'atlas': m.atlas}, separate_glass=m.separate_glass)
+    if getattr(m, 'skin', None) is not None:
+        # rigged model (infantry, dogs): a glTF skinned mesh + its far LOD (kit.vat)
+        from kit import vat
+        st = vat.write_skinned(m, images, path, {'id': m.id, 'faction': m.faction, 'kind': m.kind, 'atlas': m.atlas}, log=log)
+    else:
+        st = export.write(m, images, path, {'id': m.id, 'faction': m.faction, 'kind': m.kind, 'atlas': m.atlas}, separate_glass=m.separate_glass)
     log(f'wrote {path}: {st["bytes"]} bytes, {st["tris"]} tris, {st["verts"]} verts ({time.time() - t0:.1f}s total)')
     if a.keep_blend:
         bpy.ops.wm.save_as_mainfile(filepath=a.keep_blend)
@@ -123,6 +136,36 @@ def main():
         'tris': st['tris'], 'verts': st['verts'], 'parts': st['parts'], 'points': sorted(m.points.keys()),
         'textures': st['texture_bytes'], 'atlas': m.atlas, 'seconds': round(time.time() - t0, 1),
         'quick': a.quick,
+    }
+    print('RH_REPORT ' + json.dumps(report), flush=True)
+
+
+def anim_main(mod, a, t0):
+    """KIND 'anim': bake a rig's clips (mod.clips()) into public/models/.../anim.<rig>.glb."""
+    from kit import vat
+    from kit.rig import RIGS
+    sk = RIGS[mod.RIG]
+    clips = mod.clips()
+    arr, table, rep = vat.bake(sk, clips, log)
+    os.makedirs(a.out, exist_ok=True)
+    key = f'anim.{sk.name}'
+    path = os.path.join(a.out, key + '.glb')
+    n = vat.write_anim(sk, arr, table, path, getattr(mod, 'META', None))
+    extra = getattr(mod, 'report', lambda: {})()
+    log(f'{key}: {len(clips)} clips, {rep["rows"]} frames, VAT {arr.shape[1]}x{arr.shape[0]} rgba16f, '
+        f'bone length error {rep["bone_len_err"] * 1000:.2f} mm {extra}; wrote {path}: {n} bytes ({time.time() - t0:.1f}s)')
+    if a.preview:
+        frames = vat.stick_sheet(sk, clips, a.preview)
+        log(f'stick sheet: {frames} frames -> {a.preview}')
+    if a.keep_blend:
+        ob = vat.armature(sk)
+        vat.key_actions(ob, sk, clips)
+        bpy.ops.wm.save_as_mainfile(filepath=a.keep_blend)
+        log(f'saved the keyed armature: {a.keep_blend}')
+    report = {
+        'key': key, 'id': key, 'faction': None, 'kind': 'anim', 'file': key + '.glb', 'bytes': n, 'tris': 0, 'verts': 0,
+        'parts': [], 'points': [], 'textures': {}, 'atlas': 0, 'seconds': round(time.time() - t0, 1), 'quick': a.quick,
+        'clips': len(clips), 'frames': rep['rows'],
     }
     print('RH_REPORT ' + json.dumps(report), flush=True)
 

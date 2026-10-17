@@ -15,3 +15,8 @@ tools/nsslibs
 .claude
 tests
 docs
+dist-*
+release
+desktop
+server/node_modules
+server/dist

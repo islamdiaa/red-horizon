@@ -11,6 +11,8 @@ import { flattenTree, replayTree } from '../replay/branch';
 import { ICONS } from './icons';
 import { el, esc, hexColor } from './dom';
 import { ensureModesCss } from './modes-css';
+import { openShareDialog, SHARE_ICONS } from '../share/dialog'; // share links
+import { replayShareData } from '../share/content'; // share links
 
 const RESULT_LABEL: Record<ReplayData['result'], string> = { victory: 'Victory', defeat: 'Defeat', abandoned: 'Left' };
 
@@ -63,6 +65,7 @@ export function renderReplayTree(list: HTMLElement, replays: ReplayData[], act: 
     const done = r.result !== 'abandoned';
     btn(ICONS.flag, done ? 'The match is over: watch it and take command at an earlier moment (T in the replay)' : 'Continue: take command where the recording stops', () => act.cont(r), 'cont', done);
     btn(ICONS.download, 'Export to a .json file', () => act.exportReplay(r));
+    btn(SHARE_ICONS.link, 'Copy a share link (short replays; longer ones download as a file)', () => void openShareDialog({ kind: 'replay', title: r.mapName, data: replayShareData(r), exportFile: () => act.exportReplay(r) })); // share links
     btn(ICONS.trash, n.children.length ? 'Delete (its branches stay)' : 'Delete', (b) => {
       if (!b.classList.contains('confirm')) {
         b.classList.add('confirm');

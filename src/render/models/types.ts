@@ -84,6 +84,21 @@ export interface ModelInstance {
    * node's local rest frame. Null for nodes without body geometry. Used by destruction physics.
    */
   nodeBounds?(name: string, deep?: boolean): THREE.Box3 | null;
+  /** Rigged models (HD infantry): the destruction system's ragdoll drives them through this instead of node(). */
+  ragdoll?: RagdollRig;
+}
+
+/**
+ * A rigged model's ragdoll interface (destruction-ragdoll.ts). Particles, in world space, in this order: pelvis,
+ * upper chest, head, left / right shoulder, left / right hand, left / right hip, left / right ankle.
+ */
+export interface RagdollRig {
+  /** Whether a ragdoll should take over this death (e.g. explosions only: the other deaths are baked clips). */
+  accepts(kind: string): boolean;
+  /** The particles of the current pose (called once, when the ragdoll starts). */
+  joints(out: Float32Array): void;
+  /** Pose the model from the particles (every ragdoll step). */
+  pose(p: Float32Array): void;
 }
 
 export type ProjectileModelKind = 'shell' | 'missile' | 'scud' | 'grenade' | 'nuke' | 'fireball' | 'torpedo' | 'depthcharge' | 'bomb' | 'satrocket';

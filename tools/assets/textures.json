@@ -2,6 +2,30 @@
   "source": "Poly Haven (CC0)",
   "textures": [
     {
+      "id": "cliff_side",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cliff_side/cliff_side_diff_1k.jpg",
+          "md5": "a64986e5f858e4f8df30f0394ededd78",
+          "size": 859756
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cliff_side/cliff_side_nor_gl_1k.jpg",
+          "md5": "604fd4101fe5ad92181c22b96ed795c5",
+          "size": 1007837
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cliff_side/cliff_side_arm_1k.jpg",
+          "md5": "acfd75dad2fcf906652d6209cd6c4af1",
+          "size": 551350
+        }
+      }
+    },
+    {
       "id": "concrete_wall_008",
       "res": "1k",
       "maps": {
@@ -142,6 +166,30 @@
           "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_metal_shutter/painted_metal_shutter_arm_1k.jpg",
           "md5": "be0154e168d571f601cff127181d5ca0",
           "size": 606809
+        }
+      }
+    },
+    {
+      "id": "rock_face",
+      "res": "1k",
+      "maps": {
+        "diffuse": {
+          "file": "diffuse.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_diff_1k.jpg",
+          "md5": "220c637db6056b45e7c0a17e6ed8514e",
+          "size": 732721
+        },
+        "normal": {
+          "file": "normal.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_nor_gl_1k.jpg",
+          "md5": "0d244b69a346db78f06c7b76510bb640",
+          "size": 1139857
+        },
+        "arm": {
+          "file": "arm.jpg",
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_arm_1k.jpg",
+          "md5": "c50427671b20794a93864f0602fbbd32",
+          "size": 458661
         }
       }
     },

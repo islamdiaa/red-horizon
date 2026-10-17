@@ -11,6 +11,7 @@ import { picto } from '../meta';
 import { ICONS } from './icons';
 import { el, esc } from './dom';
 import { ensureModesCss } from './modes-css';
+import { openShareDialog, SHARE_ICONS } from '../share/dialog'; // share links
 
 export const stars = (n: number, of = 3) => `<span class="mx-stars">${'★'.repeat(Math.max(0, n))}<i>${'★'.repeat(Math.max(0, of - n))}</i></span>`;
 const fmtN = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -32,6 +33,7 @@ function card(c: ChallengeDef, b: ChallengeBest | undefined, i: number, builtin:
       <span><small>Best time</small><b>${b?.bestTime != null ? formatTime(b.bestTime) : '–'}</b></span><span><small>Attempts</small><b>${b?.attempts ?? 0}</b></span></div>
     <div class="chx-acts"><button class="btn go" data-a="play">${ICONS.play}<span>Play</span></button>
       <button class="rpl-btn" data-a="export" title="Export a ${FILE_EXT} file">${ICONS.download}</button>
+      <button class="rpl-btn" data-a="link" title="Copy a share link">${SHARE_ICONS.link}</button>
       ${builtin ? '' : `<button class="rpl-btn del" data-a="del" title="Delete">${ICONS.trash}</button>`}</div>
   </div>`;
 }
@@ -97,6 +99,7 @@ export function openChallengeList(o: ChallengeListOptions): () => void {
       if (!c) return;
       cardEl.querySelector<HTMLElement>('[data-a="play"]')!.onclick = () => { play('click'); close(); o.play(c); };
       cardEl.querySelector<HTMLElement>('[data-a="export"]')!.onclick = () => { void exportChallenge(c); };
+      cardEl.querySelector<HTMLElement>('[data-a="link"]')!.onclick = () => { play('click'); void openShareDialog({ kind: 'challenge', title: c.title, data: c, exportFile: () => void exportChallenge(c) }); }; // share links
       const del = cardEl.querySelector<HTMLElement>('[data-a="del"]');
       if (del) del.onclick = () => {
         if (!del.classList.contains('confirm')) {

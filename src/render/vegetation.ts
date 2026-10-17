@@ -4,6 +4,10 @@ import { hash2, Noise2D } from '../core/rng';
 import { GameMap, T } from '../sim/map';
 import { flat } from './geomutil';
 import { shadowDepthMaterial } from './models/materials';
+import { ROAD_HALF, roadDistance, roadsFor } from './roads';
+import { applyNatureTextures, loadNature, natureMaterialParams, natureUrls, placeholderGeometry, type NatureTemplate } from './vegetation-hd';
+import { classicLook, prefetchOffline } from './terrain-materials';
+import { hdModelsEnabled } from './models/hd';
 
 type HeightFn = (x: number, y: number) => number;
 
@@ -11,6 +15,8 @@ type HeightFn = (x: number, y: number) => number;
 const BLOCK = 8;
 /** Blocks further than this from the camera use the low-detail geometry (and thinned grass). */
 const LOD_DIST = 46;
+/** Blocks closer than this draw the HD trees and rocks (vegetation-hd.ts); the rest of the near ring stays procedural. */
+const HD_DIST = 25;
 
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
@@ -26,7 +32,7 @@ class BlockGrid {
   readonly ny: number;
   readonly lo: Float32Array;
   readonly hi: Float32Array;
-  /** 0 = culled, 1 = near, 2 = far (LOD) */
+  /** 0 = culled, 1 = near, 2 = far (LOD), 3 = close (HD) */
   readonly state: Uint8Array;
   private prev: Uint8Array;
   /** Bumped whenever the needed set or its LOD split changes. */
@@ -70,7 +76,8 @@ class BlockGrid {
         _box.max.set(x0 + BLOCK + Math.max(0, dx * h), this.hi[b], z0 + BLOCK + Math.max(0, dz * h));
         if (!_frustum.intersectsBox(_box)) { st[b] = 0; continue; }
         const cx = x0 + BLOCK / 2 - cp.x, cz = z0 + BLOCK / 2 - cp.z, cy = (this.lo[b] + this.hi[b]) / 2 - cp.y;
-        st[b] = cx * cx + cy * cy + cz * cz > LOD_DIST * LOD_DIST ? 2 : 1;
+        const d2 = cx * cx + cy * cy + cz * cz;
+        st[b] = d2 > LOD_DIST * LOD_DIST ? 2 : d2 < HD_DIST * HD_DIST ? 3 : 1;
       }
     }
     let changed = false;
@@ -88,11 +95,14 @@ interface Item { m: THREE.Matrix4; c?: THREE.Color; x: number; y: number }
  * All instances of one geometry in ONE InstancedMesh (two with a low-detail variant). Instead of letting
  * three cull per chunk mesh (one draw call each, main pass and shadow pass), the instances of the blocks
  * in view are compacted into the front of the instance buffer whenever the visible block set changes.
- * Draw calls per geometry: 1 (near) + 1 (far, only when zoomed out), whatever the map size.
+ * Draw calls per geometry: 1 (near) + 1 (far, only when zoomed out) + 1 (HD close-up, medium / high), whatever the map size.
  */
 class CulledInstances {
   readonly near: THREE.InstancedMesh;
   readonly far: THREE.InstancedMesh | null;
+  /** HD model for the near blocks (vegetation-hd.ts), once its template has arrived; the near mesh then idles. */
+  hd: THREE.InstancedMesh | null = null;
+  private hdOn = false;
   private src: Float32Array;
   private col: Float32Array | null;
   private alive: Uint8Array;
@@ -134,8 +144,8 @@ class CulledInstances {
     const fill = counts.slice(0, nb);
     for (let k = 0; k < n; k++) this.order[fill[blockOf[k]]++] = k;
 
-    const mk = (g: THREE.BufferGeometry) => {
-      const mesh = new THREE.InstancedMesh(g, mat, n);
+    const mk = (g: THREE.BufferGeometry, m: THREE.Material = mat) => {
+      const mesh = new THREE.InstancedMesh(g, m, n);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       if (this.col) {
         mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
@@ -153,7 +163,37 @@ class CulledInstances {
     };
     this.near = mk(geo);
     this.far = lodGeo ? mk(lodGeo) : null;
+    this.mk = mk;
     this.sync();
+  }
+
+  private mk: (g: THREE.BufferGeometry, m?: THREE.Material) => THREE.InstancedMesh;
+
+  /**
+   * An HD tier with its (placeholder) material, from the start: the loading screen compiles its program and the
+   * renderer's weather patch reaches the material. It draws nothing until useHd() gives it the real geometry.
+   */
+  prepareHd(mat: THREE.Material) {
+    if (this.hd) return;
+    const hd = this.mk(placeholderGeometry(), mat);
+    hd.name = 'vegetation-hd';
+    hd.count = 1; // (empty geometry: compiles, never draws)
+    hd.visible = this.on;
+    this.hd = hd;
+  }
+
+  /** Switch the near blocks to the HD geometry. */
+  useHd(geo: THREE.BufferGeometry) {
+    if (!this.hd) return;
+    this.hd.geometry.dispose();
+    this.hd.geometry = geo;
+    this.hdOn = true;
+    this.dirty = true;
+  }
+
+  /** The warm-up is over (programs compiled): an HD tier still waiting for its model stops costing a call. */
+  endHdWarmUp() {
+    if (this.hd && !this.hdOn) { this.hd.count = 0; this.hd.visible = false; }
   }
 
   /** Show / hide every instance (grass toggle). */
@@ -161,6 +201,7 @@ class CulledInstances {
     this.on = v;
     this.near.visible = v && this.near.count > 0;
     if (this.far) this.far.visible = v && this.far.count > 0;
+    if (this.hd) this.hd.visible = v && this.hd.count > 0;
   }
 
   hide(k: number) {
@@ -176,36 +217,36 @@ class CulledInstances {
     this.dirty = false;
     this.seen = this.grid.version;
     const st = this.grid.state;
-    const near = this.near, far = this.far;
-    const nm = near.instanceMatrix.array as Float32Array, nc = near.instanceColor?.array as Float32Array | undefined;
-    const fm = far?.instanceMatrix.array as Float32Array | undefined, fc = far?.instanceColor?.array as Float32Array | undefined;
+    // close blocks (state 3) draw the HD model once it is there; the rest of the near ring the procedural one
+    const hd = this.hdOn ? this.hd : null, near = this.near, far = this.far;
     const src = this.src, col = this.col, alive = this.alive, order = this.order, start = this.start;
-    let nn = 0, nf = 0;
+    const counts = _counts;
+    counts[0] = counts[1] = counts[2] = 0;
     for (let b = 0; b < st.length; b++) {
       const s = st[b];
       if (!s) continue;
-      const toFar = s === 2 && !!far;
+      const out = s === 2 && far ? 2 : s === 3 && hd ? 1 : 0;
+      const mesh = out === 2 ? far! : out === 1 ? hd! : near;
+      const m = mesh.instanceMatrix.array as Float32Array, c = mesh.instanceColor?.array as Float32Array | undefined;
+      let n = counts[out];
       for (let i = start[b]; i < start[b + 1]; i++) {
         const k = order[i];
         if (!alive[k]) continue;
         if (s === 2 && this.thinFar && k & 1) continue;
-        if (toFar) {
-          fm!.set(src.subarray(k * 16, k * 16 + 16), nf * 16);
-          if (fc && col) { fc[nf * 3] = col[k * 3]; fc[nf * 3 + 1] = col[k * 3 + 1]; fc[nf * 3 + 2] = col[k * 3 + 2]; }
-          nf++;
-        } else {
-          nm.set(src.subarray(k * 16, k * 16 + 16), nn * 16);
-          if (nc && col) { nc[nn * 3] = col[k * 3]; nc[nn * 3 + 1] = col[k * 3 + 1]; nc[nn * 3 + 2] = col[k * 3 + 2]; }
-          nn++;
-        }
+        m.set(src.subarray(k * 16, k * 16 + 16), n * 16);
+        if (c && col) { c[n * 3] = col[k * 3]; c[n * 3 + 1] = col[k * 3 + 1]; c[n * 3 + 2] = col[k * 3 + 2]; }
+        n++;
       }
+      counts[out] = n;
     }
-    publish(near, nn, this.on);
-    if (far) publish(far, nf, this.on);
+    publish(near, counts[0], this.on);
+    if (hd) publish(hd, counts[1], this.on);
+    if (far) publish(far, counts[2], this.on);
   }
 }
 
 const _white = new THREE.Color(1, 1, 1);
+const _counts = [0, 0, 0];
 
 function publish(mesh: THREE.InstancedMesh, n: number, on: boolean) {
   mesh.count = n;
@@ -257,10 +298,10 @@ function lumpy(g: THREE.BufferGeometry, amount: number, seed: number, flattenBot
 }
 
 /** Whiten upward-facing foliage (snow lying on branches). */
-function snowCover(g: THREE.BufferGeometry, amount: number): THREE.BufferGeometry {
+function snowCover(g: THREE.BufferGeometry, amount: number, minY = 0.4): THREE.BufferGeometry {
   const n = g.attributes.normal, c = g.attributes.color, p = g.attributes.position;
   for (let i = 0; i < n.count; i++) {
-    if (p.getY(i) < 0.4) continue; // keep trunks dark
+    if (p.getY(i) < minY) continue; // keep trunks dark
     const up = Math.max(0, Math.min(1, (n.getY(i) - 0.15) / 0.5)) * amount;
     c.setXYZ(i, c.getX(i) + (0.86 - c.getX(i)) * up, c.getY(i) + (0.9 - c.getY(i)) * up, c.getZ(i) + (0.95 - c.getZ(i)) * up);
   }
@@ -546,7 +587,26 @@ function windMaterial(base: THREE.MeshStandardMaterialParameters, uTime: { value
   return mat;
 }
 
-interface TreeRef { inst: CulledInstances; index: number; x: number; y: number; z: number; companion?: boolean }
+interface TreeRef { inst: CulledInstances; index: number; x: number; y: number; z: number; s: number; companion?: boolean }
+
+/** A felled tree (syncTrees): world position (x, ground height, z) and `s`, its scale (1 = a 1.5-unit pine). */
+export type FelledTree = THREE.Vector3 & { s: number };
+
+type Climate = 'temperate' | 'winter' | 'desert';
+/** HD model of each procedural tree variant (index = the climate's treeSet order). */
+const HD_TREES: Record<Climate, string[]> = {
+  temperate: ['pine', 'pine_tall', 'oak', 'linden'],
+  winter: ['pine_snow', 'pine_snow_tall', 'pine_snow', 'pine_snow_light'],
+  desert: ['acacia', 'scrub', 'scrub', 'acacia'],
+};
+/** HD model of each procedural rock (outcrop, cliff wall, boulder). */
+const HD_ROCKS: Record<Climate, string[]> = {
+  temperate: ['rock_outcrop', 'rock_wall', 'boulder'],
+  winter: ['rock_outcrop_snow', 'rock_wall_snow', 'boulder_snow'],
+  desert: ['rock_outcrop', 'rock_wall', 'boulder'],
+};
+/** Linear stone colour per climate over the neutral baked rock albedo (matches the procedural rock tints). */
+const ROCK_HD_TINT: Record<Climate, [number, number, number]> = { temperate: [1.08, 1.0, 0.88], winter: [0.78, 0.8, 0.88], desert: [1.68, 1.12, 0.76] };
 
 /** Margin of the culling grid around the map (covers the scenery forest on the skirt). */
 const MARGIN = 48;
@@ -577,6 +637,8 @@ export class Vegetation {
     const dummy = new THREE.Object3D();
     const mat4 = () => { dummy.updateMatrix(); return dummy.matrix.clone(); };
     const lodOn = quality !== 'low';
+    // HD trees and rocks up close (the procedural ones stay the far LOD; Low and Standard detail keep them all)
+    const hdOn = lodOn && hdModelsEnabled() && !classicLook('nature');
 
     // ---- trees -------------------------------------------------------------
     const treeSet = (lod: boolean): THREE.BufferGeometry[] => {
@@ -590,7 +652,7 @@ export class Vegetation {
     const treeMat = windMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }, this.uTime, 0.04, 0.35, 'tree');
     const treeItems: Item[][] = [[], [], [], []];
     const treeCells: number[][] = [[], [], [], []];
-    const treePos: [number, number, number][][] = [[], [], [], []];
+    const treePos: [number, number, number, number][][] = [[], [], [], []];
     for (let i = 0; i < m.w * m.h; i++) {
       if (!m.tree[i]) continue;
       const v = (m.tree[i] - 1) % 4;
@@ -605,7 +667,7 @@ export class Vegetation {
       const tint = 0.85 + hash2(cx, cy, 8) * 0.3;
       treeItems[v].push({ m: mat4(), c: new THREE.Color(tint * (0.95 + hash2(cx, cy, 9) * 0.1), tint, tint * 0.95), x, y });
       treeCells[v].push(i);
-      treePos[v].push([x, z, y]);
+      treePos[v].push([x, z, y, sc]);
       // denser forest: a smaller companion tree in many forest cells (not on low)
       if (lodOn && hash2(cx, cy, 11) < (climate === 'desert' ? 0.25 : 0.6)) {
         const v2 = (v + 1 + Math.floor(hash2(cx, cy, 12) * 3)) % 4;
@@ -619,7 +681,7 @@ export class Vegetation {
         const t2 = 0.8 + hash2(cx, cy, 17) * 0.3;
         treeItems[v2].push({ m: mat4(), c: new THREE.Color(t2, t2, t2 * 0.95), x: x2, y: y2 });
         treeCells[v2].push(-1 - i);
-        treePos[v2].push([x2, z2, y2]);
+        treePos[v2].push([x2, z2, y2, sc2]);
       }
     }
     // scenery forest beyond the map edge: appended after the map trees (their indices are not tracked)
@@ -635,12 +697,13 @@ export class Vegetation {
     treeGeos.forEach((g, v) => {
       if (!treeItems[v].length) return;
       const inst = this.add(new CulledInstances(grid, this.group, g, treeMat, treeItems[v], true, treeLods?.[v] ?? null));
+      if (hdOn) this.hdSlot(HD_TREES[climate][v], inst, 'tree');
       treeCells[v].forEach((ci, k) => {
         // companions (negative cell ids) go after their cell's main tree, which reports the fall
         const cell = ci < 0 ? -1 - ci : ci;
         let list = this.treeRefs.get(cell);
         if (!list) this.treeRefs.set(cell, (list = []));
-        list.push({ inst, index: k, x: treePos[v][k][0], y: treePos[v][k][1], z: treePos[v][k][2], companion: ci < 0 });
+        list.push({ inst, index: k, x: treePos[v][k][0], y: treePos[v][k][1], z: treePos[v][k][2], s: treePos[v][k][3], companion: ci < 0 });
       });
     });
 
@@ -664,6 +727,10 @@ export class Vegetation {
       const tint = 0.82 + r * 0.3;
       rockItems[v].push({ m: mat4(), c: new THREE.Color(tint, tint * 0.98, tint * 0.95), x, y });
     };
+    // no clutter on the roads (roads.ts; the same network the terrain draws)
+    const roads = roadsFor(m);
+    const road = roads.cells;
+    const offRoad = (x: number, y: number) => roadDistance(roads, m.w, m.h, x, y) > ROAD_HALF.main + 0.25;
     const isRock = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Rock;
     const isWater = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Water;
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
@@ -692,29 +759,35 @@ export class Vegetation {
           addRock(2, cx + 0.5, cy + 0.5, r * 6.28, sc, sc, sc, r);
         }
       } else if (t === T.Clear || t === T.Dirt || t === T.Sand) {
-        if (m.ore[i] || m.tree[i]) continue;
+        if (m.ore[i] || m.tree[i] || road[i]) continue;
         const bank = isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1);
         // scattered stones (decorative); pebbles and stones line the river banks (big snowy rocks in winter)
         if (hash2(cx, cy, 31) < (bank ? 0.32 : 0.018)) {
           const big = bank && climate === 'winter' && hash2(cx, cy, 36) < 0.45;
           const sc = big ? 0.28 + hash2(cx, cy, 34) * 0.3 : bank ? 0.1 + hash2(cx, cy, 34) * 0.16 : 0.12 + hash2(cx, cy, 34) * 0.12;
-          addRock(2, cx + hash2(cx, cy, 32), cy + hash2(cx, cy, 33), r * 6.28, sc, sc * 0.8, sc, hash2(cx, cy, 35));
+          if (offRoad(cx + hash2(cx, cy, 32), cy + hash2(cx, cy, 33))) addRock(2, cx + hash2(cx, cy, 32), cy + hash2(cx, cy, 33), r * 6.28, sc, sc * 0.8, sc, hash2(cx, cy, 35));
         }
       }
     }
-    rockGeos.forEach((g, v) => { if (rockItems[v].length) this.add(new CulledInstances(grid, this.group, g, rockMat, rockItems[v], true, rockLods?.[v] ?? null)); });
+    rockGeos.forEach((g, v) => {
+      if (!rockItems[v].length) return;
+      const inst = this.add(new CulledInstances(grid, this.group, g, rockMat, rockItems[v], true, rockLods?.[v] ?? null));
+      if (hdOn) this.hdSlot(HD_ROCKS[climate][v], inst, 'rock');
+    });
+    if (hdOn) this.loadHd();
 
     // ---- bushes near forests ------------------------------------------------
     const bushItems: Item[] = [];
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
       const i = m.idx(cx, cy);
-      if (m.terrain[i] !== T.Clear || m.tree[i] || m.ore[i]) continue;
+      if (m.terrain[i] !== T.Clear || m.tree[i] || m.ore[i] || road[i]) continue;
       let nearTree = false;
       for (let dy = -1; dy <= 1 && !nearTree; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (m.inBounds(cx + dx, cy + dy) && m.tree[m.idx(cx + dx, cy + dy)]) { nearTree = true; break; }
       }
       if (hash2(cx, cy, 41) < (nearTree ? 0.35 : 0.015)) {
         const x = cx + 0.15 + hash2(cx, cy, 42) * 0.7, y = cy + 0.15 + hash2(cx, cy, 43) * 0.7, r = hash2(cx, cy, 44);
+        if (!offRoad(x, y)) continue;
         dummy.position.set(x, heightAt(x, y), y);
         dummy.rotation.set(0, r * 6.28, 0);
         const sc = 0.8 + r * 0.6;
@@ -732,7 +805,8 @@ export class Vegetation {
     }
     if (bushItems.length) {
       let bushGeo = bushGeometry(5);
-      if (climate === 'winter') bushGeo = snowCover(bushGeo, 0.7);
+      // winter: dark evergreen shrubs under a snow cap (the whole bush is below the trunk cut-off of the trees)
+      if (climate === 'winter') bushGeo = snowCover(tintFoliage(bushGeo, 0.05, 0.1, 0.06, -1), 0.85, -1);
       else if (climate === 'desert') bushGeo = tintFoliage(bushGeo, 0.2, 0.18, 0.09, -1);
       const inst = this.add(new CulledInstances(grid, this.group, bushGeo, windMaterial({ vertexColors: true, roughness: 0.9 }, this.uTime, 0.12, 0.0, 'bush'), bushItems, true, null, true));
       bushItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), inst, k));
@@ -754,12 +828,13 @@ export class Vegetation {
       const t = m.terrain[i];
       // reeds: tall, lush tufts crowd the banks (temperate; sand banks too)
       const bank = climate === 'temperate' && lodOn && (isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1));
-      if (((t !== T.Clear && t !== T.Dirt) && !(bank && t === T.Sand)) || m.tree[i] || m.ore[i]) continue;
+      if (((t !== T.Clear && t !== T.Dirt) && !(bank && t === T.Sand)) || m.tree[i] || m.ore[i] || road[i]) continue;
       const lush = gn.fbm(cx * 0.12, cy * 0.12, 3);
       const count = Math.floor(density * (lush * 1.8 - 0.1) * (t === T.Dirt ? 0.4 : 1) + hash2(cx, cy, 51)) + (bank ? 4 : 0);
       for (let k = 0; k < count; k++) {
         const x = cx + hash2(cx, cy, 52 + k), y = cy + hash2(cx, cy, 62 + k), r = hash2(cx, cy, 72 + k);
         if (bank && heightAt(x, y) < -0.3) continue; // not in the water
+        if (!offRoad(x, y)) continue;
         dummy.position.set(x, heightAt(x, y) - 0.01, y);
         dummy.rotation.set(0, r * 6.28, 0);
         const sc = (0.8 + r * 0.9) * (bank ? 1.15 : 1);
@@ -775,6 +850,47 @@ export class Vegetation {
       grassItems.forEach((it, k) => this.addCellRef(m.idx(Math.floor(it.x), Math.floor(it.y)), inst, k));
       this.grass = inst;
     }
+  }
+
+  /** HD nature model per id: its material (one per model) and the instance sets that use it. */
+  private hd = new Map<string, { mat: THREE.MeshStandardMaterial; insts: CulledInstances[]; tpl: NatureTemplate | null }>();
+
+  private hdSlot(id: string, inst: CulledInstances, kind: 'tree' | 'rock') {
+    let e = this.hd.get(id);
+    if (!e) {
+      const params = natureMaterialParams();
+      const mat = kind === 'tree'
+        ? windMaterial(params, this.uTime, 0.04, 0.35, 'tree-hd')
+        : new THREE.MeshStandardMaterial(params);
+      // rocks are baked neutral grey: the climate's stone colour comes from the material (instance colours vary it)
+      if (kind === 'rock') mat.color.setRGB(...ROCK_HD_TINT[this.climate]);
+      mat.name = `nature-${id}`;
+      e = { mat, insts: [], tpl: null };
+      this.hd.set(id, e);
+    }
+    inst.prepareHd(e.mat);
+    e.insts.push(inst);
+  }
+
+  private loadHd() {
+    prefetchOffline(natureUrls);
+    this.hdReady = Promise.all([...this.hd].map(([id, e]) => loadNature(id).then((t) => {
+      if (!t) return;
+      e.tpl = t;
+      applyNatureTextures(e.mat, t);
+      for (const inst of e.insts) inst.useHd(t.geometry);
+    }))).then(() => {});
+  }
+
+  /** Settles when every HD nature model has arrived (or failed); immediately without HD. */
+  hdReady: Promise<void> = Promise.resolve();
+  private frames = 0;
+
+  /** HD nature status (screenshot tools / debugging): models in use and their triangles. */
+  hdStatus(): { wanted: number; ready: string[]; tris: Record<string, number> } {
+    const ready: string[] = [], tris: Record<string, number> = {};
+    for (const [id, e] of this.hd) if (e.tpl) { ready.push(id); tris[id] = e.tpl.tris; }
+    return { wanted: this.hd.size, ready, tris };
   }
 
   private add(c: CulledInstances): CulledInstances {
@@ -799,9 +915,9 @@ export class Vegetation {
   }
 
   /** Returns positions of trees removed since the last call. */
-  syncTrees(): THREE.Vector3[] {
+  syncTrees(): FelledTree[] {
     if (this.map.treeVersion === this.lastTreeVersion) return NO_TREES;
-    const out: THREE.Vector3[] = [];
+    const out: FelledTree[] = [];
     this.lastTreeVersion = this.map.treeVersion;
     for (let i = 0; i < this.treeState.length; i++) {
       if (this.treeState[i] && !this.map.tree[i]) {
@@ -810,7 +926,7 @@ export class Vegetation {
         if (refs) {
           for (const ref of refs) {
             ref.inst.hide(ref.index);
-            if (!ref.companion) out.push(new THREE.Vector3(ref.x, ref.y, ref.z));
+            if (!ref.companion) out.push(Object.assign(new THREE.Vector3(ref.x, ref.y, ref.z), { s: ref.s }));
           }
         }
       }
@@ -824,6 +940,7 @@ export class Vegetation {
    */
   update(time: number, camera?: THREE.Camera, sunDir?: THREE.Vector3) {
     this.uTime.value = time;
+    if (this.frames < 30 && ++this.frames === 30) for (const c of this.all) c.endHdWarmUp();
     if (camera && sunDir) this.grid.cull(camera, sunDir);
     for (const c of this.all) c.sync();
   }
@@ -833,4 +950,4 @@ export class Vegetation {
   }
 }
 
-const NO_TREES: THREE.Vector3[] = [];
+const NO_TREES: FelledTree[] = [];

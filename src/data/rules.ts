@@ -174,6 +174,17 @@ export interface BuildingTypeDef extends BaseTypeDef {
   powers?: ('gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs')[];
   /** Neutral tech structure (Commander rules, sim/neutral.ts): any engineer that reaches it captures it. */
   tech?: 'derrick' | 'hospital' | 'radar' | 'comms';
+  /**
+   * Commander rules structure (sim/economy.ts): listed with `buildable: false` so Classic sidebars, missions and
+   * tools never offer it; the Commander tech tree (sim/economy-data.ts) makes it buildable.
+   */
+  commander?: boolean;
+  /** Bunker: this many infantry can garrison it and fire from inside (sim/economy.ts). */
+  garrison?: number;
+  /** Fortress gate: placed like a wall, opens for its owner's team and stays shut to enemies (sim/economy.ts). */
+  gate?: boolean;
+  /** Mining outpost: may be placed next to any ore field in view, away from the base (sim/economy.ts). */
+  outpost?: boolean;
 }
 
 export type TypeDef = UnitTypeDef | BuildingTypeDef;
@@ -406,6 +417,15 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   hosp: BLD({ id: 'hosp', name: 'Field Hospital', cost: 0, strength: 800, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'hospital', sight: 4, description: 'Neutral tech structure. Capture it with an Engineer: heals your infantry nearby.' }),
   rado: BLD({ id: 'rado', name: 'Radar Outpost', cost: 0, strength: 600, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'radar', radar: true, sight: 13, description: 'Neutral tech structure. Capture it with an Engineer: reveals the area around it and gives you radar.' }),
   comm: BLD({ id: 'comm', name: 'Communications Array', cost: 0, strength: 700, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'comms', sight: 5, description: 'Neutral tech structure. Capture it with an Engineer: superweapons, support and commander powers recharge 10% faster.' }),
+  // Commander rules economy and tech structures (sim/economy.ts, tiers in sim/economy-data.ts): never built under
+  // Classic rules, hence `buildable: false` + `commander: true`
+  rlab: BLD({ id: 'rlab', name: 'Research Lab', cost: 1200, strength: 600, size: [3, 2], power: -60, prereq: ['proc'], buildable: false, commander: true, sight: 5, description: 'Researches upgrades for your whole army, one project at a time per lab. Level II research needs Tier 3.' }),
+  lgst: BLD({ id: 'lgst', name: 'Logistics Centre', cost: 1500, strength: 800, armor: 'light', size: [3, 2], power: -40, prereq: ['weap'], buildable: false, commander: true, description: 'Units cost 10% less. Repairs your vehicles and structures within 6 cells for free.' }),
+  purf: BLD({ id: 'purf', name: 'Ore Purifier', cost: 1500, strength: 600, size: [2, 2], power: -75, prereq: ['proc'], owner: ['allies'], buildable: false, commander: true, description: 'All ore you deliver is worth 25% more (one is enough). Power hungry.' }),
+  smlt: BLD({ id: 'smlt', name: 'Ore Smelter', cost: 1500, strength: 700, size: [2, 2], power: -75, prereq: ['proc'], owner: ['soviet'], buildable: false, commander: true, description: 'All ore you deliver is worth 25% more (one is enough). Power hungry.' }),
+  mout: BLD({ id: 'mout', name: 'Mining Outpost', cost: 800, strength: 500, size: [2, 2], power: -10, prereq: ['proc'], storage: 500, dock: [1, 2], outpost: true, buildable: false, commander: true, description: 'Small forward refinery with one dock. Place it next to any ore field you can see, far from your base; only defences can be built next to it.' }),
+  bnkr: DEF({ id: 'bnkr', name: 'Bunker', cost: 600, strength: 900, armor: 'concrete', size: [2, 2], power: 0, prereq: ['tent|barr'], garrison: 4, buildable: false, commander: true, description: 'Up to 4 infantry garrison it and fire from inside, safe from harm. They come out when it is sold or destroyed.' }),
+  gate: DEF({ id: 'gate', name: 'Fortress Gate', cost: 200, strength: 600, armor: 'concrete', size: [1, 1], power: 0, prereq: ['weap'], gate: true, sight: 2, buildable: false, commander: true, description: 'A gate for your walls: opens for your units, stays shut to the enemy. Placed like a wall.' }),
 };
 
 export function getType(id: string): TypeDef {

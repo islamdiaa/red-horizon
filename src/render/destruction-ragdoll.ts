@@ -12,7 +12,7 @@
  * after a couple of seconds and freeze in their final pose.
  */
 import * as THREE from 'three';
-import type { ModelInstance } from './models/types';
+import type { ModelInstance, RagdollRig } from './models/types';
 import { BodyVariant } from './models/materials';
 import type { HeightFn } from './destruction-physics';
 
@@ -36,9 +36,8 @@ const APART: [number, number, number][] = [
 ];
 
 const GRAV = 6.5;
-/** Particles held up during a stagger, with their height above the pelvis. */
+/** Particles held up during a stagger (at their start height above the pelvis). */
 const HOLD_IDS = [PELVIS, CHEST, HEAD, SH_L, SH_R];
-const HOLD_DY = [0, 0.105, 0.163, 0.105, 0.105];
 const ITER = 5;
 const DOWN = new THREE.Vector3(0, -1, 0);
 const _a = new THREE.Vector3();
@@ -71,12 +70,17 @@ export class Ragdoll {
   } | null = null;
   /** Standing pelvis height (for the stagger phase). */
   private standY = 0;
+  /** Heights of the held particles above the pelvis at the start (the stagger springs them back up). */
+  private holdDy = new Float32Array(HOLD_IDS.length);
+  /** A rigged model posed through its RagdollRig (HD infantry) instead of the procedural bones. */
+  private rig: RagdollRig | null = null;
   private dirX = 1;
   private dirZ = 0;
   private flashT = 0;
 
-  /** True if the model has a soldier skeleton this ragdoll can drive. */
-  static fits(model: ModelInstance): boolean {
+  /** True if the model has a soldier skeleton this ragdoll can drive (rigged models decide per death kind). */
+  static fits(model: ModelInstance, kind: RagdollKind = 'normal'): boolean {
+    if (model.ragdoll) return model.ragdoll.accepts(kind);
     const n = model.node;
     return !!n && !!n('torso') && !!n('armL') && !!n('armR') && !!n('legL') && !!n('legR') && !!n('body');
   }
@@ -92,12 +96,19 @@ export class Ragdoll {
     this.asleep = false;
     this.still = 0;
     this.flashT = 0;
-    const n = model.node!;
-    const bones = (this.bones = { body: n('body')!, torso: n('torso')!, armL: n('armL')!, armR: n('armR')!, legL: n('legL')!, legR: n('legR')! });
     const root = model.root;
     root.updateMatrixWorld(true);
     this.rootInv.copy(root.matrixWorld).invert();
     root.getWorldQuaternion(this.rootQ);
+    this.rig = model.ragdoll ?? null;
+    if (this.rig) {
+      this.bones = null;
+      this.rig.joints(this.p);
+      this.begin(dirX, dirZ, kind);
+      return;
+    }
+    const n = model.node!;
+    const bones = (this.bones = { body: n('body')!, torso: n('torso')!, armL: n('armL')!, armR: n('armR')!, legL: n('legL')!, legR: n('legR')! });
     const set = (i: number, o: THREE.Object3D, x: number, y: number, z: number) => {
       _a.set(x, y, z);
       o.localToWorld(_a);
@@ -116,7 +127,13 @@ export class Ragdoll {
     set(HIP_R, bones.legR, 0, 0, 0);
     set(FOOT_L, bones.legL, 0.01, -0.135, 0);
     set(FOOT_R, bones.legR, 0.01, -0.135, 0);
+    this.begin(dirX, dirZ, kind);
+  }
+
+  /** Rest lengths, the push direction and the initial velocities from the particles' start positions. */
+  private begin(dirX: number, dirZ: number, kind: RagdollKind): void {
     this.standY = this.p[PELVIS * 3 + 1];
+    for (let h = 0; h < HOLD_IDS.length; h++) this.holdDy[h] = this.p[HOLD_IDS[h] * 3 + 1] - this.standY;
     for (let k = 0; k < LINKS.length; k++) this.rest[k] = this.dist(LINKS[k][0], LINKS[k][1]);
     for (let k = 0; k < APART.length; k++) this.apart[k] = this.dist(APART[k][0], APART[k][1]) * APART[k][2];
     this.o.set(this.p);
@@ -238,7 +255,7 @@ export class Ragdoll {
     const pull = Math.min(1, dt * 40) * k;
     for (let h = 0; h < HOLD_IDS.length; h++) {
       const i = HOLD_IDS[h];
-      const want = target + HOLD_DY[h];
+      const want = target + this.holdDy[h];
       const dy = want - p[i * 3 + 1];
       p[i * 3 + 1] += dy * pull;
       o[i * 3 + 1] += dy * pull;
@@ -310,6 +327,10 @@ export class Ragdoll {
 
   /** Map the particles onto the bones (all in model-local space). */
   private pose(): void {
+    if (this.rig) {
+      this.rig.pose(this.p);
+      return;
+    }
     const b = this.bones!;
     b.body.position.set(0, 0, 0);
     b.body.quaternion.identity();
@@ -349,6 +370,7 @@ export class Ragdoll {
   release(): void {
     this.model = null;
     this.bones = null;
+    this.rig = null;
   }
 }
 
@@ -363,7 +385,7 @@ export class RagdollPool {
 
   /** A ragdoll for this model, or null at the cap / for skeletons it can't drive. */
   start(model: ModelInstance, kind: RagdollKind, dirX: number, dirZ: number): Ragdoll | null {
-    if (!Ragdoll.fits(model)) return null;
+    if (!Ragdoll.fits(model, kind)) return null;
     let r = this.free.pop();
     if (!r) {
       // steal the oldest sleeping one (its pose is frozen anyway)

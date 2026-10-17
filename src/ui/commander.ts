@@ -464,7 +464,7 @@ const CSS = `
 #cmdpanel { position: absolute; z-index: 4; left: var(--edge, 0.7rem); top: 50%; transform: translateY(-50%); width: 11.6rem;
   display: flex; flex-direction: column; border-radius: 0.7rem; background: var(--glass); border: 1px solid var(--line-2);
   box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.45); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-family: var(--font); }
-body.hud-modern #cmdpanel { left: auto; right: var(--edge, 0.7rem); top: auto; transform: none; bottom: calc(var(--dock-h, 12rem) + var(--edge, 0.7rem) * 2); }
+body.hud-modern #cmdpanel { left: auto; right: var(--edge, 0.7rem); top: auto; transform: none; bottom: calc(max(var(--dock-h, 12rem), var(--sel-h, 0px)) + var(--edge, 0.7rem) * 2); } /* (above a tall selection panel too) */
 #cmdpanel.pulse { animation: cmdpPulse 1.2s var(--ease, ease); }
 #cmdpanel.level { animation: cmdpLevel 1.4s var(--ease, ease); }
 @keyframes cmdpPulse { 0% { box-shadow: 0 0 0 0 rgba(var(--gold-rgb), 0.7); } 100% { box-shadow: 0 0 0 1.1rem rgba(var(--gold-rgb), 0); } }

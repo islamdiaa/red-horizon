@@ -22,6 +22,7 @@
 import { BUILDINGS, UNITS, WEAPONS, type Faction, type TypeDef, type WeaponDef } from '../data/rules';
 import type { Building, Entity, Unit } from './entities';
 import type { Player } from './player';
+import { powerMul } from './economy-data';
 
 // =====================================================================================================
 // Definitions
@@ -231,10 +232,18 @@ export interface DoctrineRules {
 }
 
 export function compileDoctrine(id: string): DoctrineRules {
-  const d = DOCTRINES[id];
-  const r: DoctrineRules = { id, cost: {}, time: {}, hp: {}, speed: {}, armor: {}, power: {}, gap: 1, points: 1, cooldown: {}, weapons: {} };
+  return applyEffects(blankRules(id), DOCTRINES[id].effects);
+}
+
+/** Empty (x1) rules. */
+export function blankRules(id: string): DoctrineRules {
+  return { id, cost: {}, time: {}, hp: {}, speed: {}, armor: {}, power: {}, gap: 1, points: 1, cooldown: {}, weapons: {} };
+}
+
+/** Fold effects into compiled rules (doctrines; Commander research and upgrades, sim/economy.ts, use the same path). */
+export function applyEffects(r: DoctrineRules, effects: DoctrineEffect[]): DoctrineRules {
   const types: TypeDef[] = [...Object.values(UNITS), ...Object.values(BUILDINGS)];
-  for (const e of d.effects) {
+  for (const e of effects) {
     if (e.stat === 'gap') { r.gap *= e.mul; continue; }
     if (e.stat === 'points') { r.points *= e.mul; continue; }
     if (e.stat === 'cooldown') { for (const pw of e.powers) r.cooldown[pw] = (r.cooldown[pw] ?? 1) * e.mul; continue; }
@@ -348,7 +357,7 @@ export function cmdRof(e: Entity): number {
 export function cmdPower(b: Building): number {
   const c = b.owner.cmd!;
   const pw = b.bt.power;
-  if (pw > 0) return c.offline.size && c.offline.has(b.id) ? 0 : pw;
+  if (pw > 0) return c.offline.size && c.offline.has(b.id) ? 0 : b.upgrades ? pw * powerMul(b.upgrades) : pw; // (turbine upgrade, sim/economy.ts)
   const m = c.rules?.power[b.bt.id];
   return m === undefined ? pw : pw * m;
 }

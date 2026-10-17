@@ -16,8 +16,8 @@ import { deserializeWorld } from '../sim/save';
 import { World, type PlayerSetup } from '../sim/world';
 import { ceasefireForSetup } from '../sim/ceasefire';
 import { applyRoster, attachModeRuntime, prepareModeSetup, startModes } from './runtime';
-import { mutateSetup, varietyOptions, withMutatorMods } from './mutators';
-
+import { mutateSetup, varietyOptions, withEconFlag, withMutatorMods } from './mutators';
+import { applyNetRoster } from '../net/roster';
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d, 0xe07b2a, 0x8e4fd0, 0x2aa8a8, 0x9aa0aa];
 const AI_NAMES = ['Gen. Volkov', 'Marshal Krukov', 'Col. Nadia', 'Gen. Stavros', 'Cdr. Bennett', 'Maj. Kane'];
 
@@ -29,7 +29,7 @@ export interface HeadlessGame {
 
 /** Build the World a Game would build for this setup (without rendering, HUD or recorder). */
 export function headlessGame(input: GameSetup): HeadlessGame {
-  let setup = mutateSetup(prepareModeSetup(input)); // mutators' conditions
+  let setup = withEconFlag(mutateSetup(prepareModeSetup(input))); // mutators' conditions · the Commander economy flag (as game.ts)
   applyModSet(withMutatorMods(setup.mods, setup.mutators)); // the match's mods plus the mutators' rule changes
   const def = setup.mission ? getMission(setup.mission) ?? null : null;
   if (def) {
@@ -60,6 +60,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
       ai: i === 0 ? undefined : ps.ai === 'passive' || ps.ai === 'defensive' || !ps.ai ? 'normal' : ps.ai,
     }));
   }
+  if (!def && setup.net) applyNetRoster(players, setup.net); // multiplayer roster (as game.ts)
   if (!def) applyRoster(players, setup);
   if (!def && (setup.seed & 2)) map.startPositions.reverse();
   const world = new World({
@@ -75,6 +76,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
   attachModeRuntime(world, setup, !!def);
   if (setup.load) deserializeWorld(world, setup.load.world, world.mission);
   if (!def) local = startModes(world, setup);
+  if (!def && setup.net && !setup.branch) local = world.players[setup.net.local] ?? local; // (as game.ts)
   if (def) {
     const rt = new MissionRuntime(world, def);
     world.mission = rt;

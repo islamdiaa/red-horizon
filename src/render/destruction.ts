@@ -11,8 +11,10 @@
  *  - Vehicle wrecks bounce and settle (tumbling down slopes), turrets pop off, and wheels / track runs /
  *    armour plates fly off as instanced debris (destruction-debris.ts). Downed aircraft fall and crash.
  *  - Infantry deaths become short verlet ragdolls (destruction-ragdoll.ts), varied by death type.
- *  - Heavy explosions leave persistent craters through the terrain's deform() (cap + heal policy) with the
- *    scorch decal sitting in the crater.
+ *  - The battlefield remembers (destruction-scars.ts): heavy explosions press craters through the terrain's
+ *    deform() that stay for the match (nearby hits merge, the least recently hit crater heals away over the
+ *    live budget), the ground stays burnt, destroyed trees leave charred stumps and fallen trunks
+ *    (destruction-trees.ts), and all of it goes into save games (saveScars / loadScars).
  *  - Aftermath effects: M.A.D. seismic pulses, the demolition truck's blast, chrono-tank jumps.
  *
  * Budgets: <= 6 collapses at once (1 draw call + shadow each), 256 rigid bodies, 24 ragdolls,
@@ -35,6 +37,9 @@ import { bakeFracture, type FractureData } from './destruction-fracture';
 import { RagdollPool, type Ragdoll, type RagdollKind } from './destruction-ragdoll';
 import { DebrisPool, DS, DEBRIS_HE } from './destruction-debris';
 import { Rubble } from './rubble';
+import { ScarLedger, SCAR_BUDGET, type ScarCrater, type ScarSnapshot } from './destruction-scars';
+import { BurntTrees } from './destruction-trees';
+import { explosionHeat } from './effects/heatfx';
 
 /** What the destruction system needs from the terrain renderer (FX implements deform). */
 export interface DeformableTerrain {
@@ -55,13 +60,14 @@ const HOLD_T = 6;
 const SINK_T = 3;
 const MAX_FIRES = 10;
 const MAX_DAMAGE_EMITTERS = 28;
-const MAX_CRATERS = 48;
-/** Terrain craters pressed per match / per frame at most (the deform is a CPU + upload cost). */
-const CRATER_BUDGET = 220;
+/** Terrain craters pressed per frame at most (the deform is a CPU + upload cost). */
 const CRATERS_PER_FRAME = 3;
-const CRATER_HEAL_AFTER = 150;
+/** An evicted crater heals back in steps (seconds apart). */
 const CRATER_HEAL_STEPS = 5;
-const CRATER_HEAL_DT = 4;
+const CRATER_HEAL_DT = 0.8;
+/** Burn left in the ground where a crater healed away / a tree burnt down. */
+const HEALED_BURN = 0.32;
+const TREE_BURN = 0.42;
 const DEBRIS_LIFE = 14;
 
 interface Collapse {
@@ -106,13 +112,11 @@ interface Piece {
   wet: boolean;
 }
 
-interface Crater {
-  x: number;
-  y: number;
-  r: number;
-  d: number;
-  t: number;
-  healed: number;
+/** A crater evicted from the live budget, healing back in steps. */
+interface Healing {
+  c: ScarCrater;
+  step: number;
+  next: number;
 }
 
 interface DamageFx {
@@ -173,7 +177,10 @@ export class Destruction {
   private collapses: Collapse[] = [];
   private meshPool = new Map<string, { holder: THREE.Group; mesh: THREE.SkinnedMesh; bones: THREE.Bone[] }[]>();
   private wrecks = new Map<number, Wreck>();
-  private craters: Crater[] = [];
+  /** Craters, burnt ground and burnt trees of this match (budgets per quality). */
+  readonly scars: ScarLedger;
+  private healing: Healing[] = [];
+  private burntTrees: BurntTrees;
   private damage = new Map<number, DamageFx>();
   private damageCount = 0;
   private fires = 0;
@@ -196,6 +203,11 @@ export class Destruction {
     this.physics = new PhysicsWorld(this.height, 256);
     this.ctx = fxContext(effects);
     this.group.add(this.debris.group);
+    const q = (scene.userData.fxQuality as 'low' | 'medium' | 'high' | undefined) ?? 'high';
+    const budget = SCAR_BUDGET[q] ?? SCAR_BUDGET.high;
+    this.scars = new ScarLedger(Math.max(1, map.w | 0), Math.max(1, map.h | 0), budget.craters, budget.trees);
+    this.burntTrees = new BurntTrees(budget.trees);
+    this.group.add(this.burntTrees.group);
     scene.add(this.group);
     // never-drawn stand-in so the skinned 'wrecked' body variant is compiled with the scene on the loading
     // screen (debris meshes are in the scene too: instanced + per-instance colour)
@@ -729,58 +741,125 @@ export class Destruction {
     const sc = Math.max(0.6, Math.min(1.6, scale));
     const depth = kind === 'nuke' ? 0.32 : kind === 'huge' ? 0.085 : kind === 'large' ? 0.05 : 0;
     if (depth > 0) this.crater(x, y, r * sc, depth * Math.max(0.6, Math.min(1.5, scale)));
-    else if ((kind === 'medium' || kind === 'fire') && this.terrain?.scorch) this.terrain.scorch(x, y, (kind === 'fire' ? 0.5 : 0.45) * sc, 0.35);
+    else if ((kind === 'medium' || kind === 'fire') && this.terrain?.scorch) {
+      const rr = (kind === 'fire' ? 0.5 : 0.45) * sc;
+      this.terrain.scorch(x, y, rr, 0.35);
+      this.scars.burnAt(x, y, rr, 0.35);
+    }
   }
 
   /**
-   * Press a crater into the rendered terrain (terrain.deform). Policy: repeated hits on one spot deepen it
-   * only so far; at most CRATER_BUDGET craters per match and CRATERS_PER_FRAME per frame are pressed (later
-   * blasts keep their scorch decals); craters older than CRATER_HEAL_AFTER heal in steps (a negative depth
-   * makes terrain.deform heal the ground).
+   * Press a crater into the rendered terrain (terrain.deform). Policy (destruction-scars.ts): craters stay for
+   * the match; a hit close to a live crater deepens it only so far (then just refreshes it); at most
+   * CRATERS_PER_FRAME are pressed per frame; over the live budget the least recently hit crater heals back in
+   * steps (a negative depth makes terrain.deform heal the ground) and leaves burnt ground behind.
    */
   crater(x: number, y: number, radius: number, depth: number): void {
     const t = this.terrain;
     if (!t?.deform) return;
     if (this.map.heightAt(x, y) <= WATER_LEVEL + 0.02) return;
-    if (this.cratersPressed >= CRATER_BUDGET || this.cratersThisFrame >= CRATERS_PER_FRAME) return;
-    let stacked = 0;
-    for (const c of this.craters) {
-      if (c.healed) continue;
-      const d2 = (c.x - x) ** 2 + (c.y - y) ** 2;
-      if (d2 < (c.r * 0.6) ** 2) stacked += c.d;
+    if (this.cratersThisFrame >= CRATERS_PER_FRAME) return;
+    if (this.scars.depthNear(x, y) > depth * 2.5) {
+      // deep enough already: the crater counts as freshly hit
+      this.scars.addCrater(x, y, radius, 1e-3, this.time);
+      return;
     }
-    if (stacked > depth * 2.5) return;
     t.deform(x, y, radius, depth);
-    this.cratersPressed++;
     this.cratersThisFrame++;
-    this.craters.push({ x, y, r: radius, d: depth, t: this.time, healed: 0 });
-    // over the live cap: the oldest start healing now
-    let live = 0;
-    for (const c of this.craters) if (c.healed < CRATER_HEAL_STEPS) live++;
-    for (const c of this.craters) {
-      if (live <= MAX_CRATERS) break;
-      if (c.healed === 0 && c.t > this.time - CRATER_HEAL_AFTER) {
-        c.t = this.time - CRATER_HEAL_AFTER;
-        live--;
+    const res = this.scars.addCrater(x, y, radius, depth, this.time);
+    this.scars.burnAt(x, y, radius * 1.3, 0.35);
+    for (const c of res.evicted) this.healing.push({ c, step: 0, next: this.time });
+  }
+
+  private cratersThisFrame = 0;
+
+  /** Evicted craters heal back in steps; the burn stays. */
+  private updateCraters(): void {
+    const t = this.terrain;
+    if (!t?.deform || !this.healing.length) return;
+    for (let i = this.healing.length - 1; i >= 0; i--) {
+      const h = this.healing[i];
+      if (this.time < h.next) continue;
+      const c = h.c;
+      t.deform(c.x, c.y, c.r, -c.d / CRATER_HEAL_STEPS);
+      h.step++;
+      h.next = this.time + CRATER_HEAL_DT;
+      if (h.step >= CRATER_HEAL_STEPS) {
+        t.scorch?.(c.x, c.y, c.r * 1.2, HEALED_BURN);
+        this.healing[i] = this.healing[this.healing.length - 1];
+        this.healing.pop();
       }
     }
   }
 
-  private cratersPressed = 0;
-  private cratersThisFrame = 0;
-
-  private updateCraters(): void {
-    const t = this.terrain;
-    if (!t?.deform || !this.craters.length) return;
-    for (let i = this.craters.length - 1; i >= 0; i--) {
-      const c = this.craters[i];
-      const due = c.t + CRATER_HEAL_AFTER + c.healed * CRATER_HEAL_DT;
-      if (this.time < due) continue;
-      // a negative depth heals the ground
-      t.deform(c.x, c.y, c.r, -c.d / CRATER_HEAL_STEPS);
-      c.healed++;
-      if (c.healed >= CRATER_HEAL_STEPS) this.craters.splice(i, 1);
+  /**
+   * A tree burnt down at world (x, groundY, z) (vegetation.syncTrees): a charred stump, often its trunk fallen
+   * away from the most recent blast nearby, and burnt ground around it.
+   */
+  treeDown(x: number, groundY: number, z: number, scale = 0.85): void {
+    if (!Number.isFinite(x + groundY + z)) return;
+    const h = (k: number) => {
+      const v = Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    let fall = NaN;
+    if (h(1) < 0.6) {
+      fall = h(2) * Math.PI * 2;
+      for (let i = this.blasts.length - 1; i >= 0; i--) {
+        const b = this.blasts[i];
+        if (this.time - b.t > 1.5) break;
+        const dx = x - b.x, dz = z - b.z;
+        if (dx * dx + dz * dz < (b.r * 2.5) ** 2) { fall = Math.atan2(dz, dx) + (h(3) - 0.5) * 0.6; break; }
+      }
     }
+    const tree = { x, y: z, z: groundY, s: Math.max(0.5, Math.min(1.4, scale * (0.85 + 0.3 * h(4)))), yaw: h(5) * Math.PI * 2, fall };
+    const old = this.scars.addTree(tree);
+    if (old) this.burntTrees.remove(old);
+    this.burntTrees.add(tree);
+    this.terrain?.scorch?.(x, z, 0.6, TREE_BURN);
+    this.scars.burnAt(x, z, 0.6, TREE_BURN);
+  }
+
+  /** Burnt remains of trees (diagnostics). */
+  get burntTreeCount(): number {
+    return this.burntTrees.count;
+  }
+
+  /** Everything the battlefield remembers, as plain JSON for a save game. */
+  saveScars(): ScarSnapshot {
+    const marks = (this.effects as unknown as { scarSnapshot?: () => number[][] }).scarSnapshot?.() ?? [];
+    return this.scars.snapshot(marks, Rubble.current?.snapshot() ?? []);
+  }
+
+  /**
+   * Paint a saved battlefield again (after setTerrain): craters, burnt ground, scorch marks, burnt trees, rubble.
+   * The JSON comes from a save file: everything is validated (ScarLedger.restore). Returns false if unusable.
+   */
+  loadScars(json: unknown): boolean {
+    const r = ScarLedger.restore(json, this.scars.w, this.scars.h, this.scars.maxCraters, this.scars.maxTrees);
+    if (!r) return false;
+    const t = this.terrain;
+    const L = r.ledger;
+    // burnt ground: one soft stamp per scorched cell
+    if (t?.scorch) {
+      for (let k = 0; k < L.burn.length; k++) {
+        const v = L.burn[k];
+        if (v > 8) t.scorch((k % L.w) + 0.5, Math.floor(k / L.w) + 0.5, 0.85, (v / 255) * 0.6);
+      }
+    }
+    for (const c of L.craters) {
+      if (t?.deform) t.deform(c.x, c.y, c.r, c.d);
+      this.scars.craters.push({ ...c, used: this.time });
+    }
+    this.scars.burn.set(L.burn);
+    for (const tr of L.trees) {
+      const old = this.scars.addTree(tr);
+      if (old) this.burntTrees.remove(old);
+      this.burntTrees.add(tr);
+    }
+    (this.effects as unknown as { restoreScars?: (m: number[][]) => void }).restoreScars?.(r.marks);
+    Rubble.current?.restore(r.ruins);
+    return true;
   }
 
   /** M.A.D. tank seismic pulse at map (x, y) (sim 'quake' event): ground rings racing out to `radius`, dust, shake. */
@@ -803,8 +882,10 @@ export class Destruction {
   demoBlast(x: number, y: number, scale = 1): void {
     const g = this.map.surfaceAt(x, y);
     this.crater(x, y, 1.6 * scale, 0.14 * scale);
-    if (this.ctx) demoBlast(this.ctx, x, g, y, scale);
-    else this.effects.explosion(_v.set(x, g + 0.3, y), 'huge', 1.6 * scale);
+    if (this.ctx) {
+      demoBlast(this.ctx, x, g, y, scale);
+      if (this.ctx.heat) explosionHeat(this.ctx.heat, 'nuke', x, g, y, g, 0.45 * scale);
+    } else this.effects.explosion(_v.set(x, g + 0.3, y), 'huge', 1.6 * scale);
     this.effects.shake += 1.2 * scale;
   }
 
@@ -927,13 +1008,14 @@ export class Destruction {
       }
     }
     this.updateCraters();
+    this.burntTrees.flush();
   }
 
   /** Counters for diagnostics / perf reports. */
   stats(): { collapses: number; bodies: number; awake: number; ragdolls: number; pieces: number; craters: number; fires: number; damageEmitters: number } {
     return {
       collapses: this.collapses.length, bodies: this.physics.used, awake: this.physics.awake, ragdolls: this.ragdolls.active.length,
-      pieces: this.pieces.length, craters: this.craters.length, fires: this.fires, damageEmitters: this.damageCount,
+      pieces: this.pieces.length, craters: this.scars.craters.length, fires: this.fires, damageEmitters: this.damageCount,
     };
   }
 
@@ -955,6 +1037,7 @@ export class Destruction {
     this.physics.clear();
     this.pieces.length = 0;
     this.debris.dispose();
+    this.burntTrees.dispose();
     for (const o of this.warm.children) (o as THREE.SkinnedMesh).skeleton?.dispose();
     this.group.removeFromParent();
     if (DecalSystem.terrainHeight) DecalSystem.terrainHeight = null;

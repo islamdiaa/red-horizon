@@ -1,0 +1,25 @@
+{
+  "name": "red-horizon-relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Red Horizon multiplayer relay and verified leaderboards (Node + ws, no database).",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/relay.mjs",
+    "dev": "node --import tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

@@ -24,6 +24,12 @@ export class PathFinder {
   private heap = new MinHeap(4096);
   /** Cells temporarily treated as passable (e.g. the factory a unit is leaving). */
   private ignoreOccupant = 0;
+  /**
+   * Fortress gates (Commander rules, sim/economy.ts): cell index -> owner team. A search for `team` treats that
+   * team's gates as open (they open as its units arrive); everybody else finds them shut. Empty under Classic rules.
+   */
+  readonly gates = new Map<number, number>();
+  private team = -1;
   /** Separate searcher for ships (water cells), created on first use so ground searches stay as they were. */
   private navalFinder: NavalPathFinder | null = null;
   /** Diagnostics. */
@@ -40,6 +46,7 @@ export class PathFinder {
   protected ok(i: number): boolean {
     const m = this.map;
     if (m.passableIdx(i)) return true;
+    if (this.team >= 0 && this.gates.size && this.gates.get(i) === this.team) return true; // own fortress gate
     return this.ignoreOccupant !== 0 && m.occupant[i] === this.ignoreOccupant && m.terrainPassable(i);
   }
 
@@ -48,7 +55,7 @@ export class PathFinder {
    * excluding the start, ending at the goal or the closest reachable cell. Null if no progress possible.
    * `loco` 'naval' searches open water for ships instead of ground cells.
    */
-  find(sx: number, sy: number, tx: number, ty: number, maxNodes = 12000, ignoreOccupant = 0, loco: Locomotor = 'ground'): PathPoint[] | null {
+  find(sx: number, sy: number, tx: number, ty: number, maxNodes = 12000, ignoreOccupant = 0, loco: Locomotor = 'ground', team = -1): PathPoint[] | null {
     if (loco === 'naval') {
       const nf = (this.navalFinder ??= new NavalPathFinder(this.map));
       const path = nf.find(sx, sy, tx, ty, maxNodes);
@@ -56,10 +63,12 @@ export class PathFinder {
       return path;
     }
     this.ignoreOccupant = ignoreOccupant;
+    this.team = team;
     try {
       return this.search(sx, sy, tx, ty, maxNodes);
     } finally {
       this.ignoreOccupant = 0;
+      this.team = -1;
     }
   }
 

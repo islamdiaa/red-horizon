@@ -13,6 +13,7 @@ import type { MissionRuntime } from './mission';
 import { newCtrlState } from './formation';
 import { loadCommander, saveCommander } from './commander';
 import { loadVariety, neutralOwner, saveVariety } from './events';
+import { loadEcon, saveEcon } from './economy';
 
 export const SAVE_VERSION = 1;
 
@@ -99,6 +100,7 @@ export function serializeWorld(w: World): Json {
     ctrl: w.ctrl, // formations in transit
     commander: w.commander ? saveCommander(w.commander) : undefined, // Commander rules (absent = Classic)
     variety: w.variety ? saveVariety(w) : undefined, // mutators, events, tech structures (absent = none)
+    econ: w.econ ? saveEcon(w.econ, w) : undefined, // Commander economy: tiers, research (absent = Classic)
     pathQueue: W.pathQueue.map((u: Unit) => u.id),
     // commands issued after the last step (AI thinks at the end of a tick) run at the start of the next one
     commands: W.commands,
@@ -228,6 +230,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     mission.events.length = 0;
   }
   loadCommander(w, s.commander, s.projectiles); // Commander rules state (none in Classic saves)
+  if (s.econ || w.econ) loadEcon(w, s.econ); // Commander economy (none in Classic and older saves)
   if (s.variety || w.variety) loadVariety(w, s.variety); // after the AI restored its economy (none in older saves)
   for (const p of w.players) w.updateVisibility(p);
 }

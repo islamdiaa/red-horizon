@@ -22,6 +22,7 @@ import { pickWeapon } from '../sim/combat';
 import { FORMATION_SHAPES } from '../sim/formation';
 import { chronoTarget } from '../sim/aftermath';
 import { T } from '../sim/map';
+import { canGarrison } from '../sim/economy'; // Commander economy: bunkers
 import { toggleFullscreen } from '../platform/fullscreen';
 import { FORMATION_INFO, OrderViz, injectCtrlStyles } from './orderui';
 import { TouchController } from './touch';
@@ -911,7 +912,8 @@ export class InputController {
       const harv = units.filter((u) => u.ut.harvester && t.bt.dock);
       const eng = units.filter((u) => u.ut.engineer && t.hp < t.maxHp);
       const veh = units.filter((u) => u.kind === 'vehicle' && t.bt.repairPad && !u.ut.harvester);
-      const special = new Set([...harv, ...eng, ...veh].map((u) => u.id));
+      const gar = t.bt.garrison ? units.filter((u) => canGarrison(u, t)) : []; // into a bunker (Commander economy)
+      const special = new Set([...harv, ...eng, ...veh, ...gar].map((u) => u.id));
       if (special.size) {
         this.h.issue({ c: 'enter', player: local.id, units: [...special], target: t.id });
         const rest = ids.filter((id) => !special.has(id));
@@ -1084,6 +1086,7 @@ export class InputController {
         const chrono = units.filter((u) => u.ut.chronoShift);
         const rest = ids.filter((id) => !chrono.some((u) => u.id === id));
         if (rest.length) this.h.issue({ c: 'deploy', player: local.id, units: rest });
+        for (const b of blds) if (b.garrison?.length) this.h.issue({ c: 'evacuate', player: local.id, building: b.id }); // bunker (Commander economy)
         if (chrono.length) {
           if (this.readyChronoTanks().length) {
             this.setMode(this.mode === 'chrono' ? 'normal' : 'chrono');
@@ -1277,7 +1280,7 @@ export class InputController {
           c = 'enter';
         } else if (t instanceof Unit && t.ut.deploysInto && this.h.selection.has(t.id) && units.length === 1) {
           c = 'deploy';
-        } else if (t instanceof Building && t.owner === local && ((t.bt.dock && units.some((u) => u.ut.harvester)) || (t.bt.repairPad && units.some((u) => u.kind === 'vehicle')) || (units.some((u) => u.ut.engineer) && t.hp < t.maxHp))) {
+        } else if (t instanceof Building && t.owner === local && ((t.bt.dock && units.some((u) => u.ut.harvester)) || (t.bt.repairPad && units.some((u) => u.kind === 'vehicle')) || (units.some((u) => u.ut.engineer) && t.hp < t.maxHp) || (!!t.bt.garrison && units.some((u) => canGarrison(u, t))))) { // (bunker)
           c = 'enter';
         } else if (t instanceof Building && t.bt.tech && t.owner.id < 0 && units.some((u) => u.ut.engineer)) {
           c = 'enter'; // capture a neutral tech structure

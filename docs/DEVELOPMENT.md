@@ -9,7 +9,12 @@ npm ci
 npm run dev          # http://localhost:5173, hot reload
 npm run build        # type-check + production build into dist/
 npm run preview      # serve the production build
+npm run build:itch   # relative-base build (runs from any folder), zipped for itch.io into release/
+npm run desktop      # the Electron wrapper (desktop/, its own dependencies)
 ```
+
+Every runtime asset URL goes through `assetUrl()` in `src/platform/paths.ts`, so builds work from the site root,
+a sub-path (`RH_BASE=/sub/`) or a relative folder. See [DISTRIBUTION.md](DISTRIBUTION.md).
 
 ## Architecture
 
@@ -126,6 +131,8 @@ Add these to the URL to jump straight into a situation:
 | `tod=night` · `hour=0..24` · `cycle=1` · `wx=rain\|storm\|snow\|fog\|dust` | Time of day and weather |
 | `cam=x,y,dist` · `ff=<seconds>` · `intro=0\|1` | Camera, fast-forward, intro cinematic |
 | `q=low\|medium\|high` · `hd=0\|1` | Graphics preset, HD models |
+| `terrain=classic` · `nature=classic` | Procedural ground shading, procedural trees and rocks (A/B) |
+| `fxdc=0` · `juice=0` | Effects director's cut off (heat haze, lens rain, soft and fire-lit smoke) · game-feel layer off, for A/B comparisons |
 | `rules=commander\|classic` · `doctrine=<id>` · `mut=<a,b>` · `events=0` · `dyn=1` | Skirmish rules, doctrine, mutators, events, dynamic difficulty |
 | `ceasefire=<minutes>\|inf` | Build-up ceasefire |
 | `selfplay=hard` | An AI plays your side |
@@ -134,6 +141,9 @@ Add these to the URL to jump straight into a situation:
 | `replay=<id>\|latest` · `view=<n>\|obs` · `seek=<s>` · `take=<player>` | Watch a replay or take command |
 | `koth=1&kothmin=N` · `challenge=<id>` | King of the Hill, a saved challenge |
 | `conquest=assault\|capture\|hold\|defend\|naval\|boss\|ui` | A Conquest battle or the Conquest map |
+| `trailer=1` · `tod=` · `climate=` · `autorecord=1` | The ~85 s trailer cut with title cards, recorded to WebM |
+| `attract=0` · `tod=` · `climate=` (menu) | The old free-running menu battle · a fixed backdrop sky and climate |
+| `#share=1.…` | Open a share link (map, challenge or replay); asks before importing |
 
 Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
-`/preview-weather.html`.
+`/preview-weather.html`, `/preview-infantry.html` (HD infantry clips: `?type=e1&fac=soviet&clips=rifle.`).

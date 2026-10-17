@@ -49,9 +49,14 @@ import type { FxCue } from './context';
 import { WATER_LEVEL } from '../../sim/map';
 import { GpuParticles, gpuParticlesSupported, GK, type GpuParticleApi } from './gpuparticles';
 import { gpuExplosion } from './gpufx';
-import type { DynamicLightApi, DynamicLightOptions } from '../dynlights';
+import type { DynamicLightApi, DynamicLightOptions, DynamicLights } from '../dynlights';
 import type { TerrainDeformApi, TerrainMesh } from '../terrain';
 import { getNoiseTexture } from '../terrain';
+import { bindSmokeLight, particleLighting, particleLightColors, type ParticleSkyLight, type SoftDepthSource } from './smokelight';
+import type { HeatSources } from './heathaze';
+import { explosionHeat, fireballHeat, flameHeat, rocketHeat, teslaHeat } from './heatfx';
+import { ScarDecals, SCAR_CAPACITY } from './scars';
+import { FXDC } from './fxflags';
 
 export type { EffectsApi, EffectsOptions, EmitterHandle, EmitterKind, ProjectileHandle } from './types';
 export type { FxCue } from './context';
@@ -86,6 +91,8 @@ const JUICE_LEVEL: Record<'low' | 'medium' | 'high', number> = { low: 0, medium:
 // reused light options (no allocation per shot)
 const MUZZLE_BIG = { attack: 0.006, flicker: 0, priority: 0.8 };
 const MUZZLE_SMALL = { attack: 0.004, flicker: 0.35, priority: 0.45 };
+const TESLA_LIGHT = { attack: 0.01, flicker: 0.5 };
+const PROJ_LIGHT = { flicker: 0.3 };
 const _lod = new THREE.Vector3();
 
 export class Effects implements EffectsApi {
@@ -101,6 +108,9 @@ export class Effects implements EffectsApi {
   private beams: BeamBatch;
   private sprites: SpriteBatch;
   private decals: DecalSystem;
+  /** Lasting scorch marks (one more decal draw call, LRU budget per quality, see scars.ts). */
+  private scarLayer: DecalSystem;
+  readonly scars: ScarDecals;
   private lights: LightPool;
   private shells: ShellPool;
   private ambient = new AmbientMotes();
@@ -124,6 +134,10 @@ export class Effects implements EffectsApi {
   private shakeT: number[] = [];
   private shakeA: number[] = [];
   private gpuP: GpuParticles | null = null;
+  /** Hot air for the heat haze (the renderer's store; null on Low and preview pages). */
+  private heat: HeatSources | null = null;
+  /** The renderer's sun / sky light relative to daylight (lights smoke and dust). */
+  private skyLight: ParticleSkyLight | null = null;
   /**
    * Opt-in: persistent craters + burn marks for ground explosions when the recipe did not dig one itself.
    * Off in the game: the destruction system (destruction.ts) owns the crater policy (cap + healing).
@@ -155,15 +169,31 @@ export class Effects implements EffectsApi {
     this.tex = createEffectTextures();
     this.uniforms = createParticleUniforms(this.tex.atlas, this.tex.ramp);
     const u = this.uniforms;
+    // particle lighting from the game renderer (scene.userData): soft depth fade, fire light, sun and sky
+    const ud0 = opts.scene.userData;
+    const q0 = (ud0.fxQuality as 'low' | 'medium' | 'high' | undefined) ?? 'high';
+    const soft = (ud0.softParticles as SoftDepthSource | undefined) ?? null;
+    const dynL = (ud0.dynamicLights as DynamicLights | undefined) ?? null;
+    const pdefs = FXDC.on ? bindSmokeLight(u, particleLighting(q0, !!soft, !!dynL), soft, dynL) : {};
+    this.skyLight = (ud0.particleSkyLight as ParticleSkyLight | undefined) ?? null;
+    this.heat = (ud0.heatSources as HeatSources | undefined) ?? null;
     this.decals = new DecalSystem(DECAL_CAPACITY, this.tex.decals, opts.getHeight, u, 1);
-    this.main = new ParticleBatch(MAIN_CAPACITY, u, 20);
+    this.scarLayer = new DecalSystem(SCAR_CAPACITY[q0] ?? SCAR_CAPACITY.high, this.tex.decals, opts.getHeight, u, 0.9);
+    this.scarLayer.mesh.name = 'scars';
+    // no draw call until the first lasting mark (same program as the decals: nothing to compile)
+    this.scarLayer.mesh.visible = false;
+    this.scars = new ScarDecals(this.scarLayer);
+    this.scars.onFirst = () => { this.scarLayer.mesh.visible = true; };
+    // a scar that has to make room is baked into the terrain's burn map: the ground stays darker
+    this.scars.onBake = (x, z, r, a) => this.ctx.terrain?.scorch(x, z, r, a);
+    this.main = new ParticleBatch(MAIN_CAPACITY, u, 20, pdefs);
     this.beams = new BeamBatch(
       BEAM_CAPACITY,
       { uTime: u.uTime, uWind: u.uWind, uRamp: u.uRamp, uNoise: { value: this.tex.noise } } as unknown as Record<string, THREE.IUniform>,
       21,
     );
     this.sprites = new SpriteBatch(SPRITE_CAPACITY, this.tex.atlas, 22);
-    this.glow = new ParticleBatch(GLOW_CAPACITY, u, 23);
+    this.glow = new ParticleBatch(GLOW_CAPACITY, u, 23, pdefs);
     this.shells = new ShellPool(4, this.tex.noise, 24);
     this.lights = new LightPool(opts.scene, LIGHT_COUNT);
     this.bodies = new BodyPool(0);
@@ -181,7 +211,7 @@ export class Effects implements EffectsApi {
         const [w, h, dens] = GPU_SIZE[quality] ?? GPU_SIZE.high;
         this.gpuP = new GpuParticles({
           renderer: opts.renderer, width: w, height: h, atlas: this.tex.atlas, ramp: this.tex.ramp, shared: u,
-          noise: getNoiseTexture(), waterLevel: opts.waterLevel ?? WATER_LEVEL, density: dens, renderOrder: 22.5,
+          noise: getNoiseTexture(), waterLevel: opts.waterLevel ?? WATER_LEVEL, density: dens, renderOrder: 22.5, defines: pdefs,
         });
         if (terrain) this.gpuP.setHeightField(terrain.heightTexture, terrain.heightUvXf);
         this.simHook = !!ud.fxSimHook;
@@ -193,7 +223,7 @@ export class Effects implements EffectsApi {
     }
 
     this.root.name = 'effects';
-    this.root.add(this.decals.mesh, this.main.mesh, this.beams.mesh, this.sprites.mesh, this.glow.mesh, this.shells.group, this.bodies.group);
+    this.root.add(this.scarLayer.mesh, this.decals.mesh, this.main.mesh, this.beams.mesh, this.sprites.mesh, this.glow.mesh, this.shells.group, this.bodies.group);
     if (this.gpuP) this.root.add(this.gpuP.mesh);
     opts.scene.add(this.root);
 
@@ -203,6 +233,7 @@ export class Effects implements EffectsApi {
     this.beams.mesh.onBeforeRender = () => this.beams.flush();
     this.sprites.mesh.onBeforeRender = () => this.sprites.flush();
     this.decals.mesh.onBeforeRender = () => this.decals.flush();
+    this.scarLayer.mesh.onBeforeRender = () => this.scarLayer.flush();
 
     const self = this;
     this.ctx = {
@@ -222,6 +253,8 @@ export class Effects implements EffectsApi {
       bodies: this.bodies,
       dyn: this.lights.api,
       gpu: this.gpuP,
+      heat: this.heat,
+      scars: this.scars,
       // looked up every time (the renderer may rebuild its terrain for the map editor); counted, so the
       // automatic craters stand back when a recipe digs its own
       get terrain(): TerrainDeformApi | null {
@@ -298,6 +331,7 @@ export class Effects implements EffectsApi {
 
     this.flights.update(dt);
     this.lights.update(this.now);
+    if (this.skyLight) particleLightColors(this.skyLight, this.uniforms.uLightCol.value, this.uniforms.uShadowCol.value);
     this.shells.update(this.now);
     this.bodies.flush();
 
@@ -306,6 +340,7 @@ export class Effects implements EffectsApi {
     this.beams.flush();
     this.sprites.flush();
     this.decals.flush();
+    this.scarLayer.flush();
     // GPU particles: the game renderer simulates them inside its frame; standalone pages do it here
     if (this.gpuP) {
       this.gpuP.advance(dt);
@@ -320,7 +355,10 @@ export class Effects implements EffectsApi {
     this.glow.now = n;
     this.beams.now = n;
     this.decals.now = n;
+    this.scarLayer.now = n;
+    this.scars.now = n;
     this.uniforms.uTime.value = n;
+    if (this.heat) this.heat.now = n;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -336,6 +374,9 @@ export class Effects implements EffectsApi {
       if (lod > 0) explosionExtras(this.ctx, kind, pos.x, pos.y, pos.z, this.ctx.getHeight(pos.x, pos.z), s, lod * this.juice);
     }
     this.shAt = false;
+    if (this.heat && kind !== 'none' && kind !== 'piff' && !(kind !== 'nuke' && this.ctx.isWater(pos.x, pos.z) && pos.y < this.ctx.waterLevel + 0.05)) {
+      explosionHeat(this.heat, kind, pos.x, pos.y, pos.z, this.ctx.getHeight(pos.x, pos.z), s);
+    }
     if (this.autoCraters && this.deformCalls === dug) this.autoCrater(kind, pos, s);
     const gpu = this.gpuP;
     if (gpu && kind !== 'none') {
@@ -390,12 +431,14 @@ export class Effects implements EffectsApi {
     this.shakeAt(to.x, to.z);
     teslaBolt(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z);
     this.shAt = false;
-    this.ctx.dyn?.add(from.x, from.y + 0.2, from.z, 0x8fb4ff, 10, 6.5, 0.35, { attack: 0.01, flicker: 0.5 });
+    this.ctx.dyn?.add(from.x, from.y + 0.2, from.z, 0x8fb4ff, 10, 6.5, 0.35, TESLA_LIGHT);
+    if (this.heat) teslaHeat(this.heat, from.x, from.y, from.z, to.x, to.y, to.z);
     this.gpuP?.burst(GK.SPARK, to.x, to.y + 0.05, to.z, 24, 4, { life: [0.2, 0.6], size0: 0.02, up: 0.6, ramp: R.TESLA });
   }
 
   flameStream(from: THREE.Vector3, to: THREE.Vector3): void {
     flameStream(this.ctx, from.x, from.y, from.z, to.x, to.y, to.z);
+    if (this.heat) flameHeat(this.heat, from.x, from.y, from.z, to.x, to.y, to.z);
   }
 
   healPulse(pos: THREE.Vector3): void {
@@ -410,13 +453,18 @@ export class Effects implements EffectsApi {
     const h = spawnProjectile(this.ctx, kind, size);
     const dyn = this.ctx.dyn;
     if (!dyn || !(kind === 'missile' || kind === 'scud' || kind === 'fireball')) return h;
-    // rocket exhaust / fireballs light the ground they fly over
+    // rocket exhaust / fireballs light the ground they fly over; fireballs heat the air
     const col = kind === 'fireball' ? 0xff7a28 : 0xffad5c;
     const I = (kind === 'scud' ? 4 : kind === 'fireball' ? 3 : 1.6) * size;
+    const heat = this.heat;
+    const fire = kind === 'fireball';
     return {
       update(p: THREE.Vector3, d: THREE.Vector3) {
         h.update(p, d);
-        dyn.add(p.x - d.x * 0.3, p.y - d.y * 0.3, p.z - d.z * 0.3, col, I, 2.8 + I * 0.5, 0, { flicker: 0.3 });
+        dyn.add(p.x - d.x * 0.3, p.y - d.y * 0.3, p.z - d.z * 0.3, col, I, 2.8 + I * 0.5, 0, PROJ_LIGHT);
+        if (!heat) return;
+        if (fire) fireballHeat(heat, p.x, p.y, p.z, size);
+        else rocketHeat(heat, p.x - d.x * 0.45, p.y - d.y * 0.45, p.z - d.z * 0.45, kind === 'scud' ? 1.6 * size : size);
       },
       end() {
         h.end();
@@ -437,7 +485,19 @@ export class Effects implements EffectsApi {
 
   scorch(pos: THREE.Vector3, size: number): void {
     if (this.ctx.isWater(pos.x, pos.z)) return;
-    this.decals.add(pos.x, pos.z, size, rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B, 0.85, range(42, 58), rnd() * Math.PI * 2);
+    // wrecks, fallen structures and shell holes scar the ground for the rest of the match
+    if (size >= 0.6) this.scars.add(pos.x, pos.z, size, rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B, 0.85, rnd() * Math.PI * 2);
+    else this.decals.add(pos.x, pos.z, size, rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B, 0.85, range(42, 58), rnd() * Math.PI * 2);
+  }
+
+  /** Lasting scorch marks as [x, z, size, intensity] (save games). */
+  scarSnapshot(): number[][] {
+    return this.scars.snapshot();
+  }
+
+  /** Lay saved scorch marks again (validated by the caller). */
+  restoreScars(list: readonly (readonly number[])[]): void {
+    for (const m of list) this.scars.add(m[0], m[1], m[2], rnd() < 0.5 ? D.SCORCH_A : D.SCORCH_B, m[3], rnd() * Math.PI * 2);
   }
 
   bloodSplat(pos: THREE.Vector3): void {
@@ -712,7 +772,7 @@ export class Effects implements EffectsApi {
       glowAlive: this.glow.countAlive(this.now),
       spawnedTotal: this.main.spawned + this.glow.spawned,
       emitters: this.emitters.length,
-      drawCalls: 5 + (this.gpuP ? 1 : 0),
+      drawCalls: 5 + (this.gpuP ? 1 : 0) + (this.scarLayer.mesh.visible ? 1 : 0),
       gpuCapacity: this.gpuP?.capacity ?? 0,
       gpuSpawned: this.gpuP?.stats.spawnedTotal ?? 0,
     };
@@ -724,6 +784,7 @@ export class Effects implements EffectsApi {
     this.beams.dispose();
     this.sprites.dispose();
     this.decals.dispose();
+    this.scarLayer.dispose();
     this.shells.dispose();
     this.flights.dispose();
     this.bodies.dispose();

@@ -24,6 +24,9 @@ import { ArmyTools, type OverlayHook } from './army'; // army overview, loops, a
 import { QUEUE_LIMIT } from '../sim/production';
 import { isLooping, loopable } from '../sim/repeat';
 import { priceOf } from '../sim/doctrine';
+import { EconSelection, EconomyReadout, tierLock } from './economy'; // Commander economy: readout, upgrades
+import { powerMul } from '../sim/economy-data';
+import { ResearchTree } from './research'; // Commander economy: research tree
 
 export interface HudHost {
   world: World;
@@ -214,9 +217,10 @@ export class Hud {
     this.detachListeners = null;
     window.clearTimeout(this.armTimer);
     this.army.dispose();
+    this.research?.dispose();
     // the next screen (menus, another battle's HUD) starts from a clean body
     document.body.classList.remove('hud-modern');
-    for (const v of ['--dock-h', '--tl-h', '--bb-h']) document.body.style.removeProperty(v);
+    for (const v of ['--dock-h', '--tl-h', '--bb-h', '--sel-h']) document.body.style.removeProperty(v);
   }
   readonly root: HTMLElement;
   readonly minimap: Minimap;
@@ -305,6 +309,10 @@ export class Hud {
   private tutKey = '';
   /** Big-army tools (ui/army.ts): army overview, loops, auto-groups, idle watch, repairs. */
   readonly army: ArmyTools;
+  /** Commander economy (ui/economy.ts, ui/research.ts): readout, the selected structure's upgrades, research tree. */
+  private econRo: EconomyReadout | null = null;
+  private econSel: EconSelection | null = null;
+  private research: ResearchTree | null = null;
 
   constructor(private host: HudHost) {
     Hud.live?.dispose(); // its widgets are about to be cleared with the UI root; drop its listeners too
@@ -485,6 +493,16 @@ export class Hud {
       this.detachListeners = () => { prev?.(); ro.disconnect(); };
     }
 
+    // Commander economy: the readout next to the credits and the research tree
+    if (host.world.econ) {
+      this.econRo = new EconomyReadout(host.world, host.local, () => { this.sound.play('click'); this.openResearch(null); }, (t) => this.message(t, false, 'success'), this.tip);
+      this.research = new ResearchTree({
+        world: host.world, local: host.local, issue: (c) => host.issue(c), sound: (k) => this.sound.play(k), message: (t, w) => this.message(t, w), spectator: host.spectator, tip: this.tip,
+      }, ui);
+      this.tip.bind(this.research.root, 'top');
+      this.sound.bind(this.research.root, 'button');
+    }
+
     // HUD buttons must not keep keyboard focus: Space / Enter are game hotkeys and would re-click them.
     const noFocus = (e: MouseEvent) => { if ((e.target as HTMLElement).closest('button')) e.preventDefault(); };
     for (const c of [sb, tb, tr, this.dock, this.mmPanel]) c.addEventListener('mousedown', noFocus);
@@ -545,7 +563,7 @@ export class Hud {
       this.sbHead.remove();
       this.mmPanel.replaceChildren(this.radar);
       if (!this.mmPanel.isConnected) this.ui.insertBefore(this.mmPanel, this.dock.nextSibling);
-      this.rbRes.replaceChildren(this.creditsBox, this.powerBox, this.army.chip); // units (overview) + idle count
+      this.rbRes.replaceChildren(this.creditsBox, this.powerBox, ...(this.econRo ? [this.econRo.el] : []), this.army.chip); // units (overview) + idle count; economy readout
       this.rbTime.replaceChildren(this.clock, this.speedEl);
       this.rbBtns.replaceChildren(...[this.fsBtn, this.toasts.bell, this.settingsBtn, this.menuBtn].filter((b): b is HTMLButtonElement => !!b));
       tr.replaceChildren(this.fpsEl, this.rbRes, this.rbTime, this.rbBtns, ...(this.logPanel ? [this.logPanel] : []));
@@ -555,7 +573,7 @@ export class Hud {
     } else {
       sb.id = 'sidebar';
       this.sbHead.replaceChildren(this.creditsBox, this.repairBtn, this.sellBtn);
-      sb.replaceChildren(this.sbHead, this.powerBox, this.radar, this.tabsEl, this.catHead, this.grid, this.supers);
+      sb.replaceChildren(this.sbHead, this.powerBox, ...(this.econRo ? [this.econRo.el] : []), this.radar, this.tabsEl, this.catHead, this.grid, this.supers); // (economy readout)
       this.mmPanel.remove();
       tr.replaceChildren(this.fpsEl, ...[this.fsBtn, this.toasts.bell, this.logPanel].filter((b): b is HTMLElement => !!b));
       this.objPanel.remove();
@@ -576,12 +594,14 @@ export class Hud {
     const s = document.body.style;
     if (this.layout === 'modern') {
       s.setProperty('--dock-h', `${Math.max(this.mmPanel.offsetHeight, this.sidebar.offsetHeight)}px`);
+      s.setProperty('--sel-h', `${this.dock.offsetHeight}px`); // the selection panel column (the commander panel sits above it)
       s.setProperty('--tl-h', `${this.topbar.offsetHeight}px`);
       s.setProperty('--bb-h', `${this.sidebar.offsetHeight}px`);
     } else {
       s.setProperty('--dock-h', `${this.dock.offsetHeight}px`);
       s.removeProperty('--tl-h');
       s.removeProperty('--bb-h');
+      s.removeProperty('--sel-h');
     }
   }
 
@@ -701,6 +721,12 @@ export class Hud {
       this.updateTutorial();
     }
     this.updateCeasefire();
+    if (this.econRo) { this.econRo.update(0.12); this.research?.update(); } // Commander economy
+  }
+
+  /** Open the research tree (at a lab, or wherever there is an idle one). */
+  openResearch(lab: Building | null) {
+    this.research?.toggle(lab);
   }
 
   // ---------------------------------------------------------------------------
@@ -862,7 +888,7 @@ export class Hud {
     const decoy = (id: string) => (BUILDINGS[id]?.fakeOf ? 1 : 0);
     const list = (avail.get(this.activeTab) ?? []).sort((a, b) => decoy(a) - decoy(b) || getType(a).cost - getType(b).cost);
     const tabCat = this.activeTab === 'support' ? 'building' : this.activeTab;
-    const locked = factionTypes(p.faction, tabCat).filter((id) => !list.includes(id) && this.tabOf(id) === this.activeTab).sort((a, b) => decoy(a) - decoy(b));
+    const locked = factionTypes(p.faction, tabCat, !!p.econ).filter((id) => !list.includes(id) && this.tabOf(id) === this.activeTab).sort((a, b) => decoy(a) - decoy(b));
     const key = this.activeTab + ':' + list.join(',') + '|' + locked.join(',');
     if (key !== this.gridKey) { this.rebuildGrid(list, locked, key); this.updateScrollFade(); }
     for (const c of this.cards.values()) c.el.classList.toggle('is-new', (this.newUntil.get(c.id) ?? 0) > now);
@@ -958,7 +984,7 @@ export class Hud {
         <span class="bi-cost">$${priceOf(this.host.local, id).toLocaleString('en-US')}</span>
         <span class="bi-name">${esc(shortName(t))}</span>
         <span class="bi-count"></span>
-        ${locked ? `<span class="bi-lock">${ICONS.lock}</span>` : ''}
+        ${locked ? `<span class="bi-lock">${ICONS.lock}</span>` : ''}${locked && tierLock(this.host.local, id) ? `<span class="bi-tier">T${tierLock(this.host.local, id)}</span>` : ''}
         <span class="bi-new">New</span>${modCardTag(id)}${hk ? `<kbd class="bi-key">${hk}</kbd>` : ''}
         <div class="bi-glare"></div><div class="bi-shine"></div>
         ${!locked && loopable(id) && !this.host.spectator ? `<button class="bi-loop" tabindex="-1" aria-label="Loop ${esc(t.name)}">${ICONS.cycle}</button>` : ''}
@@ -1205,6 +1231,7 @@ export class Hud {
     }
     if (ents.length === 1) this.refreshSingle(ents[0]);
     else this.refreshMulti(ents);
+    this.econSel?.refresh(); // upgrades, research, garrison, ore (Commander economy)
     this.refreshStances(ents);
     refreshFormationBar(this.selpanel, ents.filter((e): e is Unit => e instanceof Unit));
     // auto-group picker and the repair button follow the state
@@ -1293,6 +1320,7 @@ export class Hud {
     const sp = this.selpanel;
     sp.innerHTML = '';
     this.extraHtml = '';
+    this.econSel = null;
     sp.className = 'panel on ' + (ents.length === 1 ? 'single' : 'multi') + (own ? '' : look.owner === local ? '' : local.isEnemy(look.owner) ? ' enemy' : ' ally');
     sp.style.setProperty('--team', hexColor(look.owner.color));
     this.dock.classList.add('has-sel');
@@ -1314,6 +1342,13 @@ export class Hud {
       // unit factories: new units join a control group
       const facs = cmdEnts.filter((e): e is Building => e instanceof Building && !!e.bt.factory && e.bt.factory !== 'building');
       if (facs.length) (sp.querySelector('.sp-main, .sp-multi') ?? sp).appendChild(this.autoGroupPicker(facs));
+      // Commander economy: the structure's upgrades, its research, garrison or ore
+      if (ents.length === 1 && first instanceof Building && this.host.world.econ) {
+        this.econSel = EconSelection.for({
+          world: this.host.world, local, issue: (c) => this.host.issue(c), sound: (k) => this.sound.play(k), message: (t, w) => this.message(t, w), openResearch: (lab) => this.openResearch(lab), tip: this.tip,
+        }, first);
+        if (this.econSel) (sp.querySelector('.sp-main') ?? sp).appendChild(this.econSel.el);
+      }
     }
     replaySoft(sp, wasOpen ? 'swap' : 'pop', 500); // (no forced layout: box-selecting 100+ units stays instant)
     this.tutKey = '';
@@ -1381,7 +1416,7 @@ export class Hud {
       chips.push(this.chip(ICONS.gauge, mphToCellsPerSecond(ut.speed).toFixed(1), 'c/s', tipHtml('Speed', 'Cells per second.')));
     } else if (e instanceof Building) {
       const bt = t as BuildingTypeDef;
-      const pw = bt.power;
+      const pw = !look.masked && e.upgrades ? Math.round(bt.power * powerMul(e.upgrades)) : bt.power; // (Turbine upgrade)
       if (pw) chips.push(`<span class="chip ${pw > 0 ? 'pos' : 'neg'}" data-tip="${esc(tipHtml('Power', pw > 0 ? 'Produces power (less when damaged).' : 'Consumes power.'))}"><span class="chip-ic">${ICONS.bolt}</span><span class="chip-v">${pw > 0 ? '+' : ''}${pw}</span></span>`);
       if (bt.primary) {
         const wd = WEAPONS[bt.primary];
@@ -1622,6 +1657,7 @@ export class Hud {
       add(ICONS.sell, 'Z', 'Sell', 'Sell this structure for a partial refund.', 'warn');
       add(ICONS.wrench, 'R', 'Repair', 'Toggle repairs on this structure (costs credits).');
       if (blds[0].bt.factory && blds[0].bt.factory !== 'building') add(ICONS.primary, 'P', 'Primary factory', 'New units of this type are produced here.');
+      if (blds[0].bt.garrison) add(ICONS.unload, 'D', 'Evacuate', 'The infantry inside come out next to the bunker.', 'hl'); // (Commander economy)
     }
     box.classList.toggle('few', box.children.length <= 3);
     return box;

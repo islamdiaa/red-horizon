@@ -19,9 +19,13 @@ import { shadowDepthMaterial } from './models/materials';
 import { DynamicLights } from './dynlights';
 import { VolumetricPass } from './volumetrics';
 import { TemporalPass } from './temporal';
-import { CinematicPass } from './cinematicfx';
+import { CinematicPass, LENS_RAIN_GLSL, lensRainTarget, stepLensRain } from './cinematicfx';
 import { PhotoLens } from './photo';
 import { RIM_UNIFORMS } from './scale';
+import { HAZE_GLSL, HeatHazePass, HeatSources, hazeSettings } from './effects/heathaze';
+import type { ParticleSkyLight, SoftDepthSource } from './effects/smokelight';
+import { JUICE } from './effects/juiceflags';
+import { FXDC } from './effects/fxflags';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
@@ -124,6 +128,12 @@ const FinalShader = {
     uBloom: { value: 0 },
     uSharpen: { value: 0 },
     uClarity: { value: 0 },
+    // heat haze (offset buffer, scene depth, on/off, camera near / far) and lens rain (amount, time, runs, aspect)
+    tHaze: { value: null as THREE.Texture | null },
+    tHazeDepth: { value: null as THREE.Texture | null },
+    uHaze: { value: 0 },
+    uHazeNF: { value: new THREE.Vector2(0.5, 400) },
+    uLens: { value: new THREE.Vector4(0, 0, 1, 1) },
   },
   vertexShader: /* glsl */ `
     precision highp float;
@@ -141,14 +151,25 @@ const FinalShader = {
     #include <colorspace_pars_fragment>
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    #ifdef DISTORT
+      ${HAZE_GLSL}
+      ${LENS_RAIN_GLSL}
+    #endif
     void main() {
-      vec3 base = texture2D(tDiffuse, vUv).rgb;
+      // the image is looked up through the lens drops (cinematics in the rain) and the heat shimmer
+      vec2 uv = vUv;
+      #ifdef DISTORT
+        vec4 lr = vec4(0.0);
+        if (uLens.x > 0.001) { lr = lensRain(vUv); uv += lr.xy; }
+        if (uHaze > 0.0) uv += hazeOffset(uv);
+      #endif
+      vec3 base = texture2D(tDiffuse, uv).rgb;
       #ifdef SHARPEN
         // contrast-adaptive sharpening after the temporal resolve / upscale (clamped: no halos)
         if (uSharpen > 0.0) {
           vec2 px = 1.0 / uRes;
-          vec3 n = texture2D(tDiffuse, vUv + vec2(0.0, px.y)).rgb, so = texture2D(tDiffuse, vUv - vec2(0.0, px.y)).rgb;
-          vec3 e = texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb, w = texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb;
+          vec3 n = texture2D(tDiffuse, uv + vec2(0.0, px.y)).rgb, so = texture2D(tDiffuse, uv - vec2(0.0, px.y)).rgb;
+          vec3 e = texture2D(tDiffuse, uv + vec2(px.x, 0.0)).rgb, w = texture2D(tDiffuse, uv - vec2(px.x, 0.0)).rgb;
           vec3 mn = min(base, min(min(n, so), min(e, w))), mx = max(base, max(max(n, so), max(e, w)));
           vec3 amp = sqrt(clamp(min(mn, 1.0 - min(mx, 1.0)) / max(mx, 1e-4), 0.0, 1.0));
           vec3 sharp = base + (base * 4.0 - (n + so + e + w)) * amp * 0.2 * uSharpen;
@@ -159,8 +180,8 @@ const FinalShader = {
         if (uClarity > 0.0) {
           vec2 q = 3.0 / uRes;
           const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
-          float lb = 0.25 * (dot(texture2D(tDiffuse, vUv + vec2(q.x, q.y)).rgb, LW) + dot(texture2D(tDiffuse, vUv + vec2(-q.x, q.y)).rgb, LW)
-                           + dot(texture2D(tDiffuse, vUv + vec2(q.x, -q.y)).rgb, LW) + dot(texture2D(tDiffuse, vUv - q).rgb, LW));
+          float lb = 0.25 * (dot(texture2D(tDiffuse, uv + vec2(q.x, q.y)).rgb, LW) + dot(texture2D(tDiffuse, uv + vec2(-q.x, q.y)).rgb, LW)
+                           + dot(texture2D(tDiffuse, uv + vec2(q.x, -q.y)).rgb, LW) + dot(texture2D(tDiffuse, uv - q).rgb, LW));
           float lc = dot(base, LW);
           base *= 1.0 + uClarity * clamp((lc - lb) / (lb + 0.06), -0.6, 0.6);
         }
@@ -177,7 +198,7 @@ const FinalShader = {
             float fi = float(i);
             float a = fi * 2.39996;
             float rr = sqrt((fi + 0.5) / 12.0) * r;
-            acc += texture2D(tDiffuse, vUv + vec2(cos(a), sin(a)) * rr / uRes).rgb;
+            acc += texture2D(tDiffuse, uv + vec2(cos(a), sin(a)) * rr / uRes).rgb;
           }
           c = acc / 13.0;
         }
@@ -188,11 +209,16 @@ const FinalShader = {
         // subtle chromatic aberration towards the edges (where the image is in focus)
         vec2 off = d * r2 * (0.0015 + 0.0045 * uTilt); // barely-there fringes unless the miniature lens is on
         float ca = 1.0 - min(1.0, amt * 3.0);
-        c.r += (texture2D(tDiffuse, vUv + off).r - base.r) * ca;
-        c.b += (texture2D(tDiffuse, vUv - off).b - base.b) * ca;
+        c.r += (texture2D(tDiffuse, uv + off).r - base.r) * ca;
+        c.b += (texture2D(tDiffuse, uv - off).b - base.b) * ca;
       #endif
       #ifdef BLOOM
-        c += texture2D(tBloom, vUv).rgb * uBloom;
+        c += texture2D(tBloom, uv).rgb * uBloom;
+      #endif
+      #ifdef DISTORT
+        // drops on the lens: darker rims (the light bends away), a glint of the sky on top
+        c *= 1.0 - lr.z * 0.3;
+        c += lr.w * vec3(0.8, 0.86, 0.95) * (0.1 + 0.25 * dot(base, vec3(0.2126, 0.7152, 0.0722)));
       #endif
       // grade (linear HDR): saturation, tint, split toning, contrast around mid grey
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -220,18 +246,22 @@ class FinalPass extends Pass {
   private quad: FullScreenQuad;
   /** Colour to grade instead of the composer's read buffer (the TAA resolve). */
   source: (() => THREE.Texture | null) | null = null;
-  constructor(tilt: boolean, bloom: boolean, sharpen = false) {
+  /** Heat haze strength this frame (0 = the haze pass drew nothing). */
+  hazeOn: (() => number) | null = null;
+  /** `distort`: heat haze and lens rain (medium / high). */
+  constructor(tilt: boolean, bloom: boolean, sharpen = false, distort = false) {
     super();
     this.uniforms = THREE.UniformsUtils.clone(FinalShader.uniforms) as typeof FinalShader.uniforms;
     this.material = new THREE.RawShaderMaterial({
       name: 'FinalShader', uniforms: this.uniforms, vertexShader: FinalShader.vertexShader, fragmentShader: FinalShader.fragmentShader,
-      defines: { ...(tilt ? { TILT: '' } : {}), ...(bloom ? { BLOOM: '' } : {}), ...(sharpen ? { SHARPEN: '' } : {}), ACES_FILMIC_TONE_MAPPING: '', SRGB_TRANSFER: '' },
+      defines: { ...(tilt ? { TILT: '' } : {}), ...(bloom ? { BLOOM: '' } : {}), ...(sharpen ? { SHARPEN: '' } : {}), ...(distort ? { DISTORT: '' } : {}), ACES_FILMIC_TONE_MAPPING: '', SRGB_TRANSFER: '' },
       depthTest: false, depthWrite: false,
     });
     this.quad = new FullScreenQuad(this.material);
   }
   render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
     this.uniforms.tDiffuse.value = this.source?.() ?? readBuffer.texture;
+    this.uniforms.uHaze.value = this.hazeOn?.() ?? 0;
     this.uniforms.toneMappingExposure.value = renderer.toneMappingExposure;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
@@ -416,6 +446,90 @@ class SceneAOPass extends Pass {
   }
 }
 
+/**
+ * Soft particles: once the opaque scene (and the transparent layers below the effects) is drawn, a marker that
+ * sorts just before the particle batches converts the scene depth into a linear-depth copy (R16F, render
+ * resolution) the particles can read while they draw into the same target (smokelight.ts). Medium / high.
+ */
+class SoftDepthCopy implements SoftDepthSource {
+  readonly target: THREE.WebGLRenderTarget;
+  readonly invRes = new THREE.Vector2(1, 1);
+  readonly marker: THREE.Mesh;
+  private quad: FullScreenQuad;
+  private mat: THREE.ShaderMaterial;
+  /** Copies made in the last frame (diagnostics). */
+  copies = 0;
+
+  constructor(private sceneTarget: THREE.WebGLRenderTarget, private camera: THREE.PerspectiveCamera) {
+    this.target = new THREE.WebGLRenderTarget(1, 1, {
+      type: THREE.HalfFloatType, format: THREE.RedFormat, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    });
+    this.target.texture.name = 'soft-depth';
+    this.mat = new THREE.ShaderMaterial({
+      name: 'soft-depth',
+      uniforms: { tDepth: { value: null }, uNF: { value: new THREE.Vector2(0.5, 400) } },
+      vertexShader: QUAD_VS,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDepth; uniform vec2 uNF;
+        varying vec2 vUv;
+        void main() {
+          float d = texture2D(tDepth, vUv).x;
+          gl_FragColor = vec4(uNF.x * uNF.y / (uNF.y - d * (uNF.y - uNF.x)), 0.0, 0.0, 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    });
+    this.quad = new FullScreenQuad(this.mat);
+    // never draws itself (no vertices); its onBeforeRender runs in the transparent list right before the effects
+    const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+      name: 'soft-depth-marker', vertexShader: 'void main() { gl_Position = vec4(0.0); }', fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }',
+      transparent: true, depthWrite: false, depthTest: false, colorWrite: false,
+    }));
+    m.name = 'soft-depth-marker';
+    m.frustumCulled = false;
+    m.renderOrder = 19.5; // effects batches: 20 and up
+    m.matrixAutoUpdate = false;
+    m.onBeforeRender = (renderer) => this.copy(renderer);
+    this.marker = m;
+  }
+
+  get texture(): THREE.Texture {
+    return this.target.texture;
+  }
+
+  setSize(w: number, h: number) {
+    this.target.setSize(w, h);
+    this.invRes.set(1 / w, 1 / h);
+  }
+
+  private copy(renderer: THREE.WebGLRenderer) {
+    const prev = renderer.getRenderTarget();
+    // only inside the main scene render (the depth texture is attached there, not bound for drawing here)
+    if (prev !== this.sceneTarget || !this.sceneTarget.depthTexture) return;
+    const st = this.sceneTarget;
+    if (st.width !== this.target.width || st.height !== this.target.height) this.setSize(st.width, st.height);
+    const u = this.mat.uniforms;
+    u.tDepth.value = this.sceneTarget.depthTexture;
+    u.uNF.value.set(this.camera.near, this.camera.far);
+    renderer.setRenderTarget(this.target);
+    this.quad.render(renderer);
+    renderer.setRenderTarget(prev);
+    this.copies++;
+  }
+
+  dispose() {
+    this.target.dispose();
+    this.mat.dispose();
+    this.quad.dispose();
+    this.marker.geometry.dispose();
+    (this.marker.material as THREE.Material).dispose();
+    this.marker.removeFromParent();
+  }
+}
+
+/** Day-preset sun and sky irradiance (linear), the reference the particle lighting is authored against. */
+const DAY_SUN = new THREE.Color(PRESETS.day.sunColor).multiplyScalar(PRESETS.day.sunIntensity);
+const DAY_SKY = new THREE.Color(PRESETS.day.hemiSky).multiplyScalar(PRESETS.day.hemiIntensity);
+
 /** Owns the WebGL renderer, scene, environment layers and post-processing chain. */
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
@@ -491,6 +605,17 @@ export class GameRenderer {
   private bloomBase = 0.5;
   private shaftBase = 0;
   private mistBase = 0;
+  /** Hot spots the effects add (fires, fireballs, exhausts...) and the heat haze they make (medium / high). */
+  readonly heat: HeatSources | null = null;
+  private haze: HeatHazePass | null = null;
+  private softDepth: SoftDepthCopy | null = null;
+  /** Lens rain: current amount (0..1) and its clock (cinematics and photo mode in the rain, never in play). */
+  private lensRain = 0;
+  private lensT = 0;
+  /** Debug / screenshots: lens rain as if in a cinematic. */
+  forceLensRain = false;
+  /** Scene light relative to the day preset, for the particle lighting (smokelight.ts). */
+  private readonly particleSky: ParticleSkyLight = { sunK: new THREE.Color(1, 1, 1), skyK: new THREE.Color(1, 1, 1) };
 
   constructor(readonly canvas: HTMLCanvasElement, readonly map: GameMap, readonly settings: GraphicsSettings) {
     const q = settings.quality;
@@ -573,6 +698,24 @@ export class GameRenderer {
     this.scenePass = scenePass;
     this.composer.addPass(scenePass);
     const sceneDepth = () => scenePass.depth;
+    // heat haze (half resolution on high, quarter on medium) and soft particles; none on low
+    const hz = hazeSettings(q);
+    if (hz.enabled && FXDC.on) {
+      const heat = new HeatSources();
+      this.heat = heat;
+      this.scene.userData.heatSources = heat;
+      const haze = new HeatHazePass(this.cam.camera, heat, hz.scale, hz.cap);
+      haze.depthSource = sceneDepth;
+      this.haze = haze;
+      this.composer.addPass(haze);
+    }
+    if (q !== 'low' && FXDC.on) {
+      const soft = new SoftDepthCopy(scenePass.target, this.cam.camera);
+      this.softDepth = soft;
+      this.scene.add(soft.marker);
+      this.scene.userData.softParticles = soft;
+    }
+    this.scene.userData.particleSkyLight = this.particleSky;
     if (q === 'high') {
       const gtao = new GTAOPass(this.scene, this.cam.camera, Math.round(size.x / 2), Math.round(size.y / 2));
       // reuse the scene depth (normals reconstructed from depth): no extra geometry pass
@@ -633,9 +776,15 @@ export class GameRenderer {
       this.bloom.source = resolved;
       this.composer.addPass(this.bloom);
     }
-    this.final = new FinalPass(q !== 'low', !!this.bloom, !!this.taa);
+    this.final = new FinalPass(q !== 'low', !!this.bloom, !!this.taa, q !== 'low' && FXDC.on);
     this.final.source = resolved;
     if (this.bloom) this.final.uniforms.tBloom.value = this.bloom.texture;
+    if (this.haze) {
+      const haze = this.haze;
+      this.final.uniforms.tHaze.value = haze.texture;
+      this.final.hazeOn = () => (haze.active ? 1 : 0);
+    }
+    this.final.uniforms.tHazeDepth.value = scenePass.depth;
     this.composer.addPass(this.final);
     if (q === 'high' && !this.taa) this.composer.addPass(new SMAAPass());
     else if (q === 'medium') {
@@ -733,6 +882,7 @@ export class GameRenderer {
     this.weather.setTerrain((x, z) => this.terrain.renderHeight(x, z), map.w, map.h);
     (this.scene.userData.gpuParticles as { setHeightField(t: THREE.Texture, xf: THREE.Vector4): void } | undefined)?.setHeightField(this.terrain.heightTexture, this.terrain.heightUvXf);
     this.dynLights.clear();
+    this.heat?.clear();
     this.water.warmUp(this.renderer);
     this.renderer.shadowMap.needsUpdate = true;
     this.trash.push(() => {
@@ -765,6 +915,7 @@ export class GameRenderer {
     const rw = Math.max(1, Math.round(size.x * s)), rh = Math.max(1, Math.round(size.y * s));
     this.volumetrics?.setSize(rw, rh);
     this.atmoTarget?.setSize(rw, rh);
+    this.softDepth?.setSize(rw, rh);
     if (this.taa) {
       this.taa.renderSize.set(rw, rh);
       this.taa.reset = true;
@@ -934,6 +1085,10 @@ export class GameRenderer {
       vu.uTime.value = time;
     }
     this.water.setLighting(this.sunDir, this.sun.color, this.sun.intensity, this.hemi.color, fog.color, this.night, w);
+    // smoke and dust are lit by this sun and sky, relative to the daylight they were authored for
+    const ps = this.particleSky;
+    ps.sunK.setRGB(this.sun.color.r * this.sun.intensity / DAY_SUN.r, this.sun.color.g * this.sun.intensity / DAY_SUN.g, this.sun.color.b * this.sun.intensity / DAY_SUN.b);
+    ps.skyK.setRGB(this.hemi.color.r * this.hemi.intensity / DAY_SKY.r, this.hemi.color.g * this.hemi.intensity / DAY_SKY.g, this.hemi.color.b * this.hemi.intensity / DAY_SKY.b);
   }
 
   /** Photo mode (U) on / off: shows the depth-of-field panel (medium / high). */
@@ -953,6 +1108,9 @@ export class GameRenderer {
       lens: !!this.lens?.enabled,
       gpu: (this.scene.userData.gpuParticles as { stats?: object } | undefined)?.stats,
       passes: { ...this.passCalls },
+      haze: this.heat ? { ...this.heat.stats, active: !!this.haze?.active } : null,
+      lensRain: +this.lensRain.toFixed(3),
+      softDepth: this.softDepth ? this.softDepth.copies : null,
     };
   }
 
@@ -1049,10 +1207,24 @@ export class GameRenderer {
       // the lens replaces the miniature blur
       u.uTilt.value *= 1 - Math.min(1, dof * 3);
     }
+    // heat haze: off with reduced motion; lens rain only in cinematic moments (and photo mode) in the rain
+    if (this.haze) this.haze.allowed = !JUICE.reduceMotion;
+    {
+      const lv = this.weather.levels;
+      const rain = Math.min(1, lv.rain * 0.85 + lv.storm * 0.3);
+      const moment = cine || this.photoOn || this.forceLensRain || (rain > 0.02 && typeof document !== 'undefined' && document.body.classList.contains('cine-on'));
+      const target = lensRainTarget({ quality: this.settings.quality, moment, rain });
+      this.lensRain = stepLensRain(this.lensRain, target, dt, moment);
+      if (!JUICE.reduceMotion) this.lensT += dt;
+      const sz = this.renderer.getDrawingBufferSize(_v2);
+      this.final.uniforms.uLens.value.set(this.lensRain, this.lensT, JUICE.reduceMotion ? 0 : 1, sz.x / Math.max(1, sz.y));
+      this.final.uniforms.uHazeNF.value.set(this.cam.camera.near, this.cam.camera.far);
+    }
     this.terrain.flush(dt);
     this.taa?.jitter(this.cam.camera);
     this.renderer.info.reset();
     for (const k in this.passCalls) this.passCalls[k] = 0;
+    if (this.softDepth) this.softDepth.copies = 0;
     // GPU particle simulation + spawns (counted in this frame's draw calls)
     (this.scene.userData.gpuParticles as { simulate(t: number): void } | undefined)?.simulate(time);
     this.passCalls.gpuSim = this.renderer.info.render.calls;
@@ -1117,6 +1289,7 @@ export class GameRenderer {
       this.renderer.info.reset();
       // passes that only run on demand (cinematic lens) still get their programs now
       if (lens) { lens.enabled = true; lens.force = true; }
+      this.heat?.add(this.cam.x, 0, this.cam.y, 1, 2, 0.001, 0);
       this.dynLights.prepare(this.cam.camera);
       this.water.warmUp(this.renderer);
       this.composer.render(0);
@@ -1160,6 +1333,11 @@ export class GameRenderer {
     this.dynLights.dispose();
     this.photo?.dispose();
     this.atmoTarget?.dispose();
+    this.softDepth?.dispose();
+    this.heat?.clear();
+    delete this.scene.userData.heatSources;
+    delete this.scene.userData.softParticles;
+    delete this.scene.userData.particleSkyLight;
     delete this.scene.userData.dynamicLights;
     delete this.scene.userData.terrain;
     delete this.scene.userData.gpuParticles;

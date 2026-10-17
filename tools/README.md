@@ -38,6 +38,7 @@ ship with the game.
 | `run.ts` | Mass AI-vs-AI self-play with a statistical report (options in its header) | `node --import tsx tools/selfplay/run.ts --mode faction --games 40` |
 | `balance.ts` | Cost-equal unit duels (`--emit` regenerates `src/sim/ai-matchups.ts`) | `node --import tsx tools/selfplay/balance.ts [--budget 3000] [--seeds 2] [--emit]` |
 | `doctrine.ts` | Commander-rules balance: doctrines and commander powers | `node --import tsx tools/selfplay/doctrine.ts [--seeds 6] [--only mirror,cross,powers,comeback]` |
+| `economy.ts` | Commander economy sanity: what each personality builds, researches and upgrades, the economy on vs off, greed vs aggression | `node --import tsx tools/selfplay/economy.ts [--games 12] [--minutes 40] [--only usage,ablation,greed,pace]` |
 | `optimize.ts` | Hill-climbing of the AI's tuning parameters | `node --import tsx tools/selfplay/optimize.ts [--iters 20] [--games 96] [--vs best\|legacy]` |
 | `inspect.ts` | Watches one match in the terminal (economy, army, AI decisions) | `node --import tsx tools/selfplay/inspect.ts [seed] [map] [p0] [p1] [minutes]` |
 | `campaign-compare.ts` | Campaign autopilots against the current AI and the legacy AI | `node --import tsx tools/selfplay/campaign-compare.ts [jitters=4] [missions] [minutes=40]` |
@@ -73,6 +74,8 @@ server, or `QA_BASE`.
 | `soak_qa.mjs` | Long rendered session: errors, heap and leaks | `node tools/qa/soak_qa.mjs [simMinutes=35] [query]` |
 | `juice_bench.mjs` | Big-battle cost: draw calls, particles, lights, voices, CPU time (`0\|1` = game-feel layer off or on) | `node tools/qa/juice_bench.mjs <high\|medium\|low> <0\|1> [frames=90] [shot.png]` |
 | `juice_shots.mjs` | Game-feel screenshot scenes | `node tools/qa/juice_shots.mjs <scene\|all> <outDir> [juice=1] [q=high]` |
+| `fxdc_shots.mjs` | Effects director's cut scenes: heat haze over a burning base, lit smoke at night, lens rain in a storm intro and photo mode, a scarred battlefield (`diag` exaggerates the haze) | `node tools/qa/fxdc_shots.mjs <scene\|all> <outDir> [q=high] [extra query]` |
+| `fxdc_bench.mjs` | 150-unit battle inside a burning base: frame times, draw calls per pass, haze sources (`0\|1` = director's cut off or on) | `node tools/qa/fxdc_bench.mjs <high\|medium\|low> <0\|1> [frames=60] [shot.png]` |
 
 ## Screenshots and browser checks
 
@@ -104,6 +107,24 @@ The full guide is [`assets/README.md`](assets/README.md), and the art direction 
 | `hdlazy.mjs` | Lazy HD loading: swaps during construction and production | `node tools/assets/hdlazy.mjs [port] [outDir] [q=high]` |
 | `restart-view-server.sh` | (Re)starts a stable server for HD checks; needs a `tools/vite.<name>.config.ts` with that port | `tools/assets/restart-view-server.sh [port=5231]` |
 | `memguard.sh` | Waits until enough memory is free before a heavy job | `tools/assets/memguard.sh [MB=3072]` |
+
+## Release, sharing and video (`tools/release`)
+
+Distribution is covered in [docs/DISTRIBUTION.md](../docs/DISTRIBUTION.md). The browser tools run headless
+Chromium (SwiftShader), so run `tools/assets/memguard.sh` first.
+
+| Tool | What it does | Command |
+|---|---|---|
+| `build-itch.mjs` | Relative-base build into `dist-itch/`, checked against itch.io's rules and zipped into `release/` | `npm run build:itch` |
+| `verify-subpath.mjs` | Serves a build from a sub-folder; checks the match, fonts, HD models, service-worker scope and that no request leaves the folder | `node tools/release/verify-subpath.mjs [dir=dist-itch] [prefix=/games/red-horizon/] [out.png]` |
+| `og-card.mjs` | Composes the link-preview images (`public/og/`) from a game frame | `node tools/release/og-card.mjs <frame.png> [outDir]` |
+| `keyart.mjs` | A HUD-free key-art frame from an attract-mode shot, subject on the right third | `node tools/release/keyart.mjs <url> <outPrefix> [shot=tesla] [dist=16]` |
+| `shot-tour.mjs` | Screenshots every shot of the attract-mode program | `node tools/release/shot-tour.mjs <url> <outPrefix> [simSpeed=3]` |
+| `frames.mjs` | Timed frames of any page, with the director's current shot | `node tools/release/frames.mjs <url> <outPrefix> [count] [everyMs]` |
+| `share-shots.mjs` | The share flow: Copy link in the editor, opening the link, a hostile link | `node tools/release/share-shots.mjs <baseUrl> <outPrefix>` |
+| `clip-test.mjs` | Records a highlight clip from a replay and saves the video and frames | `node tools/release/clip-test.mjs <baseUrl> <outPrefix> [ff=150]` |
+| `trailer-test.mjs` | Records the `?trailer=1` cut and saves the video and frames | `node tools/release/trailer-test.mjs <baseUrl> <outPrefix>` |
+| `backdrop-stats.mjs` | Draw calls and triangles of the menu backdrop, directed vs `?attract=0` | `node tools/release/backdrop-stats.mjs <baseUrl> [q=low]` |
 
 ## Elsewhere
 

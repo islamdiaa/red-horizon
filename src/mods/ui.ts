@@ -7,6 +7,7 @@ import { checkMods, formatModValue, pristineTables, type ModReport } from './eng
 import { MOD_FORMAT, MOD_VERSION, modSetHash, type ModFile, type TableName } from './format';
 import { activeModSet, enabledModIds, installMod, installedMods, moveMod, removeMod, setModEnabled } from './store';
 import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
+import { assetUrl } from '../platform/paths'; // base-path helper
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -134,12 +135,11 @@ export async function readModFile(file: File): Promise<ModFile> {
 
 /** Bundled example mods (public/mods/index.json). */
 async function fetchExamples(): Promise<ModFile[]> {
-  const base = import.meta.env.BASE_URL ?? '/';
   try {
-    const idx = await (await fetch(`${base}mods/index.json`)).json() as { mods: string[] };
+    const idx = await (await fetch(assetUrl('mods/index.json'))).json() as { mods: string[] }; // base-path helper
     const out: ModFile[] = [];
     for (const f of idx.mods ?? []) {
-      try { out.push(await (await fetch(`${base}mods/${f}`)).json() as ModFile); } catch { /* skip a broken example */ }
+      try { out.push(await (await fetch(assetUrl(`mods/${f}`))).json() as ModFile); } catch { /* skip a broken example */ }
     }
     return out;
   } catch {

@@ -115,10 +115,17 @@ export class DecalSystem {
   /**
    * Add a decal centred at (x, z). size = full width in world units.
    * frame: decal atlas frame; intensity: 0..1 darkness; life: seconds; delay: seconds before it appears.
+   * Returns its slot (ring buffer: the oldest decal is replaced).
    */
-  add(x: number, z: number, size: number, frame: number, intensity: number, life: number, rot: number, delay = 0): void {
+  add(x: number, z: number, size: number, frame: number, intensity: number, life: number, rot: number, delay = 0): number {
     const d = this.head;
     this.head = (this.head + 1) % this.capacity;
+    this.write(d, x, z, size, frame, intensity, life, rot, delay);
+    return d;
+  }
+
+  /** Write a decal into a given slot (persistent layers manage their own slots, see scars.ts). */
+  write(d: number, x: number, z: number, size: number, frame: number, intensity: number, life: number, rot: number, delay = 0): void {
     const c = Math.cos(rot);
     const s = Math.sin(rot);
     const t0 = this.now + delay;
@@ -141,6 +148,32 @@ export class DecalSystem {
         this.info[v * 4 + 3] = frame;
       }
     }
+    this.markDirty(d);
+  }
+
+  /**
+   * Fade a decal out over `fade` seconds from now (its fade-out curve restarted at full strength), e.g. before
+   * its slot is reused.
+   */
+  retire(d: number, fade: number): void {
+    if (d < 0 || d >= this.capacity) return;
+    const L = Math.max(0.3, fade) / 0.55;
+    const t0 = this.now - 0.45 * L;
+    for (let v = d * VPD; v < (d + 1) * VPD; v++) {
+      this.info[v * 4] = t0;
+      this.info[v * 4 + 1] = L;
+    }
+    this.markDirty(d);
+  }
+
+  /** Change a decal's darkness (0..1). */
+  setIntensity(d: number, intensity: number): void {
+    if (d < 0 || d >= this.capacity) return;
+    for (let v = d * VPD; v < (d + 1) * VPD; v++) this.info[v * 4 + 2] = intensity;
+    this.markDirty(d);
+  }
+
+  private markDirty(d: number): void {
     if (d < this.dirtyMin) this.dirtyMin = d;
     if (d > this.dirtyMax) this.dirtyMax = d;
   }

@@ -24,6 +24,7 @@ import type { GameMap } from '../sim/map';
 import { fitOpponents, playbackSetup } from '../replay/launch';
 import { MAX_REPLAYS, type ReplayData } from '../replay/format';
 import { deleteReplay, exportReplay, importReplayFile, listReplays } from '../replay/store';
+import { canRecordClips, clipStartTick, requestClip } from './clips'; // highlight clips
 import { renderReplayTree } from './replay-tree'; // replay trees
 import { KOTH_MINUTES } from '../modes/koth';
 import { CEASEFIRE_CHOICES, ceasefireLabel } from '../sim/ceasefire';
@@ -247,6 +248,9 @@ export interface MenuCallbacks {
   openEditor?(): void;
   /** Open the Mods screen. */
   openMods?(): void;
+  /** Open the multiplayer lobby (src/ui/lobby.ts); after a match, back to its room. */
+  openMultiplayer?(): void;
+  backToLobby?(): void;
 }
 
 export class Menus {
@@ -339,6 +343,7 @@ export class Menus {
     if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
     if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `Conquest${ci ? `<em class="rh-daily-pill">${esc(ci)}</em>` : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); }
     navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
+    if (this.cb.openMultiplayer) navItem('MP', 'Multiplayer<em class="rh-daily-pill">Online</em>', ICONS.people, () => { this.hide(); this.cb.openMultiplayer!(); });
     navItem('03', `Challenges${dailyPending() ? '<em class="rh-daily-pill">Daily</em>' : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
     navItem('04', 'Replays', ICONS.replay, () => this.showReplays());
     navItem('05', 'Commander', picto('chevrons', 'ic'), () => this.openProfile());
@@ -879,7 +884,8 @@ export class Menus {
     const s = this.open('sub-screen pause-screen');
     const panel = h('div', 'menu-panel panel pause-panel');
     const rp = game.setup.replay;
-    panel.appendChild(h('div', 'mp-head', `<span class="mp-ic pause-ic"><i></i><i></i></span><div><small>${rp ? 'Replay on hold' : 'Mission on hold'}</small><h2>Paused</h2></div>`));
+    const mp = !!game.net?.active; // a multiplayer match runs on behind this menu
+    panel.appendChild(h('div', 'mp-head', `<span class="mp-ic pause-ic"><i></i><i></i></span><div><small>${rp ? 'Replay on hold' : mp ? 'The match goes on' : 'Mission on hold'}</small><h2>${mp ? 'Menu' : 'Paused'}</h2></div>`));
     const me = game.local;
     const foes = game.world.players.filter((o) => me.isEnemy(o));
     const alive = foes.filter((o) => !o.defeated).length;
@@ -923,15 +929,15 @@ export class Menus {
       this.escAction = resume;
       return;
     }
-    if (this.cb.saveGame) mk('Save game', ICONS.history, () => {
+    if (this.cb.saveGame && !mp) mk('Save game', ICONS.history, () => { // (no saves of multiplayer matches)
       const ok = this.cb.saveGame!();
       const lbl = list.querySelector('.pp-btn:nth-child(2) span:nth-child(2)');
       if (lbl) lbl.textContent = ok ? 'Game saved ✓' : 'Save failed';
     });
     mk('Settings', ICONS.gear, () => this.showSettings(() => this.showPause(game)));
     mk('Controls', ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
-    mk('Restart', ICONS.restart, () => { this.hide(); this.cb.restart(); });
-    mk('Quit to menu', ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
+    if (!mp) mk('Restart', ICONS.restart, () => { this.hide(); this.cb.restart(); });
+    mk(mp ? 'Leave match' : 'Quit to menu', ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
     panel.appendChild(list);
     s.appendChild(panel);
     this.escAction = resume;
@@ -946,9 +952,18 @@ export class Menus {
     const setup = game.setup;
     showResults(s, game, won, {
       summary: game.metaSummary, report: game.report, rating: rateCommander(game, won), audio: this.audio,
-      playAgain: () => { this.hide(); this.playAgain(setup, false); }, // (a fresh map; a Quick Battle rolls a new one)
-      rematch: !setup.mission && !setup.branch && !setup.challenge ? () => { this.hide(); this.cb.restart(); } : undefined,
+      playAgain: () => { this.hide(); if (setup.net && this.cb.backToLobby) { this.cb.backToLobby(); return; } this.playAgain(setup, false); }, // (a fresh map; a Quick Battle rolls a new one) multiplayer: back to the room
+      rematch: !setup.mission && !setup.branch && !setup.challenge && !setup.net ? () => { this.hide(); this.cb.restart(); } : undefined,
       watchReplay: rec ? () => { const data = rec.toData(); this.hide(); this.cb.start(playbackSetup(data, this.settings.quality)); } : undefined,
+      // highlight clips: open the replay just before the moment; the player records once it gets there
+      recordClip: rec && canRecordClips() ? (t, label) => {
+        const data = rec.toData();
+        const at = Math.round(t * 20);
+        requestClip(data.id, at, label);
+        this.hide();
+        const ps = playbackSetup(data, this.settings.quality);
+        this.cb.start({ ...ps, replay: { ...ps.replay!, seekTo: clipStartTick(at) } });
+      } : undefined,
       keepWatching: () => { this.hide(); this.cb.resume(); },
       menu: () => { this.hide(); this.cb.quit(); },
       copyCode: (code, el) => { copyText(code); this.flashTip(el, 'Copied'); },

@@ -17,6 +17,7 @@ import { expansionStructure, expansionPlacement, focusFire, harass, manageExpans
 import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
 import { commanderAI } from './ai-commander';
 import { doctrineDefences, doctrinePrefer } from './doctrine';
+import { econAI, econDocks, econPlacement, econReserve, econStructure } from './economy-ai'; // Commander economy
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
@@ -257,6 +258,7 @@ export class AIController {
     this.superweapons();
     contentAI(this);
     if (this.world.commander) commanderAI(this); // commander powers (Commander rules only)
+    if (this.world.econ) econAI(this); // tiers, upgrades, research, bunker garrisons (Commander economy)
     aftermathAI(this); // builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
     if (this.chatter.length > 40) this.chatter.splice(0, this.chatter.length - 40);
   }
@@ -330,7 +332,7 @@ export class AIController {
     const q = this.p.queues.structure;
     if (!q.ready) return;
     const bt = BUILDINGS[q.ready];
-    const spot = expansionPlacement(this, bt) ?? aiPlacement(this.world, this.p, bt, this) ?? this.findPlacement(bt);
+    const spot = expansionPlacement(this, bt) ?? (this.world.econ ? econPlacement(this, bt) : null) ?? aiPlacement(this.world, this.p, bt, this) ?? this.findPlacement(bt);
     if (spot) this.world.issue({ c: 'place', player: this.p.id, type: q.ready, cx: spot[0], cy: spot[1] });
     else this.world.issue({ c: 'cancel', player: this.p.id, type: q.ready });
   }
@@ -374,6 +376,8 @@ export class AIController {
     // an expansion yard wants its refinery and a guard tower
     const ex = expansionStructure(this);
     if (ex) return ex;
+    const ec = this.world.econ ? econStructure(this) : null; // Commander economy structures
+    if (ec) return ec;
     // seen enemy aircraft: anti-aircraft defences now (normal and up)
     const aa = this.antiAirWanted();
     if (aa && p.credits >= BUILDINGS[aa].cost * 0.5) return aa;
@@ -502,7 +506,7 @@ export class AIController {
     const pers = this.personality;
     const units = this.myUnits();
     const harvs = units.filter((u) => u.ut.harvester).length;
-    const refs = this.count('proc');
+    const refs = this.count('proc') + (this.world.econ ? econDocks(this) : 0); // (mining outposts)
     const wantHarv = Math.min(Math.round(refs * this.tune.harvPerRef), refs + this.tune.harvExtra + (pers.economy > 0.75 ? 1 : 0));
     const vq = p.queues.vehicle;
     const iq = p.queues.infantry;
@@ -518,6 +522,7 @@ export class AIController {
     const early = this.world.time < 480;
     const reserve = keyStruct ? Math.min(early ? 2000 : 1200, nextCost * (early ? 0.8 : 0.6)) + 100 : early ? nextCost * 0.3 : 100;
     const underThreat = this.world.tick - this.lastDefend < TICK_HZ * 10;
+    if (this.world.econ && p.credits < reserve + econReserve(this) && !underThreat) return; // (saving for upgrades / research)
     if (p.credits < reserve && !underThreat) return;
     // an expansion MCV in the queue goes first
     if (this.expansion?.stage === 'build' && vq.items.some((i) => i.type === 'mcv')) return;

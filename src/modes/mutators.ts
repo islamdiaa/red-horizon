@@ -256,6 +256,8 @@ export function mutatorNames(ids: readonly string[] | undefined): string[] {
 /** The setup fields that switch on the variety systems. */
 export interface VarietySetup {
   rules?: 'classic' | 'commander';
+  /** Commander economy (sim/economy.ts); see withEconFlag. */
+  econ?: boolean;
   mutators?: string[];
   events?: boolean;
   dynamicDifficulty?: boolean;
@@ -264,14 +266,39 @@ export interface VarietySetup {
   conquest?: unknown;
 }
 
+/** What withEconFlag reads of a setup. */
+export interface EconFlagSetup {
+  rules?: 'classic' | 'commander';
+  econ?: boolean;
+  mission?: string;
+  conquest?: unknown;
+  demo?: boolean;
+  replay?: unknown;
+  load?: unknown;
+  branch?: unknown;
+  challenge?: unknown;
+}
+
+/**
+ * The setup with its Commander economy flag (sim/economy.ts) made explicit, so recordings and saves carry it.
+ * A fresh Commander setup (menu, Quick Battle, autostart) gets the economy; a recorded one (a replay, branch,
+ * challenge or save) keeps what it recorded, and one recorded before the economy existed (no field) plays
+ * without it, exactly as it was played. Classic setups, missions, Conquest and the menu backdrop are unchanged.
+ */
+export function withEconFlag<T extends EconFlagSetup>(setup: T): T {
+  if (setup.rules !== 'commander' || setup.mission || setup.conquest || setup.demo || typeof setup.econ === 'boolean') return setup;
+  return { ...setup, econ: !(setup.replay || setup.load || setup.branch || setup.challenge) };
+}
+
 /**
  * World options of a setup's variety systems (src/sim/events.ts). Missions, campaigns, Conquest and the menu
  * backdrop are always Classic with nothing enabled; old saves and replays (no fields) load as Classic.
  */
-export function varietyOptions(setup: VarietySetup, isMission: boolean): { rules?: 'classic' | 'commander'; mutators?: string[]; events?: boolean; dynamicDifficulty?: boolean } {
+export function varietyOptions(setup: VarietySetup, isMission: boolean): { rules?: 'classic' | 'commander'; mutators?: string[]; events?: boolean; dynamicDifficulty?: boolean; econ?: boolean } {
   if (isMission || setup.demo || setup.mission || setup.conquest) return {};
   return {
     rules: setup.rules === 'commander' ? 'commander' : undefined,
+    econ: setup.rules === 'commander' && typeof setup.econ === 'boolean' ? setup.econ : undefined, // (normalised by withEconFlag)
     mutators: normaliseMutators(setup.mutators),
     events: setup.events,
     dynamicDifficulty: !!setup.dynamicDifficulty,

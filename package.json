@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
+    "build:itch": "tsc --noEmit && node tools/release/build-itch.mjs",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
     "simtest": "node --import tsx tools/simtest.ts",
@@ -32,7 +33,9 @@
     "icons": "node tests/tools/make-icons.mjs",
     "verify:pwa": "node tests/tools/verify-pwa.mjs",
     "audit:leaks": "node tests/perf/leaks.mjs",
-    "audit:profile": "node tests/perf/profile.mjs"
+    "audit:profile": "node tests/perf/profile.mjs",
+    "desktop": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run dev",
+    "desktop:build": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run build"
   },
   "dependencies": {
     "three": "^0.186.1"
