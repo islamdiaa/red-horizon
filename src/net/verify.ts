@@ -14,6 +14,7 @@ import { sanitizeCommand } from './commands';
 import { boardSetup, type Submission } from './boards';
 import type { Command } from '../sim/types';
 import { enterPortableMath, exitPortableMath } from './dmath';
+import { VERIFY_REASONS as R, fillEnglish } from './reasons'; // (English: the client translates them)
 
 export type VerifyResult =
   | { ok: true; score: number; ticks: number; won: boolean }
@@ -27,9 +28,9 @@ export interface VerifyOptions {
 }
 
 export function verifyRun(sub: Submission, o: VerifyOptions): VerifyResult {
-  if (sub.ticks > o.maxTicks) return { ok: false, reason: 'The run is longer than this server verifies.' };
+  if (sub.ticks > o.maxTicks) return { ok: false, reason: R.tooLong };
   const setup = boardSetup(sub.kind, sub.id);
-  if (!setup) return { ok: false, reason: 'Unknown leaderboard.' };
+  if (!setup) return { ok: false, reason: R.unknownBoard };
   if (sub.kind === 'daily') setDailyDay(sub.day);
   enterPortableMath(); // as the game ran it
   try {
@@ -38,7 +39,7 @@ export function verifyRun(sub: Submission, o: VerifyOptions): VerifyResult {
     const cmds: [number, Command][] = [];
     for (const [t, raw] of sub.cmds) {
       const c = sanitizeCommand(raw, me);
-      if (!c) return { ok: false, reason: 'The run contains an invalid command.' };
+      if (!c) return { ok: false, reason: R.badCommand };
       cmds.push([t, c]);
     }
     const feeder = new CommandFeeder(w, cmds, []);
@@ -47,14 +48,14 @@ export function verifyRun(sub: Submission, o: VerifyOptions): VerifyResult {
       w.step();
       w.events.length = 0;
       if (w.mission) w.mission.events.length = 0;
-      if ((w.tick & 255) === 0 && o.expired?.()) return { ok: false, reason: 'Verification took too long.' };
+      if ((w.tick & 255) === 0 && o.expired?.()) return { ok: false, reason: R.timeout };
     }
-    if (!w.gameOver) return { ok: false, reason: 'The run does not end where it claims.' };
-    if (w.tick !== sub.ticks) return { ok: false, reason: `The run ends at a different time (${w.tick} vs ${sub.ticks}).` };
-    if (worldHash(w) !== sub.hash) return { ok: false, reason: 'The final state does not match (different game version or a modified run).' };
+    if (!w.gameOver) return { ok: false, reason: R.noEnd };
+    if (w.tick !== sub.ticks) return { ok: false, reason: fillEnglish(R.time, { got: w.tick, claimed: sub.ticks }) };
+    if (worldHash(w) !== sub.hash) return { ok: false, reason: R.hash };
     const score = Math.round(w.mission?.score ?? 0);
-    if (score !== sub.score) return { ok: false, reason: `The score does not match (${score} vs ${sub.score}).` };
-    if (score <= 0) return { ok: false, reason: 'Only runs that score are ranked.' };
+    if (score !== sub.score) return { ok: false, reason: fillEnglish(R.score, { got: score, claimed: sub.score }) };
+    if (score <= 0) return { ok: false, reason: R.zero };
     const won = !!w.mission?.won;
     return { ok: true, score, ticks: w.tick, won };
   } finally {

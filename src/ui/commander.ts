@@ -13,8 +13,10 @@
  * Attached by game.ts like the rivals radio (one tagged line); `commanderVisual` is fed the sim's 'commander' events
  * by the Game's event loop. No per-frame allocations: the DOM refreshes at 8 Hz from cached state keys.
  */
+import { isAction, keyLabel } from './keymap';
 import * as THREE from 'three';
 import { ICONS } from './icons';
+import { DOCTRINE_ICONS } from './doctrine-icons';
 import { el, esc, reducedMotion } from './dom';
 import { TargetReticle } from '../render/reticle';
 import {
@@ -29,6 +31,9 @@ import type { Entity } from '../sim/entities';
 import type { AimRequest } from './input';
 import type { Effects } from '../render/effects';
 import type { SfxKey } from '../audio/types';
+import tCmd from '../i18n/en/commander';
+import { currentLang } from '../i18n/core';
+import { doctrineBonus, doctrineDrawback, doctrineName, powerDesc, powerName } from '../i18n/names';
 
 /** Icons of the powers (the shared UI icon set). */
 export const POWER_ICONS: Record<PowerId, string> = {
@@ -36,10 +41,7 @@ export const POWER_ICONS: Record<PowerId, string> = {
   reinforce: ICONS.vehicle, sabotage: ICONS.bolt, aegis: ICONS.shield, storm: ICONS.storm,
 };
 /** Icons of the doctrines (DoctrineDef.icon keys). */
-export const DOCTRINE_ICONS: Record<string, string> = {
-  tank: ICONS.vehicle, infantry: ICONS.people, bolt: ICONS.boltSolid, rocket: ICONS.aircraft, speed: ICONS.gauge, fort: ICONS.defense,
-  target: ICONS.target, eye: ICONS.eye,
-};
+export { DOCTRINE_ICONS };
 const ROMAN = ['', 'I', 'II', 'III'];
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
@@ -85,6 +87,7 @@ class CommanderPanel {
   private offKey: () => void;
   private body: HTMLElement;
   private faction = '';
+  private lang = '';
   private hintTimer = 0;
   private readonly spectator: boolean;
 
@@ -99,8 +102,8 @@ class CommanderPanel {
     const head = el('button', 'cmdp-head');
     head.type = 'button';
     head.setAttribute('aria-expanded', String(!this.collapsed));
-    head.innerHTML = `<span class="cmdp-doc"></span><span class="cmdp-title"><small>Command</small><b class="cmdp-lvl"></b></span>
-      <span class="cmdp-cp"><b></b><small>CP</small></span><i class="cmdp-bar"><i></i></i>`;
+    head.innerHTML = `<span class="cmdp-doc"></span><span class="cmdp-title"><small class="cmdp-cmd"></small><b class="cmdp-lvl"></b></span>
+      <span class="cmdp-cp"><b></b><small class="cmdp-cpl"></small></span><i class="cmdp-bar"><i></i></i>`;
     this.head = head;
     this.cpEl = head.querySelector('.cmdp-cp b')!;
     this.lvlEl = head.querySelector('.cmdp-lvl')!;
@@ -123,7 +126,7 @@ class CommanderPanel {
     if (!this.spectator && g.world.tick < TICK_HZ * 5) {
       this.hintTimer = window.setTimeout(() => {
         const c = this.cmd;
-        if (c && !c.unlocked.length) g.hud?.message(`Commander rules: you have ${Math.floor(c.points)} command points. Unlock your first power in the Command panel (T, then 1–3).`, false, 'info');
+        if (c && !c.unlocked.length) g.hud?.message(tCmd('msg.firstHint', { n: Math.floor(c.points) }), false, 'info');
       }, 6000);
     }
     const frame = () => { this.raf = requestAnimationFrame(frame); this.frame(); };
@@ -134,6 +137,9 @@ class CommanderPanel {
   private buildTree() {
     const g = this.g, body = this.body;
     this.faction = g.local.faction;
+    this.lang = currentLang();
+    (this.head.querySelector('.cmdp-cmd') as HTMLElement).textContent = tCmd('panel.command');
+    (this.head.querySelector('.cmdp-cpl') as HTMLElement).textContent = tCmd('panel.cp');
     body.innerHTML = '';
     this.btns.length = 0;
     this.tierEls.length = 0;
@@ -147,7 +153,7 @@ class CommanderPanel {
         const b = el('button', 'cmdp-pw');
         b.type = 'button';
         b.dataset.power = d.id;
-        b.setAttribute('aria-label', d.name);
+        b.setAttribute('aria-label', powerName(d));
         const key = KEYS[k++] ?? '';
         b.innerHTML = `<span class="cmdp-ic">${POWER_ICONS[d.id]}</span><i class="cmdp-cd"></i><span class="cmdp-t"></span><kbd>${key}</kbd>`;
         const btn: Btn = { d, el: b, cd: b.querySelector('.cmdp-cd')!, txt: b.querySelector('.cmdp-t')!, key: '' };
@@ -162,7 +168,7 @@ class CommanderPanel {
       this.tierEls.push(row);
       body.appendChild(row);
     });
-    if (!this.spectator) body.appendChild(el('div', 'cmdp-hint', `<kbd>T</kbd> then <kbd>1</kbd>–<kbd>${Math.min(9, k)}</kbd>`));
+    if (!this.spectator) body.appendChild(el('div', 'cmdp-hint', tCmd.html('panel.hint', { key: keyLabel('powers') || '—', max: String(Math.min(9, k)) })));
   }
 
   /** (Re)attach to the HUD root: the HUD clears it when it rebuilds (layout switch, replays changing view). */
@@ -199,7 +205,7 @@ class CommanderPanel {
     const c = this.cmd;
     if (!c) return;
     this.mount();
-    if (this.g.local.faction !== this.faction) this.buildTree();
+    if (this.g.local.faction !== this.faction || currentLang() !== this.lang) this.buildTree();
     const w = this.g.world;
     const lvl = commanderLevel(c.earned);
     const pts = Math.floor(c.points + 1e-9);
@@ -211,17 +217,19 @@ class CommanderPanel {
     if (hk !== this.headKey) {
       this.headKey = hk;
       this.cpEl.textContent = String(pts);
-      this.lvlEl.textContent = `Level ${lvl}`;
+      this.lvlEl.textContent = tCmd('panel.level', { n: lvl });
       this.barEl.style.width = `${Math.round(frac * 100)}%`;
       const docEl = this.head.querySelector('.cmdp-doc') as HTMLElement;
       docEl.innerHTML = doc ? DOCTRINE_ICONS[doc.icon] ?? ICONS.flag : ICONS.flag;
-      this.head.title = doc ? `${doc.name}: ${doc.bonuses.join('; ')}; ${doc.drawback}` : 'Commander';
+      this.head.title = doc
+        ? tCmd('panel.doctrineTip', { name: doctrineName(doc), bonus1: doctrineBonus(doc, 0), bonus2: doctrineBonus(doc, 1), drawback: doctrineDrawback(doc) })
+        : tCmd('panel.title');
       this.head.dataset.tip = '';
       for (let t = 1; t <= 3; t++) {
         const row = this.tierEls[t - 1];
         const open = tierOpen(c, t);
         row.classList.toggle('closed', !open);
-        (row.querySelector('.cmdp-tl small') as HTMLElement).textContent = open ? `${TIER_COST[t]} CP` : `Lv ${TIER_LEVEL[t]}`;
+        (row.querySelector('.cmdp-tl small') as HTMLElement).textContent = open ? tCmd('panel.tierCost', { n: TIER_COST[t] }) : tCmd('panel.tierLevel', { n: TIER_LEVEL[t] });
       }
     }
     let canBuy = false;
@@ -256,14 +264,14 @@ class CommanderPanel {
     if (!c || this.spectator || g.paused) return;
     const d = b.d;
     if (!c.unlocked.includes(d.id)) {
-      if (!tierOpen(c, d.tier)) { g.hud?.message(`${d.name}: reach commander level ${TIER_LEVEL[d.tier]} to open tier ${ROMAN[d.tier]}`, true); g.audio.play('error'); return; }
-      if (c.points + 1e-9 < TIER_COST[d.tier]) { g.hud?.message(`${d.name} needs ${TIER_COST[d.tier]} command points (you have ${Math.floor(c.points + 1e-9)})`, true); g.audio.play('error'); return; }
+      if (!tierOpen(c, d.tier)) { g.hud?.message(tCmd('msg.tierLocked', { power: powerName(d), level: TIER_LEVEL[d.tier], tier: ROMAN[d.tier] }), true); g.audio.play('error'); return; }
+      if (c.points + 1e-9 < TIER_COST[d.tier]) { g.hud?.message(tCmd('msg.needPoints', { power: powerName(d), cost: TIER_COST[d.tier], have: Math.floor(c.points + 1e-9) }), true); g.audio.play('error'); return; }
       g.issue({ c: 'unlockPower', player: g.local.id, power: d.id });
       g.audio.play('ready_ping');
       return;
     }
     if (!powerReady(g.world, c, d.id)) {
-      g.hud?.message(`${d.name} recharging: ${Math.ceil(powerCooldown(g.world, c, d.id) / TICK_HZ)} s`, true);
+      g.hud?.message(tCmd('msg.recharging', { power: powerName(d), s: Math.ceil(powerCooldown(g.world, c, d.id) / TICK_HZ) }), true);
       g.audio.play('error');
       return;
     }
@@ -271,11 +279,11 @@ class CommanderPanel {
     if (d.target === 'none') { g.issue({ c: 'commanderPower', player: g.local.id, power: d.id }); return; }
     g.input?.beginAim({
       r: d.radius, color: d.color,
-      label: `${d.name}: ${d.target === 'structure' ? 'click an enemy structure' : 'click the target area'} (right click to cancel)`,
+      label: tCmd(d.target === 'structure' ? 'msg.aimStructure' : 'msg.aimArea', { power: powerName(d) }),
       onTarget: (x, y, picked: Entity | null) => {
         if (d.target === 'structure') {
           const t = sabotageTarget(g.world, g.local, x, y, picked?.kind === 'building' ? picked.id : undefined);
-          if (!t) { g.hud?.message('Sabotage: pick an enemy structure you have seen', true); g.audio.play('error'); return false; }
+          if (!t) { g.hud?.message(tCmd('msg.sabotageNoTarget', { power: powerName(d) }), true); g.audio.play('error'); return false; }
           g.issue({ c: 'commanderPower', player: g.local.id, power: d.id, x: t.x, y: t.y, target: t.id });
           return true;
         }
@@ -290,7 +298,7 @@ class CommanderPanel {
     if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
     if (this.spectator || this.g.paused || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
-    if (k === 't' && !e.shiftKey) {
+    if (isAction('powers', e, { exactShift: true, exactAlt: true })) {
       e.preventDefault();
       e.stopImmediatePropagation();
       this.armedUntil = performance.now() + 2500;
@@ -317,10 +325,12 @@ class CommanderPanel {
     const owned = c.unlocked.includes(d.id);
     const left = owned ? powerCooldown(this.g.world, c, d.id) : 0;
     const status = owned
-      ? (left > 0 ? `Recharging: ${Math.ceil(left / TICK_HZ)} s` : 'Ready')
-      : !tierOpen(c, d.tier) ? `Tier ${ROMAN[d.tier]} opens at commander level ${TIER_LEVEL[d.tier]}` : `Unlock: ${TIER_COST[d.tier]} CP`;
-    this.tip.innerHTML = `<b>${esc(d.name)}</b><span class="cmdp-tt-meta">Tier ${ROMAN[d.tier]} · ${d.cooldown} s cooldown${d.target === 'none' ? '' : d.target === 'structure' ? ' · aim at a structure' : ' · aimed'}</span>
-      <p>${esc(d.desc)}</p><span class="cmdp-tt-st ${owned ? (left > 0 ? 'cool' : 'ok') : 'lock'}">${esc(status)}</span>`;
+      ? (left > 0 ? tCmd('tip.recharging', { s: Math.ceil(left / TICK_HZ) }) : tCmd('tip.ready'))
+      : !tierOpen(c, d.tier) ? tCmd('tip.opensAt', { tier: ROMAN[d.tier], level: TIER_LEVEL[d.tier] }) : tCmd('tip.unlock', { n: TIER_COST[d.tier] });
+    const meta = [tCmd('tip.tier', { tier: ROMAN[d.tier] }), tCmd('tip.cooldown', { s: d.cooldown })];
+    if (d.target !== 'none') meta.push(tCmd(d.target === 'structure' ? 'tip.aimStructure' : 'tip.aimed'));
+    this.tip.innerHTML = `<b>${esc(powerName(d))}</b><span class="cmdp-tt-meta">${esc(meta.join(' · '))}</span>
+      <p>${esc(powerDesc(d))}</p><span class="cmdp-tt-st ${owned ? (left > 0 ? 'cool' : 'ok') : 'lock'}">${esc(status)}</span>`;
     const r = b.el.getBoundingClientRect(), pr = this.root.getBoundingClientRect();
     this.tip.style.top = `${Math.round(r.top - pr.top)}px`;
     this.tip.classList.add('on');
@@ -391,16 +401,16 @@ export function commanderVisual(g: CommanderGame, ev: Extract<GameEvent, { e: 'c
     case 'level':
       if (!mine) return;
       panel?.flash('level');
-      for (let t = 2; t <= 3; t++) if (ev.amount === TIER_LEVEL[t]) { g.hud?.message(`Commander level ${ev.amount}: tier ${ROMAN[t]} powers open`, false, 'success'); return; }
-      g.hud?.message(`Commander level ${ev.amount}`, false, 'success');
+      for (let t = 2; t <= 3; t++) if (ev.amount === TIER_LEVEL[t]) { g.hud?.message(tCmd('msg.levelTierOpen', { n: ev.amount, tier: ROMAN[t] }), false, 'success'); return; }
+      g.hud?.message(tCmd('msg.level', { n: ev.amount }), false, 'success');
       return;
     case 'unlock':
-      if (mine && d) { g.hud?.message(`${d.name} unlocked`, false, 'success'); panel?.flash('pulse'); }
+      if (mine && d) { g.hud?.message(tCmd('msg.unlocked', { power: powerName(d) }), false, 'success'); panel?.flash('pulse'); }
       return;
     case 'warn':
       // the target area of an offensive power: everybody sees it coming
       panel?.ring(ev.x, ev.y, ev.r ?? 3, ev.power === 'storm' ? 0x9ad8ff : 0xff3a1a, Math.round((ev.power === 'storm' ? 10 : 7) * TICK_HZ));
-      if (enemy && seen) g.hud?.message(ev.power === 'storm' ? 'Warning: Tesla Storm incoming!' : 'Warning: artillery barrage incoming!', true);
+      if (enemy && seen) g.hud?.message(tCmd(ev.power === 'storm' ? 'msg.stormIncoming' : 'msg.barrageIncoming'), true);
       return;
     case 'bolt':
       if (seen) {
@@ -415,7 +425,7 @@ export function commanderVisual(g: CommanderGame, ev: Extract<GameEvent, { e: 'c
       break;
   }
   if (!d) return;
-  if (mine && d.target === 'none' && ev.power === 'elite') g.hud?.message(`Elite Training: your next ${ELITE_N} combat units arrive as Veterans`, false, 'success');
+  if (mine && d.target === 'none' && ev.power === 'elite') g.hud?.message(tCmd('msg.elite', { power: powerName(d), n: ELITE_N }), false, 'success');
   if (!seen) return;
   const pos = V(g, ev.x, ev.y);
   switch (ev.power as PowerId) {
@@ -438,7 +448,7 @@ export function commanderVisual(g: CommanderGame, ev: Extract<GameEvent, { e: 'c
       break;
     case 'sabotage':
       g.effects.radarJamPulse(pos, 2.5);
-      g.overlay?.addFloat(ev.x, g.world.map.heightAt(ev.x, ev.y) + 1.6, ev.y, 'SABOTAGED', '#ff6a8a');
+      g.overlay?.addFloat(ev.x, g.world.map.heightAt(ev.x, ev.y) + 1.6, ev.y, tCmd('msg.sabotaged'), '#ff6a8a');
       break;
     case 'reinforce':
       panel?.ring(ev.x, ev.y, 1.5, d.color, TICK_HZ * 2);

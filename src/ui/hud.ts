@@ -1,7 +1,7 @@
-import { BAIL_COUNT, BUILDINGS, CATEGORIES, CONDITION_RED, CONDITION_YELLOW, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, type BuildingTypeDef, type Category, type TypeDef, type UnitTypeDef } from '../data/rules';
+import { BAIL_COUNT, BUILDINGS, UNITS, CATEGORIES, CONDITION_RED, CONDITION_YELLOW, WEAPONS, getType, isBuildingType, mphToCellsPerSecond, type BuildingTypeDef, type Category, type TypeDef, type UnitTypeDef } from '../data/rules';
 import { modCardTag, modTipHtml } from '../mods'; // "Modded" markers
 import { formatTime } from '../core/util';
-import { Building, Unit, type Entity } from '../sim/entities';
+import { Building, Unit, type Entity, type HarvestState } from '../sim/entities';
 import { queueKindOf, type Player, type ProductionQueue } from '../sim/player';
 import { buildSeconds } from '../sim/production';
 import { SUPER_KINDS, SUPER_TARGET, superAvailable, superBuilding, superFull, superReady, type SuperKind } from '../sim/superweapons';
@@ -12,8 +12,11 @@ import type { AudioSystem } from '../audio';
 import { Minimap } from './minimap';
 import { ICONS, rankBadge } from './icons';
 import { Odometer, Tooltip, UiSound, bindTilt, el, esc, hexColor, replay, tipHtml, type TipSide } from './dom';
+import { commandKeyLabel, keyLabel, type ActionId } from './keymap';
+import { teamColor } from './a11y'; // team colour palettes
+import { ARIA_TEXT } from './a11y-strings';
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
-import { RANK_NAMES, factionTypes, missingRequirements, statLines, xpThresholds } from './tech';
+import { factionTypes, missingRequirements, rankName, statLines, xpThresholds } from './tech';
 import { applyUiSettings, hudLayoutOf, loadSettings, onSettingsChanged, type HudLayout } from './settings';
 import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui';
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
@@ -26,7 +29,14 @@ import { isLooping, loopable } from '../sim/repeat';
 import { priceOf } from '../sim/doctrine';
 import { EconSelection, EconomyReadout, tierLock } from './economy'; // Commander economy: readout, upgrades
 import { powerMul } from '../sim/economy-data';
-import { ResearchTree } from './research'; // Commander economy: research tree
+import type { ResearchTree } from './research'; // Commander economy: research tree (its own chunk, built on first use)
+import tHud from '../i18n/en/hud';
+import tCommon from '../i18n/en/common';
+import { englishOf, fmtInt, fmtMoney, onLanguageChange, trSource } from '../i18n/core';
+import { resolveTypeNames, typeDesc, typeName } from '../i18n/names';
+
+// unit and structure names inside emitted English (mission objectives, radio) translate too
+resolveTypeNames(UNITS, BUILDINGS);
 
 export interface HudHost {
   world: World;
@@ -71,24 +81,28 @@ export interface HudHost {
  * without an entry here) only appear once the player can build them or owns a structure that produces them.
  */
 type TabId = Category | 'support';
-interface TabDef { id: TabId; cat: Category; icon: string; title: string; conditional: boolean }
-const CAT_META: Partial<Record<Category, { icon: string; title: string; conditional?: boolean }>> = {
-  building: { icon: ICONS.building, title: 'Structures' },
-  defense: { icon: ICONS.defense, title: 'Defenses' },
-  infantry: { icon: ICONS.infantry, title: 'Infantry' },
-  vehicle: { icon: ICONS.vehicle, title: 'Vehicles' },
-  aircraft: { icon: ICONS.aircraft, title: 'Aircraft' },
-  naval: { icon: ICONS.naval, title: 'Naval', conditional: true },
+/** `title()`: the tab's name in the interface language (read when rendering). */
+interface TabDef { id: TabId; cat: Category; icon: string; title: () => string; conditional: boolean }
+const KNOWN_CATS: readonly Category[] = ['building', 'defense', 'infantry', 'vehicle', 'aircraft', 'naval'];
+/** A category's tab name (a category added later without a translation: its capitalised id). */
+const catTitle = (cat: Category): string => (KNOWN_CATS.includes(cat) ? tHud(`tab.${cat}`) : cat.charAt(0).toUpperCase() + cat.slice(1));
+const CAT_META: Partial<Record<Category, { icon: string; conditional?: boolean }>> = {
+  building: { icon: ICONS.building },
+  defense: { icon: ICONS.defense },
+  infantry: { icon: ICONS.infantry },
+  vehicle: { icon: ICONS.vehicle },
+  aircraft: { icon: ICONS.aircraft },
+  naval: { icon: ICONS.naval, conditional: true },
 };
 const TABS: TabDef[] = CATEGORIES.map((cat) => {
   const m = CAT_META[cat];
-  return { id: cat, cat, icon: m?.icon ?? ICONS.building, title: m?.title ?? cat.charAt(0).toUpperCase() + cat.slice(1), conditional: m ? !!m.conditional : true };
+  return { id: cat, cat, icon: m?.icon ?? ICONS.building, title: () => catTitle(cat), conditional: m ? !!m.conditional : true };
 });
 const CAT_ICON: Record<Category, string> = Object.fromEntries(TABS.map((t) => [t.cat, t.icon])) as Record<Category, string>;
 /** Modern build bar tabs: Structures, Infantry, Vehicles, Defences, Support, then Aircraft / Naval once available. */
 const MODERN_ORDER: TabId[] = ['building', 'infantry', 'vehicle', 'defense', 'support', 'aircraft', 'naval'];
-const MODERN_TITLES: Partial<Record<TabId, string>> = { defense: 'Defences', support: 'Support' };
-const SUPPORT_TAB: TabDef = { id: 'support', cat: 'building', icon: ICONS.radar, title: 'Support', conditional: false };
+const MODERN_TITLES: Partial<Record<TabId, () => string>> = { defense: () => tHud('tab.defences'), support: () => tHud('tab.support') };
+const SUPPORT_TAB: TabDef = { id: 'support', cat: 'building', icon: ICONS.radar, title: () => tHud('tab.support'), conditional: false };
 const MODERN_TABS: TabDef[] = [
   ...MODERN_ORDER.map((id) => (id === 'support' ? SUPPORT_TAB : TABS.find((t) => t.id === id))).filter((t): t is TabDef => !!t)
     .map((t) => ({ ...t, title: MODERN_TITLES[t.id] ?? t.title, conditional: t.conditional || t.id === 'aircraft' })),
@@ -98,17 +112,18 @@ const TAB_ICON = (id: TabId): string => (id === 'support' ? SUPPORT_TAB.icon : C
 /** Tech and support structures (no factory, no power output, no ore storage): radar, depot, tech centres, superweapons, decoys. */
 const isSupportStructure = (t: TypeDef): boolean => isBuildingType(t) && t.category === 'building' && !t.factory && !(t.power > 0) && !t.storage;
 
-/** Superweapons and support powers, in SUPER_KINDS order. Aiming follows SUPER_TARGET. */
-const SUPER_INFO: Record<SuperKind, { icon: string; name: string; desc: string }> = {
-  nuke: { icon: ICONS.nuke, name: 'A-Bomb', desc: 'Launch a nuclear missile at any target on the map.' },
-  ironcurtain: { icon: ICONS.ironCurtain, name: 'Iron Curtain', desc: 'Make a group of your units invulnerable for a short time.' },
-  chrono: { icon: ICONS.chrono, name: 'Chronoshift', desc: 'Teleport one of your vehicles anywhere on the battlefield.' },
-  gps: { icon: ICONS.gps, name: 'GPS Satellite', desc: 'Launch a satellite that permanently reveals the entire map. One use.' },
-  sonar: { icon: ICONS.sonar, name: 'Sonar Pulse', desc: 'Reveal every enemy submarine on the map for a short time.' },
-  spyplane: { icon: ICONS.spyplane, name: 'Spy Plane', desc: 'A reconnaissance plane photographs the area around the target.' },
-  paratroopers: { icon: ICONS.paratroopers, name: 'Paratroopers', desc: 'A Badger drops a squad of riflemen at the target.' },
-  parabombs: { icon: ICONS.parabombs, name: 'Parabombs', desc: 'Badger bombers carpet-bomb the target area.' },
+/** Superweapons and support powers, in SUPER_KINDS order. Aiming follows SUPER_TARGET. Names and descriptions: hud.super.<kind>. */
+const SUPER_INFO: Record<SuperKind, { icon: string }> = {
+  nuke: { icon: ICONS.nuke },
+  ironcurtain: { icon: ICONS.ironCurtain },
+  chrono: { icon: ICONS.chrono },
+  gps: { icon: ICONS.gps },
+  sonar: { icon: ICONS.sonar },
+  spyplane: { icon: ICONS.spyplane },
+  paratroopers: { icon: ICONS.paratroopers },
+  parabombs: { icon: ICONS.parabombs },
 };
+const superName = (k: SuperKind): string => tHud(`super.${k}.name`);
 
 /** The player owns a structure that produces this category (shipyard → naval). */
 function ownsProducer(p: Player, cat: Category): boolean {
@@ -119,12 +134,15 @@ function ownsProducer(p: Player, cat: Category): boolean {
 const powerAvailable = superAvailable;
 const powerFull = superFull;
 
-export const STANCES: { id: Stance; key: string; icon: string; title: string; desc: string }[] = [
-  { id: 'aggressive', key: 'F1', icon: ICONS.stanceAggressive, title: 'Aggressive', desc: 'Engage anything in sight and chase it down.' },
-  { id: 'guard', key: 'F2', icon: ICONS.guard, title: 'Guard', desc: 'Engage nearby enemies, then return to position (default).' },
-  { id: 'hold', key: 'F3', icon: ICONS.stanceHold, title: 'Hold position', desc: 'Fire at enemies in range but never move to chase.' },
-  { id: 'passive', key: 'F4', icon: ICONS.stancePassive, title: 'Hold fire', desc: 'Never open fire on its own (stealthy scouts, spies).' },
-];
+const STANCE_ACTION: Record<Stance, ActionId> = { aggressive: 'stanceAggressive', guard: 'stanceGuard', hold: 'stanceHold', passive: 'stancePassive' };
+/** Stances; `title` / `desc` read in the interface language (hud.stance.<id>). */
+export const STANCES: { id: Stance; key: string; icon: string; readonly title: string; readonly desc: string }[] = (
+  [['aggressive', 'F1', ICONS.stanceAggressive], ['guard', 'F2', ICONS.guard], ['hold', 'F3', ICONS.stanceHold], ['passive', 'F4', ICONS.stancePassive]] as [Stance, string, string][]
+).map(([id, key, icon]) => ({
+  id, key, icon,
+  get title() { return tHud(`stance.${id}.title`); },
+  get desc() { return tHud(`stance.${id}.desc`); },
+}));
 
 /**
  * Spy intel on another player (player.intel, filled when a spy infiltrates a structure). Reads the
@@ -155,22 +173,28 @@ export function intelOn(viewer: Player, other: Player): IntelView | null {
   return all;
 }
 
-const SHORT_NAMES: Record<string, string> = {
-  'Advanced Power Plant': 'Adv. Power',
-  'Mobile Construction Vehicle': 'MCV',
-  'Allied Tech Center': 'Tech Center',
-  'Soviet Tech Center': 'Tech Center',
-  'V2 Rocket Launcher': 'V2 Launcher',
-  'Construction Yard': 'Const. Yard',
+/** Card names shortened (by the English name, so a mod that renames the type gets its own name): hud.short.<key>. */
+const SHORT_NAMES: Record<string, 'apwr' | 'mcv' | 'atek' | 'stek' | 'v2rl' | 'fact'> = {
+  'Advanced Power Plant': 'apwr',
+  'Mobile Construction Vehicle': 'mcv',
+  'Allied Tech Center': 'atek',
+  'Soviet Tech Center': 'stek',
+  'V2 Rocket Launcher': 'v2rl',
+  'Construction Yard': 'fact',
 };
-const shortName = (t: TypeDef) => SHORT_NAMES[t.name] ?? t.name;
+const shortName = (t: TypeDef) => { const k = SHORT_NAMES[t.name]; return k ? tHud(`short.${k}`) : typeName(t); };
 
-const HARVEST_STATE: Record<string, string> = {
-  seek: 'Searching for ore', toOre: 'Moving to ore field', harvesting: 'Harvesting', toRefinery: 'Returning to refinery',
-  waitDock: 'Waiting to dock', unloading: 'Unloading', idle: 'Idle',
-};
+const harvestState = (s: HarvestState): string => tHud(`harvest.${s}`);
+/** Names for a list inside one bold run ("Looping: [b]A, B[/b]"). */
+const nameList = (ids: string[]): string => ids.map((id) => typeName(getType(id))).join(', ');
+/** A tooltip key list entry with an escaped label. */
+const kv = (key: string, label: string): [string, string] => [key, esc(label)];
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** "Soviet" / "Allied". */
+const factionAdj = (p: Player): string => tCommon(p.faction === 'soviet' ? 'faction.sovietAdj' : 'faction.alliesAdj');
+/** What a type is ("Structure", "Vehicle"), under its name in the tooltip. */
+const kindName = (cat: Category): string => (KNOWN_CATS.includes(cat) ? tHud(`kind.${cat}`) : cap(cat));
 
 /**
  * Restart a one-shot CSS animation class on the next frame instead of forcing a synchronous layout like
@@ -212,6 +236,7 @@ export class Hud {
 
   /** Detach document-level listeners and the layout's body state (the DOM itself is cleared with the UI root). */
   dispose() {
+    this.disposed = true;
     if (Hud.live === this) Hud.live = null;
     this.detachListeners?.();
     this.detachListeners = null;
@@ -313,6 +338,9 @@ export class Hud {
   private econRo: EconomyReadout | null = null;
   private econSel: EconSelection | null = null;
   private research: ResearchTree | null = null;
+  private researchP: Promise<void> | null = null;
+  private makeResearch: (() => Promise<void>) | null = null;
+  private disposed = false;
 
   constructor(private host: HudHost) {
     Hud.live?.dispose(); // its widgets are about to be cleared with the UI root; drop its listeners too
@@ -334,18 +362,16 @@ export class Hud {
 
     const head = el('div', 'sb-head');
     this.sbHead = head;
-    this.creditsBox = el('div', 'credits', `<span class="cr-ic">$</span><div class="cr-body"><span class="cr-lbl">Credits</span></div><span class="cr-delta"></span><span class="cr-store"><i></i></span>`);
+    this.creditsBox = el('div', 'credits', `<span class="cr-ic">$</span><div class="cr-body"><span class="cr-lbl"></span></div><span class="cr-delta"></span><span class="cr-store"><i></i></span>`);
     this.creditsBox.querySelector('.cr-body')!.appendChild(this.odo.el);
     this.deltaEl = this.creditsBox.querySelector('.cr-delta')!;
     this.storeFill = this.creditsBox.querySelector('.cr-store i')!;
     this.repairBtn = el('button', 'mode-btn', ICONS.wrench);
-    this.repairBtn.dataset.tip = tipHtml('Repair mode', 'Click damaged structures to repair them. Costs credits.', [['R', 'Toggle']]);
     this.sellBtn = el('button', 'mode-btn', ICONS.sell);
-    this.sellBtn.dataset.tip = tipHtml('Sell mode', 'Click a structure to sell it for a partial refund.', [['Z', 'Toggle']]);
     this.repairBtn.onclick = () => { if (host.spectator) return; this.sound.play('click'); host.setMode(host.getMode() === 'repair' ? 'normal' : 'repair'); };
     this.sellBtn.onclick = () => { if (host.spectator) return; this.sound.play('click'); host.setMode(host.getMode() === 'sell' ? 'normal' : 'sell'); };
 
-    this.powerBox = el('div', 'power', `<div class="pw-head"><span class="pw-ic">${ICONS.boltSolid}</span><span class="pw-lbl">Power</span><span class="pw-state"></span><span class="pw-num"></span></div>
+    this.powerBox = el('div', 'power', `<div class="pw-head"><span class="pw-ic">${ICONS.boltSolid}</span><span class="pw-lbl"></span><span class="pw-state"></span><span class="pw-num"></span></div>
       <div class="pw-bar"><i class="pw-out"></i><i class="pw-load"></i><i class="pw-deficit"></i><i class="pw-segs"></i><i class="pw-use"></i></div>`);
     const q = (s: string) => this.powerBox.querySelector(s) as HTMLElement;
     this.pw = { out: q('.pw-out'), load: q('.pw-load'), deficit: q('.pw-deficit'), use: q('.pw-use'), num: q('.pw-num'), state: q('.pw-state') };
@@ -353,15 +379,13 @@ export class Hud {
     this.radar = el('div', 'radar');
     this.minimap = new Minimap(this.radar, host.world, host.local, (x, y, b, d) => host.minimapPoint(x, y, b, d));
     this.radar.insertAdjacentHTML('beforeend', `<div class="radar-sweep"></div><div class="radar-grid"></div><div class="radar-frame"><i></i><i></i><i></i><i></i></div>
-      <div class="offline"><span class="off-ic">${ICONS.radar}</span><b>Radar offline</b><span>Build a Radar Dome</span></div>`);
+      <div class="offline"><span class="off-ic">${ICONS.radar}</span><b></b><span></span></div>`);
 
     const tabs = el('div', 'tabs');
     this.tabsEl = tabs;
     for (const t of [...TABS, SUPPORT_TAB]) {
-      const modernTitle = MODERN_TABS.find((m) => m.id === t.id)?.title ?? t.title;
-      // the label only shows in the Modern build bar (Classic tabs are icon-only)
-      const b = el('button', 'tab', `${t.icon}<span class="tab-l">${modernTitle}</span><span class="tab-prog"><i></i></span><span class="badge"></span><span class="tab-loop">${ICONS.cycle}</span>`);
-      b.dataset.tip = tipHtml(t.title);
+      // the label (labels()) only shows in the Modern build bar (Classic tabs are icon-only)
+      const b = el('button', 'tab', `${t.icon}<span class="tab-l"></span><span class="tab-prog"><i></i></span><span class="badge"></span><span class="tab-loop">${ICONS.cycle}</span>`);
       b.dataset.tab = t.id;
       b.onclick = () => this.pickTab(t.id);
       this.tabEls.set(t.id, b);
@@ -392,29 +416,23 @@ export class Hud {
     const tb = el('div');
     tb.id = 'topbar';
     this.topbar = tb;
-    const menuBtn = el('button', 'tb-btn tb-menu', `${ICONS.menu}<span>Menu</span><kbd>Esc</kbd>`);
+    const menuBtn = el('button', 'tb-btn tb-menu', `${ICONS.menu}<span></span><kbd></kbd>`);
     this.menuBtn = menuBtn;
     menuBtn.onclick = () => { this.sound.play('click'); host.openPauseMenu(); };
     this.clock = el('div', 'tb-chip tb-clock', `${ICONS.clock}<span class="tb-time">00:00</span>`);
-    this.clock.dataset.tip = tipHtml('Mission time');
     const speed = el('div', 'speed-ctl tb-chip');
     this.speedEl = speed;
-    for (const [n, s, label] of GAME_SPEEDS.map((s, i) => [i + 1, s, GAME_SPEED_LABELS[i]] as [number, number, string])) {
+    for (const [n, s] of GAME_SPEEDS.map((s, i) => [i + 1, s] as [number, number])) {
       const b = el('button', '', `<span class="chev">${'<i></i>'.repeat(n)}</span>`);
-      b.dataset.tip = tipHtml(`${label} speed`, '', [[`×${s}`, 'game speed']]);
       b.onclick = () => { this.sound.play('click'); host.setSpeed(s); };
       b.dataset.speed = String(s);
       this.speedBtns.push(b);
       speed.appendChild(b);
     }
-    this.objEl = el('div', 'tb-chip tb-obj', `<span class="obj-ic">${ICONS.target}</span><span class="obj-txt"><small>Objective</small><b>Destroy all enemy forces</b></span><span class="obj-pips"></span>`);
+    this.objEl = el('div', 'tb-chip tb-obj', `<span class="obj-ic">${ICONS.target}</span><span class="obj-txt"><small></small><b></b></span><span class="obj-pips"></span>`);
     this.intelEl = el('div', 'tb-chip tb-intel');
-    const cfTip = tipHtml('Build-up time', 'Ceasefire: the enemy builds up its forces and only defends itself until the timer runs out; attacking it does not end the ceasefire early. Expect a big attack when it does.',
-      [['[', 'slower'], [']', `faster (up to ×${GAME_SPEEDS[GAME_SPEEDS.length - 1]})`]]);
     this.cfChip = el('div', 'tb-chip tb-cf', `<span class="cf-ic">${ICONS.shield}</span><span class="cf-txt"></span>`);
     this.cfRow = el('div', 'op-row cf-row', `<span class="cf-ic">${ICONS.shield}</span><span class="op-tx cf-txt"></span>`);
-    this.cfChip.dataset.tip = cfTip;
-    this.cfRow.dataset.tip = cfTip;
     this.cfChip.style.display = this.cfRow.style.display = 'none';
     ui.appendChild(tb);
     this.tip.bind(tb, 'bottom');
@@ -429,14 +447,8 @@ export class Hud {
     if (fullscreenSupported()) {
       const fsBtn = el('button', 'tb-btn tb-fs', ICONS.scatter);
       this.fsBtn = fsBtn;
-      const sync = (on: boolean) => {
-        fsBtn.classList.toggle('on', on);
-        fsBtn.dataset.tip = tipHtml(on ? 'Leave fullscreen' : 'Fullscreen', on ? 'Hold <kbd>Esc</kbd> or press <kbd>Alt</kbd>+<kbd>Enter</kbd>.' : 'Edge scrolling works best fullscreen. <kbd>Alt</kbd>+<kbd>Enter</kbd>');
-        fsBtn.setAttribute('aria-label', on ? 'Leave fullscreen' : 'Fullscreen');
-      };
       fsBtn.onclick = () => { this.sound.play('click'); void toggleFullscreen(); };
-      sync(isFullscreen());
-      this.detachListeners = onFullscreenChange(sync);
+      this.detachListeners = onFullscreenChange(() => this.syncFullscreen());
       tr.appendChild(fsBtn);
     }
     ui.appendChild(tr);
@@ -475,7 +487,6 @@ export class Hud {
     this.rbTime = el('div', 'rb-grp rb-time');
     this.rbBtns = el('div', 'rb-grp rb-btns');
     this.settingsBtn = el('button', 'tb-btn rb-gear', ICONS.gear);
-    this.settingsBtn.dataset.tip = tipHtml('Settings', 'Graphics, audio, controls and the interface layout (the game pauses).');
     this.settingsBtn.onclick = () => {
       this.sound.play('click');
       host.openPauseMenu();
@@ -496,34 +507,88 @@ export class Hud {
     // Commander economy: the readout next to the credits and the research tree
     if (host.world.econ) {
       this.econRo = new EconomyReadout(host.world, host.local, () => { this.sound.play('click'); this.openResearch(null); }, (t) => this.message(t, false, 'success'), this.tip);
-      this.research = new ResearchTree({
-        world: host.world, local: host.local, issue: (c) => host.issue(c), sound: (k) => this.sound.play(k), message: (t, w) => this.message(t, w), spectator: host.spectator, tip: this.tip,
-      }, ui);
-      this.tip.bind(this.research.root, 'top');
-      this.sound.bind(this.research.root, 'button');
+      // the research tree is built on first use (its own chunk)
+      this.makeResearch = () => (this.researchP ??= import('./research').then(({ ResearchTree }) => {
+        if (this.disposed) return;
+        const tree = new ResearchTree({
+          world: host.world, local: host.local, issue: (c) => host.issue(c), sound: (k) => this.sound.play(k), message: (t, w) => this.message(t, w), spectator: host.spectator, tip: this.tip,
+        }, ui);
+        this.tip.bind(tree.root, 'top');
+        this.sound.bind(tree.root, 'button');
+        this.research = tree;
+      }));
     }
 
     // HUD buttons must not keep keyboard focus: Space / Enter are game hotkeys and would re-click them.
     const noFocus = (e: MouseEvent) => { if ((e.target as HTMLElement).closest('button')) e.preventDefault(); };
     for (const c of [sb, tb, tr, this.dock, this.mmPanel]) c.addEventListener('mousedown', noFocus);
-    const label = (b: HTMLElement, l: string) => b.setAttribute('aria-label', l);
-    label(this.repairBtn, 'Repair mode');
-    label(this.sellBtn, 'Sell mode');
-    label(menuBtn, 'Menu');
-    label(this.settingsBtn, 'Settings');
-    label(this.toasts.bell, 'Event log');
-    this.speedBtns.forEach((b) => label(b, `Game speed ${b.dataset.speed}x`));
+    this.labels();
 
     // build-bar hotkeys (Modern) and live layout switching from the settings screen
     window.addEventListener('keydown', this.onKeyDown, true);
     const offSettings = onSettingsChanged((s) => { const l = hudLayoutOf(s); if (l !== this.layout && this.sidebar.isConnected) this.mount(l); });
+    // a language change: the fixed labels, then everything else re-renders
+    const offLang = onLanguageChange(() => {
+      if (!this.sidebar.isConnected) return;
+      this.labels();
+      this.groupKey = ''; this.intelKey = ''; this.powerBox.dataset.state = '';
+      this.mount(this.layout);
+    });
     const prev = this.detachListeners;
-    this.detachListeners = () => { prev?.(); offSettings(); window.removeEventListener('keydown', this.onKeyDown, true); };
+    this.detachListeners = () => { prev?.(); offSettings(); offLang(); window.removeEventListener('keydown', this.onKeyDown, true); };
 
     this.mount(hudLayoutOf(loadSettings()));
 
     this.shownCredits = host.local.credits;
     this.odo.set(this.shownCredits);
+  }
+
+  /** The fixed labels, tooltips and accessible names (again after a language change). */
+  private labels() {
+    const text = (e: Element | null, t: string) => { if (e) e.textContent = t; };
+    text(this.creditsBox.querySelector('.cr-lbl'), tHud('credits'));
+    this.repairBtn.dataset.tip = tipHtml(tHud.html('mode.repair'), tHud.html('mode.repairDesc'), [kv(esc(keyLabel('repair')) || '—', tHud('mode.toggle'))]);
+    this.repairBtn.setAttribute('aria-label', ARIA_TEXT.repairMode);
+    this.sellBtn.dataset.tip = tipHtml(tHud.html('mode.sell'), tHud.html('mode.sellDesc'), [kv(esc(keyLabel('sell')) || '—', tHud('mode.toggle'))]);
+    this.sellBtn.setAttribute('aria-label', ARIA_TEXT.sellMode);
+    text(this.powerBox.querySelector('.pw-lbl'), tHud('power.label'));
+    text(this.radar.querySelector('.offline b'), tHud('radar.offline'));
+    text(this.radar.querySelector('.offline > span:last-child'), tHud('radar.build'));
+    for (const t of [...TABS, SUPPORT_TAB]) {
+      const b = this.tabEls.get(t.id)!;
+      text(b.querySelector('.tab-l'), (MODERN_TABS.find((m) => m.id === t.id)?.title ?? t.title)());
+      b.dataset.tip = tipHtml(esc(t.title()));
+    }
+    text(this.menuBtn.querySelector('span'), tCommon('menu'));
+    text(this.menuBtn.querySelector('kbd'), tCommon('keys.esc'));
+    this.menuBtn.setAttribute('aria-label', tCommon('menu'));
+    this.clock.dataset.tip = tipHtml(tHud.html('clock'));
+    const speedKeys = ['speed.normal', 'speed.fast', 'speed.faster', 'speed.maximum'] as const;
+    this.speedBtns.forEach((b, i) => {
+      const k = speedKeys[i];
+      const title = k ? tHud.html(k) : tHud.html('speed.other', { label: GAME_SPEED_LABELS[i] ?? b.dataset.speed });
+      b.dataset.tip = tipHtml(title, '', [kv(`×${b.dataset.speed}`, tHud('speed.game'))]);
+      b.setAttribute('aria-label', tHud('speed.aria', { n: b.dataset.speed }));
+    });
+    text(this.objEl.querySelector('.obj-txt small'), tHud('obj.title'));
+    if (!this.host.world.mission) text(this.objEl.querySelector('.obj-txt b'), tHud('obj.destroyAll'));
+    const cfTip = tipHtml(tHud.html('cf.title'), tHud.html('cf.desc'),
+      [kv(esc(keyLabel('speedDown')) || '—', tHud('cf.slower')), kv(esc(keyLabel('speedUp')) || '—', tHud('cf.faster', { n: GAME_SPEEDS[GAME_SPEEDS.length - 1] }))]);
+    this.cfChip.dataset.tip = cfTip;
+    this.cfRow.dataset.tip = cfTip;
+    this.syncFullscreen();
+    this.settingsBtn.setAttribute('aria-label', ARIA_TEXT.settings);
+    this.settingsBtn.dataset.tip = tipHtml(esc(tCommon('settings')), tHud.html('settingsDesc'));
+    this.toasts.bell.setAttribute('aria-label', ARIA_TEXT.eventLog);
+  }
+
+  private syncFullscreen() {
+    const b = this.fsBtn;
+    if (!b) return;
+    const on = isFullscreen();
+    b.classList.toggle('on', on);
+    b.dataset.tip = tipHtml(on ? tHud.html('fullscreen.leave') : esc(ARIA_TEXT.fullscreen), on ? tHud.html('fullscreen.leaveDesc') : tHud.html('fullscreen.enterDesc'));
+    b.setAttribute('aria-label', on ? tHud('fullscreen.leave') : ARIA_TEXT.fullscreen);
   }
 
   // ---------------------------------------------------------------------------
@@ -552,7 +617,7 @@ export class Hud {
     body.classList.toggle('hud-modern', modern);
     const sb = this.sidebar, tb = this.topbar, tr = this.topright;
     this.tabsEl.replaceChildren(...this.tabDefs().map((t) => this.tabEls.get(t.id)!), this.tabInd);
-    for (const t of this.tabDefs()) this.tabEls.get(t.id)!.setAttribute('aria-label', t.title);
+    for (const t of this.tabDefs()) this.tabEls.get(t.id)!.setAttribute('aria-label', t.title());
     const mission = this.ui.querySelector<HTMLElement>('.mh-obj');
     if (modern) {
       sb.id = 'buildbar';
@@ -676,8 +741,10 @@ export class Hud {
   }
 
   /** Show a notification toast. `kind` overrides the style inferred from the text. */
-  message(text: string, warn = false, kind?: ToastKind) {
-    this.toasts.push(text, kind ?? classifyMessage(text, warn));
+  message(text: string, warn = false, kind?: ToastKind, logOnly = false) {
+    // English from the simulation / scripts is translated here (trSource: anything else unchanged); the style is
+    // inferred from the English (englishOf maps an already translated interface string back)
+    this.toasts.push(trSource(text), kind ?? classifyMessage(englishOf(text), warn), logOnly); // logOnly: already captioned (subtitles)
   }
 
   // ---------------------------------------------------------------------------
@@ -697,7 +764,7 @@ export class Hud {
     this.slowT = 0.12;
     if (this.fpsAcc > 0.5) {
       const s = this.host.stats?.() ?? '';
-      this.fpsEl.innerHTML = `<b>${Math.round(this.fpsN / this.fpsAcc)}</b> FPS${s ? ` <span>· ${esc(s)}</span>` : ''}`;
+      this.fpsEl.innerHTML = `${tHud.html('fps', { n: Math.round(this.fpsN / this.fpsAcc) })}${s ? ` <span>· ${esc(s)}</span>` : ''}`;
       this.fpsAcc = 0; this.fpsN = 0;
     }
     (this.clock.lastElementChild as HTMLElement).textContent = formatTime(w.time);
@@ -726,7 +793,8 @@ export class Hud {
 
   /** Open the research tree (at a lab, or wherever there is an idle one). */
   openResearch(lab: Building | null) {
-    this.research?.toggle(lab);
+    if (this.research || !this.makeResearch) { this.research?.toggle(lab); return; }
+    void this.makeResearch().then(() => this.research?.toggle(lab), () => {});
   }
 
   // ---------------------------------------------------------------------------
@@ -766,7 +834,7 @@ export class Hud {
 
   private popDelta(v: number) {
     const d = this.deltaEl;
-    d.textContent = `${v > 0 ? '+' : '−'}$${Math.abs(Math.round(v)).toLocaleString('en-US')}`;
+    d.textContent = `${v > 0 ? '+' : '−'}${fmtMoney(Math.abs(Math.round(v)))}`;
     d.className = 'cr-delta ' + (v > 0 ? 'up' : 'down');
     void d.offsetWidth;
     d.classList.add('go');
@@ -785,13 +853,13 @@ export class Hud {
     if (this.powerBox.dataset.state !== state) {
       this.powerBox.dataset.state = state;
       this.sidebar.classList.toggle('low-power', state === 'low');
-      this.pw.state.textContent = state === 'low' ? 'Low power' : state === 'tight' ? 'Near capacity' : '';
+      this.pw.state.textContent = state === 'low' ? tHud('power.low') : state === 'tight' ? tHud('power.tight') : '';
     }
     const num = `<b class="pw-o">${p.powerOut}</b><small>/</small><b class="${p.lowPower ? 'pw-over' : ''}">${p.powerUse}</b>`;
     if (this.pw.num.innerHTML !== num) this.pw.num.innerHTML = num;
-    const tip = tipHtml('Power grid', (p.lowPower
-      ? '<span class="tt-bad">Low power!</span> Production is slowed; radar, Tesla Coils and superweapons are offline. Build more power plants.'
-      : `Surplus <b>${p.powerOut - p.powerUse}</b>.`) + `<br>Output <b>${p.powerOut}</b> · drain <b>${p.powerUse}</b>`);
+    const tip = tipHtml(tHud.html('power.title'), (p.lowPower
+      ? `<span class="tt-bad">${tHud.html('power.lowAlert')}</span> ${tHud.html('power.lowDesc')}`
+      : tHud.html('power.surplus', { n: p.powerOut - p.powerUse })) + `<br>${tHud.html('power.output', { out: p.powerOut, use: p.powerUse })}`);
     this.powerBox.dataset.tip = tip;
     this.tip.refresh(this.powerBox, tip);
   }
@@ -876,10 +944,12 @@ export class Hud {
       prog.classList.toggle('on', !!head || ready);
       prog.classList.toggle('hold', !!head?.paused);
       (prog.firstElementChild as HTMLElement).style.transform = `scaleX(${ready ? 1 : head ? head.progress.toFixed(3) : 0})`;
-      let status = ready ? '<span class="tt-ok">Ready to place</span>' : head ? `${head.paused ? 'On hold' : 'Producing'}: <b>${getType(head.type).name}</b> ${Math.floor(head.progress * 100)}%` + (mine.length > 1 ? ` · ${mine.length - 1} queued` : '') : n ? `${n} available` : 'Nothing available yet';
-      if (loops) status += `<br>Looping: <b>${p.repeat.filter((id) => this.tabOf(id) === t.id).map((id) => esc(getType(id).name)).join('</b>, <b>')}</b>`;
-      if (nag) status += `<br><span class="tt-bad">Factory idle for ${Math.floor(this.army.idleFor(q.kind))} s</span>`;
-      const tip = tipHtml(t.title, status, this.layout === 'modern' ? [['Tab', 'next tab']] : []);
+      let status = ready ? `<span class="tt-ok">${tHud.html('tab.readyToPlace')}</span>`
+        : head ? tHud.html(head.paused ? 'tab.onHold' : 'tab.producing', { name: typeName(getType(head.type)), pct: Math.floor(head.progress * 100) }) + (mine.length > 1 ? ` · ${tHud.html('tab.queued', { n: mine.length - 1 })}` : '')
+        : n ? tHud.html('tab.available', { n }) : tHud.html('tab.nothing');
+      if (loops) status += `<br>${tHud.html('tab.looping', { names: nameList(p.repeat.filter((id) => this.tabOf(id) === t.id)) })}`;
+      if (nag) status += `<br><span class="tt-bad">${tHud.html('tab.factoryIdle', { n: Math.floor(this.army.idleFor(q.kind)) })}</span>`;
+      const tip = tipHtml(esc(t.title()), status, this.layout === 'modern' ? [kv(esc(tCommon('keys.tab')), tHud('tab.next'))] : []);
       if (b.dataset.tip !== tip) { b.dataset.tip = tip; this.tip.refresh(b, tip); }
     }
 
@@ -913,32 +983,32 @@ export class Hud {
 
   private updateCatHeader(p: Player, list: string[], locked: string[]) {
     const tab = this.tabDefs().find((t) => t.id === this.activeTab) ?? this.tabDefs()[0];
-    this.catTitle.textContent = tab.title;
+    this.catTitle.textContent = tab.title();
     const q = this.queueFor(p, this.activeTab);
     const mine = q.items.filter((it) => this.tabOf(it.type) === this.activeTab);
     const head = mine.length && q.items[0] === mine[0] ? mine[0] : null;
     let html: string, cls = '';
     if (q.kind === 'structure' && q.ready) {
       const t = getType(q.ready);
-      if (this.tabOf(t.id) === this.activeTab) { html = `Place ${esc(shortName(t))}`; cls = 'ok'; }
-      else { html = 'Yard busy'; cls = 'muted'; }
+      if (this.tabOf(t.id) === this.activeTab) { html = tHud.html('cat.place', { name: shortName(t) }); cls = 'ok'; }
+      else { html = tHud.html('cat.yardBusy'); cls = 'muted'; }
     } else if (head) {
       const pct = Math.floor(head.progress * 100);
-      html = head.paused ? 'On hold' : q.stalled ? 'Awaiting funds' : `${q.kind === 'structure' ? 'Building' : 'Training'} ${pct}%`;
+      html = head.paused ? tHud.html('state.onHold') : q.stalled ? tHud.html('cat.awaitingFunds') : tHud.html(q.kind === 'structure' ? 'cat.building' : 'cat.training', { pct });
       cls = head.paused ? 'hold' : q.stalled ? 'bad' : 'busy';
       if (mine.length > 1) html += ` <small>+${mine.length - 1}</small>`;
     } else if (q.kind === 'structure' && q.items.length) {
-      html = 'Yard busy'; cls = 'muted';
+      html = tHud.html('cat.yardBusy'); cls = 'muted';
     } else if (q.kind !== 'structure' && this.army.nagging(q.kind)) {
-      html = `Factory idle ${Math.floor(this.army.idleFor(q.kind))}s`; cls = 'idle';
+      html = tHud.html('cat.factoryIdle', { n: Math.floor(this.army.idleFor(q.kind)) }); cls = 'idle';
     } else if (q.kind !== 'structure' && p.repeat.some((id) => this.tabOf(id) === this.activeTab)) {
-      html = `${ICONS.cycle} Loop · awaiting funds`; cls = 'busy'; // (nothing queued: the loops wait for money)
+      html = `${ICONS.cycle} ${tHud.html('cat.loopAwaiting')}`; cls = 'busy'; // (nothing queued: the loops wait for money)
     } else if (!list.length && locked.length) {
       const req = missingRequirements(p, locked[0])[0];
-      html = req ? `Requires ${esc(req)}` : 'Locked';
+      html = req ? tHud.html('cat.requires', { req }) : esc(tCommon('locked'));
       cls = 'bad';
     } else {
-      html = `${list.length} available`;
+      html = tHud.html('tab.available', { n: list.length });
       cls = 'muted';
     }
     if (this.catStatus.innerHTML !== html) this.catStatus.innerHTML = html;
@@ -955,10 +1025,10 @@ export class Hud {
     let i = 0;
     for (const id of list) this.grid.appendChild(this.makeCard(id, false, i++));
     if (locked.length) {
-      this.grid.appendChild(el('div', 'grid-sep', `${ICONS.lock}<span>Requires tech</span><i></i>`));
+      this.grid.appendChild(el('div', 'grid-sep', `${ICONS.lock}<span>${tHud.html('grid.requiresTech')}</span><i></i>`));
       for (const id of locked) this.grid.appendChild(this.makeCard(id, true, i++));
     }
-    if (!list.length && !locked.length) this.grid.appendChild(el('div', 'grid-empty', `${TAB_ICON(this.activeTab)}<span>Nothing to build here yet</span>`));
+    if (!list.length && !locked.length) this.grid.appendChild(el('div', 'grid-empty', `${TAB_ICON(this.activeTab)}<span>${tHud.html('grid.empty')}</span>`));
     this.grid.classList.remove('stagger', 'stagger-soft');
     void this.grid.offsetWidth;
     this.grid.classList.add(tabChanged ? 'stagger' : 'stagger-soft');
@@ -981,13 +1051,13 @@ export class Hud {
         <div class="bi-shade"></div>
         <svg class="bi-ring" viewBox="0 0 100 100"><circle class="trk" cx="50" cy="50" r="40"/><circle class="arc" cx="50" cy="50" r="40" pathLength="100"/></svg>
         <div class="bi-label"></div>
-        <span class="bi-cost">$${priceOf(this.host.local, id).toLocaleString('en-US')}</span>
+        <span class="bi-cost">${fmtMoney(priceOf(this.host.local, id))}</span>
         <span class="bi-name">${esc(shortName(t))}</span>
         <span class="bi-count"></span>
-        ${locked ? `<span class="bi-lock">${ICONS.lock}</span>` : ''}${locked && tierLock(this.host.local, id) ? `<span class="bi-tier">T${tierLock(this.host.local, id)}</span>` : ''}
-        <span class="bi-new">New</span>${modCardTag(id)}${hk ? `<kbd class="bi-key">${hk}</kbd>` : ''}
+        ${locked ? `<span class="bi-lock">${ICONS.lock}</span>` : ''}${locked && tierLock(this.host.local, id) ? `<span class="bi-tier">${tHud.html('card.tier', { n: tierLock(this.host.local, id) })}</span>` : ''}
+        <span class="bi-new">${esc(tCommon('new'))}</span>${modCardTag(id)}${hk ? `<kbd class="bi-key">${hk}</kbd>` : ''}
         <div class="bi-glare"></div><div class="bi-shine"></div>
-        ${!locked && loopable(id) && !this.host.spectator ? `<button class="bi-loop" tabindex="-1" aria-label="Loop ${esc(t.name)}">${ICONS.cycle}</button>` : ''}
+        ${!locked && loopable(id) && !this.host.spectator ? `<button class="bi-loop" tabindex="-1" aria-label="${esc(tHud('card.loopAria', { name: typeName(t) }))}">${ICONS.cycle}</button>` : ''}
       </div>`;
     const card: Card = {
       id, el: c, locked, state: '', pct: -1, count: -1, poor: false,
@@ -1022,10 +1092,10 @@ export class Hud {
         const was = card.state;
         card.state = state;
         card.el.dataset.state = state;
-        card.label.innerHTML = state === 'ready' ? `${ICONS.check}<span>Ready</span>`
-          : state === 'hold' ? `<span class="lb-hold">On hold</span>`
-          : state === 'nofunds' ? `${ICONS.coin}<span>No funds</span>`
-          : state === 'queued' ? `<span class="lb-q">Queued</span>` : '';
+        card.label.innerHTML = state === 'ready' ? `${ICONS.check}<span>${tHud.html('state.ready')}</span>`
+          : state === 'hold' ? `<span class="lb-hold">${tHud.html('state.onHold')}</span>`
+          : state === 'nofunds' ? `${ICONS.coin}<span>${tHud.html('state.noFunds')}</span>`
+          : state === 'queued' ? `<span class="lb-q">${tHud.html('state.queued')}</span>` : '';
         if (state === 'ready' && was) replay(card.el, 'pop', 650);
       }
       if (pct !== card.pct) {
@@ -1041,7 +1111,8 @@ export class Hud {
       }
       // planned copies of this structure (build plan)
       const planned = q.kind === 'structure' ? p.buildPlan.reduce((n, x) => n + (x.type === card.id ? 1 : 0), 0) : 0;
-      if ((card.el.dataset.planned ?? '') !== (planned ? `${planned}` : '')) { if (planned) card.el.dataset.planned = `${planned}`; else delete card.el.dataset.planned; }
+      const pl = planned ? tHud('card.planned', { n: planned }) : ''; // (shown by the ::after rule, ui/orderui.ts)
+      if ((card.el.dataset.planned ?? '') !== pl) { if (planned) card.el.dataset.planned = pl; else delete card.el.dataset.planned; }
       const poor = state === 'idle' && credits < priceOf(p, card.id); // doctrine price
       if (poor !== card.poor) { card.poor = poor; card.el.classList.toggle('poor', poor); }
       // repeat production badge: looping, or looping and waiting for the money for the next one
@@ -1054,28 +1125,29 @@ export class Hud {
     const t = getType(card.id);
     const w = this.host.world, p = this.host.local;
     const lines = statLines(t);
-    const rows = lines.map((l) => `<span class="ts-l">${l.label}</span><span class="ts-v">${esc(l.value)}</span>${l.frac !== undefined ? `<span class="ts-bar"><i style="width:${Math.round(Math.min(1, l.frac) * 100)}%"></i></span>` : '<span></span>'}`).join('');
+    const rows = lines.map((l) => `<span class="ts-l">${esc(l.label)}</span><span class="ts-v">${esc(l.value)}</span>${l.frac !== undefined ? `<span class="ts-bar"><i style="width:${Math.round(Math.min(1, l.frac) * 100)}%"></i></span>` : '<span></span>'}`).join('');
     let foot = '';
     if (card.locked) {
       const req = missingRequirements(p, card.id);
-      foot = `<div class="tt-req">${ICONS.lock}<span>Requires <b>${req.map(esc).join('</b>, <b>') || 'more technology'}</b></span></div>`;
+      foot = `<div class="tt-req">${ICONS.lock}<span>${tHud.html('tip.requires', { list: req.join(', ') || tHud('tip.moreTech') })}</span></div>`;
     } else {
       const secs = buildSeconds(w, p, card.id);
       const price = priceOf(p, card.id); // doctrine price
       const poor = p.credits < price;
-      foot = `<div class="tt-meta"><span>${ICONS.clock}${Math.ceil(secs)}s build</span>${poor ? `<span class="tt-bad">${ICONS.coin}Need $${(price - p.credits).toLocaleString('en-US')} more</span>` : ''}${p.lowPower ? `<span class="tt-bad">${ICONS.bolt}Low power: slower</span>` : ''}</div>`;
+      foot = `<div class="tt-meta"><span>${ICONS.clock}${tHud.html('tip.buildTime', { s: Math.ceil(secs) })}</span>${poor ? `<span class="tt-bad">${ICONS.coin}${tHud.html('tip.needMore', { money: fmtMoney(price - p.credits) })}</span>` : ''}${p.lowPower ? `<span class="tt-bad">${ICONS.bolt}${tHud.html('tip.lowPower')}</span>` : ''}</div>`;
       const hk = this.layout === 'modern' ? CARD_KEYS[this.keyCards.indexOf(card)] : undefined;
       // loop state, queue fill and the loop key
       const unitQ = !isBuildingType(t) ? p.queues[queueKindOf(t)] : null;
       if (unitQ) {
         const looping = isLooping(p, card.id);
-        foot += `<div class="tt-meta">${looping ? `<span class="tt-ok">${ICONS.cycle}Looping: keeps training while you can pay</span>` : ''}<span>Queue ${unitQ.items.length}/${QUEUE_LIMIT}</span></div>`;
+        foot += `<div class="tt-meta">${looping ? `<span class="tt-ok">${ICONS.cycle}${tHud.html('tip.looping')}</span>` : ''}<span>${tHud.html('tip.queue', { n: unitQ.items.length, max: QUEUE_LIMIT })}</span></div>`;
       }
-      foot += `<div class="tt-keys"><span><kbd>LMB</kbd>${isBuildingType(t) ? 'Build / place' : 'Train'}</span>${isBuildingType(t) ? '' : '<span><kbd>Shift</kbd>×5</span><span><kbd>Alt</kbd>Loop</span>'}<span><kbd>RMB</kbd>${unitQ && isLooping(p, card.id) ? 'Stop loop' : 'Hold / cancel'}</span>${hk ? `<span><kbd>B</kbd><kbd>${hk}</kbd>Hotkey</span>` : ''}</div>`;
+      const k = (key: string) => `<kbd>${esc(key)}</kbd>`;
+      foot += `<div class="tt-keys"><span>${k(tHud('mouse.lmb'))}${tHud.html(isBuildingType(t) ? 'tip.buildPlace' : 'tip.train')}</span>${isBuildingType(t) ? '' : `<span>${k(tCommon('keys.shift'))}×5</span><span>${k(tCommon('keys.alt'))}${tHud.html('tip.loop')}</span>`}<span>${k(tHud('mouse.rmb'))}${tHud.html(unitQ && isLooping(p, card.id) ? 'tip.stopLoop' : 'tip.holdCancel')}</span>${hk ? `<span><kbd>B</kbd><kbd>${hk}</kbd>${tHud.html('tip.hotkey')}</span>` : ''}</div>`;
     }
-    return `<div class="tt-head"><b>${esc(t.name)}</b><span class="tt-cost">$${priceOf(p, card.id).toLocaleString('en-US')}</span></div>
-      <div class="tt-sub">${cap(t.category === 'building' ? 'structure' : t.category)}${isBuildingType(t) ? ` · ${t.size[0]}×${t.size[1]}` : ''}</div>
-      <p>${esc(t.description)}</p><div class="tt-stats">${rows}</div>${modTipHtml(card.id)}${foot}`;
+    return `<div class="tt-head"><b>${esc(typeName(t))}</b><span class="tt-cost">${fmtMoney(priceOf(p, card.id))}</span></div>
+      <div class="tt-sub">${esc(kindName(t.category))}${isBuildingType(t) ? ` · ${t.size[0]}×${t.size[1]}` : ''}</div>
+      <p>${esc(typeDesc(t))}</p><div class="tt-stats">${rows}</div>${modTipHtml(card.id)}${foot}`;
   }
 
   private refreshCardTip(card: Card) {
@@ -1098,7 +1170,7 @@ export class Hud {
     if (card.locked) {
       this.sound.play('error');
       const req = missingRequirements(p, id);
-      this.message(`${t.name} requires ${req.join(', ') || 'more technology'}`, true);
+      this.message(tHud('msg.requires', { name: typeName(t), list: req.join(', ') || tHud('tip.moreTech') }), true);
       replay(card.el, 'shake', 450);
       return;
     }
@@ -1109,7 +1181,7 @@ export class Hud {
       if (shift || q.ready || (q.items.length && q.items[0].type !== id)) {
         this.host.beginPlacement(id);
         if (this.host.getMode() === 'plan') return;
-        this.message('Already building', true);
+        this.message(tHud('msg.alreadyBuilding'), true);
         this.host.audio.play('error');
         replay(card.el, 'shake', 450);
         return;
@@ -1123,7 +1195,7 @@ export class Hud {
       const head = q.items[0];
       if (head && head.type === id && head.paused) { this.host.issue({ c: 'pause', player: p.id, type: id }); return; }
       if (q.items.length >= QUEUE_LIMIT) { // say so instead of silently dropping the click
-        this.message(`Queue full (${QUEUE_LIMIT}): Alt-click a card to loop it instead`, true);
+        this.message(tHud('msg.queueFull', { n: QUEUE_LIMIT }), true);
         this.host.audio.play('error');
         replay(card.el, 'shake', 450);
         return;
@@ -1165,9 +1237,9 @@ export class Hud {
       this.supers.classList.toggle('compact', kinds.length > 2);
       for (const k of kinds) {
         const b = el('button', `super sw-${k}`, `<span class="sw-ring"><svg viewBox="0 0 100 100"><circle class="trk" cx="50" cy="50" r="44"/><circle class="arc" cx="50" cy="50" r="44" pathLength="100"/></svg><span class="sw-ic">${SUPER_INFO[k].icon}</span></span>
-          <span class="sw-txt"><b>${SUPER_INFO[k].name}</b><small></small></span><span class="sw-shine"></span>`);
+          <span class="sw-txt"><b>${esc(superName(k))}</b><small></small></span><span class="sw-shine"></span>`);
         b.dataset.kind = k;
-        b.setAttribute('aria-label', SUPER_INFO[k].name);
+        b.setAttribute('aria-label', superName(k));
         b.onclick = () => this.activatePower(k);
         this.supers.appendChild(b);
       }
@@ -1183,11 +1255,11 @@ export class Hud {
       b.classList.toggle('offline', offline);
       // the Modern support row is always compact: just the timer under each power
       const compact = this.layout === 'modern' || this.supers.classList.contains('compact');
-      const sub = ready ? 'Ready' : offline ? 'Offline' : compact ? formatTime(Math.max(0, full - p.superCharge[k])) : `${Math.floor(frac * 100)}% · ${formatTime(Math.max(0, full - p.superCharge[k]))}`;
+      const sub = ready ? tHud('state.ready') : offline ? tHud('state.offline') : compact ? formatTime(Math.max(0, full - p.superCharge[k])) : `${Math.floor(frac * 100)}% · ${formatTime(Math.max(0, full - p.superCharge[k]))}`;
       const small = b.querySelector('small')!;
       if (small.textContent !== sub) small.textContent = sub;
-      const how = k === 'gps' ? 'launching' : SUPER_TARGET[k] === 'none' ? 'click to activate' : SUPER_TARGET[k] === 'unit-point' ? 'select a vehicle, click, then choose the destination' : 'click, then choose a target';
-      const tip = tipHtml(SUPER_INFO[k].name, SUPER_INFO[k].desc + (this.host.spectator ? '' : ready ? ` <span class="tt-ok">Ready — ${how}.</span>` : offline ? ' <span class="tt-bad">Charging halted: low power.</span>' : ` Charging: ${Math.floor(frac * 100)}%.`));
+      const how = tHud(k === 'gps' ? 'superTip.howGps' : SUPER_TARGET[k] === 'none' ? 'superTip.howNone' : SUPER_TARGET[k] === 'unit-point' ? 'superTip.howUnit' : 'superTip.howPoint');
+      const tip = tipHtml(esc(superName(k)), tHud.html(`super.${k}.desc`) + (this.host.spectator ? '' : ready ? ` <span class="tt-ok">${tHud.html('superTip.ready', { how })}</span>` : offline ? ` <span class="tt-bad">${tHud.html('superTip.halted')}</span>` : ` ${tHud.html('superTip.charging', { pct: Math.floor(frac * 100) })}`));
       if (b.dataset.tip !== tip) { b.dataset.tip = tip; this.tip.refresh(b, tip); }
     }
   }
@@ -1196,14 +1268,14 @@ export class Hud {
   private activatePower(k: SuperKind) {
     const w = this.host.world, p = this.host.local;
     if (this.host.spectator) return;
-    if (k === 'gps') { this.message('The GPS satellite launches by itself when it is ready'); return; }
-    if (!superReady(w, p, k)) { this.sound.play('error'); this.message(`${SUPER_INFO[k].name} not ready`, true); return; }
+    if (k === 'gps') { this.message(tHud('msg.gpsAuto'), false, 'success'); return; } // (the style the English text gives it)
+    if (!superReady(w, p, k)) { this.sound.play('error'); this.message(tHud('msg.notReady', { name: superName(k) }), true); return; }
     this.sound.play('click');
     if (SUPER_TARGET[k] === 'none') {
       // no aiming: the command still carries an on-map point (the power's structure, or the map centre)
       const b = superBuilding(w, p, k);
       this.host.issue({ c: 'superweapon', player: p.id, kind: k, x: b?.x ?? w.map.w / 2, y: b?.y ?? w.map.h / 2 });
-      this.message(`${SUPER_INFO[k].name} activated`);
+      this.message(tHud('msg.activated', { name: superName(k) }));
     } else this.host.beginSuperweapon(k);
   }
 
@@ -1245,12 +1317,13 @@ export class Hud {
     const units = ents.filter((e): e is Unit => e instanceof Unit && e.weapons.length > 0 && !e.ut.harvester);
     if (!units.length) return null;
     const box = el('div', 'stances');
-    box.appendChild(el('span', 'st-lbl', 'Stance'));
+    box.appendChild(el('span', 'st-lbl', tHud.html('stances.label')));
     for (const st of STANCES) {
-      const b = el('button', 'stance', `${st.icon}<kbd>${st.key}</kbd>`);
+      const sk = esc(keyLabel(STANCE_ACTION[st.id])); // the active binding (default F1–F4)
+      const b = el('button', 'stance', `${st.icon}${sk ? `<kbd>${sk}</kbd>` : ''}`);
       b.dataset.stance = st.id;
-      b.dataset.tip = tipHtml(st.title, st.desc, [[st.key, 'hotkey']]);
-      b.setAttribute('aria-label', `Stance: ${st.title}`);
+      b.dataset.tip = tipHtml(esc(st.title), esc(st.desc), sk ? [kv(sk, tHud('hotkey'))] : []);
+      b.setAttribute('aria-label', tHud('stances.set', { name: st.title }));
       b.onclick = () => { this.sound.play('click'); this.setStance(st.id); };
       box.appendChild(b);
     }
@@ -1269,7 +1342,7 @@ export class Hud {
     if (!ids.length) return;
     this.host.issue({ c: 'stance', player: p.id, units: ids, stance });
     const st = STANCES.find((s) => s.id === stance)!;
-    this.message(`Stance: ${st.title}`);
+    this.message(tHud('stances.set', { name: st.title }));
   }
 
   private refreshStances(ents: Entity[]) {
@@ -1295,19 +1368,19 @@ export class Hud {
       if (o === me || !me.isEnemy(o) || o.defeated) continue;
       const it = intelOn(me, o);
       if (!it) continue;
-      const making = it.production ? Object.values(o.queues).map((q) => q.items[0]?.type ?? q.ready).filter((t): t is string => !!t).map((t) => getType(t).name) : [];
+      const making = it.production ? Object.values(o.queues).map((q) => q.items[0]?.type ?? q.ready).filter((t): t is string => !!t).map((t) => typeName(getType(t))) : [];
       key += `${o.id}:${it.credits ? o.credits : ''}:${it.power ? o.powerOut + '/' + o.powerUse : ''}:${it.radar ? 'r' : ''}:${making.join(',')}|`;
       if (!it.credits && !it.power && !making.length && !it.radar) continue;
-      rows.push(`<span class="in-row" style="--c:${hexColor(o.color)}"><i></i><b>${esc(o.name)}</b>${it.credits ? `<span class="in-cr">$${o.credits.toLocaleString('en-US')}</span>` : ''}${it.power ? `<span class="in-pw${o.lowPower ? ' low' : ''}">${ICONS.bolt}${o.powerOut}/${o.powerUse}</span>` : ''}${it.radar ? `<span class="in-rd" title="Radar shared">${ICONS.radar}</span>` : ''}${making.length ? `<span class="in-mk">${ICONS.building}${making.length}</span>` : ''}</span>`);
-      const lines = [it.credits ? `Credits <b>$${o.credits.toLocaleString('en-US')}</b>` : '', it.power ? `Power <b>${o.powerOut}</b> / drain <b>${o.powerUse}</b>${o.lowPower ? ' <span class="tt-bad">low power</span>' : ''}` : '',
-        it.radar ? 'Radar view shared on your minimap' : '', making.length ? `Producing: <b>${making.map(esc).join('</b>, <b>')}</b>` : ''].filter(Boolean);
-      tips.push(`<span class="tt-foe" style="--c:${hexColor(o.color)}"><i></i>${esc(o.name)}</span><br>${lines.join('<br>')}`);
+      rows.push(`<span class="in-row" style="--c:${hexColor(teamColor(o))}"><i></i><b>${esc(o.name)}</b>${it.credits ? `<span class="in-cr">${fmtMoney(o.credits)}</span>` : ''}${it.power ? `<span class="in-pw${o.lowPower ? ' low' : ''}">${ICONS.bolt}${o.powerOut}/${o.powerUse}</span>` : ''}${it.radar ? `<span class="in-rd" title="${esc(tHud('intel.radarShared'))}">${ICONS.radar}</span>` : ''}${making.length ? `<span class="in-mk">${ICONS.building}${making.length}</span>` : ''}</span>`);
+      const lines = [it.credits ? tHud.html('intel.credits', { money: fmtMoney(o.credits) }) : '', it.power ? tHud.html('intel.power', { out: o.powerOut, use: o.powerUse }) + (o.lowPower ? ` <span class="tt-bad">${tHud.html('intel.lowPower')}</span>` : '') : '',
+        it.radar ? tHud.html('intel.radar') : '', making.length ? tHud.html('intel.producing', { names: making.join(', ') }) : ''].filter(Boolean);
+      tips.push(`<span class="tt-foe" style="--c:${hexColor(teamColor(o))}"><i></i>${esc(o.name)}</span><br>${lines.join('<br>')}`);
     }
     if (key === this.intelKey) return;
     this.intelKey = key;
     this.intelEl.classList.toggle('on', rows.length > 0);
     this.intelEl.innerHTML = rows.length ? `<span class="in-ic">${ICONS.intel}</span><span class="in-rows">${rows.join('')}</span>` : '';
-    const tip = tipHtml('Spy intel', tips.join('<br>') || 'Infiltrate enemy structures with spies.');
+    const tip = tipHtml(tHud.html('intel.title'), tips.join('<br>') || tHud.html('intel.empty'));
     this.intelEl.dataset.tip = tip;
     this.tip.refresh(this.intelEl, tip);
   }
@@ -1322,7 +1395,7 @@ export class Hud {
     this.extraHtml = '';
     this.econSel = null;
     sp.className = 'panel on ' + (ents.length === 1 ? 'single' : 'multi') + (own ? '' : look.owner === local ? '' : local.isEnemy(look.owner) ? ' enemy' : ' ally');
-    sp.style.setProperty('--team', hexColor(look.owner.color));
+    sp.style.setProperty('--team', hexColor(teamColor(look.owner)));
     this.dock.classList.add('has-sel');
     if (ents.length === 1) sp.append(...this.singleView(first));
     else sp.append(this.multiView(ents));
@@ -1336,7 +1409,7 @@ export class Hud {
         const ids = cmdEnts.filter((e): e is Unit => e instanceof Unit && (e.kind === 'infantry' || e.kind === 'vehicle')).map((u) => u.id);
         this.sound.play('click');
         this.host.issue({ c: 'formation', player: local.id, units: ids, shape });
-        this.message(`Formation: ${FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape}`);
+        this.message(tHud('formations.set', { name: FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape }));
       });
       if (fm) sp.appendChild(fm);
       // unit factories: new units join a control group
@@ -1357,12 +1430,12 @@ export class Hud {
   /** "Auto-group: Off 1 … 9" for the selected unit factories (Ctrl+1–9 does the same). */
   private autoGroupPicker(facs: Building[]): HTMLElement {
     const box = el('div', 'ag-pick');
-    box.appendChild(el('span', 'ag-l', 'Auto-group'));
+    box.appendChild(el('span', 'ag-l', tHud.html('ag.label')));
     for (const g of [-1, 1, 2, 3, 4, 5, 6, 7, 8, 9]) {
-      const b = el('button', '', g < 0 ? 'Off' : String(g));
+      const b = el('button', '', g < 0 ? esc(tCommon('off')) : String(g));
       b.dataset.ag = String(g);
-      b.dataset.tip = tipHtml(g < 0 ? 'No auto-group' : `Auto-group ${g}`, g < 0 ? 'New units only go to the rally point.' : `New units from this factory join control group <b>${g}</b>.`, g < 0 ? [] : [[`Ctrl+${g}`, 'with the factory selected']]);
-      b.setAttribute('aria-label', g < 0 ? 'Auto-group off' : `Auto-group ${g}`);
+      b.dataset.tip = tipHtml(g < 0 ? tHud.html('ag.none') : tHud.html('ag.title', { g }), g < 0 ? tHud.html('ag.noneDesc') : tHud.html('ag.desc', { g }), g < 0 ? [] : [kv(`${esc(tCommon('keys.ctrl'))}+${g}`, tHud('ag.withFactory'))]);
+      b.setAttribute('aria-label', g < 0 ? tHud('ag.offAria') : tHud('ag.title', { g }));
       b.onclick = () => { this.army.setAutoGroup(facs, g < 0 ? null : g); this.refreshAutoGroup(facs); };
       box.appendChild(b);
     }
@@ -1405,27 +1478,35 @@ export class Hud {
     const por = el('div', 'sp-portrait', `<div class="sp-img">${img ? `<img src="${img}" alt="" draggable="false">` : `<span class="sp-fallback">${CAT_ICON[t.category]}</span>`}</div>
       <span class="sp-rank" data-k="rank"></span><span class="sp-teamstrip"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i>`);
     const chips: string[] = [];
-    chips.push(this.chip(ICONS.shield, cap(t.armor), '', tipHtml('Armour', `Armour class <b>${cap(t.armor)}</b> — determines how much damage each warhead deals.`)));
+    const armor = tHud(`armor.${t.armor}`);
+    chips.push(this.chip(ICONS.shield, esc(armor), '', tipHtml(tHud.html('chip.armour'), tHud.html('chip.armourDesc', { armor }))));
+    const weaponTip = (wd: (typeof WEAPONS)[string], burst: boolean) => {
+      let body = burst && wd.burst > 1 ? tHud.html('chip.damageBurst', { dmg: Math.abs(wd.damage), burst: wd.burst, range: +wd.range.toFixed(2) })
+        : tHud.html('chip.damage', { dmg: Math.abs(wd.damage), range: +wd.range.toFixed(2) });
+      if (burst && wd.antiAir) body += ` · ${tHud.html('chip.antiAir')}`;
+      if (burst && !wd.antiGround) body += ` (${tHud.html('chip.airOnly')})`;
+      return tipHtml(tHud.html('chip.weapon', { name: wd.id }), body);
+    };
     if (e instanceof Unit) {
       const ut = look.masked ? (t as UnitTypeDef) : e.ut;
       const wps = [ut.primary, ut.secondary !== ut.primary ? ut.secondary : undefined].filter(Boolean) as string[];
       for (const wid of wps) {
         const wd = WEAPONS[wid];
-        chips.push(this.chip(ICONS.target, esc(wd.id), `R${+wd.range.toFixed(2)}`, tipHtml(`Weapon: ${esc(wd.id)}`, `Damage <b>${Math.abs(wd.damage)}</b>${wd.burst > 1 ? ` ×${wd.burst}` : ''} · range <b>${+wd.range.toFixed(2)}</b> cells${wd.antiAir ? ' · anti-air' : ''}${!wd.antiGround ? ' (air only)' : ''}`)));
+        chips.push(this.chip(ICONS.target, esc(wd.id), tHud.html('chip.range', { r: +wd.range.toFixed(2) }), weaponTip(wd, true)));
       }
-      chips.push(this.chip(ICONS.gauge, mphToCellsPerSecond(ut.speed).toFixed(1), 'c/s', tipHtml('Speed', 'Cells per second.')));
+      chips.push(this.chip(ICONS.gauge, mphToCellsPerSecond(ut.speed).toFixed(1), tHud.html('chip.cps'), tipHtml(tHud.html('chip.speed'), tHud.html('chip.speedDesc'))));
     } else if (e instanceof Building) {
       const bt = t as BuildingTypeDef;
       const pw = !look.masked && e.upgrades ? Math.round(bt.power * powerMul(e.upgrades)) : bt.power; // (Turbine upgrade)
-      if (pw) chips.push(`<span class="chip ${pw > 0 ? 'pos' : 'neg'}" data-tip="${esc(tipHtml('Power', pw > 0 ? 'Produces power (less when damaged).' : 'Consumes power.'))}"><span class="chip-ic">${ICONS.bolt}</span><span class="chip-v">${pw > 0 ? '+' : ''}${pw}</span></span>`);
+      if (pw) chips.push(`<span class="chip ${pw > 0 ? 'pos' : 'neg'}" data-tip="${esc(tipHtml(tHud.html('chip.power'), tHud.html(pw > 0 ? 'chip.powerPos' : 'chip.powerNeg')))}"><span class="chip-ic">${ICONS.bolt}</span><span class="chip-v">${pw > 0 ? '+' : ''}${pw}</span></span>`);
       if (bt.primary) {
         const wd = WEAPONS[bt.primary];
-        chips.push(this.chip(ICONS.target, esc(wd.id), `R${+wd.range.toFixed(2)}`, tipHtml(`Weapon: ${esc(wd.id)}`, `Damage <b>${Math.abs(wd.damage)}</b> · range <b>${+wd.range.toFixed(2)}</b> cells`)));
+        chips.push(this.chip(ICONS.target, esc(wd.id), tHud.html('chip.range', { r: +wd.range.toFixed(2) }), weaponTip(wd, false)));
       }
-      if (bt.storage) chips.push(this.chip(ICONS.coin, `$${bt.storage.toLocaleString('en-US')}`, 'store', tipHtml('Ore storage')));
+      if (bt.storage) chips.push(this.chip(ICONS.coin, fmtMoney(bt.storage), tHud.html('chip.store'), tipHtml(tHud.html('chip.storage'))));
     }
-    if (e.weapons.length || look.masked) chips.push(this.chip(ICONS.kills, '0', 'kills', tipHtml('Confirmed kills'), 'kills'));
-    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name">${esc(t.name)}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(look.owner.name)}</span>`}</div>
+    if (e.weapons.length || look.masked) chips.push(this.chip(ICONS.kills, '0', tHud.html('chip.kills'), tipHtml(tHud.html('chip.killsTip')), 'kills'));
+    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name">${esc(typeName(t))}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(look.owner.name)}</span>`}</div>
       <div class="sp-hp"><div class="hp-bar"><i class="hp-trail"></i><i class="hp-fill"></i><i class="hp-segs"></i></div><span class="hp-num" data-k="hp"></span></div>
       <div class="sp-chips">${chips.join('')}</div>
       <div class="sp-extra" data-k="extra"></div>`);
@@ -1457,15 +1538,15 @@ export class Hud {
     if (kills && kills.textContent !== String(e.kills)) kills.textContent = String(e.kills);
     // tag
     let tag = '', tagCls = '';
-    if (e.invulnerable > 0) { tag = 'Invulnerable'; tagCls = 'inv'; }
-    else if (e instanceof Unit && e.submerged) { tag = 'Submerged'; tagCls = 'acc'; }
-    else if (e instanceof Unit && e.parachute > 0) { tag = 'Parachuting'; tagCls = 'acc'; }
-    else if (e instanceof Unit && e.madStage) { tag = e.madStage === 2 ? 'Quaking' : 'Arming'; tagCls = 'bad'; } // Aftermath
-    else if (e instanceof Unit && e.armed) { tag = 'Armed'; tagCls = 'bad'; }
-    else if (e instanceof Building && e.repairing) { tag = 'Repairing'; tagCls = 'ok'; }
-    else if (e instanceof Building && e.bt.requiresPower && e.owner.lowPower) { tag = 'Offline'; tagCls = 'bad'; }
-    else if (e instanceof Building && e.primary) { tag = 'Primary'; tagCls = 'acc'; }
-    else if (e.rank > 0) { tag = RANK_NAMES[e.rank]; tagCls = 'rank'; }
+    if (e.invulnerable > 0) { tag = tHud('tag.invulnerable'); tagCls = 'inv'; }
+    else if (e instanceof Unit && e.submerged) { tag = tHud('tag.submerged'); tagCls = 'acc'; }
+    else if (e instanceof Unit && e.parachute > 0) { tag = tHud('tag.parachuting'); tagCls = 'acc'; }
+    else if (e instanceof Unit && e.madStage) { tag = tHud(e.madStage === 2 ? 'tag.quaking' : 'tag.arming'); tagCls = 'bad'; } // Aftermath
+    else if (e instanceof Unit && e.armed) { tag = tHud('tag.armed'); tagCls = 'bad'; }
+    else if (e instanceof Building && e.repairing) { tag = tHud('tag.repairing'); tagCls = 'ok'; }
+    else if (e instanceof Building && e.bt.requiresPower && e.owner.lowPower) { tag = tHud('state.offline'); tagCls = 'bad'; }
+    else if (e instanceof Building && e.primary) { tag = tHud('tag.primary'); tagCls = 'acc'; }
+    else if (e.rank > 0) { tag = rankName(e.rank); tagCls = 'rank'; }
     const tagEl = sp.querySelector('[data-k="tag"]') as HTMLElement | null;
     if (tagEl && tagEl.textContent !== tag) { tagEl.textContent = tag; tagEl.className = 'sp-tag ' + tagCls; }
     // extra line
@@ -1489,24 +1570,24 @@ export class Hud {
     if (e instanceof Unit) {
       if (e.ut.harvester) {
         const frac = e.cargo / BAIL_COUNT;
-        return this.xbar(ICONS.ore, 'Cargo', frac, `${Math.round(frac * 100)}% · ${HARVEST_STATE[e.hstate] ?? e.hstate}`, 'ore');
+        return this.xbar(ICONS.ore, tHud.html('xbar.cargo'), frac, `${Math.round(frac * 100)}% · ${esc(harvestState(e.hstate))}`, 'ore');
       }
       // Aftermath status: chrono recharge, M.A.D. charge, demolition truck
       if (e.ut.chronoShift) {
         const left = e.chronoCooldown;
-        return this.xbar(ICONS.clock, 'Chronoshift', 1 - left / e.ut.chronoShift, left > 0 ? `Recharging ${Math.ceil(left)} s` : own ? 'Ready · D' : 'Ready', left > 0 ? 'hold' : 'ready');
+        return this.xbar(ICONS.clock, tHud.html('xbar.chronoshift'), 1 - left / e.ut.chronoShift, left > 0 ? tHud.html('xbar.recharging', { n: Math.ceil(left) }) : own ? tHud.html('xbar.readyKey', { key: 'D' }) : tHud.html('state.ready'), left > 0 ? 'hold' : 'ready');
       }
-      if (e.ut.quake) return this.xbar(ICONS.boltSolid, e.madStage === 2 ? 'Quaking' : e.madStage === 1 ? 'Arming…' : 'Seismic charge', e.madCharge, e.madStage ? `${Math.round(e.madCharge * 100)}%` : own ? 'D to deploy' : 'Mobile', e.madStage ? 'hold' : '');
-      if (e.ut.demolition) return this.xbar(ICONS.target, 'Charge', e.armed ? 1 : 0, e.armed ? 'Armed: driving in' : own ? 'Attack to arm · D detonates' : 'Safe', e.armed ? 'hold' : '');
-      if (e.ut.passengers) return this.pips(ICONS.people, 'Passengers', e.passengers.length, e.ut.passengers, e.passengers.length && own ? 'D to unload' : `${e.passengers.length} / ${e.ut.passengers}`);
+      if (e.ut.quake) return this.xbar(ICONS.boltSolid, tHud.html(e.madStage === 2 ? 'tag.quaking' : e.madStage === 1 ? 'xbar.arming' : 'xbar.seismic'), e.madCharge, e.madStage ? `${Math.round(e.madCharge * 100)}%` : own ? tHud.html('xbar.deployKey', { key: 'D' }) : tHud.html('xbar.mobile'), e.madStage ? 'hold' : '');
+      if (e.ut.demolition) return this.xbar(ICONS.target, tHud.html('xbar.charge'), e.armed ? 1 : 0, e.armed ? tHud.html('xbar.drivingIn') : own ? tHud.html('xbar.armHint', { key: 'D' }) : tHud.html('xbar.safe'), e.armed ? 'hold' : '');
+      if (e.ut.passengers) return this.pips(ICONS.people, tHud.html('xbar.passengers'), e.passengers.length, e.ut.passengers, e.passengers.length && own ? tHud.html('xbar.unloadKey', { key: 'D' }) : `${e.passengers.length} / ${e.ut.passengers}`);
       let s = '';
-      if (e.kind === 'aircraft' && e.ut.ammo) s += this.pips(ICONS.ammo, 'Ammo', e.ammo, e.ut.ammo, e.ammo ? `${e.ammo} / ${e.ut.ammo}` : 'Rearm at pad');
+      if (e.kind === 'aircraft' && e.ut.ammo) s += this.pips(ICONS.ammo, tHud.html('xbar.ammo'), e.ammo, e.ut.ammo, e.ammo ? `${e.ammo} / ${e.ut.ammo}` : tHud.html('xbar.rearm'));
       if (own && e.weapons.length && !s) {
         const [vet, elite] = xpThresholds(e.ut);
-        if (e.rank >= 2) s += this.xbar(ICONS.chevrons, 'Elite', 1, 'Max rank', 'xp elite');
+        if (e.rank >= 2) s += this.xbar(ICONS.chevrons, tHud.html('xbar.elite'), 1, tHud.html('xbar.maxRank'), 'xp elite');
         else {
           const lo = e.rank === 1 ? vet : 0, hi = e.rank === 1 ? elite : vet;
-          s += this.xbar(ICONS.chevrons, 'Experience', (e.xp - lo) / (hi - lo), `${Math.round(e.xp)} / ${hi} → ${RANK_NAMES[e.rank + 1]}`, 'xp');
+          s += this.xbar(ICONS.chevrons, tHud.html('xbar.experience'), (e.xp - lo) / (hi - lo), `${Math.round(e.xp)} / ${hi} → ${esc(rankName(e.rank + 1))}`, 'xp');
         }
       }
       return s;
@@ -1517,24 +1598,24 @@ export class Hud {
       if (k && own) {
         const full = powerFull(this.host.world, p, k);
         const frac = Math.min(1, p.superCharge[k] / full);
-        return this.xbar(SUPER_INFO[k].icon, 'Charge', frac, frac >= 1 ? 'Ready' : p.lowPower ? 'Offline' : formatTime(full - p.superCharge[k]), frac >= 1 ? 'ready' : '');
+        return this.xbar(SUPER_INFO[k].icon, tHud.html('xbar.charge'), frac, frac >= 1 ? tHud.html('state.ready') : p.lowPower ? tHud.html('state.offline') : formatTime(full - p.superCharge[k]), frac >= 1 ? 'ready' : '');
       }
       if (bt.factory && bt.factory !== 'building' && own) {
         const q = p.queues[bt.factory];
         const head = q.items[0];
         // loops running in this factory's queue
         const loops = p.repeat.filter((id) => queueKindOf(getType(id)) === bt.factory);
-        const loopLine = loops.length ? `<div class="loop-line">${ICONS.cycle}<span>Loop: <b>${loops.map((id) => esc(getType(id).name)).join('</b>, <b>')}</b></span></div>` : '';
-        if (head) return this.xbar(CAT_ICON[getType(head.type).category], 'Producing', head.progress, `${esc(getType(head.type).name)}${q.items.length > 1 ? ` +${q.items.length - 1}` : ''}`, head.paused ? 'hold' : '') + loopLine;
-        return this.xbar(CAT_ICON[bt.factory === 'infantry' ? 'infantry' : bt.factory], 'Producing', 0, loops.length ? 'Awaiting funds' : this.army.nagging(bt.factory) ? `Idle ${Math.floor(this.army.idleFor(bt.factory))} s` : 'Idle', 'idle') + loopLine;
+        const loopLine = loops.length ? `<div class="loop-line">${ICONS.cycle}<span>${tHud.html('xbar.loop', { names: nameList(loops) })}</span></div>` : '';
+        if (head) return this.xbar(CAT_ICON[getType(head.type).category], tHud.html('xbar.producing'), head.progress, `${esc(typeName(getType(head.type)))}${q.items.length > 1 ? ` +${q.items.length - 1}` : ''}`, head.paused ? 'hold' : '') + loopLine;
+        return this.xbar(CAT_ICON[bt.factory === 'infantry' ? 'infantry' : bt.factory], tHud.html('xbar.producing'), 0, loops.length ? tHud.html('cat.awaitingFunds') : this.army.nagging(bt.factory) ? tHud.html('xbar.idleFor', { n: Math.floor(this.army.idleFor(bt.factory)) }) : tHud.html('xbar.idle'), 'idle') + loopLine;
       }
       if (bt.factory === 'building' && own) {
         const q = p.queues.structure;
-        if (q.ready) return this.xbar(ICONS.building, 'Construction', 1, `${esc(getType(q.ready).name)} ready`, 'ready');
+        if (q.ready) return this.xbar(ICONS.building, tHud.html('xbar.construction'), 1, tHud.html('xbar.itemReady', { name: typeName(getType(q.ready)) }), 'ready');
         const head = q.items[0];
-        if (head) return this.xbar(ICONS.building, 'Construction', head.progress, esc(getType(head.type).name), head.paused ? 'hold' : '');
+        if (head) return this.xbar(ICONS.building, tHud.html('xbar.construction'), head.progress, esc(typeName(getType(head.type))), head.paused ? 'hold' : '');
       }
-      if (bt.storage && own) return this.xbar(ICONS.coin, 'Silo', p.storage ? p.ore / p.storage : 0, `$${Math.round(p.ore).toLocaleString('en-US')} / ${p.storage.toLocaleString('en-US')}`, 'ore');
+      if (bt.storage && own) return this.xbar(ICONS.coin, tHud.html('xbar.silo'), p.storage ? p.ore / p.storage : 0, `${fmtMoney(Math.round(p.ore))} / ${fmtInt(p.storage)}`, 'ore');
     }
     return '';
   }
@@ -1550,11 +1631,11 @@ export class Hud {
     const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || b[1][0].type.cost - a[1][0].type.cost);
     const box = el('div', 'sp-multi');
     const units = ents.filter((e) => e instanceof Unit).length;
-    const label = units === ents.length ? (units === 1 ? 'unit' : 'units') : units === 0 ? 'structures' : 'selected';
-    box.innerHTML = `<div class="spm-head"><b>${ents.length}</b><span>${label}</span><span class="spm-types">${groups.size} type${groups.size > 1 ? 's' : ''}</span><span class="spm-val"></span><span class="spm-dmg"></span><span class="spm-hp"><i></i></span></div><div class="spm-grid"></div>`;
+    const label = units === ents.length ? tHud.html('multi.units', { n: ents.length }) : units === 0 ? tHud.html('multi.structures', { n: ents.length }) : tHud.html('multi.selected');
+    box.innerHTML = `<div class="spm-head"><b>${ents.length}</b><span>${label}</span><span class="spm-types">${tHud.html('multi.types', { n: groups.size })}</span><span class="spm-val"></span><span class="spm-dmg"></span><span class="spm-hp"><i></i></span></div><div class="spm-grid"></div>`;
     // the damaged count narrows the selection to the damaged units
     const dmg = box.querySelector('.spm-dmg') as HTMLElement;
-    dmg.dataset.tip = tipHtml('Damaged', 'Keep only the damaged units selected.', [['Shift+R', 'send them for repairs']]);
+    dmg.dataset.tip = tipHtml(tHud.html('multi.damagedTitle'), tHud.html('multi.damagedDesc'), [kv(esc(keyLabel('sendRepair')) || '—', tHud('multi.sendRepairs'))]);
     dmg.onclick = () => {
       this.sound.play('click');
       const ids = [...this.host.selection].filter((id) => { const e = this.host.world.getEntity(id); return !!e?.alive && e.hp < e.maxHp - 0.01; });
@@ -1567,7 +1648,7 @@ export class Hud {
       const c = el('button', 'spm-card', `${img ? `<img src="${img}" alt="" draggable="false">` : `<span class="sp-fallback">${CAT_ICON[t.category]}</span>`}<span class="spm-n">${list.length > 1 ? '×' + list.length : ''}</span><span class="spm-rank"></span><span class="spm-bar"><i></i></span>`);
       c.dataset.tid = tid;
       c.style.setProperty('--i', String(i));
-      c.dataset.tip = tipHtml(esc(t.name), `${list.length} selected`, [['Click', 'select only these'], ['Shift', 'deselect']]);
+      c.dataset.tip = tipHtml(esc(typeName(t)), tHud.html('multi.nSelected', { n: list.length }), [kv(tHud.html('mouse.click'), tHud('multi.selectOnly')), kv(esc(tCommon('keys.shift')), tHud('multi.deselect'))]);
       c.onclick = (ev) => {
         this.sound.play('click');
         const ids = list.map((e) => e.id);
@@ -1595,10 +1676,10 @@ export class Hud {
     let value = 0, damaged = 0;
     for (const e of ents) { if (e instanceof Unit && e.owner === this.host.local) value += e.ut.cost; if (e.hp < e.maxHp - 0.01) damaged++; }
     const val = this.selpanel.querySelector('.spm-val') as HTMLElement | null;
-    const vt = value ? `$${value.toLocaleString('en-US')}` : '';
+    const vt = value ? fmtMoney(value) : '';
     if (val && val.textContent !== vt) val.textContent = vt;
     const dm = this.selpanel.querySelector('.spm-dmg') as HTMLElement | null;
-    const dt = damaged ? `${damaged} damaged` : '';
+    const dt = damaged ? tHud('multi.damaged', { n: damaged }) : '';
     if (dm && dm.textContent !== dt) dm.textContent = dt;
     for (const c of this.selpanel.querySelectorAll<HTMLElement>('.spm-card')) {
       const list = byType.get(c.dataset.tid!) ?? [];
@@ -1615,8 +1696,9 @@ export class Hud {
   private commandButtons(ents: (Unit | Building)[]): HTMLElement {
     const box = el('div', 'cmds');
     const add = (icon: string, key: string, title: string, desc: string, cls = '') => {
-      const b = el('button', 'cmd ' + cls, `${icon}<kbd>${key}</kbd>`);
-      b.dataset.tip = tipHtml(title, desc, [[key, 'hotkey']]);
+      const shown = esc(commandKeyLabel(key)); // the active binding (ui/keymap.ts)
+      const b = el('button', 'cmd ' + cls, `${icon}${shown ? `<kbd>${shown}</kbd>` : ''}`);
+      b.dataset.tip = tipHtml(esc(title), esc(desc), shown ? [kv(shown, tHud('hotkey'))] : []);
       b.dataset.key = key;
       b.setAttribute('aria-label', title);
       b.onclick = () => { this.sound.play('click'); this.host.keyCommand(key.toLowerCase(), true); };
@@ -1625,39 +1707,40 @@ export class Hud {
     const units = ents.filter((e): e is Unit => e instanceof Unit);
     const blds = ents.filter((e): e is Building => e instanceof Building);
     if (units.length) {
-      add(ICONS.attackMove, 'A', 'Attack-move', 'Move to a location, engaging any enemies met on the way.');
-      add(ICONS.stop, 'S', 'Stop', 'Cancel all current orders.');
-      add(ICONS.scatter, 'X', 'Scatter', 'Spread out to avoid splash damage.');
-      if (units.some((u) => u.ut.deploysInto)) add(ICONS.deploy, 'D', 'Deploy', 'Deploy into a Construction Yard.', 'hl');
-      else if (units.some((u) => u.ut.passengers)) add(ICONS.unload, 'D', 'Unload', 'Unload all passengers.');
-      else if (units.some((u) => u.kind === 'aircraft')) add(ICONS.home, 'D', 'Return to base', 'Fly back to a pad to rearm.');
+      add(ICONS.attackMove, 'A', tHud('cmd.attackMove.title'), tHud('cmd.attackMove.desc'));
+      add(ICONS.stop, 'S', tHud('cmd.stop.title'), tHud('cmd.stop.desc'));
+      add(ICONS.scatter, 'X', tHud('cmd.scatter.title'), tHud('cmd.scatter.desc'));
+      if (units.some((u) => u.ut.deploysInto)) add(ICONS.deploy, 'D', tHud('cmd.deploy.title'), tHud('cmd.deploy.desc'), 'hl');
+      else if (units.some((u) => u.ut.passengers)) add(ICONS.unload, 'D', tHud('cmd.unload.title'), tHud('cmd.unload.desc'));
+      else if (units.some((u) => u.kind === 'aircraft')) add(ICONS.home, 'D', tHud('cmd.returnBase.title'), tHud('cmd.returnBase.desc'));
       // Aftermath specials on D
-      else if (units.some((u) => u.ut.chronoShift)) add(ICONS.deploy, 'D', 'Chronoshift', 'Click any explored open ground: the Chrono Tank jumps there, then recharges.', 'hl');
-      else if (units.some((u) => u.ut.quake)) add(ICONS.deploy, 'D', 'Deploy seismic charge', 'The crew bails out and the charge arms, then quakes wreck every vehicle and structure nearby (friend or foe).', 'warn');
-      else if (units.some((u) => u.ut.demolition)) add(ICONS.deploy, 'D', 'Detonate', 'Set the charge off right here. Order an attack to arm it and drive it into a target.', 'warn');
-      add(ICONS.groundFire, 'G', 'Fire at ground', 'Force-fire at a location (click the target after).');
+      else if (units.some((u) => u.ut.chronoShift)) add(ICONS.deploy, 'D', tHud('cmd.chronoshift.title'), tHud('cmd.chronoshift.desc'), 'hl');
+      else if (units.some((u) => u.ut.quake)) add(ICONS.deploy, 'D', tHud('cmd.quake.title'), tHud('cmd.quake.desc'), 'warn');
+      else if (units.some((u) => u.ut.demolition)) add(ICONS.deploy, 'D', tHud('cmd.detonate.title'), tHud('cmd.detonate.desc'), 'warn');
+      add(ICONS.groundFire, 'G', tHud('cmd.groundFire.title'), tHud('cmd.groundFire.desc'));
       // patrol and guard
       if (units.some((u) => u.kind !== 'aircraft')) {
-        add(CTRL_ICONS.patrol, 'P', 'Patrol', 'Click the far end of a route (Shift-click for more waypoints): loop along it, engaging enemies on the way.');
-        add(CTRL_ICONS.guard, 'C', 'Guard / escort', 'Click a unit to escort (follow and defend it) or a structure to defend. Right-clicking a friendly unit escorts it too.');
+        add(CTRL_ICONS.patrol, 'P', tHud('cmd.patrol.title'), tHud('cmd.patrol.desc'));
+        add(CTRL_ICONS.guard, 'C', tHud('cmd.guard.title'), tHud('cmd.guard.desc'));
       }
-      if (units.some((u) => u.ut.minelayer)) add(ICONS.mine, 'M', 'Lay mines', 'Click the ground to lay a minefield there (Ctrl + right click does the same). D drops a single mine.', 'hl');
+      if (units.some((u) => u.ut.minelayer)) add(ICONS.mine, 'M', tHud('cmd.mines.title'), tHud('cmd.mines.desc'), 'hl');
       // send the damaged vehicles to the service depot (ships to a naval yard)
       const r = this.army.repairable(units.map((u) => u.id));
       if ((units.some((u) => u.kind === 'vehicle' && !u.ut.harvester) && r.depots.length) || (units.some((u) => u.kind === 'naval') && r.yards.length)) {
-        const b = el('button', 'cmd', `${ICONS.wrench}<kbd>⇧R</kbd>`);
+        const rk = esc(keyLabel('sendRepair')), dk = esc(keyLabel('selectDamaged'));
+        const b = el('button', 'cmd', `${ICONS.wrench}${rk ? `<kbd>${rk.replace('Shift + ', '⇧')}</kbd>` : ''}`);
         b.dataset.key = '⇧R';
-        b.dataset.tip = tipHtml('Send for repairs', 'Damaged vehicles queue at the nearest Service Depot, one on the pad at a time, and drive back when repaired. Ships moor at a Shipyard / Sub Pen.', [['Shift+R', 'hotkey'], ['Shift+E', 'select every damaged unit']]);
-        b.setAttribute('aria-label', 'Send for repairs');
+        b.dataset.tip = tipHtml(tHud.html('cmd.repairs.title'), tHud.html('cmd.repairs.desc'), [...(rk ? [kv(rk, tHud('hotkey'))] : []), ...(dk ? [kv(dk, tHud('cmd.repairs.selectDamaged'))] : [])]);
+        b.setAttribute('aria-label', tHud('cmd.repairs.title'));
         b.onclick = () => { this.sound.play('click'); this.army.sendToRepair(); };
         box.appendChild(b);
       }
     }
     if (blds.length === 1) {
-      add(ICONS.sell, 'Z', 'Sell', 'Sell this structure for a partial refund.', 'warn');
-      add(ICONS.wrench, 'R', 'Repair', 'Toggle repairs on this structure (costs credits).');
-      if (blds[0].bt.factory && blds[0].bt.factory !== 'building') add(ICONS.primary, 'P', 'Primary factory', 'New units of this type are produced here.');
-      if (blds[0].bt.garrison) add(ICONS.unload, 'D', 'Evacuate', 'The infantry inside come out next to the bunker.', 'hl'); // (Commander economy)
+      add(ICONS.sell, 'Z', tHud('cmd.sell.title'), tHud('cmd.sell.desc'), 'warn');
+      add(ICONS.wrench, 'R', tHud('cmd.repair.title'), tHud('cmd.repair.desc'));
+      if (blds[0].bt.factory && blds[0].bt.factory !== 'building') add(ICONS.primary, 'P', tHud('cmd.primary.title'), tHud('cmd.primary.desc'));
+      if (blds[0].bt.garrison) add(ICONS.unload, 'D', tHud('cmd.evacuate.title'), tHud('cmd.evacuate.desc'), 'hl'); // (Commander economy)
     }
     box.classList.toggle('few', box.children.length <= 3);
     return box;
@@ -1692,7 +1775,7 @@ export class Hud {
         const img = this.host.thumbs.get(d.type);
         const b = el('button', 'grp', `<kbd>${d.g}</kbd>${img ? `<img src="${img}" alt="" draggable="false">` : `<span class="sp-fallback">${CAT_ICON[getType(d.type).category]}</span>`}<span class="grp-n">${d.ids.length}</span><span class="grp-hp"><i></i></span>`);
         b.dataset.g = String(d.g);
-        b.dataset.tip = tipHtml(`Group ${d.g}`, `${d.ids.length} unit${d.ids.length > 1 ? 's' : ''} · mostly ${esc(getType(d.type).name)}`, [['Click', 'select'], ['Double-click', 'jump']]);
+        b.dataset.tip = tipHtml(tHud.html('groups.title', { g: d.g }), tHud.html('groups.desc', { n: d.ids.length, name: typeName(getType(d.type)) }), [kv(tHud.html('mouse.click'), tHud('groups.select')), kv(tHud.html('mouse.dblclick'), tHud('groups.jump'))]);
         b.onclick = () => this.recallGroup(+b.dataset.g!, false);
         b.ondblclick = () => this.recallGroup(+b.dataset.g!, true);
         this.groupsBar.appendChild(b);
@@ -1733,8 +1816,8 @@ export class Hud {
     this.objKey = key;
     const alive = foes.filter((o) => !o.defeated).length;
     const pips = this.objEl.querySelector('.obj-pips') as HTMLElement;
-    pips.innerHTML = foes.map((o) => `<i class="${o.defeated ? 'dead' : ''}" style="--c:${hexColor(o.color)}"></i>`).join('') + `<span><b>${alive}</b>/${foes.length}</span>`;
-    this.objEl.dataset.tip = tipHtml('Objective', 'Destroy every enemy structure and unit.<br>' + foes.map((o) => `<span class="tt-foe${o.defeated ? ' dead' : ''}" style="--c:${hexColor(o.color)}"><i></i>${esc(o.name)} <small>${o.faction === 'soviet' ? 'Soviet' : 'Allied'}${o.defeated ? ' · eliminated' : ''}</small></span>`).join(''));
+    pips.innerHTML = foes.map((o) => `<i class="${o.defeated ? 'dead' : ''}" style="--c:${hexColor(teamColor(o))}"></i>`).join('') + `<span><b>${alive}</b>/${foes.length}</span>`;
+    this.objEl.dataset.tip = tipHtml(tHud.html('obj.title'), `${tHud.html('obj.desc')}<br>` + foes.map((o) => `<span class="tt-foe${o.defeated ? ' dead' : ''}" style="--c:${hexColor(teamColor(o))}"><i></i>${esc(o.name)} <small>${esc(factionAdj(o))}${o.defeated ? ` · ${tHud.html('obj.eliminated')}` : ''}</small></span>`).join(''));
     this.tip.refresh(this.objEl, this.objEl.dataset.tip);
     if (!first) replay(this.objEl, 'flash', 1600);
   }
@@ -1750,11 +1833,11 @@ export class Hud {
     this.objKey = key;
     this.objEl.style.display = current ? '' : 'none';
     if (!current) return;
-    (this.objEl.querySelector('.obj-txt b') as HTMLElement).textContent = current.text;
+    (this.objEl.querySelector('.obj-txt b') as HTMLElement).textContent = trSource(current.text); // (mission script English)
     const done = primary.filter((o) => o.state === 'done').length;
     const pips = this.objEl.querySelector('.obj-pips') as HTMLElement;
     pips.innerHTML = primary.map((o) => `<i class="${o.state === 'done' ? 'dead' : ''}" style="--c:${o.state === 'failed' ? '#ff4a3a' : '#5ab4ff'}"></i>`).join('') + `<span><b>${done}</b>/${primary.length}</span>`;
-    this.objEl.dataset.tip = tipHtml('Objectives', objs.map((o) => `<span class="tt-foe${o.state !== 'active' ? ' dead' : ''}"><i></i>${esc(o.text)} <small>${o.primary ? 'primary' : 'optional'}${o.state === 'done' ? ' · complete' : o.state === 'failed' ? ' · failed' : ''}</small></span>`).join(''));
+    this.objEl.dataset.tip = tipHtml(tHud.html('obj.objectives'), objs.map((o) => `<span class="tt-foe${o.state !== 'active' ? ' dead' : ''}"><i></i>${esc(trSource(o.text))} <small>${tHud.html(o.primary ? 'obj.primary' : 'obj.optional')}${o.state === 'done' ? ` · ${tHud.html('obj.complete')}` : o.state === 'failed' ? ` · ${tHud.html('obj.failed')}` : ''}</small></span>`).join(''));
     this.tip.refresh(this.objEl, this.objEl.dataset.tip);
     if (!first) replay(this.objEl, 'flash', 1600);
   }
@@ -1778,9 +1861,9 @@ export class Hud {
     const alive = foes.filter((o) => !o.defeated).length;
     const done = foes.length > 0 && alive === 0;
     const row = (cls: string, text: string, pg = '') => `<div class="op-row ${cls}"><i class="op-bx"></i><span class="op-tx">${text}</span>${pg ? `<span class="op-pg">${pg}</span>` : ''}</div>`;
-    this.objPanel.innerHTML = `<div class="op-head"><span class="op-ic">${ICONS.target}</span><b>Objectives</b><span class="op-n">${foes.length - alive}/${foes.length}</span></div>`
-      + row(done ? 'done' : '', 'Destroy all enemy forces', foes.length ? `${alive} left` : '')
-      + foes.map((o) => row(`sub ${o.defeated ? 'done' : ''}`, `<i class="op-dot" style="--c:${hexColor(o.color)}"></i>${esc(o.name)} <small>${o.faction === 'soviet' ? 'Soviet' : 'Allied'}</small>`)).join('');
+    this.objPanel.innerHTML = `<div class="op-head"><span class="op-ic">${ICONS.target}</span><b>${tHud.html('obj.objectives')}</b><span class="op-n">${foes.length - alive}/${foes.length}</span></div>`
+      + row(done ? 'done' : '', tHud.html('obj.destroyAll'), foes.length ? tHud.html('obj.left', { n: alive }) : '')
+      + foes.map((o) => row(`sub ${o.defeated ? 'done' : ''}`, `<i class="op-dot" style="--c:${hexColor(teamColor(o))}"></i>${esc(o.name)} <small>${esc(factionAdj(o))}</small>`)).join('');
     this.objPanel.dataset.tip = this.objEl.dataset.tip ?? '';
     this.objPanel.querySelector('.op-head')!.after(this.cfRow); // (the build-up countdown leads the list)
     if (!first) replay(this.objPanel, 'flash', 1600);
@@ -1798,7 +1881,7 @@ export class Hud {
     this.cfChip.style.display = show && !modern ? '' : 'none';
     this.cfRow.style.display = show && modern ? '' : 'none';
     if (!show) return;
-    const html = left === Infinity ? 'Ceasefire: <b>unlimited</b> <small>(enemy only defends)</small>' : `Ceasefire: <b>${formatTime(Math.ceil(left))}</b>`;
+    const html = left === Infinity ? tHud.html('cf.unlimited') : tHud.html('cf.left', { time: formatTime(Math.ceil(left)) });
     for (const e of [this.cfChip, this.cfRow]) {
       (e.querySelector('.cf-txt') as HTMLElement).innerHTML = html;
       e.classList.toggle('urgent', left <= CEASEFIRE_WARNING);

@@ -45,6 +45,8 @@ export interface ReplayData {
   storedAt?: number;
   /** Build that recorded it (config VERSION). */
   gameVersion: string;
+  /** Simulation version it was recorded with (src/sim/version.ts); absent = before the stamp existed (1). */
+  sim?: number;
   setup: ReplaySetup;
   mapName: string;
   /** Map code of a generated map (src/maps/code.ts), to share the battlefield. */
@@ -68,6 +70,8 @@ export interface ReplayData {
 export interface RecorderState {
   id: string;
   createdAt: number;
+  /** Simulation version the recording started with (a save from an older build keeps its older stamp). */
+  sim?: number;
   cmds: [number, Command][];
   hashes: [number, string][];
 }

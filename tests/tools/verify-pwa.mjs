@@ -63,6 +63,7 @@ try {
   const entries = cached[names[0]] ?? [];
   ok(entries.some((p) => /\/assets\/index-.*\.js$/.test(p)) && entries.some((p) => /\/assets\/index-.*\.css$/.test(p)), 'entry JS + CSS precached');
   ok(entries.some((p) => /ambworker-.*\.js$/.test(p)), 'worker chunk referenced from the bundle precached');
+  ok(entries.some((p) => /\/assets\/engine-.*\.js$/.test(p)) && entries.some((p) => /\/assets\/three-.*\.js$/.test(p)), 'lazily loaded engine and three.js chunks precached (offline battles)');
   ok(entries.includes('/') || entries.includes('/index.html'), 'app shell precached');
   ok(entries.some((p) => p.endsWith('/fonts/rajdhani-600.woff2')) && entries.some((p) => p.endsWith('/fonts/share-tech-mono-400.woff2')), 'self-hosted fonts precached');
   console.log(`      ${entries.length} cached entries`);

@@ -1,4 +1,5 @@
 /** Commander ranks: a 15-step Cold War ladder with faction-flavoured names and an XP curve. */
+import { currentLang, dt } from '../i18n/core';
 
 export interface RankDef {
   index: number;
@@ -45,9 +46,22 @@ export function rankIndexFor(xp: number): number {
   return r;
 }
 
+/** A rank's display name for a faction (translated: game data rank.<index>.allied / .soviet). */
 export function rankName(index: number, faction: string): string {
   const r = RANKS[Math.max(0, Math.min(MAX_RANK, index))];
-  return faction === 'soviet' ? r.soviet : r.allied;
+  return faction === 'soviet' ? dt('rank', String(r.index), 'soviet', r.soviet) : dt('rank', String(r.index), 'allied', r.allied);
+}
+
+/** A rank's short form (PVT, CPT...). */
+export function rankShort(index: number): string {
+  const r = RANKS[Math.max(0, Math.min(MAX_RANK, index))];
+  return dt('rank', String(r.index), 'short', r.short);
+}
+
+/** The Russian transliteration shown under Soviet rank names ('' when the interface is Russian: the name already is). */
+export function rankTransliteration(index: number): string {
+  if (currentLang() === 'ru') return '';
+  return RANKS[Math.max(0, Math.min(MAX_RANK, index))].ru;
 }
 
 export interface RankProgress {

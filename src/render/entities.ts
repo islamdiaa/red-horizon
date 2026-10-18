@@ -22,6 +22,7 @@ import { Destruction } from './destruction';
 import { applyVisualScale, patchModelRim } from './scale'; // render-only unit scale + rim light
 import { InfantryCrowd, setInfantryCrowd } from './models/infantry-hd'; // instanced HD infantry
 import { breakUpgradeModules, tickUpgradeModules, updateCommanderView } from './models/upgrade-modules'; // Commander structures
+import { paletteVersion, ringColors, setPaletteLocal, teamColor as paletteColor } from '../ui/a11y'; // team colour palettes (display only)
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -169,7 +170,11 @@ export class EntityRenderer {
     private fog: FogOfWar,
   ) {
     const mk = (c: number, o = 0.85) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    this.ringMats = { own: mk(0x58ff8a), ally: mk(0x5ac8ff), enemy: mk(0xff4a3a), iron: mk(0xff2020, 0.7) };
+    this.ringCols = ringColors();
+    this.ringMats = { own: mk(this.ringCols.own), ally: mk(this.ringCols.ally), enemy: mk(this.ringCols.enemy), iron: mk(0xff2020, 0.7) };
+    this.palVer = paletteVersion();
+    this.palLocal = local;
+    setPaletteLocal(local);
     // flat additive rings: one pass is identical (three would draw double-sided transparents twice)
     for (const m of Object.values(this.ringMats)) m.forceSinglePass = true;
     this.ringMat.forceSinglePass = true;
@@ -214,8 +219,34 @@ export class EntityRenderer {
 
   teamColor(p: Player): THREE.Color {
     let c = this.teamColors.get(p.id);
-    if (!c) { c = new THREE.Color(p.color); this.teamColors.set(p.id, c); }
+    if (!c) { c = new THREE.Color(paletteColor(p, this.local)); this.teamColors.set(p.id, c); }
     return c;
+  }
+
+  /** Selection ring colours of the active palette. */
+  private ringCols: { own: number; ally: number; enemy: number };
+  private palVer: number;
+  private palLocal: Player;
+
+  /** The team colour palette or the viewing player changed: re-colour the rings, then every model whose colour changed. */
+  private refreshPalette() {
+    this.palVer = paletteVersion();
+    this.palLocal = this.local;
+    setPaletteLocal(this.local);
+    this.ringCols = ringColors();
+    this.ringMats.own.color.setHex(this.ringCols.own);
+    this.ringMats.ally.color.setHex(this.ringCols.ally);
+    this.ringMats.enemy.color.setHex(this.ringCols.enemy);
+    const old = new Map([...this.teamColors].map(([id, c]) => [id, c.getHex()]));
+    this.teamColors.clear();
+    for (const v of this.views.values()) {
+      if (v.dead || !v.ent.alive) continue;
+      const owner = this.ownerOf(v);
+      const was = old.get(owner.id);
+      if (was !== undefined && was === this.teamColor(owner).getHex()) continue;
+      this.recolor(v, v.ptype, owner);
+      if (v.ent instanceof Building) this.clearHolo(v);
+    }
   }
 
   private createView(e: Entity): View {
@@ -369,6 +400,16 @@ export class EntityRenderer {
     return true;
   }
 
+  /** World-space position of a structure's firing slit `m<slit>` (models without that many muzzles use m0). */
+  private slitWorld(id: number, slit: number, out: THREE.Vector3): boolean {
+    const v = this.views.get(id);
+    if (!v || !v.model.muzzles.length) return false;
+    const m = v.model.muzzles[slit >= 0 && slit < v.model.muzzles.length ? slit : 0];
+    v.model.root.updateMatrixWorld(true);
+    m.getWorldPosition(out);
+    return true;
+  }
+
   isShown(id: number): boolean {
     const v = this.views.get(id);
     return !!v && v.model.root.visible;
@@ -389,7 +430,7 @@ export class EntityRenderer {
       const b = v.ent;
       if (!(b instanceof Building) || b.bt.wall || !v.model.root.visible || (v.dead && !v.ghostDead)) continue;
       const m = this.markerPool[n] ?? (this.markerPool[n] = { cx: 0, cy: 0, w: 0, h: 0, color: 0 });
-      m.cx = b.cx; m.cy = b.cy; m.w = b.w; m.h = b.h; m.color = b.owner.color;
+      m.cx = b.cx; m.cy = b.cy; m.w = b.w; m.h = b.h; m.color = paletteColor(b.owner, this.local);
       out[n++] = m;
     }
     out.length = n;
@@ -509,7 +550,8 @@ export class EntityRenderer {
       v.anim.firingMuzzle = ev.muzzle;
     }
     const from = _from.set(ev.fx, ev.fz, ev.fy);
-    this.muzzleWorld(ev.shooter, this.muzzleIndex(ev.shooter, ev.weapon.id, ev.muzzle), from);
+    if (ev.via !== undefined) this.slitWorld(ev.via, ev.muzzle, from); // a bunker's garrison fires through the slit facing the target
+    else this.muzzleWorld(ev.shooter, this.muzzleIndex(ev.shooter, ev.weapon.id, ev.muzzle), from);
     const to = _to.set(ev.tx, ev.tz, ev.ty);
     const dir = _v2.copy(to).sub(from).normalize();
     const w = ev.weapon;
@@ -594,6 +636,7 @@ export class EntityRenderer {
   /** Per-frame sync. */
   update(alpha: number, dt: number, time: number, selected: Set<number>, hovered: number) {
     this.time = time;
+    if (this.palVer !== paletteVersion() || this.palLocal !== this.local) this.refreshPalette();
     const world = this.world;
     const map = world.map;
     // the renderer calls back right before drawing, with this frame's camera (see preRender)
@@ -909,7 +952,7 @@ export class EntityRenderer {
         const back = _v.set(x - Math.cos(heading) * 0.35, g + 0.05, y - Math.sin(heading) * 0.35);
         const t = map.terrain[map.idx(Math.floor(x), Math.floor(y))];
         const amt = (t === 3 || t === 4 ? 0.8 : 0.35) * (u.ut.tracked ? 1 : 0.6);
-        this.effects.dust(back.clone(), amt);
+        this.effects.dust(back, amt); // (read at once: no copy)
       }
     }
     if (u.kind === 'vehicle') this.damageEmitters(v, u.healthFrac + 0.2, root.visible, _e.set(x, g + 0.4, y), 0.5);
@@ -998,7 +1041,7 @@ export class EntityRenderer {
     const rel = e.owner === this.local ? 'own' : e.owner.team === this.local.team ? 'ally' : 'enemy';
     if (e instanceof Building) {
       const mat = r.material as THREE.ShaderMaterial;
-      mat.uniforms.uColor.value.set(iron ? 0xff2020 : rel === 'own' ? 0x58ff8a : rel === 'ally' ? 0x5ac8ff : 0xff4a3a);
+      mat.uniforms.uColor.value.set(iron ? 0xff2020 : this.ringCols[rel]);
       mat.uniforms.uTime.value = this.time;
       r.position.set(e.x, this.world.map.surfaceAt(e.x, e.y) + 0.06, e.y);
     } else {

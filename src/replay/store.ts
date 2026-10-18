@@ -6,6 +6,8 @@
 import { MAX_REPLAYS, isReplayData, type ReplayData } from './format';
 import { pruneTrees } from './branch'; // branches are pruned with their tree
 import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
+import tReplay from '../i18n/en/replay';
+import { dt, trSource } from '../i18n/core';
 
 const DB = 'rh-replays';
 const STORE = 'replays';
@@ -115,6 +117,16 @@ export async function deleteReplay(id: string): Promise<void> {
   if (list.some((r) => r.id === id)) lsWrite(list.filter((r) => r.id !== id));
 }
 
+/**
+ * A replay's map name for display, in the player's language: a curated map's translated name, a generated
+ * battlefield's "Random 96×96"; editor maps as their author named them. (The file keeps the English.)
+ */
+export function replayMapName(r: Pick<ReplayData, 'mapName' | 'setup'>): string {
+  const en = trSource(r.mapName);
+  const id = r.setup?.mapId;
+  return id && !r.setup.customMap ? dt('map', id, 'name', en) : en;
+}
+
 export function replayFileName(r: ReplayData): string {
   const d = new Date(r.createdAt);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -135,16 +147,16 @@ export function exportReplay(r: ReplayData) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/** Read a replay file (throws a user-facing message on a bad file) and store it. */
+/** Read a replay file (throws a user-facing, translated message on a bad file) and store it. */
 export async function importReplayFile(file: File): Promise<ReplayData> {
-  if (file.size > 20 * 1024 * 1024) throw new Error('File too large for a replay');
+  if (file.size > 20 * 1024 * 1024) throw new Error(tReplay('file.tooLarge'));
   let data: unknown;
   try {
     data = parseUntrustedJson(await file.text(), { maxChars: 20 << 20, maxString: 20 << 20 });
   } catch (e) {
-    throw new Error(e instanceof UntrustedInputError ? e.message : 'Not a replay file (invalid JSON)');
+    throw new Error(e instanceof UntrustedInputError ? e.message : tReplay('file.invalidJson'));
   }
-  if (!isReplayData(data)) throw new Error('Not a Red Horizon replay, or from an unsupported version');
+  if (!isReplayData(data)) throw new Error(tReplay('file.notReplay'));
   await saveReplay(data);
   return data;
 }

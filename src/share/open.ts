@@ -14,8 +14,10 @@ import { saveReplay } from '../replay/store';
 import { newReplayId } from '../replay/format';
 import { playbackSetup } from '../replay/launch';
 import { decodeSharePayload, payloadFromHash, ShareLinkError } from './codec';
-import { KIND_LABEL, validateShared, type SharedItem } from './content';
+import { validateShared, type SharedItem } from './content';
 import { openModal, SHARE_ICONS } from './dialog';
+import tShare from '../i18n/en/share';
+import tCommon from '../i18n/en/common';
 
 export interface ShareHost {
   start(setup: GameSetup): void;
@@ -44,12 +46,12 @@ export async function openShareLink(host: ShareHost): Promise<void> {
     const item = await validateShared(await decodeSharePayload(payload));
     confirmImport(item, host);
   } catch (e) {
-    const msg = e instanceof ShareLinkError ? e.message : 'The share link could not be read.';
+    const msg = e instanceof ShareLinkError ? e.message : tShare('open.unreadable');
     if (!(e instanceof ShareLinkError)) console.warn('[share]', e);
-    const m = openModal(ICONS.warn, 'Share link', 'Cannot open this link');
+    const m = openModal(ICONS.warn, tShare('open.kicker'), tShare('open.cannotOpen'));
     (m.panel.querySelector('.sh-body') as HTMLElement).innerHTML = `<div class="mx-note bad">${esc(msg)}</div>
-      <div class="mx-note" style="margin-top:.6rem">Nothing was imported. If a friend sent it, ask them for the file instead (Export in the same screen).</div>
-      <div class="mx-actions"><button class="btn-primary" data-a="ok">${ICONS.check}<span>OK</span></button></div>`;
+      <div class="mx-note" style="margin-top:.6rem">${tShare.html('open.nothingImported')}</div>
+      <div class="mx-actions"><button class="btn-primary" data-a="ok">${ICONS.check}<span>${tCommon.html('ok')}</span></button></div>`;
     (m.panel.querySelector('[data-a="ok"]') as HTMLElement).onclick = () => m.close();
     m.focus();
   } finally {
@@ -63,19 +65,18 @@ function randomSeed(): number {
 
 /** The confirmation: what it is, what importing does, and Import / Play. */
 function confirmImport(item: SharedItem, host: ShareHost) {
-  const label = KIND_LABEL[item.kind];
-  const m = openModal(SHARE_ICONS.share, `Shared ${label.toLowerCase()}`, item.title);
+  const m = openModal(SHARE_ICONS.share, tShare('open.sharedKicker', { kind: item.kind }), item.title);
   const body = m.panel.querySelector('.sh-body') as HTMLElement;
-  const what = item.kind === 'map' ? `Play it now (${item.doc.mission ? 'its mission' : 'a skirmish against the AI'}), or add it to your custom maps (the Skirmish map list and the Map Editor).`
-    : item.kind === 'challenge' ? 'Play it now, or add it to Challenges › Scenario challenges.'
-    : 'Watch it now, or add it to your Replays.';
-  const playLabel = item.kind === 'replay' ? 'Watch' : 'Play';
+  const intro = item.kind === 'map' ? (item.doc.mission ? tShare.html('open.introMapMission') : tShare.html('open.introMapSkirmish'))
+    : item.kind === 'challenge' ? tShare.html('open.introChallenge')
+    : tShare.html('open.introReplay');
+  const playLabel = item.kind === 'replay' ? tShare('open.watch') : tCommon('play');
   body.innerHTML = `<div class="sh-facts">${item.facts.map((f) => `<span>${esc(f)}</span>`).join('')}</div>
-    <div class="mx-note" style="margin-top:.8rem">Someone shared a ${esc(label.toLowerCase())} with you. ${esc(what)}</div>
+    <div class="mx-note" style="margin-top:.8rem">${intro}</div>
     <div class="sh-status" role="status" aria-live="polite"></div>
     <div class="mx-actions"><button class="btn-primary" data-a="play">${ICONS.play}<span>${esc(playLabel)}</span></button>
-      <button class="btn" data-a="save">${ICONS.check}<span>Import</span></button><button class="btn" data-a="cancel">${ICONS.close}<span>Cancel</span></button></div>
-    <div class="sh-priv">${SHARE_ICONS.lock}<span>Shared content only describes game data (terrain, units, orders). It was checked like an imported file and cannot run code or reach your other data.</span></div>`;
+      <button class="btn" data-a="save">${ICONS.check}<span>${tShare.html('open.import')}</span></button><button class="btn" data-a="cancel">${ICONS.close}<span>${tCommon.html('cancel')}</span></button></div>
+    <div class="sh-priv">${SHARE_ICONS.lock}<span>${tShare.html('open.privacy')}</span></div>`;
   const status = body.querySelector('.sh-status') as HTMLElement;
   const btns = body.querySelectorAll<HTMLButtonElement>('button');
   const save = async (): Promise<GameSetup | null> => {
@@ -114,13 +115,12 @@ function confirmImport(item: SharedItem, host: ShareHost) {
   (body.querySelector('[data-a="save"]') as HTMLElement).onclick = () => {
     void save().then(() => {
       host.play?.('ready_ping');
-      status.textContent = item.kind === 'map' ? 'Imported: pick it under Skirmish › Map, or open it in the Map Editor.'
-        : item.kind === 'challenge' ? 'Imported: find it under Challenges › Scenario challenges.' : 'Imported: find it under Replays.';
+      status.textContent = tShare(item.kind === 'map' ? 'open.importedMap' : item.kind === 'challenge' ? 'open.importedChallenge' : 'open.importedReplay');
       setTimeout(() => m.close(), 1800);
-    }).catch((e) => { console.warn('[share]', e); status.textContent = 'Could not save it (storage full or blocked).'; status.classList.add('bad'); btns.forEach((b) => { b.disabled = false; }); });
+    }).catch((e) => { console.warn('[share]', e); status.textContent = tShare('open.saveFailed'); status.classList.add('bad'); btns.forEach((b) => { b.disabled = false; }); });
   };
   (body.querySelector('[data-a="play"]') as HTMLElement).onclick = () => {
     void save().then((setup) => { m.close(); if (setup) host.start(setup); })
-      .catch((e) => { console.warn('[share]', e); status.textContent = 'Could not start it.'; status.classList.add('bad'); btns.forEach((b) => { b.disabled = false; }); });
+      .catch((e) => { console.warn('[share]', e); status.textContent = tShare('open.startFailed'); status.classList.add('bad'); btns.forEach((b) => { b.disabled = false; }); });
   };
 }

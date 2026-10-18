@@ -151,6 +151,12 @@ export const TURBINE_MUL = 1.5;
 export const PROCESSOR_MUL = 1.2;
 export const PROCESSOR_UNLOAD = 0.5;
 export const PURIFIER_MUL = 1.25;
+/**
+ * The Soviet Ore Smelter yields more than the Allied Purifier: the Commander economy's extra money favours the
+ * faction whose late game scales (Longbows, cruisers, artillery), and the Soviets' heavier ore haul evens that out
+ * (self-play, tools/selfplay: Allied win share under Commander rules 60% with +25% for both, 55% with this).
+ */
+export const SMELTER_MUL = 1.4;
 export const REINFORCED_HP = 1.3;
 export const UPLINK_SIGHT = 6;
 export const UPLINK_CHARGE = 0.25;
@@ -209,16 +215,16 @@ export const RESEARCH: Record<string, ResearchDef> = {
     id: 'composite_armor', name: 'Composite Armour', factions: ['allies'], icon: 'shield', branch: 'armour',
     blurb: 'Layered ceramic plates turn shells aside.',
     levels: [
-      { cost: 1500, time: 40, effect: 'Vehicles take 10% less damage.', effects: [{ stat: 'armor', mul: 0.9, types: isVehicle }] },
-      { cost: 2500, time: 60, effect: 'Vehicles take 20% less damage.', effects: [{ stat: 'armor', mul: 0.8 / 0.9, types: isVehicle }] },
+      { cost: 1500, time: 40, effect: 'Vehicles take 8% less damage.', effects: [{ stat: 'armor', mul: 0.92, types: isVehicle }] },
+      { cost: 2500, time: 60, effect: 'Vehicles take 15% less damage.', effects: [{ stat: 'armor', mul: 0.85 / 0.92, types: isVehicle }] },
     ],
   },
   precision_optics: {
     id: 'precision_optics', name: 'Precision Optics', factions: ['allies'], icon: 'target', branch: 'firepower',
     blurb: 'Laser rangefinders on every gun.',
     levels: [
-      { cost: 1500, time: 40, effect: 'Vehicle and defence weapons reach 10% further.', effects: [{ stat: 'range', mul: 1.1, weapons: opticsWeapons() }] },
-      { cost: 2500, time: 60, effect: 'Vehicle and defence weapons reach 20% further.', effects: [{ stat: 'range', mul: 1.2 / 1.1, weapons: opticsWeapons() }] },
+      { cost: 1500, time: 40, effect: 'Vehicle and defence weapons reach 6% further.', effects: [{ stat: 'range', mul: 1.06, weapons: opticsWeapons() }] },
+      { cost: 2500, time: 60, effect: 'Vehicle and defence weapons reach 12% further.', effects: [{ stat: 'range', mul: 1.12 / 1.06, weapons: opticsWeapons() }] },
     ],
   },
   rapid_deployment: {
@@ -363,6 +369,6 @@ export function powerMul(upgrades: string[] | undefined): number {
 /** Value multiplier of ore unloaded at refinery `r` (Ore Processor there; a powered Purifier / Smelter anywhere). */
 export function oreValueMul(p: Player, r: { upgrades?: string[] }): number {
   let m = r.upgrades && r.upgrades.includes('proc_processor') ? PROCESSOR_MUL : 1;
-  if ((p.has('purf') || p.has('smlt')) && !p.lowPower) m *= PURIFIER_MUL;
+  if (!p.lowPower) { if (p.has('smlt')) m *= SMELTER_MUL; else if (p.has('purf')) m *= PURIFIER_MUL; }
   return m;
 }

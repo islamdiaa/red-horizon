@@ -41,6 +41,8 @@ export interface BranchInfo {
   view?: StartView;
   /** Name of the commander taken over (for lists). */
   name?: string;
+  /** Simulation version that produced `start` (src/sim/version.ts); absent = before the stamp existed. */
+  sim?: number;
 }
 
 /** What the challenger must do. */
@@ -69,6 +71,8 @@ export interface ChallengeDef {
   createdAt: number;
   /** Build that created it (config VERSION). */
   gameVersion: string;
+  /** Simulation version it was created with (src/sim/version.ts); absent = before the stamp existed. */
+  sim?: number;
   /** The match the moment comes from: map, seed, players and options (a GameSetup without per-device / mode fields). */
   setup: ChallengeSetup;
   /** Serialized world at the starting moment. Absent for built-ins: their scripted setup builds the stage. */

@@ -15,6 +15,11 @@ import type { World } from '../sim/world';
 import { TICK_HZ } from '../sim/types';
 import { BUILDINGS, UNITS } from '../data/rules';
 import type { LiveSample } from './index';
+import { englishCatalog, fmtMoney, fmtPct, type Params } from '../i18n/core';
+import { formatMessage } from '../i18n/format';
+import { typeName } from '../i18n/names';
+import tMeta from '../i18n/en/meta';
+import { moneyShort } from './contracts';
 
 export const SAMPLE_SECONDS = 10;
 
@@ -40,7 +45,23 @@ export type HighlightKind = 'first-blood' | 'superweapon' | 'elite' | 'capture' 
 export interface Highlight {
   t: number;
   kind: HighlightKind;
+  /** In the active language. */
   text: string;
+  /** In English (clip file names). */
+  en: string;
+}
+
+type ReportKey = 'firstBlood' | 'nuke' | 'elite' | 'captured' | 'capturedUnknown' | 'chrono' | 'overrun' | 'eliminated' | 'peak' | 'clash' | 'comeback';
+/** A highlight's text (src/i18n/en/meta.ts report.*): `en` gives the English, for file names. */
+type HlText = (en: boolean) => string;
+const say = (key: ReportKey, params?: Params, enParams: Params | undefined = params): HlText => (en) =>
+  (en ? formatMessage(englishCatalog()[`meta.report.${key}`] ?? '', enParams, 'en') : tMeta(`report.${key}`, params));
+
+/** A highlight noted during the battle: its text is made when the report is shown (in the language of that moment). */
+interface PendingHighlight {
+  t: number;
+  kind: HighlightKind;
+  text: HlText;
 }
 
 export interface MvpInfo {
@@ -56,7 +77,7 @@ export interface MvpInfo {
 
 export class BattleReport {
   readonly samples: ReportSample[] = [];
-  private events: Highlight[] = [];
+  private events: PendingHighlight[] = [];
   private last = -1;
   private done = false;
   private best: MvpInfo | null = null;
@@ -73,7 +94,7 @@ export class BattleReport {
     if (w.events.length) this.scanEvents(me);
     if (!this.firstBlood && me.stats.unitsKilled + me.stats.buildingsKilled > 0) {
       this.firstBlood = true;
-      this.events.push({ t: w.time, kind: 'first-blood', text: 'First blood' });
+      this.events.push({ t: w.time, kind: 'first-blood', text: say('firstBlood') });
     }
     if (w.gameOver) { this.done = true; this.sample(); return; }
     if (this.last >= 0 && w.tick - this.last < SAMPLE_SECONDS * TICK_HZ) return;
@@ -85,28 +106,34 @@ export class BattleReport {
     for (const ev of w.events) {
       switch (ev.e) {
         case 'announce':
-          if (ev.player === me.id && ev.key === 'nuke_launched') this.events.push({ t: w.time, kind: 'superweapon', text: 'Atomic strike launched' });
+          if (ev.player === me.id && ev.key === 'nuke_launched') this.events.push({ t: w.time, kind: 'superweapon', text: say('nuke') });
           break;
         case 'promoted':
           if (ev.rank >= 2) {
             const u = w.getEntity(ev.id);
-            if (u && u.owner === me && ++this.elites === 1) this.events.push({ t: w.time, kind: 'elite', text: `First Elite: ${u.type.name}` });
+            if (u && u.owner === me && ++this.elites === 1) {
+              const type = u.type;
+              this.events.push({ t: w.time, kind: 'elite', text: say('elite', { unit: typeName(type) }, { unit: type.name }) });
+            }
           }
           break;
         case 'captured':
           if (ev.to === me.id && ev.from !== me.id) {
             const b = w.getEntity(ev.id);
-            this.events.push({ t: w.time, kind: 'capture', text: `Captured ${b ? (BUILDINGS[b.type.id]?.name ?? b.type.name) : 'a structure'}` });
+            const def = b ? (BUILDINGS[b.type.id] ?? b.type) : null;
+            this.events.push({ t: w.time, kind: 'capture', text: def ? say('captured', { building: typeName(def) }, { building: def.name }) : say('capturedUnknown') });
           }
           break;
         case 'teleport': {
           const u = w.getEntity(ev.id);
-          if (u && u.owner === me) this.events.push({ t: w.time, kind: 'chrono', text: `Chronoshifted a ${u.type.name}` });
+          const type = u?.type;
+          if (u && type && u.owner === me) this.events.push({ t: w.time, kind: 'chrono', text: say('chrono', { unit: typeName(type) }, { unit: type.name }) });
           break;
         }
         case 'eliminated': {
           const p = w.players[ev.player];
-          if (p) this.events.push({ t: w.time, kind: 'eliminated', text: p === me ? 'Your forces were overrun' : `${p.name} eliminated` });
+          const name = p?.name ?? '';
+          if (p) this.events.push({ t: w.time, kind: 'eliminated', text: p === me ? say('overrun') : say('eliminated', { player: name }) });
           break;
         }
       }
@@ -157,14 +184,16 @@ export class BattleReport {
 
   /** Highlights of the battle, in time order (event moments plus what the samples show). */
   highlights(won: boolean, max = 6): Highlight[] {
-    const out = [...this.events];
+    const out: Highlight[] = [];
+    const add = (t: number, kind: HighlightKind, text: HlText) => out.push({ t, kind, text: text(false), en: text(true) });
+    for (const e of this.events) add(e.t, e.kind, e.text);
     const me = this.local().id;
     const s = this.samples;
     if (s.length >= 3) {
       // peak army
       let peak = 0, peakT = 0;
       for (const x of s) if ((x.players[me]?.army ?? 0) > peak) { peak = x.players[me].army; peakT = x.t; }
-      if (peak >= 3000) out.push({ t: peakT, kind: 'peak', text: `Peak army ${money(peak)}` });
+      if (peak >= 3000) add(peakT, 'peak', say('peak', { money: money(peak) }, { money: moneyEn(peak) }));
       // biggest clash: most losses on all sides in one interval
       let clash = 0, clashT = 0;
       for (let i = 1; i < s.length; i++) {
@@ -172,7 +201,7 @@ export class BattleReport {
         for (let p = 0; p < s[i].players.length; p++) lost += (s[i].players[p]?.losses ?? 0) - (s[i - 1].players[p]?.losses ?? 0);
         if (lost > clash) { clash = lost; clashT = s[i].t; }
       }
-      if (clash >= 6) out.push({ t: clashT, kind: 'clash', text: `Biggest clash: ${clash} lost in ${SAMPLE_SECONDS} s` });
+      if (clash >= 6) add(clashT, 'clash', say('clash', { n: clash, s: SAMPLE_SECONDS }, { n: String(clash), s: String(SAMPLE_SECONDS) }));
       // comeback: the lowest share of the army strength, after the opening
       let low = 1, lowT = 0;
       for (const x of s) {
@@ -181,12 +210,15 @@ export class BattleReport {
         const all = x.players.reduce((a, p) => a + p.army, 0);
         if (all > 2000 && mine / all < low) { low = mine / all; lowT = x.t; }
       }
-      if (won && low < 0.35) out.push({ t: lowT, kind: 'comeback', text: `Comeback from ${Math.round(low * 100)}% of the army strength` });
+      if (won && low < 0.35) add(lowT, 'comeback', say('comeback', { pct: fmtPct(Math.round(low * 100) / 100) }, { pct: `${Math.round(low * 100)}%` }));
     }
     return out.sort((a, b) => a.t - b.t).slice(0, max);
   }
 }
 
 function money(n: number): string {
+  return n >= 10000 ? moneyShort(n, 1) : fmtMoney(Math.round(n));
+}
+function moneyEn(n: number): string {
   return n >= 10000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n).toLocaleString('en-US')}`;
 }

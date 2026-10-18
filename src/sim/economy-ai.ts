@@ -107,12 +107,11 @@ function pickResearch(ai: AIController, lab: Building): string | null {
   const w = ai.world, p = ai.p, pers = ai.personality, skill = ai.d.skill;
   const doctrine = p.cmd?.doctrine ?? '';
   let best: string | null = null, bestS = -Infinity;
-  const vehicles = ai.myUnits().filter((u) => u.kind === 'vehicle' && !u.ut.harvester).length;
-  const infantry = ai.myUnits().filter((u) => u.kind === 'infantry').length;
+  const army = armyValues(ai);
   for (const r of researchFor(p.faction)) {
     if (researchIssue(w, p, lab, r.id)) continue;
     const lv = (p.econ!.levels[r.id] ?? 0) + 1;
-    let s = score(ai, r, vehicles, infantry);
+    let s = score(ai, r, army);
     if (SYNERGY[doctrine] === r.id) s += 3;
     if (lv === 2) s -= 1.5; // breadth first
     s += (w.rng.next() - 0.5) * 6 * (1 - skill); // weaker commanders pick by feel
@@ -123,19 +122,33 @@ function pickResearch(ai: AIController, lab: Building): string | null {
   return bestS >= bar ? best : null;
 }
 
-function score(ai: AIController, r: ResearchDef, vehicles: number, infantry: number): number {
+/** What the army is made of, by value (credits): research is worth what it improves. */
+function armyValues(ai: AIController) {
+  const out = { vehicles: 0, tanks: 0, infantry: 0, tesla: 0, harvs: 0 };
+  for (const u of ai.myUnits()) {
+    if (u.ut.harvester) { out.harvs++; continue; }
+    if (!u.weapons.length || u.ut.deploysInto) continue;
+    if (u.kind === 'vehicle') { out.vehicles += u.ut.cost; if (u.ut.id === '3tnk' || u.ut.id === '4tnk' || u.ut.id === 'ttnk' || u.ut.id === 'qtnk') out.tanks += u.ut.cost; }
+    else if (u.kind === 'infantry') out.infantry += u.ut.cost;
+    if (u.ut.id === 'ttnk' || u.ut.id === 'shok') out.tesla += u.ut.cost;
+  }
+  return out;
+}
+
+function score(ai: AIController, r: ResearchDef, a: ReturnType<typeof armyValues>): number {
   const pers = ai.personality, p = ai.p;
-  const harvs = ai.myUnits().filter((u) => u.ut.harvester).length;
+  // (each line scores about 1 point per $2,000-3,000 of army it improves, plus the commander's taste)
   switch (r.id) {
-    case 'composite_armor': case 'reactive_armor': return 3 + vehicles * 0.25 + (1 - pers.infantry) * 2;
-    case 'precision_optics': return 3 + vehicles * 0.15 + pers.artillery * 2 + pers.defence;
+    case 'composite_armor': return 3 + a.vehicles / 2500 + (1 - pers.infantry) * 2;
+    case 'reactive_armor': return 3 + a.tanks / 2000 + (1 - pers.infantry) * 2;
+    case 'precision_optics': return 3 + a.vehicles / 4000 + pers.artillery * 2 + pers.defence;
     case 'rapid_deployment': return 3 + pers.aggression * 3;
-    case 'chrono_logistics': return 2 + pers.economy * 3 + harvs * 0.3;
-    case 'tesla_amplifiers': return 2 + ai.count('tsla') * 1.2 + ai.myUnits().filter((u) => u.ut.id === 'ttnk' || u.ut.id === 'shok').length * 0.4 + pers.defence;
-    case 'conscription': return 2 + infantry * 0.12 + pers.infantry * 4;
-    case 'heavy_industry': return 3 + vehicles * 0.2 + pers.aggression * 1.5;
-    case 'improved_harvesters': return 2 + harvs * 0.6 + pers.economy * 3;
-    case 'field_medicine': return 2 + infantry * 0.1 + pers.caution * 2 + pers.infantry;
+    case 'chrono_logistics': return 2 + pers.economy * 3 + a.harvs * 0.3;
+    case 'tesla_amplifiers': return 2 + ai.count('tsla') * 1.2 + a.tesla / 2000 + pers.defence;
+    case 'conscription': return 2 + a.infantry / 1500 + pers.infantry * 4;
+    case 'heavy_industry': return 3 + a.vehicles / 3000 + pers.aggression * 1.5;
+    case 'improved_harvesters': return 2 + a.harvs * 0.6 + pers.economy * 3;
+    case 'field_medicine': return 2 + a.infantry / 2000 + pers.caution * 2 + pers.infantry;
   }
   return p.econ ? 1 : 0;
 }
@@ -164,7 +177,8 @@ function pickUpgrade(ai: AIController): [Building, string] | null {
         case 'weap_armor': s = 3 + pers.tech * 2 + (1 - pers.infantry); break;
         case 'barr_training': s = 1 + pers.infantry * 6 - (b.primary ? 0 : 2); break;
         case 'def_reinforced': s = (pers.defence - 0.45) * 8 + (b.bt.cost >= 1000 ? 1.5 : 0) - reinforced * 0.4; break;
-        case 'dome_uplink': s = 1 + pers.subterfuge * 2 + pers.air * 2 + (p.faction === 'allies' ? 1 : 0); break;
+        // (it speeds up GPS for the Allies, and the airfield's spy plane, paratroopers and parabombs for the Soviets)
+        case 'dome_uplink': s = 1 + pers.subterfuge * 2 + pers.air * 2 + (p.faction === 'allies' ? 1 : ai.count('afld') ? 1.5 : 0); break;
       }
       if (SYNERGY[doctrine] === id) s += 2.5;
       if (s > bestS) { bestS = s; best = [b, id]; }

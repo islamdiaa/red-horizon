@@ -12,6 +12,10 @@ import type { Player } from '../sim/player';
 import { serializeWorld } from '../sim/save';
 import { TICK_HZ } from '../sim/types';
 import type { ChallengeGoal, StartView } from './types';
+import { MODES_EN, fillEn as en } from './text';
+
+/** Moment challenge texts: English (stored in the challenge), translated where shown (trSource). */
+const M = MODES_EN.moment;
 
 export type MomentKind = 'swing' | 'comeback' | 'nuke' | 'siege';
 
@@ -189,23 +193,23 @@ export function momentGoal(m: Moment, side: number, state: unknown): { goal: Cha
   switch (m.kind) {
     case 'nuke': {
       const keep = yard([m.info.tx, m.info.ty, 6]);
-      if (keep) return { goal: { kind: 'protect', targets: [keep.id], label: 'Keep your base standing through the atomic strike: 3:00' }, timeLimit: 180, title: 'Incoming!',
-        text: `${at(m.at)}: an enemy nuke is in the air. Weather the strike and keep your base standing for three minutes.`, par: { losses: 8 } };
-      return { goal: { kind: 'survive', label: 'Survive the atomic strike and its aftermath: 4:00' }, timeLimit: 240, title: 'Incoming!',
-        text: `${at(m.at)}: an enemy nuke is in the air. Survive for four minutes.`, par: { losses: 10 } };
+      if (keep) return { goal: { kind: 'protect', targets: [keep.id], label: M.nuke.goalKeep }, timeLimit: 180, title: M.nuke.title,
+        text: en(M.nuke.textKeep, { at: at(m.at) }), par: { losses: 8 } };
+      return { goal: { kind: 'survive', label: M.nuke.goalSurvive }, timeLimit: 240, title: M.nuke.title,
+        text: en(M.nuke.textSurvive, { at: at(m.at) }), par: { losses: 10 } };
     }
     case 'siege': {
       const keep = yard();
-      if (keep) return { goal: { kind: 'protect', targets: [keep.id], label: 'Break the siege: keep your Construction Yard for 3:00' }, timeLimit: 180, title: 'Under Siege',
-        text: `${at(m.at)}: $${m.info.value.toLocaleString('en-US')} of enemy armour broke into your base. Hold it for three minutes.`, par: { losses: 8 } };
-      return { goal: { kind: 'survive', label: 'Survive the siege: 3:00' }, timeLimit: 180, title: 'Under Siege', text: `${at(m.at)}: the enemy is in your base. Survive three minutes.`, par: { losses: 8 } };
+      if (keep) return { goal: { kind: 'protect', targets: [keep.id], label: M.siege.goalKeep }, timeLimit: 180, title: M.siege.title,
+        text: en(M.siege.textKeep, { at: at(m.at), money: `$${m.info.value.toLocaleString('en-US')}` }), par: { losses: 8 } };
+      return { goal: { kind: 'survive', label: M.siege.goalSurvive }, timeLimit: 180, title: M.siege.title, text: en(M.siege.textSurvive, { at: at(m.at) }), par: { losses: 8 } };
     }
     case 'comeback':
-      return { goal: { kind: 'win', label: 'Come back and win within 15:00' }, timeLimit: 900, title: 'Against the Ropes',
-        text: `${at(m.at)}: you were down to ${m.info.share}% of the battlefield strength.${m.info.lost ? '' : ' You won anyway.'} Can you win from here, faster?`, par: { time: 540 } };
+      return { goal: { kind: 'win', label: M.comeback.goal }, timeLimit: 900, title: M.comeback.title,
+        text: en(m.info.lost ? M.comeback.text : M.comeback.textWon, { at: at(m.at), share: String(m.info.share) }), par: { time: 540 } };
     case 'swing':
     default:
-      return { goal: { kind: 'win', label: 'Turn the battle around and win within 15:00' }, timeLimit: 900, title: 'Turning Point',
-        text: `${at(m.at)}: a minute of fighting cost you $${(m.info.drop ?? 0).toLocaleString('en-US')} more in armour than the enemy. Replay it and turn it around.`, par: { time: 600 } };
+      return { goal: { kind: 'win', label: M.swing.goal }, timeLimit: 900, title: M.swing.title,
+        text: en(M.swing.text, { at: at(m.at), money: `$${(m.info.drop ?? 0).toLocaleString('en-US')}` }), par: { time: 600 } };
   }
 }

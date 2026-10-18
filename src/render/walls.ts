@@ -1,3 +1,4 @@
+import { paletteVersion, teamColor as paletteColor } from '../ui/a11y';
 import * as THREE from 'three';
 import { hash2 } from '../core/rng';
 import type { World } from '../sim/world';
@@ -215,7 +216,7 @@ export class WallRenderer {
       const seen = b.owner.team === this.local.team || this.fog.exploredAt(b.x, b.y) > 0.5 ? 1 : 2;
       sig = (Math.imul(sig ^ (b.id * 4 + seen), 0x9e3779b1) + n++) | 0;
     }
-    sig = (sig ^ n) >>> 0;
+    sig = (sig ^ n ^ Math.imul(paletteVersion() + 1, 0x45d9f3b)) >>> 0; // a palette change re-colours the walls
     if (sig === this.signature) return;
     this.signature = sig;
     const walls = this.walls;
@@ -238,7 +239,7 @@ export class WallRenderer {
       if (b.owner.team !== this.local.team && this.fog.exploredAt(b.x, b.y) <= 0.5) continue;
       const kind = b.bt.id as WallKind;
       if (kind !== 'sbag' && kind !== 'barb' && kind !== 'brik') continue;
-      const team = b.owner.color;
+      const team = paletteColor(b.owner, this.local); // team colour palette
       const fac: Fac = b.owner.faction === 'soviet' ? 'soviet' : 'allies';
       const h = m.heightAt(b.x, b.y);
       // connections (orthogonal first; diagonals only where no orthogonal neighbour covers the corner)

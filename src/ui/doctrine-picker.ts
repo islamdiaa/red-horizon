@@ -18,8 +18,12 @@ import { loadProfile } from '../meta/profile';
 import { rankIndexFor, rankName } from '../meta/ranks';
 import { el, esc } from './dom';
 import { ICONS } from './icons';
-import { DOCTRINE_ICONS } from './commander';
+import { DOCTRINE_ICONS } from './doctrine-icons';
 import { registerDoctrineSlot } from './variety';
+import tDoc from '../i18n/en/doctrine';
+import tCommon from '../i18n/en/common';
+import { dt } from '../i18n/core';
+import { doctrineBlurb, doctrineBonus, doctrineDrawback, doctrineName } from '../i18n/names';
 
 const STORE = 'rh.doctrine';
 
@@ -74,6 +78,9 @@ export function resolveDoctrineChoice(f: Faction, want: string | null | undefine
   return doctrinesFor(f).find((d) => doctrineUnlocked(d, rank))?.id ?? null;
 }
 
+/** A commander rank's name for the side (game data table rank). */
+const rankLabel = (i: number, f: Faction) => dt('rank', String(i), f === 'soviet' ? 'soviet' : 'allied', rankName(i, f));
+
 const icon = (d: DoctrineDef | null) => (d ? DOCTRINE_ICONS[d.icon] ?? ICONS.flag : ICONS.close);
 
 export function createDoctrinePicker(opts: DoctrinePickerOptions): DoctrinePicker {
@@ -90,10 +97,10 @@ export function createDoctrinePicker(opts: DoctrinePickerOptions): DoctrinePicke
     const d = value ? DOCTRINES[value] : null;
     root.classList.toggle('none', !d);
     root.disabled = disabled;
-    root.innerHTML = `<span class="dp-ic">${icon(d)}</span><span class="dp-txt"><b>${esc(d ? d.name : 'No doctrine')}</b>
-      <small>${d ? `<i class="dp-plus">+</i>${esc(d.bonuses[0])} <i class="dp-plus">+</i>${esc(d.bonuses[1])} <i class="dp-minus">−</i>${esc(d.drawback)}` : 'Standard rules for your side'}</small></span>
+    root.innerHTML = `<span class="dp-ic">${icon(d)}</span><span class="dp-txt"><b>${esc(d ? doctrineName(d) : tDoc('none'))}</b>
+      <small>${d ? `<i class="dp-plus">+</i>${esc(doctrineBonus(d, 0))} <i class="dp-plus">+</i>${esc(doctrineBonus(d, 1))} <i class="dp-minus">−</i>${esc(doctrineDrawback(d))}` : tDoc.html('noneSub')}</small></span>
       <span class="dp-chg">${ICONS.chevR}</span>`;
-    root.title = d ? `${d.name}\n+ ${d.bonuses[0]}\n+ ${d.bonuses[1]}\n− ${d.drawback}` : 'No doctrine';
+    root.title = d ? `${doctrineName(d)}\n+ ${doctrineBonus(d, 0)}\n+ ${doctrineBonus(d, 1)}\n− ${doctrineDrawback(d)}` : tDoc('none');
   };
   const set = (id: string | null, user: boolean) => {
     value = id;
@@ -117,13 +124,13 @@ export function createDoctrinePicker(opts: DoctrinePickerOptions): DoctrinePicke
     if (disabled || overlay) return;
     const ov = el('div', 'dp-overlay');
     ov.setAttribute('role', 'dialog');
-    ov.setAttribute('aria-label', 'Choose a doctrine');
+    ov.setAttribute('aria-label', tDoc('aria'));
     const pnl = el('div', 'dp-panel panel');
-    pnl.innerHTML = `<div class="dp-head"><span class="dp-hic">${ICONS.flag}</span><div><small>${faction === 'soviet' ? 'Soviet' : 'Allied'} doctrine</small><b>Choose how you fight</b></div></div>
-      <p class="dp-sub">Two bonuses and one drawback for the whole match. Commander rules only; your opponents pick their own.</p>`;
+    pnl.innerHTML = `<div class="dp-head"><span class="dp-hic">${ICONS.flag}</span><div><small>${tDoc.html('kicker', { side: faction })}</small><b>${tDoc.html('title')}</b></div></div>
+      <p class="dp-sub">${tDoc.html('sub')}</p>`;
     const x = el('button', 'dp-x', ICONS.close);
     x.type = 'button';
-    x.setAttribute('aria-label', 'Close');
+    x.setAttribute('aria-label', tCommon('close'));
     x.onclick = close;
     pnl.appendChild(x);
     const grid = el('div', 'dp-grid');
@@ -134,12 +141,12 @@ export function createDoctrinePicker(opts: DoctrinePickerOptions): DoctrinePicke
       const card = el('button', 'dp-card' + (locked ? ' locked' : '') + ((d?.id ?? null) === value ? ' on' : '') + (d ? '' : ' none'));
       card.type = 'button';
       card.innerHTML = d
-        ? `<span class="dp-cic">${icon(d)}</span><b>${esc(d.name)}</b><em>${esc(d.blurb)}</em>
-          <ul><li class="dp-b"><i>+</i>${esc(d.bonuses[0])}</li><li class="dp-b"><i>+</i>${esc(d.bonuses[1])}</li><li class="dp-d"><i>−</i>${esc(d.drawback)}</li></ul>
-          ${locked ? `<span class="dp-lock">${ICONS.lock}<span>Commander rank ${d.rank}: ${esc(rankName(d.rank, faction))}</span></span>` : ''}`
-        : `<span class="dp-cic">${ICONS.close}</span><b>No doctrine</b><em>Plain rules for your side: no bonus, no drawback.</em>`;
+        ? `<span class="dp-cic">${icon(d)}</span><b>${esc(doctrineName(d))}</b><em>${esc(doctrineBlurb(d))}</em>
+          <ul><li class="dp-b"><i>+</i>${esc(doctrineBonus(d, 0))}</li><li class="dp-b"><i>+</i>${esc(doctrineBonus(d, 1))}</li><li class="dp-d"><i>−</i>${esc(doctrineDrawback(d))}</li></ul>
+          ${locked ? `<span class="dp-lock">${ICONS.lock}<span>${tDoc.html('lock', { n: String(d.rank), rank: rankLabel(d.rank, faction) })}</span></span>` : ''}`
+        : `<span class="dp-cic">${ICONS.close}</span><b>${tDoc.html('none')}</b><em>${tDoc.html('noneCard')}</em>`;
       card.disabled = locked;
-      if (locked) card.title = `Reach commander rank ${d!.rank} (${rankName(d!.rank, faction)}) to unlock`;
+      if (locked) card.title = tDoc('lockTip', { n: String(d!.rank), rank: rankLabel(d!.rank, faction) });
       card.onclick = () => { set(d?.id ?? null, true); close(); };
       if (!first && !locked && (d?.id ?? null) === value) first = card;
       grid.appendChild(card);

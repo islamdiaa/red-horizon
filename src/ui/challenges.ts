@@ -3,9 +3,12 @@
  * Survival variants with their records, and a medal-case summary.
  */
 import {
-  ACH_BY_ID, MODIFIER_BY_ID, achievementMetal, allAchievementStates, dailyConfig, dayKey, insigniaSvg, loadProfile, medalSvg, medalTotals, msUntilNextDaily,
-  picto, prevDay, rankProgress, shiftDay, type DailyConfig, type Profile,
+  ACH_BY_ID, MODIFIER_BY_ID, achievementMetal, achievementTitle, allAchievementStates, dailyConfig, dailyModDesc, dailyModName, dailyPlace, dayKey, insigniaSvg, loadProfile,
+  medalSvg, medalTotals, msUntilNextDaily, picto, prevDay, rankProgress, shiftDay, type DailyConfig, type Profile,
 } from '../meta';
+import { currentLang, dt, fmtDate, fmtInt, fmtMoney, fmtPct } from '../i18n/core';
+import tChallenges from '../i18n/en/challenges';
+import tCommon from '../i18n/en/common';
 import { SURVIVAL_VARIANTS, currentDailyDay, type SurvivalVariant } from '../missions/special';
 import { alliedEmblem, sovietEmblem } from './icons';
 import { bindCoopSwitch, coopSwitchHtml, survivalDeployId, survivalRecord } from './coop'; // co-op survival
@@ -176,14 +179,22 @@ const CSS = `
 `;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
+const fmt = (n: number) => fmtInt(n);
 const pad = (n: number) => String(n).padStart(2, '0');
+/** A number with fixed decimals in the active language ("1.35"). */
+const fixed = (v: number, d: number) => {
+  try { return new Intl.NumberFormat(currentLang(), { minimumFractionDigits: d, maximumFractionDigits: d }).format(v); } catch { return v.toFixed(d); }
+};
+/** A UTC date key (YYYY-MM-DD) as a date. */
+const dayDate = (k: string, opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' }) => fmtDate(new Date(k + 'T12:00:00Z'), { ...opts, timeZone: 'UTC' });
+/** Survival variant texts (game data mission.<id>.*, survival.<id>.hordeName). */
+const svTitle = (v: SurvivalVariant) => dt('mission', v.id, 'title', v.title);
+const svLocation = (v: SurvivalVariant) => dt('mission', v.id, 'location', v.location);
+const svHorde = (v: SurvivalVariant) => dt('survival', v.id, 'hordeName', v.hordeName);
 function hms(ms: number): string {
   const s = Math.floor(ms / 1000);
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
 }
-const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-const WD = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
 let uid = 0;
 /** Layered landscape silhouette for a climate (sky, far ridge, hills, foreground detail). */
@@ -243,7 +254,7 @@ function ring(frac: number): string {
   const r = 20, c = 2 * Math.PI * r;
   return `<svg class="ring" viewBox="0 0 48 48"><circle cx="24" cy="24" r="${r}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="4"/>
     <circle cx="24" cy="24" r="${r}" fill="none" stroke="#ffcf3f" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(c * frac).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 24 24)" style="filter:drop-shadow(0 0 3px rgba(255,207,63,.7))"/>
-    <text x="24" y="28" text-anchor="middle" fill="#fff" font-size="12" font-family="monospace">${Math.round(frac * 100)}%</text></svg>`;
+    <text x="24" y="28" text-anchor="middle" fill="#fff" font-size="12" font-family="monospace">${fmtPct(Math.round(frac * 100) / 100)}</text></svg>`;
 }
 
 function emblem(f: string): string {
@@ -251,22 +262,23 @@ function emblem(f: string): string {
 }
 
 function briefLine(cfg: DailyConfig): string {
-  const d = cfg.difficulty.charAt(0).toUpperCase() + cfg.difficulty.slice(1);
-  const who = cfg.enemies.length > 1 ? `Two <b>${d}</b> commanders hold` : `A <b>${d}</b> ${cfg.enemies[0] === 'soviet' ? 'Soviet' : 'Allied'} commander holds`;
-  const start = cfg.startUnits === 'mcv' ? 'an MCV' : 'an MCV and a strike squad';
-  return `${who} the ${esc(cfg.location)}. You land with ${start} and $${fmt(cfg.credits)}. Destroy every enemy structure and unit, fast and with few losses.`;
+  const params = {
+    difficulty: tCommon(`difficulty.${cfg.difficulty}`), faction: tCommon(cfg.enemies[0] === 'soviet' ? 'faction.sovietAdj' : 'faction.alliesAdj'),
+    location: dailyPlace(cfg), money: fmtMoney(cfg.credits),
+  };
+  const squad = cfg.startUnits !== 'mcv';
+  return tChallenges.html(cfg.enemies.length > 1 ? (squad ? 'daily.briefTwoSquad' : 'daily.briefTwo') : squad ? 'daily.briefOneSquad' : 'daily.briefOne', params);
 }
 
 function dailyCard(cfg: DailyConfig, p: Profile, day: string): string {
-  const [y, m, d] = day.split('-').map(Number);
   const mood = cfg.modifiers.includes('night-ops') ? 'night' : cfg.modifiers.includes('storm-front') ? 'storm' : cfg.hour > 17 ? 'dusk' : 'day';
   const mods = cfg.modifiers.map((id) => MODIFIER_BY_ID[id]).filter(Boolean);
   const best = p.daily.best[day];
   const playedToday = p.daily.lastDay === day;
   const streakLive = playedToday || p.daily.lastDay === prevDay(day);
   const streak = streakLive ? p.daily.streak : 0;
-  const streakNote = playedToday ? 'Streak secured today' : streakLive && streak ? 'Play today to keep it alive' : 'Play today to start a streak';
-  const facName = (f: string) => (f === 'soviet' ? 'Soviet' : 'Allied');
+  const streakNote = tChallenges.html(playedToday ? 'daily.streakSecured' : streakLive && streak ? 'daily.streakKeep' : 'daily.streakStart');
+  const facName = (f: string) => tCommon.html(f === 'soviet' ? 'faction.sovietAdj' : 'faction.alliesAdj');
   const enemyFacs = [...new Set(cfg.enemies)];
   // last 14 days of personal bests
   const days = Array.from({ length: 14 }, (_, i) => shiftDay(day, i - 13));
@@ -274,41 +286,43 @@ function dailyCard(cfg: DailyConfig, p: Profile, day: string): string {
   const chart = days.map((k) => {
     const r = p.daily.best[k];
     const h = r ? Math.max(8, (r.score / maxScore) * 78) : 3;
-    const dd = new Date(k + 'T12:00:00Z');
-    return `<div class="${k === day ? 'today' : ''}" title="${k}${r ? ` · ${fmt(r.score)}${r.won ? '' : ' (defeat)'}` : ' · not played'}">${r ? `<em>${r.score >= 1000 ? (r.score / 1000).toFixed(1) + 'k' : r.score}</em>` : ''}<i class="${r ? (r.won ? 'won' : 'lost') : ''}" style="height:${h.toFixed(0)}%"></i><u>${k === day ? 'TODAY' : WD[dd.getUTCDay()]}</u></div>`;
+    const date = dayDate(k);
+    const tip = r ? tChallenges(r.won ? 'daily.dayScore' : 'daily.dayDefeat', { date, score: fmt(r.score) }) : tChallenges('daily.dayNotPlayed', { date });
+    const wd = dayDate(k, { weekday: 'short' }).toLocaleUpperCase(currentLang());
+    return `<div class="${k === day ? 'today' : ''}" title="${esc(tip)}">${r ? `<em>${r.score >= 1000 ? tChallenges.html('k', { n: fixed(r.score / 1000, 1) }) : r.score}</em>` : ''}<i class="${r ? (r.won ? 'won' : 'lost') : ''}" style="height:${h.toFixed(0)}%"></i><u>${k === day ? tChallenges.html('daily.today') : esc(wd)}</u></div>`;
   }).join('');
   const firstWinXp = 600 + 100 * cfg.modifiers.length;
   const streakXp = 50 * Math.min((playedToday ? streak : streak + 1), 10);
-  const climateName = cfg.climate.charAt(0).toUpperCase() + cfg.climate.slice(1);
+  const climateName = tChallenges.html(`daily.climate.${cfg.climate}`);
   return `<div class="chl-panel chl-daily">
     <div class="chl-hero">${landscape(cfg.climate, mood as 'day', cfg.seed)}
-      <div class="chl-clock">${picto('clock')}<div><small>Next challenge</small><b data-countdown>${hms(msUntilNextDaily())}</b></div></div>
+      <div class="chl-clock">${picto('clock')}<div><small>${tChallenges.html('daily.nextChallenge')}</small><b data-countdown>${hms(msUntilNextDaily())}</b></div></div>
       <div class="chl-hero-t">
-        <div class="chl-kick"><i></i><span>Daily Challenge #${cfg.number} · ${pad(d)} ${MONTHS[m - 1]} ${y}</span></div>
-        <div class="chl-title">Operation ${esc(cfg.codename)}</div>
-        <div class="chl-loc"><span>${picto('flag')}${esc(cfg.location)}</span><span>${picto(cfg.climate === 'winter' ? 'snow' : cfg.climate === 'desert' ? 'sun' : 'tree')}${climateName}</span><span>${picto('target')}${cfg.size}x${cfg.size}</span><span>${picto('coin')}$${fmt(cfg.credits)}</span></div>
+        <div class="chl-kick"><i></i><span>${tChallenges.html('daily.kicker', { n: String(cfg.number), date: dayDate(day) })}</span></div>
+        <div class="chl-title">${tChallenges.html('daily.operation', { codename: cfg.codename })}</div>
+        <div class="chl-loc"><span>${picto('flag')}${esc(dailyPlace(cfg))}</span><span>${picto(cfg.climate === 'winter' ? 'snow' : cfg.climate === 'desert' ? 'sun' : 'tree')}${climateName}</span><span>${picto('target')}${cfg.size}x${cfg.size}</span><span>${picto('coin')}${fmtMoney(cfg.credits)}</span></div>
       </div>
     </div>
     <div class="chl-body">
       <div class="chl-vs">
-        <div class="chl-side">${emblem(cfg.faction)}<span><small>You</small>${facName(cfg.faction)}</span></div>
-        <span class="chl-vsx">VS</span>
-        <div class="chl-side">${enemyFacs.map(emblem).join('')}<span><small>${cfg.enemies.length > 1 ? 'Two commanders' : 'Enemy'}</small>${cfg.enemies.map(facName).join(' + ')}</span></div>
-        <div class="chl-badges"><div class="chl-badge d-${cfg.difficulty}"><small>AI</small><b>${cfg.difficulty.toUpperCase()}</b></div><div class="chl-badge mult"><small>Score</small><b>x${cfg.multiplier.toFixed(2)}</b></div></div>
+        <div class="chl-side">${emblem(cfg.faction)}<span><small>${tChallenges.html('daily.you')}</small>${facName(cfg.faction)}</span></div>
+        <span class="chl-vsx">${tChallenges.html('daily.vs')}</span>
+        <div class="chl-side">${enemyFacs.map(emblem).join('')}<span><small>${tChallenges.html(cfg.enemies.length > 1 ? 'daily.twoCommanders' : 'daily.enemy')}</small>${cfg.enemies.map(facName).join(' + ')}</span></div>
+        <div class="chl-badges"><div class="chl-badge d-${cfg.difficulty}"><small>${tChallenges.html('daily.ai')}</small><b>${esc(tCommon(`difficulty.${cfg.difficulty}`).toLocaleUpperCase(currentLang()))}</b></div><div class="chl-badge mult"><small>${tChallenges.html('daily.score')}</small><b>x${fixed(cfg.multiplier, 2)}</b></div></div>
       </div>
       <p class="chl-brief">${briefLine(cfg)}</p>
-      <div class="chl-mods" style="--n:${mods.length}">${mods.map((mo, i) => `<div class="chl-mod" style="--i:${i}"><span class="ic">${picto(mo.icon)}</span><div><b>${esc(mo.name)}</b><span>${esc(mo.desc)}</span></div></div>`).join('')}</div>
-      <div class="chl-objs"><small>Objectives</small><span class="chl-obj p">${picto('target')}Destroy ${cfg.enemies.length > 1 ? 'both commanders' : 'the enemy commander'}</span><span class="chl-obj">${picto('stopwatch')}Bonus: win within 15:00</span><span class="chl-obj">${picto('untouchable')}Bonus: lose fewer than 25 units</span></div>
+      <div class="chl-mods" style="--n:${mods.length}">${mods.map((mo, i) => `<div class="chl-mod" style="--i:${i}"><span class="ic">${picto(mo.icon)}</span><div><b>${esc(dailyModName(mo))}</b><span>${esc(dailyModDesc(mo))}</span></div></div>`).join('')}</div>
+      <div class="chl-objs"><small>${tChallenges.html('daily.objectives')}</small><span class="chl-obj p">${picto('target')}${tChallenges.html(cfg.enemies.length > 1 ? 'daily.destroyTwo' : 'daily.destroyOne')}</span><span class="chl-obj">${picto('stopwatch')}${tChallenges.html('daily.bonusTime')}</span><span class="chl-obj">${picto('untouchable')}${tChallenges.html('daily.bonusLosses')}</span></div>
       <div class="chl-stats">
-        <div class="chl-stat"><small>${picto('trophy')}Today's best</small><b>${best ? fmt(best.score) : '–'}${best ? `<em>${best.attempts} run${best.attempts === 1 ? '' : 's'}</em>` : ''}</b><span class="note">${best ? (best.won ? 'Victory recorded' : 'No victory yet') : 'Not attempted yet'}</span></div>
-        <div class="chl-stat streak"><small>${picto('streak')}Streak</small><b>${streak}<em>day${streak === 1 ? '' : 's'} · best ${p.daily.longest}</em></b><span class="note">${streakNote}</span></div>
-        <div class="chl-stat rw"><small>${picto('medal')}Rewards</small>
-          <div class="rl"><span>First victory today</span><i>+${fmt(firstWinXp)} XP</i></div>
-          <div class="rl"><span>Streak bonus</span><i>+${fmt(streakXp)} XP</i></div>
-          <div class="rl"><span>Each medal earned</span><i>+500 pts</i></div></div>
+        <div class="chl-stat"><small>${picto('trophy')}${tChallenges.html('daily.todaysBest')}</small><b>${best ? fmt(best.score) : '–'}${best ? `<em>${tChallenges.html('daily.runs', { n: best.attempts })}</em>` : ''}</b><span class="note">${tChallenges.html(best ? (best.won ? 'daily.victoryRecorded' : 'daily.noVictory') : 'daily.notAttempted')}</span></div>
+        <div class="chl-stat streak"><small>${picto('streak')}${tChallenges.html('daily.streak')}</small><b>${streak}<em>${tChallenges.html('daily.streakDays', { n: streak, best: String(p.daily.longest) })}</em></b><span class="note">${streakNote}</span></div>
+        <div class="chl-stat rw"><small>${picto('medal')}${tChallenges.html('daily.rewards')}</small>
+          <div class="rl"><span>${tChallenges.html('daily.firstWin')}</span><i>${tChallenges.html('daily.xp', { n: fmt(firstWinXp) })}</i></div>
+          <div class="rl"><span>${tChallenges.html('daily.streakBonus')}</span><i>${tChallenges.html('daily.xp', { n: fmt(streakXp) })}</i></div>
+          <div class="rl"><span>${tChallenges.html('daily.perMedal')}</span><i>${tChallenges.html('daily.pts', { n: 500 })}</i></div></div>
       </div>
-      <div class="chl-hist"><div class="hd"><span>${picto('chart')}Personal bests · last 14 days</span><span class="lg"><span><i style="background:#ffcf3f"></i>Victory</span><span><i style="background:#c8503a"></i>Defeat</span></span></div><div class="chl-chart">${chart}</div></div>
-      <div class="chl-go"><button class="chl-btn" data-deploy="daily">${picto('play')}<span>Deploy</span><small>+500 per medal</small></button></div>
+      <div class="chl-hist"><div class="hd"><span>${picto('chart')}${tChallenges.html('daily.history')}</span><span class="lg"><span><i style="background:#ffcf3f"></i>${tCommon.html('victory')}</span><span><i style="background:#c8503a"></i>${tCommon.html('defeat')}</span></span></div><div class="chl-chart">${chart}</div></div>
+      <div class="chl-go"><button class="chl-btn" data-deploy="daily">${picto('play')}<span>${tChallenges.html('daily.deploy')}</span><small>${tChallenges.html('daily.deployBonus')}</small></button></div>
     </div>
   </div>`;
 }
@@ -318,12 +332,12 @@ function survivalCard(v: SurvivalVariant, p: Profile, i: number): string {
   return `<div class="chl-sv ${v.climate}" style="--i:${i}" data-deploy="${survivalDeployId(v.id)}">
     <div class="chl-sv-art">${landscape(v.climate, 'day', v.seed)}</div>
     <div class="chl-sv-b">
-      <div class="chl-sv-t">${esc(v.title)}<em>x${v.factor.toFixed(2)}</em></div>
-      <div class="chl-sv-s">${esc(v.location)} · vs ${esc(v.hordeName)}</div>
-      <div class="chl-sv-r"><span class="pb"><small>Best score</small><b>${r ? fmt(r.bestScore) : '–'}</b></span><span><small>Best wave</small><b>${r ? r.bestWave : '–'}</b></span><span><small>Runs</small><b>${r ? r.runs : 0}</b></span></div>
-      <div class="chl-wt" title="Wave record (boss waves highlighted) · medals at 5, 15 and 30 waves">${Array.from({ length: 30 }, (_, k) => `<i class="${(k + 1) % 5 === 0 ? 'boss' : ''}${k < (r?.bestWave ?? 0) ? ' on' : ''}"></i>`).join('')}${[5, 15, 30].map((w, t) => `<b class="t${t}${(r?.bestWave ?? 0) >= w ? ' got' : ''}" style="left:calc(${((w - 0.5) / 30) * 100}% - ${((w - 0.5) / 30) * 0.6}rem)"></b>`).join('')}</div>
+      <div class="chl-sv-t">${esc(svTitle(v))}<em>x${fixed(v.factor, 2)}</em></div>
+      <div class="chl-sv-s">${tChallenges.html('survival.where', { location: svLocation(v), horde: svHorde(v) })}</div>
+      <div class="chl-sv-r"><span class="pb"><small>${tChallenges.html('survival.bestScore')}</small><b>${r ? fmt(r.bestScore) : '–'}</b></span><span><small>${tChallenges.html('survival.bestWave')}</small><b>${r ? r.bestWave : '–'}</b></span><span><small>${tChallenges.html('survival.runs')}</small><b>${r ? r.runs : 0}</b></span></div>
+      <div class="chl-wt" title="${tChallenges.html('survival.waveTip')}">${Array.from({ length: 30 }, (_, k) => `<i class="${(k + 1) % 5 === 0 ? 'boss' : ''}${k < (r?.bestWave ?? 0) ? ' on' : ''}"></i>`).join('')}${[5, 15, 30].map((w, t) => `<b class="t${t}${(r?.bestWave ?? 0) >= w ? ' got' : ''}" style="left:calc(${((w - 0.5) / 30) * 100}% - ${((w - 0.5) / 30) * 0.6}rem)"></b>`).join('')}</div>
     </div>
-    <div class="chl-sv-go"><button>${picto('play')}<span>Deploy</span></button></div>
+    <div class="chl-sv-go"><button>${picto('play')}<span>${tChallenges.html('survival.deploy')}</span></button></div>
   </div>`;
 }
 
@@ -353,20 +367,20 @@ export function showChallenges(opts: { onDeploy(missionId: string): void; onBack
       <div class="chl-col">${dailyCard(cfg, p, day)}</div>
       <div class="chl-col">
         <div class="chl-panel" style="animation-delay:.06s">
-          <div class="chl-h2">${picto('tower')}<span>Survival</span><i class="sp"></i><small>endless waves · bosses every 5th</small>${coopSwitchHtml()}</div>
+          <div class="chl-h2">${picto('tower')}<span>${tChallenges.html('survival.title')}</span><i class="sp"></i><small>${tChallenges.html('survival.sub')}</small>${coopSwitchHtml()}</div>
           <div class="chl-sv-list">${SURVIVAL_VARIANTS.map((v, i) => survivalCard(v, p, i)).join('')}</div>
         </div>
         <div class="chl-panel chl-medp" style="animation-delay:.12s">
-          <div class="chl-h2">${picto('medal')}<span>Medal case</span><i class="sp"></i><small>${totals.earned} / ${totals.total}</small></div>
+          <div class="chl-h2">${picto('medal')}<span>${tChallenges.html('medals.title')}</span><i class="sp"></i><small>${totals.earned} / ${totals.total}</small></div>
           <div class="chl-med">
-            <div><div class="chl-med-top">${ring(totals.earned / totals.total)}<div><b>${totals.complete}/${totals.achievements}</b><small>complete</small></div></div>
-              <div class="chl-rank">${insigniaSvg(rp.index, p.faction)}<div><b>${esc(rp.name)}</b><small>${fmt(p.xp)} XP</small></div></div></div>
+            <div><div class="chl-med-top">${ring(totals.earned / totals.total)}<div><b>${totals.complete}/${totals.achievements}</b><small>${tChallenges.html('medals.complete')}</small></div></div>
+              <div class="chl-rank">${insigniaSvg(rp.index, p.faction)}<div><b>${esc(rp.name)}</b><small>${tChallenges.html('medals.xp', { n: fmt(p.xp) })}</small></div></div></div>
             <div class="chl-near">${near.map((s) => `<div class="chl-near-r"><span class="art">${medalSvg({ metal: achievementMetal(s.def, s.tier), picto: s.def.picto, category: s.def.category, locked: s.tier === 0 })}</span>
-              <div><b><span>${esc(s.def.title)}</span><em>${s.def.money ? '$' : ''}${fmt(s.cur)} / ${s.def.money ? '$' : ''}${fmt(s.target)}</em></b><div class="tr"><i style="width:${(s.frac * 100).toFixed(1)}%"></i></div></div></div>`).join('')}</div>
+              <div><b><span>${esc(achievementTitle(s.def))}</span><em>${s.def.money ? fmtMoney(Math.round(s.cur)) : fmt(s.cur)} / ${s.def.money ? fmtMoney(Math.round(s.target)) : fmt(s.target)}</em></b><div class="tr"><i style="width:${(s.frac * 100).toFixed(1)}%"></i></div></div></div>`).join('')}</div>
           </div>
-          ${recent.length ? `<div class="chl-recent"><small>Recently earned</small><div>${recent.map(({ r, def }) => `<span title="${esc(def.title)}">${medalSvg({ metal: achievementMetal(def, r.tier - 1), picto: def.picto, category: def.category })}</span>`).join('')}</div></div>` : ''}
+          ${recent.length ? `<div class="chl-recent"><small>${tChallenges.html('medals.recent')}</small><div>${recent.map(({ r, def }) => `<span title="${esc(achievementTitle(def))}">${medalSvg({ metal: achievementMetal(def, r.tier - 1), picto: def.picto, category: def.category })}</span>`).join('')}</div></div>` : ''}
         </div>
-        <div class="chl-foot"><button class="chl-sbtn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button>${opts.onProfile ? `<button class="chl-sbtn" data-act="profile">${picto('user')}<span>Commander profile</span></button>` : ''}<button class="chl-sbtn" data-act="scenarios">${picto('target')}<span>Scenario challenges</span></button><button class="chl-sbtn" data-act="boards">${picto('trophy')}<span>Leaderboards</span></button></div>
+        <div class="chl-foot"><button class="chl-sbtn" data-act="back">${picto('back')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button>${opts.onProfile ? `<button class="chl-sbtn" data-act="profile">${picto('user')}<span>${tChallenges.html('foot.profile')}</span></button>` : ''}<button class="chl-sbtn" data-act="scenarios">${picto('target')}<span>${tChallenges.html('foot.scenarios')}</span></button><button class="chl-sbtn" data-act="boards">${picto('trophy')}<span>${tChallenges.html('foot.leaderboards')}</span></button></div>
       </div>`;
     root.querySelectorAll<HTMLElement>('[data-deploy]').forEach((b) => (b.onclick = (e) => {
       e.stopPropagation();

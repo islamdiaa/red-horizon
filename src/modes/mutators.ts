@@ -244,10 +244,11 @@ export const MUTATOR_EFFECTS: Record<string, MutatorEffect> = {
   'mega-crates': { live: 'mega-crates' },
 };
 
-/** Display names of a list (for briefings, loading cards, the HUD). */
+/** English names of a list (the simulation's battlefield announcements: src/sim/events.ts); display: names.ts mutatorName. */
 export function mutatorNames(ids: readonly string[] | undefined): string[] {
   return normaliseMutators(ids).map((id) => MUTATOR_BY_ID[id].name);
 }
+
 
 // =====================================================================================================
 // Setup -> World options

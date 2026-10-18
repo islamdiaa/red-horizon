@@ -11,7 +11,8 @@ import {
   type Cadence,
 } from '../meta';
 import { applyHudTheme, bindCosmeticsAudio } from '../meta/cosmetics';
-import { showLocker } from './locker';
+import { dt, fmtInt } from '../i18n/core';
+import tMenu from '../i18n/en/menu';
 
 const CSS = `
 .sc { position: relative; width: 100%; max-width: 27rem; margin: -.2rem 0 1rem; padding: .5rem .65rem .5rem; border-radius: .8rem; font-family: var(--font, sans-serif);
@@ -74,7 +75,7 @@ export function mountSessionCard(left: HTMLElement, opts: { audio?: AudioSystem;
     if (p0.stats.games < 1 || typeof document === 'undefined') return null;
     ensureCss();
     const card = el('div', 'sc');
-    card.setAttribute('aria-label', 'Session goals');
+    card.setAttribute('aria-label', tMenu('session.aria'));
     let cadence: Cadence = 'daily';
     let note = '';
     if (matchMedia?.('(hover: none)').matches) card.classList.add('touch');
@@ -87,35 +88,36 @@ export function mountSessionCard(left: HTMLElement, opts: { audio?: AudioSystem;
       const reroll = canReroll(p.contracts, Date.now());
       const t = nextUnlock(ctx);
       const fresh = unseenUnlocks(ctx).length;
-      card.innerHTML = `<div class="sc-h">${picto('target')}<span>${cadence === 'daily' ? "Today's orders" : "This week's orders"}</span>
-          <span class="sc-seg"><button class="${cadence === 'daily' ? 'on' : ''}" data-c="daily">Daily</button><button class="${cadence === 'weekly' ? 'on' : ''}" data-c="weekly">Weekly</button></span>
-          <span class="sp"></span><span class="sc-chip" title="Contracts done">${done}/${list.length}</span>
-          ${p.daily.streak > 0 ? `<span class="sc-chip streak" title="Daily Challenge streak (best ${p.daily.longest})">${picto('streak')}${p.daily.streak}</span>` : ''}
-          <span class="sc-chip" title="Commendations: claim cosmetics in the Locker">${picto('medal')}${p.commendations.toLocaleString('en-US')}</span></div>
+      card.innerHTML = `<div class="sc-h">${picto('target')}<span>${tMenu.html(cadence === 'daily' ? 'session.today' : 'session.week')}</span>
+          <span class="sc-seg"><button class="${cadence === 'daily' ? 'on' : ''}" data-c="daily">${tMenu.html('session.daily')}</button><button class="${cadence === 'weekly' ? 'on' : ''}" data-c="weekly">${tMenu.html('session.weekly')}</button></span>
+          <span class="sp"></span><span class="sc-chip" title="${esc(tMenu('session.contractsDone'))}">${done}/${list.length}</span>
+          ${p.daily.streak > 0 ? `<span class="sc-chip streak" title="${esc(tMenu('session.streak', { n: p.daily.longest }))}">${picto('streak')}${p.daily.streak}</span>` : ''}
+          <span class="sc-chip" title="${esc(tMenu('session.commendations'))}">${picto('medal')}${fmtInt(p.commendations)}</span></div>
         <div class="sc-cts">${list.map((s, i) => {
           const def = CONTRACT_BY_ID[s.id];
           const r = contractReward(s.id, cadence);
-          return `<div class="sc-ct${s.done ? ' done' : ''}" title="${esc(`${contractDesc(s)} · +${r.xp} XP · +${r.cmd} Commendations`)}">
-            <b>${picto(s.done ? 'untouchable' : def?.picto ?? 'target')}<span>${esc(def?.title ?? s.id)}</span></b>
-            <small><span>${s.done ? 'Complete' : `${fmtContractValue(def, s.p)} / ${fmtContractValue(def, s.n)}`}</span><em>+${r.cmd}</em></small>
+          const name = def ? dt('contract', def.id, 'title', def.title) : s.id;
+          return `<div class="sc-ct${s.done ? ' done' : ''}" title="${esc(tMenu('session.contractTip', { desc: contractDesc(s), xp: r.xp, cmd: r.cmd }))}">
+            <b>${picto(s.done ? 'untouchable' : def?.picto ?? 'target')}<span>${esc(name)}</span></b>
+            <small><span>${s.done ? tMenu.html('session.complete') : `${fmtContractValue(def, s.p)} / ${fmtContractValue(def, s.n)}`}</span><em>+${r.cmd}</em></small>
             <span class="tr"><i style="width:${((s.p / Math.max(1, s.n)) * 100).toFixed(1)}%"></i></span>
-            ${!s.done && reroll ? `<button class="sc-rr" data-rr="${i}" title="Swap for another contract (one free reroll a day)" aria-label="Reroll ${esc(def?.title ?? '')}">${picto('history')}</button>` : ''}</div>`;
+            ${!s.done && reroll ? `<button class="sc-rr" data-rr="${i}" title="${esc(tMenu('session.reroll'))}" aria-label="${esc(tMenu('session.rerollAria', { name: def ? name : '' }))}">${picto('history')}</button>` : ''}</div>`;
         }).join('')}</div>
-        <div class="sc-ft">${picto('lock')}<span class="tx"><span>${t ? `Next: <b>${esc(t.text)}</b>` : '<b>Every cosmetic unlocked</b>'}</span>${t ? `<span class="tr"><i style="width:${(t.status.frac * 100).toFixed(1)}%"></i></span>` : ''}</span>
-          <button class="sc-lk" data-act="locker">Locker${fresh ? '<i></i>' : ''}</button></div>
+        <div class="sc-ft">${picto('lock')}<span class="tx"><span>${t ? tMenu.html('session.next', { name: t.text }) : `<b>${tMenu.html('session.allUnlocked')}</b>`}</span>${t ? `<span class="tr"><i style="width:${(t.status.frac * 100).toFixed(1)}%"></i></span>` : ''}</span>
+          <button class="sc-lk" data-act="locker">${tMenu.html('session.locker')}${fresh ? '<i></i>' : ''}</button></div>
         ${note ? `<div class="sc-note">${esc(note)}</div>` : ''}`;
       card.querySelectorAll<HTMLElement>('[data-c]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cadence = b.dataset.c as Cadence; note = ''; play('tab'); render(); }));
       card.querySelectorAll<HTMLElement>('[data-rr]').forEach((b) => (b.onclick = (e) => {
         e.stopPropagation();
         const r = rerollContractNow(cadence, Number(b.dataset.rr));
-        note = r ? 'New orders received. The next free reroll comes tomorrow.' : '';
+        note = r ? tMenu('session.rerolled') : '';
         play('click');
         render();
       }));
       (card.querySelector('[data-act="locker"]') as HTMLElement).onclick = (e) => {
         e.stopPropagation();
         play('click');
-        showLocker({ audio: opts.audio, play: opts.play, onBack: () => { if (card.isConnected) render(); } });
+        void import('./locker').then(({ showLocker }) => showLocker({ audio: opts.audio, play: opts.play, onBack: () => { if (card.isConnected) render(); } })); // (its own chunk)
       };
     };
     render();

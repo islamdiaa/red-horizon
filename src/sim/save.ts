@@ -63,6 +63,9 @@ function serPlayer(p: Player): Json {
 
 export interface SaveData {
   version: number;
+  /** Simulation version that wrote it (src/sim/version.ts). A save holds the whole world, so another version still
+   *  loads and simply continues under the current rules; absent = before the stamp existed. */
+  sim?: number;
   savedAt: number;
   world: Json;
   /** Game-level state (camera, clock, setup…) filled in by the Game. */

@@ -8,6 +8,10 @@ import { MissionRuntime, type MissionDef, type Objective, type Portrait } from '
 import { BUILDINGS, UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
 import { customMissionDefs } from '../editor/store'; // custom missions from the editor
+import { dt, fmtInt, trSource } from '../i18n/core';
+import { typeName } from '../i18n/names';
+import tCampaign, { CAST } from '../i18n/en/campaign';
+import tCommon from '../i18n/en/common';
 
 type Tab = 'allies' | 'soviet' | 'special';
 
@@ -260,24 +264,21 @@ function portraitSvg(name: string, kind: Portrait): string {
   }
 }
 
-const ROLES: Record<string, string> = {
-  'field marshal rourke': 'Allied Command, Europe',
-  'major brandt': 'Allied Intelligence',
-  kestrel: 'Special Operations',
-  'dr. saarinen': 'Project Looking Glass',
-  'capt. hollander': 'Allied Air Transport',
-  'general morozov': 'Commander, Western Front',
-  'commissar orlova': 'Political Directorate',
-  'dr. belinsky': 'Horizon Directorate',
-  'sgt. gromova': 'Raider Section, Guards Division',
-  'battle control': 'Tactical Network',
-};
+/** Briefing officers' positions (campaign.role.*), by the cast member's English name. */
+const ROLE_KEY: Record<string, keyof typeof CAST> = Object.fromEntries((Object.keys(CAST) as (keyof typeof CAST)[]).map((k) => [CAST[k].toLowerCase(), k]));
+const roleOf = (name: string): string => { const k = ROLE_KEY[name.toLowerCase()]; return k ? tCampaign(`role.${k}`) : ''; };
 
 const BRIEFER: Record<Tab, { name: string; portrait: Portrait }> = {
-  allies: { name: 'Field Marshal Rourke', portrait: 'commander' },
-  soviet: { name: 'General Morozov', portrait: 'enemy' },
-  special: { name: 'Battle Control', portrait: 'eva' },
+  allies: { name: CAST.rourke, portrait: 'commander' },
+  soviet: { name: CAST.morozov, portrait: 'enemy' },
+  special: { name: CAST.eva, portrait: 'eva' },
 };
+
+/** A mission's display title, location and date: the "mission" game-data table, else its English (translated
+ *  when a script emitted it from a catalogue, as Boot Camp does). Custom and generated missions stay as written. */
+const mTitle = (m: MissionDef) => dt('mission', m.id, 'title', trSource(m.title));
+const mLocation = (m: MissionDef) => dt('mission', m.id, 'location', trSource(m.location));
+const mDate = (m: MissionDef, date: string) => dt('mission', m.id, 'date', trSource(date));
 
 // =====================================================================================================
 // Theatre map: an equirectangular Europe silhouette (lon -11..57.5, lat 72.5..28)
@@ -392,7 +393,7 @@ function theatreSvg(tab: Tab, missions: MissionDef[], prog: Record<string, Missi
       ${cls === 'locked' ? `<g transform="translate(${x - 6} ${y - 6}) scale(0.5)" fill="none" stroke="#9fb0c2" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></g>` : `<text class="num" x="${x}" y="${y + 0.5}">${m.index}</text>`}
       <path class="tick" d="M${x - 21} ${y - 13} v-8 h8 M${x + 21} ${y - 13} v-8 h-8 M${x - 21} ${y + 13} v8 h8 M${x + 21} ${y + 13} v8 h-8" fill="none"/>
       ${stars}
-      <text class="lbl" x="${lblRight ? x + 22 : x - 22}" y="${y - 2}" text-anchor="${lblRight ? 'start' : 'end'}">${esc(m.title)}</text>
+      <text class="lbl" x="${lblRight ? x + 22 : x - 22}" y="${y - 2}" text-anchor="${lblRight ? 'start' : 'end'}">${esc(mTitle(m))}</text>
     </g>`;
   }).join('');
   const accent = 'rgb(var(--accent-rgb, 90,180,255))';
@@ -426,7 +427,7 @@ function newTech(def: MissionDef, missions: MissionDef[]): string[] {
   if (!def.allowedBuild || !def.allowedBuild.length) return [];
   const prev = missions.filter((m) => m.index < def.index && m.allowedBuild && m.allowedBuild.length).sort((a, b) => b.index - a.index)[0];
   const before = new Set(prev?.allowedBuild ?? []);
-  return def.allowedBuild.filter((t) => !before.has(t)).map((t) => (BUILDINGS[t] ?? UNITS[t])?.name).filter((n): n is string => !!n);
+  return def.allowedBuild.filter((t) => !before.has(t)).map((t) => { const d = BUILDINGS[t] ?? UNITS[t]; return d ? typeName(d) : ''; }).filter((n) => !!n);
 }
 
 // =====================================================================================================
@@ -480,31 +481,35 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
     }
     const done = missions.filter((m) => prog[m.id]?.completed).length;
     const totalStars = missions.reduce((s, m) => s + (prog[m.id]?.stars ?? 0), 0);
-    const names: Record<Tab, [string, string]> = { allies: ['ALLIED CAMPAIGN', 'Operation Dawnbreak'], soviet: ['SOVIET CAMPAIGN', 'Operation Red Horizon'], special: ['SPECIAL OPERATIONS', 'Off the Record'] };
+    const names: Record<Tab, [string, string]> = {
+      allies: [tCampaign('head.allies'), tCampaign('head.alliesName')],
+      soviet: [tCampaign('head.soviet'), tCampaign('head.sovietName')],
+      special: [tCampaign('head.special'), tCampaign('head.specialName')],
+    };
     const tabIcon: Record<Tab, string> = { allies: IC.shield, soviet: IC.star, special: IC.target };
     const mapInner = tab === 'special'
       ? `<div class="cmp-specials">${missions.length ? missions.map((m) => {
           const r = prog[m.id];
           const isOpen = open(m);
-          return `<div class="cmp-sp ${selected?.id === m.id ? 'sel' : ''} ${isOpen ? '' : 'locked'}" data-id="${m.id}"><div><b>${esc(m.title)}</b><span>${esc(m.location.toUpperCase())}</span></div>
-            ${isOpen ? `<div class="rec">${m.scored ? (r?.bestScore ? 'BEST ' + r.bestScore.toLocaleString('en-US') : '') : r?.completed ? starsHtml(r.stars) : ''}</div>` : `<span class="lk">${IC.lock}</span>`}</div>`;
-        }).join('') : '<div class="cmp-empty">No special operations yet.</div>'}</div>`
+          return `<div class="cmp-sp ${selected?.id === m.id ? 'sel' : ''} ${isOpen ? '' : 'locked'}" data-id="${m.id}"><div><b>${esc(mTitle(m))}</b><span>${esc(mLocation(m).toUpperCase())}</span></div>
+            ${isOpen ? `<div class="rec">${m.scored ? (r?.bestScore ? esc(tCampaign('map.best', { score: fmtInt(r.bestScore) })) : '') : r?.completed ? starsHtml(r.stars) : ''}</div>` : `<span class="lk">${IC.lock}</span>`}</div>`;
+        }).join('') : `<div class="cmp-empty">${esc(tCampaign('map.noSpecials'))}</div>`}</div>`
       : theatreSvg(tab, missions, prog, order, selected?.id ?? null, unlockAll);
     root.innerHTML = `
       <div class="cmp-left">
         <div class="cmp-panel cmp-head">
-          <div class="ttl"><div class="cmp-kick">${names[tab][0]}</div><h1>${names[tab][1].toUpperCase()}</h1></div>
-          ${tab !== 'special' ? `<div class="cmp-prog"><b>${done} / ${missions.length}</b>MISSIONS · ${totalStars} / ${missions.length * 3} STARS</div>` : ''}
+          <div class="ttl"><div class="cmp-kick">${esc(names[tab][0])}</div><h1>${esc(names[tab][1].toUpperCase())}</h1></div>
+          ${tab !== 'special' ? `<div class="cmp-prog"><b>${done} / ${missions.length}</b>${esc(tCampaign('head.progress', { stars: totalStars, max: missions.length * 3 }))}</div>` : ''}
         </div>
-        <div class="cmp-tabs">${(['allies', 'soviet', 'special'] as Tab[]).map((t) => `<button class="cmp-tab ${t === tab ? 'on' : ''}" data-tab="${t}">${tabIcon[t]}${t === 'allies' ? 'Allies' : t === 'soviet' ? 'Soviets' : 'Special'}</button>`).join('')}</div>
+        <div class="cmp-tabs">${(['allies', 'soviet', 'special'] as Tab[]).map((t) => `<button class="cmp-tab ${t === tab ? 'on' : ''}" data-tab="${t}">${tabIcon[t]}${esc(t === 'allies' ? tCommon('faction.allies') : t === 'soviet' ? tCommon('faction.soviet') : tCampaign('tab.special'))}</button>`).join('')}</div>
         <div class="cmp-panel cmp-map">
           <div class="cmp-sweep"></div>
           ${mapInner}
-          ${tab !== 'special' ? `<div class="coords">THEATRE: EUROPE · 1953<br>${selected ? esc(selected.location.toUpperCase()) : ''}</div>
-          <div class="legend"><span><i style="background:rgba(61,123,224,0.55)"></i>ALLIED</span><span><i style="background:rgba(255,90,70,0.55)"></i>SOVIET</span><span><i style="background:transparent;border:1px dashed rgba(255,90,70,0.9)"></i>FRONT</span></div>` : ''}
+          ${tab !== 'special' ? `<div class="coords">${esc(tCampaign('map.theatre'))}<br>${selected ? esc(mLocation(selected).toUpperCase()) : ''}</div>
+          <div class="legend"><span><i style="background:rgba(61,123,224,0.55)"></i>${esc(tCampaign('map.allied'))}</span><span><i style="background:rgba(255,90,70,0.55)"></i>${esc(tCampaign('map.soviet'))}</span><span><i style="background:transparent;border:1px dashed rgba(255,90,70,0.9)"></i>${esc(tCampaign('map.front'))}</span></div>` : ''}
         </div>
       </div>
-      <div class="cmp-right">${selected ? briefing(selected, prog[selected.id], missions, tab) : '<div class="cmp-panel cmp-brief"><div class="cmp-empty">Select a mission.</div></div>'}</div>`;
+      <div class="cmp-right">${selected ? briefing(selected, prog[selected.id], missions, tab) : `<div class="cmp-panel cmp-brief"><div class="cmp-empty">${esc(tCampaign('brief.select'))}</div></div>`}</div>`;
 
     root.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => (b.onclick = () => {
       if (b.dataset.tab === tab) return;
@@ -527,26 +532,26 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   const briefing = (m: MissionDef, r: MissionRecord | undefined, missions: MissionDef[], t: Tab) => {
     const who = BRIEFER[t];
     const tech = newTech(m, missions);
-    const kick = m.scored ? 'SPECIAL OPERATION' : m.id.startsWith('custom-') ? 'CUSTOM MISSION' : `MISSION ${m.index} OF ${missions.length}`;
+    const kind = m.scored ? tCampaign('brief.special') : m.id.startsWith('custom-') ? tCampaign('brief.custom') : tCampaign('brief.mission', { n: m.index, total: missions.length });
     return `<div class="cmp-panel cmp-brief">
-      <div class="kick"><span class="cmp-kick">${kick} · BRIEFING</span>${r?.completed ? starsHtml(r.stars) : ''}</div>
-      <h1>${esc(m.title.toUpperCase())}</h1>
-      <h3>OPERATION ${esc(m.codename)}</h3>
-      <div class="cmp-meta"><span>${IC.pin}${esc(m.location.toUpperCase())}</span>${m.date ? `<span>${IC.clock}${esc(m.date.toUpperCase())}</span>` : ''}${m.parTime ? `<span>${IC.flag}PAR ${formatTime(m.parTime)}</span>` : ''}</div>
+      <div class="kick"><span class="cmp-kick">${esc(tCampaign('brief.kick', { kind }))}</span>${r?.completed ? starsHtml(r.stars) : ''}</div>
+      <h1>${esc(mTitle(m).toUpperCase())}</h1>
+      <h3>${esc(tCampaign('brief.operation', { name: m.codename }))}</h3>
+      <div class="cmp-meta"><span>${IC.pin}${esc(mLocation(m).toUpperCase())}</span>${m.date ? `<span>${IC.clock}${esc(mDate(m, m.date).toUpperCase())}</span>` : ''}${m.parTime ? `<span>${IC.flag}${esc(tCampaign('brief.par', { time: formatTime(m.parTime) }))}</span>` : ''}</div>
       <div class="cmp-speaker">
         <div class="cmp-pt">${portraitSvg(who.name, who.portrait)}</div>
-        <div class="cmp-say"><div class="who">${esc(who.name.toUpperCase())}</div><div class="role">${esc((ROLES[who.name.toLowerCase()] ?? '').toUpperCase())}</div>
-          <div class="cmp-text" title="Click to skip">${m.briefing.map((p) => `<p data-full="${esc(p)}"></p>`).join('')}</div>
+        <div class="cmp-say"><div class="who">${esc(trSource(who.name).toUpperCase())}</div><div class="role">${esc(roleOf(who.name).toUpperCase())}</div>
+          <div class="cmp-text" title="${esc(tCampaign('brief.skip'))}">${m.briefing.map((p) => `<p data-full="${esc(trSource(p))}"></p>`).join('')}</div>
         </div>
         <div class="cmp-wm">${t === 'soviet' ? IC.star : t === 'allies' ? IC.shield : IC.target}</div>
-        <div class="cmp-stamp">TOP SECRET // ${t === 'soviet' ? 'SOVERSHENNO SEKRETNO' : 'EYES ONLY'} // ${esc(m.codename)}</div>
+        <div class="cmp-stamp">${esc(tCampaign('brief.stamp', { stamp: t === 'soviet' ? tCampaign('brief.sovietSecret') : tCampaign('brief.eyesOnly'), codename: m.codename }))}</div>
       </div>
-      ${m.tips?.length ? `<div class="cmp-tips"><h4>FIELD NOTES</h4>${m.tips.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : ''}
-      ${tech.length ? `<div class="cmp-tech"><h4>NEW EQUIPMENT</h4>${tech.map((x) => `<span class="cmp-chip">${esc(x)}</span>`).join('')}</div>` : ''}
+      ${m.tips?.length ? `<div class="cmp-tips"><h4>${esc(tCampaign('brief.tips'))}</h4>${m.tips.map((x) => `<div>${esc(trSource(x))}</div>`).join('')}</div>` : ''}
+      ${tech.length ? `<div class="cmp-tech"><h4>${esc(tCampaign('brief.tech'))}</h4>${tech.map((x) => `<span class="cmp-chip">${esc(x)}</span>`).join('')}</div>` : ''}
       <div class="cmp-foot">
-        <div class="cmp-rec">${r?.completed ? `${starsHtml(r.stars)}<span>BEST ${r.bestTime ? formatTime(r.bestTime) : '--:--'}</span>` : r?.bestScore ? `<span>BEST SCORE ${r.bestScore.toLocaleString('en-US')}</span>` : '<span>NOT YET ATTEMPTED</span>'}</div>
-        <button class="cmp-btn sec" data-act="back">Back</button>
-        <button class="cmp-btn" data-act="deploy">Deploy</button>
+        <div class="cmp-rec">${r?.completed ? `${starsHtml(r.stars)}<span>${esc(tCampaign('brief.bestTime', { time: r.bestTime ? formatTime(r.bestTime) : '--:--' }))}</span>` : r?.bestScore ? `<span>${esc(tCampaign('brief.bestScore', { score: fmtInt(r.bestScore) }))}</span>` : `<span>${esc(tCampaign('brief.notAttempted'))}</span>`}</div>
+        <button class="cmp-btn sec" data-act="back">${esc(tCommon('back'))}</button>
+        <button class="cmp-btn" data-act="deploy">${esc(tCampaign('brief.deploy'))}</button>
       </div>
     </div>`;
   };
@@ -579,10 +584,12 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
 // =====================================================================================================
 // Debrief
 // =====================================================================================================
-const GENERIC_DEBRIEF: Record<string, { speaker: string; portrait: Portrait; win: string; lose: string }> = {
-  allies: { speaker: 'Field Marshal Rourke', portrait: 'commander', win: 'Well done, Commander. Rest your people; there is more work tomorrow.', lose: 'We will regroup and try again, Commander.' },
-  soviet: { speaker: 'General Morozov', portrait: 'enemy', win: 'The Motherland is pleased, Comrade.', lose: 'Regroup, Comrade. History is patient, but I am not.' },
-  special: { speaker: 'Battle Control', portrait: 'eva', win: 'Operation complete. Results logged.', lose: 'Operation terminated. Results logged.' },
+/** Closing radio line when a mission has none of its own (looked up when shown: campaign.debriefLine.*). */
+type CampaignKey = Parameters<typeof tCampaign>[0];
+const GENERIC_DEBRIEF: Record<'allies' | 'soviet' | 'special', { speaker: string; portrait: Portrait; win: CampaignKey; lose: CampaignKey }> = {
+  allies: { speaker: CAST.rourke, portrait: 'commander', win: 'debriefLine.alliesWin', lose: 'debriefLine.alliesLose' },
+  soviet: { speaker: CAST.morozov, portrait: 'enemy', win: 'debriefLine.sovietWin', lose: 'debriefLine.sovietLose' },
+  special: { speaker: CAST.eva, portrait: 'eva', win: 'debriefLine.specialWin', lose: 'debriefLine.specialLose' },
 };
 
 /**
@@ -602,8 +609,9 @@ export function showDebrief(
   const optionalOk = optional.every((o) => o.state === 'done');
   const fast = !def.parTime || result.time <= def.parTime;
   const camp = def.campaign === 'allies' || def.campaign === 'soviet' ? def.campaign : 'special';
-  const line = def.debrief ?? GENERIC_DEBRIEF[camp];
-  const text = result.won ? line.win : line.lose;
+  const generic = GENERIC_DEBRIEF[camp];
+  const line = def.debrief ?? generic;
+  const text = def.debrief ? trSource(result.won ? def.debrief.win : def.debrief.lose) : tCampaign(result.won ? generic.win : generic.lose);
   const factionClass = camp === 'soviet';
   const prevFaction = document.body.classList.contains('faction-soviet');
   document.body.classList.toggle('faction-soviet', factionClass);
@@ -611,45 +619,45 @@ export function showDebrief(
   const root = document.createElement('div');
   root.className = `dbf ${result.won ? 'win' : 'lose'}`;
   const starLabels = [
-    'Mission complete',
-    def.parTime ? `Under par ${formatTime(def.parTime)}` : 'Speed',
-    optional.length ? 'All optional objectives' : 'Clean sweep',
+    tCampaign('debrief.starComplete'),
+    def.parTime ? tCampaign('debrief.starPar', { time: formatTime(def.parTime) }) : tCampaign('debrief.starSpeed'),
+    optional.length ? tCampaign('debrief.starOptional') : tCampaign('debrief.starClean'),
   ];
   const earned = [result.won, result.won && fast, result.won && optionalOk];
   const parPct = def.parTime ? Math.min(100, (result.time / Math.max(def.parTime, result.time) ) * 100) : 100;
   const parMark = def.parTime ? Math.min(100, (def.parTime / Math.max(def.parTime, result.time)) * 100) : 100;
   const objRow = (o: Objective, k: number) => `<div class="dbf-o ${o.primary ? '' : 'opt'} ${o.state}" style="animation-delay:${0.6 + k * 0.12}s">
-      ${o.state === 'done' ? IC.check : o.state === 'failed' ? IC.cross : IC.dot}<span>${esc(o.text)}</span><span class="tag">${o.primary ? 'PRIMARY' : 'OPTIONAL'}</span></div>`;
+      ${o.state === 'done' ? IC.check : o.state === 'failed' ? IC.cross : IC.dot}<span>${esc(trSource(o.text))}</span><span class="tag">${esc(tCampaign(o.primary ? 'debrief.primary' : 'debrief.optional'))}</span></div>`;
   root.innerHTML = `
     <div class="cmp-panel dbf-card">
       <div class="dbf-top">
-        <div class="kick">${def.scored ? 'SPECIAL OPERATION' : `MISSION ${def.index}`} · OPERATION ${esc(def.codename)}</div>
-        <h1>${result.won ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED'}</h1>
-        <div class="sub">${esc(def.title.toUpperCase())} · ${esc(def.location.toUpperCase())}</div>
-        ${reason ? `<div class="dbf-reason">${esc(reason)}</div>` : ''}
+        <div class="kick">${esc(tCampaign('debrief.kick', { kind: def.scored ? tCampaign('debrief.special') : tCampaign('debrief.mission', { n: def.index }), codename: def.codename }))}</div>
+        <h1>${esc(tCampaign(result.won ? 'debrief.won' : 'debrief.lost'))}</h1>
+        <div class="sub">${esc(mTitle(def).toUpperCase())} · ${esc(mLocation(def).toUpperCase())}</div>
+        ${reason ? `<div class="dbf-reason">${esc(trSource(reason))}</div>` : ''}
       </div>
       ${def.scored ? '' : `<div class="dbf-stars">${starLabels.map((l, k) => `<div class="dbf-star" data-k="${k}"><svg viewBox="0 0 100 100"><path class="s-off" d="${STAR_PATH}"/><path class="s-on" d="${STAR_PATH}"/></svg><span>${esc(l)}</span></div>`).join('')}</div>`}
       <div class="dbf-sec">
-        <h4>TIME</h4>
-        <div class="dbf-time">${formatTime(result.time)}${def.parTime ? ` · PAR ${formatTime(def.parTime)}${result.won ? ` · ${fast ? `${formatTime(def.parTime - result.time)} UNDER` : `${formatTime(result.time - def.parTime)} OVER`}` : ''}` : ''}</div>
-        ${def.parTime && result.won ? `<div class="dbf-bar"><i class="${fast ? '' : 'over'}" data-w="${parPct.toFixed(1)}"></i><b style="left:${parMark.toFixed(1)}%"></b><em style="left:${parMark.toFixed(1)}%">PAR</em></div>` : ''}
+        <h4>${esc(tCampaign('debrief.time'))}</h4>
+        <div class="dbf-time">${formatTime(result.time)}${def.parTime ? ` · ${esc(tCampaign('debrief.par', { time: formatTime(def.parTime) }))}${result.won ? ` · ${esc(fast ? tCampaign('debrief.under', { time: formatTime(def.parTime - result.time) }) : tCampaign('debrief.over', { time: formatTime(result.time - def.parTime) }))}` : ''}` : ''}</div>
+        ${def.parTime && result.won ? `<div class="dbf-bar"><i class="${fast ? '' : 'over'}" data-w="${parPct.toFixed(1)}"></i><b style="left:${parMark.toFixed(1)}%"></b><em style="left:${parMark.toFixed(1)}%">${esc(tCampaign('debrief.parMark'))}</em></div>` : ''}
         <div class="dbf-big">
-          <div><small>RESULT</small><b>${result.won ? 'VICTORY' : 'DEFEAT'}</b></div>
-          ${def.scored ? `<div><small>SCORE</small><b>${Math.round(result.score).toLocaleString('en-US')}</b></div>` : `<div><small>STARS</small><b>${result.won ? result.stars : 0} / 3</b></div>`}
+          <div><small>${esc(tCampaign('debrief.result'))}</small><b>${esc(tCampaign(result.won ? 'debrief.victory' : 'debrief.defeat'))}</b></div>
+          ${def.scored ? `<div><small>${esc(tCampaign('debrief.score'))}</small><b>${fmtInt(result.score)}</b></div>` : `<div><small>${esc(tCampaign('debrief.stars'))}</small><b>${esc(tCampaign('debrief.starsOf', { n: result.won ? result.stars : 0 }))}</b></div>`}
         </div>
       </div>
       <div class="dbf-sec">
-        <h4>OBJECTIVES</h4>
-        <div class="dbf-obj">${objectives.length ? objectives.map(objRow).join('') : '<div class="dbf-o">No objective record.</div>'}</div>
+        <h4>${esc(tCampaign('debrief.objectives'))}</h4>
+        <div class="dbf-obj">${objectives.length ? objectives.map(objRow).join('') : `<div class="dbf-o">${esc(tCampaign('debrief.noObjectives'))}</div>`}</div>
       </div>
       <div class="dbf-radio">
         <div class="cmp-pt">${portraitSvg(line.speaker, line.portrait)}</div>
-        <div class="txt"><div class="who">${esc(line.speaker.toUpperCase())}</div><div class="line"></div></div>
+        <div class="txt"><div class="who">${esc(trSource(line.speaker).toUpperCase())}</div><div class="line"></div></div>
       </div>
       <div class="dbf-actions">
-        <button class="cmp-btn sec" data-act="menu">Main menu</button>
-        <button class="cmp-btn sec" data-act="retry">${result.won ? 'Replay' : 'Retry'}</button>
-        ${result.won && actions.onNext ? '<button class="cmp-btn" data-act="next">Next mission</button>' : ''}
+        <button class="cmp-btn sec" data-act="menu">${esc(tCampaign('debrief.mainMenu'))}</button>
+        <button class="cmp-btn sec" data-act="retry">${esc(tCampaign(result.won ? 'debrief.replay' : 'debrief.retry'))}</button>
+        ${result.won && actions.onNext ? `<button class="cmp-btn" data-act="next">${esc(tCampaign('debrief.next'))}</button>` : ''}
       </div>
     </div>`;
   document.body.appendChild(root);

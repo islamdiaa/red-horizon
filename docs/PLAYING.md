@@ -117,7 +117,31 @@
 | Touch | Tap: select or command · drag: pan · hold: order menu · pinch: zoom · twist: rotate |
 | Gamepad | Left stick: cursor · right stick: camera · A: select · X: command · B: cancel · Y: deploy · Start: pause |
 
-All controls are also listed in-game under **Controls**.
+All controls are also listed in-game under **Controls**, which always shows your active keys.
+
+**Rebinding.** Every battle hotkey can be rebound in *Settings › Accessibility › Key bindings*, or under
+*Controls › Customise keys*:
+- two keys per action, with conflict warnings and a reset to defaults;
+- the control-group modifiers (assign: Ctrl, add: Shift) can be changed too;
+- fixed keys: Esc, 1–9, Tab and B (build bar), and Alt+Enter.
+
+## Accessibility
+
+- **Team colours:** *Default*, *Colour-blind friendly* (Okabe-Ito colours, safe for the common types of
+  colour blindness), or *You vs enemies* (you blue, every enemy orange). This applies to the battlefield,
+  minimap and HUD.
+- **Health bars:** tick marks at 50% and 25%, so the colour isn't the only cue.
+- **Interface size:** 80–150%.
+- **Subtitles:** on by default, for announcer lines, with four sizes. Mission and rival radio is also
+  read out to screen readers.
+- **Menus:** keyboard focus rings and a logical tab order in every menu and dialog.
+- **Reduce motion:** calmer animations, and no camera shake or slow motion.
+- **Copy diagnostics** (in Settings and on the crash screen): a plain-text report to paste into a bug
+  report. It contains no personal data and is never sent anywhere.
+- **Language:** English, Russian, German, Spanish, Brazilian Portuguese, French or Simplified Chinese, in
+  *Settings › Gameplay › Language*. *Auto* follows the browser. Change it from the main menu (it is locked
+  during a battle). Campaign mission briefings, objectives and radio, and the map editor, are still in
+  English.
 
 ## Maps, editor and mods
 

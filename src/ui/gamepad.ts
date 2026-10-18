@@ -21,6 +21,9 @@
 import type { InputController, InputHost, PtrLike } from './input';
 import { CTRL_ICONS, injectCtrlStyles, type RadialItem } from './orderui';
 import { orderMenu } from './touch';
+import tControls from '../i18n/en/controls';
+import { typeName } from '../i18n/names';
+import { esc } from './dom';
 
 const DEAD = 0.2;
 const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
@@ -211,20 +214,20 @@ class GamepadManager {
     const units = inp.ownSelectedUnits();
     if (units.length) {
       // modes that need a second click, plus the camera bookmarks
-      items.splice(2, 0, { id: 'guardMode', label: 'Guard…', icon: CTRL_ICONS.guard, key: 'C', run: () => inp.setMode('guard') });
-      items.push({ id: 'patrolMode', label: 'Patrol route…', icon: CTRL_ICONS.patrol, key: 'P', run: () => inp.setMode('patrol') });
+      items.splice(2, 0, { id: 'guardMode', label: tControls('radial.guardMode'), icon: CTRL_ICONS.guard, key: 'C', run: () => inp.setMode('guard') });
+      items.push({ id: 'patrolMode', label: tControls('radial.patrolRoute'), icon: CTRL_ICONS.patrol, key: 'P', run: () => inp.setMode('patrol') });
     }
-    if (items.length) inp.touch.radial.open(this.cx, this.cy, items, t ? t.type.name : 'Orders');
+    if (items.length) inp.touch.radial.open(this.cx, this.cy, items, t ? typeName(t.type) : tControls('radial.orders'));
   }
 
   private nextGroup(inp: InputController) {
     const gs = [...inp.groups.entries()].filter(([, ids]) => ids.some((id) => inp.world.getEntity(id)?.alive)).map(([k]) => k).sort((a, b) => (a || 10) - (b || 10));
-    if (!gs.length) { inp.message('No control groups yet: Ctrl + 1–9 assigns one'); return; }
+    if (!gs.length) { inp.message(tControls('gamepad.noGroups')); return; }
     const k = gs.find((x) => (x || 10) > (this.groupCursor || 10)) ?? gs[0];
     this.groupCursor = k;
     inp.recallGroup(k);
     inp.centreOn(inp.groups.get(k) ?? []);
-    inp.message(`Group ${k}`);
+    inp.message(tControls('gamepad.group', { g: k }));
   }
 
   /** Where D-pad focus starts in a battle: the first build card (else anything in the sidebar / panel). */
@@ -252,7 +255,8 @@ class GamepadManager {
     this.cursorEl = c;
     const help = document.createElement('div');
     help.id = 'gp-help';
-    help.innerHTML = '<span><b class="A">A</b>Select</span><span><b class="X">X</b>Command</span><span><b class="Y">Y</b>Deploy</span><span><b class="B">B</b>Cancel</span><span><b>☰</b>Orders (View)</span><span><b>LB</b>Idle</span><span><b>RB</b>Groups</span><span><b>✚</b>Sidebar</span>';
+    const h = (btn: string, cls: string, k: 'select' | 'command' | 'deploy' | 'cancel' | 'orders' | 'idle' | 'groups' | 'sidebar') => `<span><b${cls ? ` class="${cls}"` : ''}>${btn}</b>${esc(tControls(`gamepad.${k}`))}</span>`;
+    help.innerHTML = h('A', 'A', 'select') + h('X', 'X', 'command') + h('Y', 'Y', 'deploy') + h('B', 'B', 'cancel') + h('☰', '', 'orders') + h('LB', '', 'idle') + h('RB', '', 'groups') + h('✚', '', 'sidebar');
     document.body.appendChild(help);
     this.helpEl = help;
   }

@@ -16,6 +16,7 @@
  *   selected damaged vehicles to the service depot one at a time (and ships alongside a naval yard); repaired
  *   vehicles drive back to where they were.
  */
+import { groupMods, isAction, keyLabel, modHeld } from './keymap';
 import { UNITS, getType, type UnitTypeDef } from '../data/rules';
 import { Building, Unit } from '../sim/entities';
 import type { Player } from '../sim/player';
@@ -26,6 +27,10 @@ import type { World } from '../sim/world';
 import { el, esc, tipHtml, type Tooltip } from './dom';
 import { ICONS, rankBadge } from './icons';
 import { loadSettings, onSettingsChanged } from './settings';
+import tArmy from '../i18n/en/army';
+import tCommon from '../i18n/en/common';
+import { fmtMoney, hasKey, onLanguageChange, tx } from '../i18n/core';
+import { typeName } from '../i18n/names';
 
 /** The overlay hook the factory badges draw through (render/overlay.ts `extra`, chained after the order layer). */
 type ExtraDraw = (ctx: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => [number, number] | null) => boolean;
@@ -54,7 +59,7 @@ export interface ArmyHost {
 export const UNIT_KINDS = ['infantry', 'vehicle', 'aircraft', 'naval'] as const;
 export type UnitKind = (typeof UNIT_KINDS)[number];
 const KIND_ICON: Record<UnitKind, string> = { infantry: ICONS.infantry, vehicle: ICONS.vehicle, aircraft: ICONS.aircraft, naval: ICONS.naval };
-const KIND_TITLE: Record<UnitKind, string> = { infantry: 'Infantry', vehicle: 'Vehicles', aircraft: 'Aircraft', naval: 'Ships' };
+const kindTitle = (k: UnitKind) => tArmy(`kind.${k}`);
 const KIND_ORDER: Record<string, number> = { vehicle: 0, infantry: 1, aircraft: 2, naval: 3 };
 
 /** Seconds a factory may stand idle (with money to spend) before its tab pulses. */
@@ -67,7 +72,9 @@ const HARV_IDLE_SECS = 10;
 
 /** Units the player can select (input.ts selectableUnit; repeated here so touch.ts can import this module without a cycle). */
 const selectableUnit = (u: Unit) => u.alive && !u.ut.supportPlane && !(u.parachute > 0) && !u.transport;
-const money = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
+const money = (v: number) => fmtMoney(Math.round(v));
+/** A unit type's display name. */
+const tName = (id: string) => typeName(getType(id));
 const isDamaged = (u: Unit) => u.hp < u.maxHp - 0.01;
 /** Same notion of "idle" as the I key (input.ts cycleIdle). */
 export const isIdle = (u: Unit) => !u.ut.harvester && (u.order.type === 'idle' || u.order.type === 'guard') && !u.orderQueue.length;
@@ -105,6 +112,7 @@ export class ArmyTools {
   private repairT = 0;
   private idleCursor = 0;
   private offSettings: () => void;
+  private offLang: () => void;
   /** Factory id -> control group its new units join. */
   readonly autoGroups = new Map<number, number>();
   /** Idle factories / harvesters / refineries (DOM-free, tested in tests/army.test.ts). */
@@ -129,8 +137,8 @@ export class ArmyTools {
     this.chip = el('span', 'tb-chip rb-units ar-chip');
     this.unitsBtn = el('button', 'ar-units', `${ICONS.people}<b>0</b>`);
     this.idleBtn = el('button', 'ar-idle', `${ICONS.idle}<b>0</b>`);
-    this.unitsBtn.setAttribute('aria-label', 'Army overview');
-    this.idleBtn.setAttribute('aria-label', 'Next idle unit');
+    this.unitsBtn.setAttribute('aria-label', tArmy('overview'));
+    this.idleBtn.setAttribute('aria-label', tArmy('nextIdle'));
     this.unitsBtn.onclick = () => { host.sound('click'); this.toggle(); };
     this.idleBtn.onclick = () => { host.sound('click'); this.cycleIdle(); };
     this.chip.append(this.unitsBtn, this.idleBtn);
@@ -139,14 +147,14 @@ export class ArmyTools {
     this.panel = el('div', 'panel ar-panel');
     this.panel.id = 'army-panel';
     this.panel.setAttribute('role', 'dialog');
-    this.panel.setAttribute('aria-label', 'Army overview');
+    this.panel.setAttribute('aria-label', tArmy('overview'));
     this.panel.innerHTML = `<div class="ap-head"></div><div class="ap-sum"></div><div class="ap-prod"></div><div class="ap-list"></div><div class="ap-foot"></div>`;
     this.headEl = this.panel.querySelector('.ap-head')!;
     this.sumEl = this.panel.querySelector('.ap-sum')!;
     this.prodEl = this.panel.querySelector('.ap-prod')!;
     this.listEl = this.panel.querySelector('.ap-list')!;
     this.footEl = this.panel.querySelector('.ap-foot')!;
-    this.headEl.innerHTML = `<span class="ap-ic">${ICONS.people}</span><b>Army</b><span class="ap-tot"></span><button class="ap-x" aria-label="Close">${ICONS.close}</button>`;
+    this.headEl.innerHTML = `<span class="ap-ic">${ICONS.people}</span><b>${tArmy.html('title')}</b><span class="ap-tot"></span><button class="ap-x" aria-label="${esc(tCommon('close'))}">${ICONS.close}</button>`;
     (this.headEl.querySelector('.ap-x') as HTMLElement).onclick = () => { host.sound('click'); this.toggle(false); };
     host.tip.bind(this.panel, 'right');
     // HUD buttons must not keep keyboard focus (Space / Enter are game hotkeys)
@@ -173,12 +181,23 @@ export class ArmyTools {
     });
     window.addEventListener('keydown', this.onKey, true);
     this.offSettings = onSettingsChanged((s) => { this.idle.enabled = s.hints; if (!s.hints) this.idle.clear(); });
+    setBadgeText();
+    this.offLang = onLanguageChange(() => {
+      setBadgeText();
+      this.unitsBtn.setAttribute('aria-label', tArmy('overview'));
+      this.idleBtn.setAttribute('aria-label', tArmy('nextIdle'));
+      this.panel.setAttribute('aria-label', tArmy('overview'));
+      (this.headEl.querySelector('b') as HTMLElement).textContent = tArmy('title');
+      this.headEl.querySelector('.ap-x')!.setAttribute('aria-label', tCommon('close'));
+      this.chipKey = this.sumKey = this.prodKey = this.footKey = this.listKey = '';
+    });
   }
 
   dispose() {
     if (live === this) live = null;
     window.removeEventListener('keydown', this.onKey, true);
     this.offSettings();
+    this.offLang();
     this.panel.remove();
     const ov = this.host.overlay;
     if (ov && this.extraFn && ov.extra === this.extraFn) ov.extra = this.prevExtra; // (the order layer stays)
@@ -252,7 +271,7 @@ export class ArmyTools {
       this.userOff.add(type);
       this.pendingLoop.set(type, { on: false, tick: world.tick });
       this.host.issue({ c: 'repeat', player: p.id, building: b?.id ?? 0, type, on: false });
-      this.host.message(`Loop off: ${getType(type).name}`);
+      this.host.message(tArmy('msg.loopOff', { name: tName(type) }));
       return true;
     }
     const b = loopFactory(world, p, type);
@@ -260,7 +279,7 @@ export class ArmyTools {
     this.pendingLoop.set(type, { on: true, tick: world.tick });
     this.host.issue({ c: 'repeat', player: p.id, building: b.id, type, on: true });
     const cost = priceOf(p, type); // price under Commander rules
-    this.host.message(`Loop on: ${getType(type).name}${p.credits < cost ? ' (waiting for funds)' : ''}`);
+    this.host.message(tArmy(p.credits < cost ? 'msg.loopOnWaiting' : 'msg.loopOn', { name: tName(type) }));
     return true;
   }
 
@@ -271,7 +290,7 @@ export class ArmyTools {
     for (const t of this.loopsSeen) {
       if (now.includes(t)) continue;
       if (this.userOff.delete(t) || this.host.spectator) continue;
-      this.host.message(`Loop stopped: ${getType(t).name} (no factory or tech for it)`, true);
+      this.host.message(tArmy('msg.loopStopped', { name: tName(t) }), true);
     }
     for (const t of now) this.userOff.delete(t);
     this.loopsSeen = [...now];
@@ -286,12 +305,12 @@ export class ArmyTools {
     if (!facs.length || this.host.spectator) return false;
     const clear = g === null || facs.every((b) => this.autoGroups.get(b.id) === g);
     for (const b of facs) { if (clear) this.autoGroups.delete(b.id); else this.autoGroups.set(b.id, g!); }
-    const names = [...new Set(facs.map((b) => b.bt.name))].join(', ');
-    if (clear) this.host.message(`Auto-group off: ${names}`);
+    const names = [...new Set(facs.map((b) => typeName(b.bt)))].join(', ');
+    if (clear) this.host.message(tArmy('msg.autoGroupOff', { names }));
     else {
       const kind = facs[0].bt.factory as UnitKind;
       const notPrimary = facs.length === 1 && !facs[0].primary && this.host.world.buildings.some((o) => o.alive && o.owner === this.host.local && o.bt.factory === kind && o.primary && o !== facs[0]);
-      this.host.message(`New units from ${names} join group ${g}${notPrimary ? ' (units leave the primary factory: P makes this one primary)' : ''}`);
+      this.host.message(tArmy(notPrimary ? 'msg.autoGroupNotPrimary' : 'msg.autoGroup', { names, g: String(g) }));
     }
     this.host.sound('click');
     return true;
@@ -373,30 +392,30 @@ export class ArmyTools {
     return this.host.world.units.filter((u) => selectableUnit(u) && u.owner === p);
   }
 
-  private selectIds(ids: number[], add: boolean, what: string) {
-    if (!ids.length) { this.host.message(`No ${what}`); return; }
+  private selectIds(ids: number[], add: boolean, none: 'msg.noDamaged' | 'msg.noIdle' | 'msg.noCombat' | 'msg.noIdleOfType' | 'msg.noOfType') {
+    if (!ids.length) { this.host.message(tArmy(none)); return; }
     this.host.select(add ? [...new Set([...this.host.selection, ...ids])] : ids);
   }
 
   /** Shift+E: every damaged combat unit on the map. */
   selectDamaged() {
     const ids = this.ownUnits().filter((u) => isDamaged(u) && !u.ut.harvester && !u.ut.deploysInto).map((u) => u.id);
-    this.selectIds(ids, false, 'damaged units');
-    if (ids.length && !this.host.spectator) this.host.message(`${ids.length} damaged unit${ids.length > 1 ? 's' : ''} selected · Shift+R: send for repairs`);
+    this.selectIds(ids, false, 'msg.noDamaged');
+    if (ids.length && !this.host.spectator) this.host.message(tArmy('msg.damagedSelected', { n: ids.length }));
   }
 
   selectIdle() {
-    this.selectIds(this.ownUnits().filter(isIdle).map((u) => u.id), false, 'idle units');
+    this.selectIds(this.ownUnits().filter(isIdle).map((u) => u.id), false, 'msg.noIdle');
   }
 
   selectAll() {
-    this.selectIds(this.ownUnits().filter((u) => u.weapons.length && !u.ut.harvester).map((u) => u.id), false, 'combat units');
+    this.selectIds(this.ownUnits().filter((u) => u.weapons.length && !u.ut.harvester).map((u) => u.id), false, 'msg.noCombat');
   }
 
   /** Next idle unit, centred (the I key does the same). */
   cycleIdle() {
     const idle = this.ownUnits().filter(isIdle).sort((a, b) => a.id - b.id);
-    if (!idle.length) { this.host.message('No idle units'); return; }
+    if (!idle.length) { this.host.message(tArmy('msg.noIdle')); return; }
     const next = idle.find((u) => u.id > this.idleCursor) ?? idle[0];
     this.idleCursor = next.id;
     this.host.select([next.id]);
@@ -478,9 +497,13 @@ export class ArmyTools {
     this.idleBtn.classList.toggle('has', t.idle > 0);
     const k = t.kinds;
     const blds = this.host.world.buildings.reduce((n, b) => n + (b.alive && b.owner === this.host.local && !b.bt.wall && !b.bt.mine ? 1 : 0), 0);
-    this.unitsBtn.dataset.tip = tipHtml('Army', `<b>${t.n}</b> units worth <b>${money(t.value)}</b><br>Infantry <b>${k.infantry}</b> · vehicles <b>${k.vehicle}</b>${k.aircraft ? ` · aircraft <b>${k.aircraft}</b>` : ''}${k.naval ? ` · ships <b>${k.naval}</b>` : ''}<br>Structures <b>${blds}</b>`,
-      [['`', 'army overview'], ['E', 'select every combat unit']]);
-    this.idleBtn.dataset.tip = tipHtml('Idle units', t.idle ? `<b>${t.idle}</b> unit${t.idle > 1 ? 's' : ''} without orders.` : 'Every unit has orders.', [['I', 'next idle unit'], ['Shift+I', 'idle harvester']]);
+    const kinds = [tArmy.html('chip.infantry', { n: k.infantry }), tArmy.html('chip.vehicles', { n: k.vehicle })];
+    if (k.aircraft) kinds.push(tArmy.html('chip.aircraft', { n: k.aircraft }));
+    if (k.naval) kinds.push(tArmy.html('chip.ships', { n: k.naval }));
+    this.unitsBtn.dataset.tip = tipHtml(tArmy.html('title'), `${tArmy.html('chip.worth', { n: t.n, money: money(t.value) })}<br>${kinds.join(' · ')}<br>${tArmy.html('chip.structures', { n: blds })}`,
+      [[esc(keyLabel('army')) || '—', tArmy.html('chip.keyOverview')], [esc(keyLabel('selectCombat')) || '—', tArmy.html('chip.keyCombat')]]);
+    this.idleBtn.dataset.tip = tipHtml(tArmy.html('chip.idleTitle'), t.idle ? tArmy.html('chip.idle', { n: t.idle }) : tArmy.html('chip.noIdle'),
+      [[esc(keyLabel('nextIdle')) || '—', tArmy.html('chip.keyNextIdle')], [tArmy.html('chip.combo', { mod: tCommon('keys.shift'), key: keyLabel('nextIdle') || '—' }), tArmy.html('chip.keyIdleHarvester')]]);
     this.host.tip.refresh(this.unitsBtn, this.unitsBtn.dataset.tip);
     this.host.tip.refresh(this.idleBtn, this.idleBtn.dataset.tip);
   }
@@ -488,7 +511,7 @@ export class ArmyTools {
   private renderPanel() {
     const t = this.totals();
     const p = this.host.local;
-    const tot = `<b>${t.n}</b> units · <b>${money(t.value)}</b>`;
+    const tot = tArmy.html('panel.total', { n: t.n, money: money(t.value) });
     const totEl = this.headEl.querySelector('.ap-tot') as HTMLElement;
     if (totEl.innerHTML !== tot) totEl.innerHTML = tot;
     // summary chips
@@ -496,8 +519,8 @@ export class ArmyTools {
     if (sumKey !== this.sumKey) {
       this.sumKey = sumKey;
       const kinds = UNIT_KINDS.filter((k) => t.kinds[k] > 0 || k === 'infantry' || k === 'vehicle');
-      this.sumEl.innerHTML = kinds.map((k) => `<span class="ap-k" data-tip="${esc(tipHtml(KIND_TITLE[k]))}">${KIND_ICON[k]}<b>${t.kinds[k]}</b></span>`).join('')
-        + `<span class="ap-k vet" data-tip="${esc(tipHtml('Veterans', 'Veteran and elite units (promoted by kills).'))}">${rankBadge(1)}<b>${t.vet}</b></span>`;
+      this.sumEl.innerHTML = kinds.map((k) => `<span class="ap-k" data-tip="${esc(tipHtml(esc(kindTitle(k))))}">${KIND_ICON[k]}<b>${t.kinds[k]}</b></span>`).join('')
+        + `<span class="ap-k vet" data-tip="${esc(tipHtml(tArmy.html('panel.veterans'), tArmy.html('panel.veteransTip')))}">${rankBadge(1)}<b>${t.vet}</b></span>`;
     }
     // production strip: every unit factory kind you own
     const facs = new Map<UnitKind, Building>();
@@ -515,11 +538,15 @@ export class ArmyTools {
       const head = q.items[0];
       const nag = this.nagging(k);
       const g = this.autoGroups.get(f.id);
-      let st = head ? `${esc(getType(head.type).name)} <small>${Math.floor(head.progress * 100)}%</small>${q.items.length > 1 ? ` <small>+${q.items.length - 1}</small>` : ''}` : nag ? 'Idle' : 'Ready';
-      if (head?.paused) st = `On hold`;
-      const loopHtml = loops.map((id) => `<span class="ap-loop" data-unloop="${esc(id)}" data-tip="${esc(tipHtml(`Loop: ${esc(getType(id).name)}`, 'Keeps building while you can pay for it.', [['Click', 'stop the loop']]))}">${ICONS.cycle}${esc(shortName(id))}</span>`).join('');
-      if (!head && loops.length) st = 'Loop · awaiting funds';
-      prod.push(`<button class="ap-pc${nag ? ' nag' : ''}${head ? ' busy' : ''}" data-kind="${k}" data-tip="${esc(tipHtml(f.bt.name, (nag ? `<span class="tt-bad">Idle for ${Math.floor(this.idleFor(k))} s</span> while you have ${money(p.credits)}.` : head ? 'Producing.' : 'Ready to build.') + (g !== undefined ? `<br>New units join group <b>${g}</b>.` : ''), [['Click', 'open its build tab']]))}">${KIND_ICON[k]}<span class="ap-fn">${esc(f.bt.name)}</span><span class="ap-st">${st}</span>${g !== undefined ? `<span class="ap-ag">→${g}</span>` : ''}${loopHtml}</button>`);
+      let st = head ? `${esc(tName(head.type))} <small>${Math.floor(head.progress * 100)}%</small>${q.items.length > 1 ? ` <small>+${q.items.length - 1}</small>` : ''}` : tArmy.html(nag ? 'fac.idle' : 'fac.ready');
+      if (head?.paused) st = tArmy.html('fac.onHold');
+      const click = tArmy.html('click');
+      const loopHtml = loops.map((id) => `<span class="ap-loop" data-unloop="${esc(id)}" data-tip="${esc(tipHtml(tArmy.html('fac.loopTip', { name: tName(id) }), tArmy.html('fac.loopTipBody'), [[click, tArmy.html('fac.keyStopLoop')]]))}">${ICONS.cycle}${esc(shortName(id))}</span>`).join('');
+      if (!head && loops.length) st = tArmy.html('fac.loopWaiting');
+      const fname = typeName(f.bt);
+      const facTip = (nag ? tArmy.html('fac.idleFor', { idle: SLOT, money: money(p.credits) }).replace(SLOT, `<span class="tt-bad">${tArmy.html('fac.idleSecs', { s: Math.floor(this.idleFor(k)) })}</span>`) : tArmy.html(head ? 'fac.producing' : 'fac.readyTip'))
+        + (g !== undefined ? `<br>${tArmy.html('fac.group', { g: String(g) })}` : '');
+      prod.push(`<button class="ap-pc${nag ? ' nag' : ''}${head ? ' busy' : ''}" data-kind="${k}" data-tip="${esc(tipHtml(esc(fname), facTip, [[click, tArmy.html('fac.keyOpenTab')]]))}">${KIND_ICON[k]}<span class="ap-fn">${esc(fname)}</span><span class="ap-st">${st}</span>${g !== undefined ? `<span class="ap-ag">→${g}</span>` : ''}${loopHtml}</button>`);
     }
     const prodHtml = prod.join('');
     if (prodHtml !== this.prodKey) { this.prodKey = prodHtml; this.prodEl.innerHTML = prodHtml; this.prodEl.style.display = prod.length ? '' : 'none'; }
@@ -533,16 +560,15 @@ export class ArmyTools {
       for (const s of this.stats) {
         if (s.kind !== lastKind) {
           lastKind = s.kind;
-          this.listEl.appendChild(el('div', 'ap-sec', `${KIND_ICON[s.kind]}<span>${KIND_TITLE[s.kind]}</span><i></i>`));
+          this.listEl.appendChild(el('div', 'ap-sec', `${KIND_ICON[s.kind]}<span>${esc(kindTitle(s.kind))}</span><i></i>`));
         }
         const img = this.host.thumbs.get(s.type);
-        const t2 = getType(s.type);
-        const row = el('button', 'ap-row', `<span class="ap-img">${img ? `<img src="${img}" alt="" draggable="false">` : KIND_ICON[s.kind]}</span><span class="ap-name">${esc(t2.name)}</span><span class="ap-cnt"></span><span class="ap-rank"></span><span class="ap-hp"><i></i></span><span class="ap-idle" data-act="idle"></span><span class="ap-v"></span>`);
+        const row = el('button', 'ap-row', `<span class="ap-img">${img ? `<img src="${img}" alt="" draggable="false">` : KIND_ICON[s.kind]}</span><span class="ap-name">${esc(tName(s.type))}</span><span class="ap-cnt"></span><span class="ap-rank"></span><span class="ap-hp"><i></i></span><span class="ap-idle" data-act="idle"></span><span class="ap-v"></span>`);
         row.dataset.type = s.type;
         this.listEl.appendChild(row);
         this.rows.set(s.type, { el: row, cnt: row.querySelector('.ap-cnt')!, val: row.querySelector('.ap-v')!, rank: row.querySelector('.ap-rank')!, hp: row.querySelector('.ap-hp i')!, idle: row.querySelector('.ap-idle')!, key: '' });
       }
-      if (!this.stats.length) this.listEl.appendChild(el('div', 'ap-empty', 'No units yet. Train some at a Barracks or War Factory.'));
+      if (!this.stats.length) this.listEl.appendChild(el('div', 'ap-empty', tArmy.html('panel.empty')));
     }
     for (const s of this.stats) {
       const r = this.rows.get(s.type);
@@ -559,16 +585,21 @@ export class ArmyTools {
       r.hp.dataset.c = hp > 0.5 ? 'ok' : hp > 0.25 ? 'mid' : 'low';
       r.idle.innerHTML = s.idle.length ? `${ICONS.idle}${s.idle.length}` : '';
       r.idle.classList.toggle('on', s.idle.length > 0);
-      r.el.dataset.tip = tipHtml(esc(getType(s.type).name), `<b>${n}</b> on the field · ${money(s.value)}${s.damaged ? ` · <span class="tt-bad">${s.damaged} damaged</span>` : ''}${s.idle.length ? ` · ${s.idle.length} idle` : ''}${s.vet + s.elite ? `<br>${s.vet} veteran · ${s.elite} elite` : ''}`,
-        [['Click', 'select all'], ['Shift', 'add'], ['Double-click', 'select and jump'], ['zZ', 'only the idle ones']]);
+      r.el.dataset.tip = tipHtml(esc(tName(s.type)), `${tArmy.html('row.onField', { n })} · ${money(s.value)}${s.damaged ? ` · <span class="tt-bad">${tArmy.html('row.damaged', { n: s.damaged })}</span>` : ''}${s.idle.length ? ` · ${tArmy.html('row.idle', { n: s.idle.length })}` : ''}${s.vet + s.elite ? `<br>${tArmy.html('row.ranks', { vet: s.vet, elite: s.elite })}` : ''}`,
+        [[tArmy.html('click'), tArmy.html('row.keySelect')], [esc(tCommon('keys.shift')), tArmy.html('row.keyAdd')], [tArmy.html('doubleClick'), tArmy.html('row.keyJump')], ['zZ', tArmy.html('row.keyIdle')]]);
       this.host.tip.refresh(r.el, r.el.dataset.tip);
     }
     // quick actions
     const { veh, ships } = this.repairable();
-    const foot = `<button class="ap-act" data-act="all" data-tip="${esc(tipHtml('All combat units', '', [['E', 'hotkey']]))}">${ICONS.target}<span>All</span><kbd>E</kbd></button>`
-      + `<button class="ap-act${t.idle ? '' : ' off'}" data-act="idle" data-tip="${esc(tipHtml('Idle units', 'Select every unit without orders.', [['I', 'cycle one by one']]))}">${ICONS.idle}<span>Idle ${t.idle}</span><kbd>I</kbd></button>`
-      + `<button class="ap-act${t.damaged ? '' : ' off'}" data-act="damaged" data-tip="${esc(tipHtml('Damaged units', 'Select every damaged combat unit.', [['Shift+E', 'hotkey']]))}">${ICONS.shield}<span>Damaged ${t.damaged}</span><kbd>⇧E</kbd></button>`
-      + (this.host.spectator ? '' : `<button class="ap-act${veh.length + ships.length ? '' : ' off'}" data-act="repair" data-tip="${esc(tipHtml('Send for repairs', 'Selected damaged vehicles queue at the nearest Service Depot (repaired ones drive back); ships moor at a naval yard.', [['Shift+R', 'hotkey']]))}">${ICONS.wrench}<span>Repair ${veh.length + ships.length || ''}</span><kbd>⇧R</kbd></button>`);
+    const kE = esc(keyLabel('selectCombat')), kI = esc(keyLabel('nextIdle')), kDE = esc(keyLabel('selectDamaged')), kDR = esc(keyLabel('sendRepair')); // active bindings
+    const shiftPlus = `${esc(tCommon('keys.shift'))} + `;
+    const short = (k: string) => k.replace('Shift + ', '⇧').replace(shiftPlus, '⇧');
+    const hk = tArmy.html('foot.hotkey');
+    const nRep = veh.length + ships.length;
+    const foot = `<button class="ap-act" data-act="all" data-tip="${esc(tipHtml(tArmy.html('foot.allTip'), '', kE ? [[kE, hk]] : []))}">${ICONS.target}<span>${tArmy.html('foot.all')}</span>${kE ? `<kbd>${short(kE)}</kbd>` : ''}</button>`
+      + `<button class="ap-act${t.idle ? '' : ' off'}" data-act="idle" data-tip="${esc(tipHtml(tArmy.html('foot.idleTip'), tArmy.html('foot.idleTipBody'), kI ? [[kI, tArmy.html('foot.keyCycle')]] : []))}">${ICONS.idle}<span>${tArmy.html('foot.idle', { n: t.idle })}</span>${kI ? `<kbd>${short(kI)}</kbd>` : ''}</button>`
+      + `<button class="ap-act${t.damaged ? '' : ' off'}" data-act="damaged" data-tip="${esc(tipHtml(tArmy.html('foot.damagedTip'), tArmy.html('foot.damagedTipBody'), kDE ? [[kDE, hk]] : []))}">${ICONS.shield}<span>${tArmy.html('foot.damaged', { n: t.damaged })}</span>${kDE ? `<kbd>${short(kDE)}</kbd>` : ''}</button>`
+      + (this.host.spectator ? '' : `<button class="ap-act${nRep ? '' : ' off'}" data-act="repair" data-tip="${esc(tipHtml(tArmy.html('foot.repairTip'), tArmy.html('foot.repairTipBody'), kDR ? [[kDR, hk]] : []))}">${ICONS.wrench}<span>${nRep ? tArmy.html('foot.repairN', { n: nRep }) : tArmy.html('foot.repair')}</span>${kDR ? `<kbd>${short(kDR)}</kbd>` : ''}</button>`);
     if (foot !== this.footKey) { this.footKey = foot; this.footEl.innerHTML = foot; }
   }
 
@@ -583,7 +614,7 @@ export class ArmyTools {
     const now = performance.now();
     const dbl = this.lastClick.type === s.type && now - this.lastClick.t < 350;
     this.lastClick = { t: now, type: s.type };
-    this.selectIds(ids, e.shiftKey, idleOnly ? 'idle units of that type' : 'units of that type');
+    this.selectIds(ids, e.shiftKey, idleOnly ? 'msg.noIdleOfType' : 'msg.noOfType');
     if (dbl && ids.length) {
       const w = this.host.world;
       let x = 0, y = 0, n = 0;
@@ -603,25 +634,27 @@ export class ArmyTools {
     if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     if (document.querySelector('.screen, .rv, .chx') || !this.chip.isConnected && !this.panel.isConnected) return;
     const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
-    const mod = e.ctrlKey || e.metaKey;
-    if (e.code === 'Backquote' && !mod && !e.altKey) { stop(); if (!e.repeat) this.toggle(); return; }
+    // hotkeys from the keymap (defaults: ` overview, Shift+E damaged, Shift+R repair run)
+    if (isAction('army', e, { exactAlt: true })) { stop(); if (!e.repeat) this.toggle(); return; }
     if (e.key === 'Escape' && this.open) { stop(); this.toggle(false); return; }
-    if (e.code === 'KeyE' && e.shiftKey && !mod && !e.altKey) { stop(); this.selectDamaged(); return; }
-    if (e.code === 'KeyR' && e.shiftKey && !mod && !e.altKey) {
+    if (isAction('selectDamaged', e, { exactAlt: true, exactShift: true })) { stop(); this.selectDamaged(); return; }
+    if (isAction('sendRepair', e, { exactAlt: true, exactShift: true })) {
       const units = [...this.host.selection].some((id) => { const u = this.host.world.getEntity(id); return u instanceof Unit && u.owner === this.host.local; });
       if (!units) return; // a structure selected: R / Shift+R keeps toggling its repairs
       stop();
       this.sendToRepair();
       return;
     }
-    // auto-group: Ctrl+N with only factories selected, Ctrl+Alt+N with anything
+    // auto-group: assign modifier (Ctrl) + N with only factories selected, plus Alt (Ctrl when Alt assigns) with anything
     const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code)?.[1];
-    if (digit !== undefined && mod && !e.shiftKey) {
+    const gm = groupMods();
+    if (digit !== undefined && modHeld(e, gm.assign) && !modHeld(e, gm.add)) {
+      const extra = gm.assign === 'alt' ? e.ctrlKey || e.metaKey : e.altKey;
       const w = this.host.world, me = this.host.local;
       const sel = [...this.host.selection].map((id) => w.getEntity(id)).filter((x) => x?.alive && x.owner === me);
       const facs = sel.filter((x): x is Building => x instanceof Building && !!x.bt.factory && x.bt.factory !== 'building');
       const units = sel.some((x) => x instanceof Unit);
-      if (!facs.length || (units && !e.altKey)) return;
+      if (!facs.length || (units && !extra)) return;
       stop();
       if (!e.repeat) this.setAutoGroup(facs, +digit);
     }
@@ -684,7 +717,7 @@ export class IdleWatch {
     for (const b of w.buildings) {
       if (!b.alive || b.owner !== p || !b.active || !b.bt.factory || b.bt.factory === 'building') continue;
       const k = b.bt.factory as UnitKind;
-      if (!facNames.has(k) || b.primary) facNames.set(k, b.bt.name);
+      if (!facNames.has(k) || b.primary) facNames.set(k, typeName(b.bt));
     }
     for (const kind of UNIT_KINDS) {
       let st = this.state.get(kind);
@@ -699,7 +732,7 @@ export class IdleWatch {
       st.nag = true;
       if (now - st.toast >= TOAST_EVERY_KIND && now - this.lastToast >= TOAST_EVERY_ANY) {
         st.toast = this.lastToast = now;
-        this.host.message(`${facNames.get(kind)} idle · ${money(p.credits)} to spend (Alt-click a card to loop it)`);
+        this.host.message(tArmy('msg.factoryIdle', { name: facNames.get(kind), money: money(p.credits) }));
       }
     }
     // harvesters standing idle, refineries without one
@@ -713,7 +746,7 @@ export class IdleWatch {
       this.harvIdle.set(u.id, since);
       if (now - since >= HARV_IDLE_SECS && now - this.harvToast >= 90 && now - this.lastToast >= TOAST_EVERY_ANY) {
         this.harvToast = this.lastToast = now;
-        this.host.message(`${u.ut.name} idle · Shift+I finds it`, true);
+        this.host.message(tArmy('msg.harvesterIdle', { name: typeName(u.ut) }), true);
       }
     }
     for (const id of this.harvIdle.keys()) if (!w.getEntity(id)?.alive) this.harvIdle.delete(id);
@@ -722,7 +755,7 @@ export class IdleWatch {
       if (this.refSince < 0) this.refSince = now;
       if (now - this.refSince >= 15 && now - this.refToast >= 150 && now - this.lastToast >= TOAST_EVERY_ANY) {
         this.refToast = this.lastToast = now;
-        this.host.message(refineries - harv > 1 ? `${refineries - harv} refineries without a harvester: build Ore Trucks` : 'A refinery has no harvester: build an Ore Truck', true);
+        this.host.message(tArmy('msg.noHarvester', { n: refineries - harv }), true);
       }
     } else this.refSince = -1;
   }
@@ -776,10 +809,10 @@ export class RepairRuns {
   send(ids: Iterable<number>): number {
     const { world: w, local: p } = this.host;
     const { veh, ships, depots, yards } = this.repairable(ids);
-    if (!veh.length && !ships.length) { this.host.message('No damaged vehicles or ships selected'); return 0; }
+    if (!veh.length && !ships.length) { this.host.message(tArmy('msg.noRepairable')); return 0; }
     const near = (u: Unit, list: Building[]) => list.reduce<Building | null>((best, b) => (!best || b.distTo(u.x, u.y) < best.distTo(u.x, u.y) ? b : best), null);
     let sent = 0;
-    if (veh.length && !depots.length) this.host.message('Build a Service Depot to repair vehicles', true);
+    if (veh.length && !depots.length) this.host.message(tArmy('msg.needDepot'), true);
     for (const u of depots.length ? veh : []) {
       if (this.has(u.id)) continue;
       const d = near(u, depots)!;
@@ -799,7 +832,7 @@ export class RepairRuns {
         .sort((a, b) => (w.getEntity(a) as Unit).healthFrac - (w.getEntity(b) as Unit).healthFrac || a - b);
     }
     // ships: moor next to the nearest yard
-    if (ships.length && !yards.length) this.host.message('Ships repair alongside a Shipyard or Sub Pen', true);
+    if (ships.length && !yards.length) this.host.message(tArmy('msg.needYard'), true);
     const byYard = new Map<Building, number[]>();
     for (const s of yards.length ? ships : []) { const y = near(s, yards)!; byYard.set(y, [...(byYard.get(y) ?? []), s.id]); }
     for (const [y, list] of byYard) { this.host.issue({ c: 'move', player: p.id, units: list, x: y.x, y: y.y }); sent += list.length; }
@@ -810,7 +843,7 @@ export class RepairRuns {
     }
     this.tick = -1;
     this.update();
-    if (sent) this.host.message(`${sent} unit${sent > 1 ? 's' : ''} heading for repairs`);
+    if (sent) this.host.message(tArmy('msg.sent', { n: sent }));
     return sent;
   }
 
@@ -860,7 +893,7 @@ export class RepairRuns {
       }
       if (!job.active && !job.queue.length) {
         this.jobs.delete(id);
-        if (job.healed) this.host.message(`Repairs complete: ${job.healed} vehicle${job.healed > 1 ? 's' : ''} back in action`);
+        if (job.healed) this.host.message(tArmy('msg.repaired', { n: job.healed }));
       }
     }
   }
@@ -881,8 +914,27 @@ function unitKind(id: string): UnitKind | null {
   return t.kind === 'infantry' || t.kind === 'aircraft' || t.kind === 'naval' ? t.kind : 'vehicle';
 }
 
-const SHORT: Record<string, string> = { e1: 'Rifle', e2: 'Grenadier', e3: 'Rocket', e4: 'Flamer', e6: 'Engineer', e7: 'Tanya', medi: 'Medic', '1tnk': 'Light', '2tnk': 'Medium', '3tnk': 'Heavy', '4tnk': 'Mammoth' };
-const shortName = (id: string) => SHORT[id] ?? (UNITS[id] as UnitTypeDef | undefined)?.name ?? id;
+/** The short name of a unit type on a loop chip (army.short.<id>, else its name). */
+function shortName(id: string): string {
+  const k = `${tArmy.ns}.short.${id}`;
+  if (hasKey(k)) return tx(k);
+  const t = UNITS[id] as UnitTypeDef | undefined;
+  return t ? typeName(t) : id;
+}
+
+/** Marks where raw HTML goes into a translated .html() message (parameters are escaped). */
+const SLOT = '\u0001';
+
+/** A CSS string literal. */
+const cssString = (s: string) => `"${s.replace(/["\\]/g, '\\$&').replace(/[\n\r]/g, ' ')}"`;
+/** The badge words the styles draw (::after / ::before content) in the active language. */
+function setBadgeText() {
+  if (typeof document === 'undefined') return;
+  const st = document.documentElement.style;
+  st.setProperty('--ar-t-loop', cssString(tArmy('badge.loop')));
+  st.setProperty('--ar-t-loopwait', cssString(tArmy('badge.loopWait')));
+  st.setProperty('--ar-t-idle', cssString(tArmy('badge.idle')));
+}
 
 /** Styles of the army tools (injected once; styles.css stays untouched). */
 function injectArmyStyles() {
@@ -973,9 +1025,9 @@ body.touch-ui .ap-act, body.touch-ui .ap-pc, body.touch-ui .ar-chip button { min
 .bi-loop:hover { opacity: 1; border-color: var(--accent); background: rgba(var(--accent-rgb), 0.35); color: #fff; }
 @media (pointer: coarse) { .bi-loop { opacity: 0.75; transform: none; } }
 .bitem[data-loop] .bi-loop { opacity: 1; transform: none; background: var(--accent); border-color: rgba(255, 255, 255, 0.85); color: #02101e; box-shadow: 0 0 0.6rem rgba(var(--accent-rgb), 0.9); }
-.bitem[data-loop] .bi-loop::after { content: 'Loop'; padding-right: 0.1rem; }
+.bitem[data-loop] .bi-loop::after { content: var(--ar-t-loop, 'Loop'); padding-right: 0.1rem; }
 .bitem[data-loop='wait'] .bi-loop { background: #ffc93c; box-shadow: 0 0 0.6rem rgba(255, 201, 60, 0.8); }
-.bitem[data-loop='wait'] .bi-loop::after { content: 'Loop $'; }
+.bitem[data-loop='wait'] .bi-loop::after { content: var(--ar-t-loopwait, 'Loop $'); }
 .bitem[data-loop='on'] .bi-loop svg { animation: arSpin 2.4s linear infinite; }
 .bitem[data-loop] .bi-tilt { border-color: rgba(var(--accent-rgb), 0.8); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.35); }
 body.reduce-motion .bitem[data-loop] .bi-loop svg { animation: none; }
@@ -986,7 +1038,7 @@ body.reduce-motion .bitem[data-loop] .bi-loop svg { animation: none; }
 .tab .tab-loop svg { width: 0.7rem; height: 0.7rem; }
 .tab.has-loop .tab-loop { display: inline-flex; }
 .tab.idle-nag { box-shadow: inset 0 0 0 1px rgba(255, 190, 70, 0.55); animation: arTabNag 1.8s ease-in-out infinite; }
-.tab.idle-nag::before { content: 'idle'; position: absolute; right: 0.2rem; bottom: 0.1rem; font: 700 0.5rem var(--font, sans-serif); letter-spacing: 0.1em; text-transform: uppercase; color: #ffc85a; pointer-events: none; }
+.tab.idle-nag::before { content: var(--ar-t-idle, 'idle'); position: absolute; right: 0.2rem; bottom: 0.1rem; font: 700 0.5rem var(--font, sans-serif); letter-spacing: 0.1em; text-transform: uppercase; color: #ffc85a; pointer-events: none; }
 body.reduce-motion .tab.idle-nag, body.reduce-motion .ap-pc.nag { animation: none; }
 @keyframes arTabNag { 0%, 100% { background-color: transparent; } 50% { background-color: rgba(255, 190, 70, 0.14); } }
 .cat-status.idle { color: #ffc85a; }

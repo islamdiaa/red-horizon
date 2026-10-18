@@ -8,6 +8,7 @@
  * (shown to the room) and the connection. The callsign is kept in localStorage, the seat token for a rejoin
  * after a reload in sessionStorage (this tab only).
  */
+import { ARIA_TEXT } from './a11y-strings';
 import type { GameSetup } from '../game';
 import type { Quality } from '../render/renderer';
 import { esc, el, hexColor } from './dom';
@@ -18,7 +19,7 @@ import { BUILD_FINGERPRINT } from '../net/fingerprint';
 import { inviteLink, relaySocketUrl, serverStatus, type ServerStatus } from '../net/endpoint';
 import { MAX_SLOTS, normaliseCode, type MatchStart, type RoomView, type ServerMessage, type SlotView } from '../net/protocol';
 import {
-  CEASEFIRE_OPTIONS, CLIMATES, CREDIT_OPTIONS, MAP_SIZES, MODES, SLOT_COLORS, activeSlots, mapsFor, modeSlots, slotTeam, startProblem,
+  CEASEFIRE_OPTIONS, CLIMATES, CREDIT_OPTIONS, MAP_SIZES, MODES, SLOT_COLORS, activeSlots, mapsFor, modeSlots, slotTeam, startIssue,
   type FactionPick, type MatchSettings, type NetMode,
 } from '../net/settings';
 import { matchSetup } from '../net/roster';
@@ -30,6 +31,12 @@ import { doctrinesFor, doctrineUnlocked } from '../sim/doctrine';
 import { loadProfile } from '../meta/profile';
 import { rankIndexFor } from '../meta/ranks';
 import { getMapDef } from '../maps';
+import tLobby from '../i18n/en/lobby';
+import tCommon from '../i18n/en/common';
+import '../i18n/en/net'; // registers net.start.* and the relay's messages (trSource)
+import { dt, fmtMoney, trSource, tx } from '../i18n/core';
+import { doctrineName, mutatorDesc, mutatorName } from '../i18n/names';
+import { reasonText } from '../net/game-link';
 
 export interface LobbyHost {
   play(k: 'click' | 'hover' | 'tab' | 'error' | 'ready_ping'): void;
@@ -160,9 +167,14 @@ export function inviteFromHash(): string | null {
   return m ? normaliseCode(m[1]) : null;
 }
 
-const FACTION_LABEL: Record<FactionPick, string> = { allies: 'Allies', soviet: 'Soviets', random: 'Random' };
-const AI_LABEL: Record<string, string> = { easy: 'Easy', normal: 'Normal', hard: 'Hard', brutal: 'Brutal' };
-const TERRAIN = [[0.15, 'Low'], [0.4, 'Normal'], [0.65, 'High']] as const;
+const factionLabel = (f: FactionPick) => (f === 'random' ? tCommon('random') : tCommon(`faction.${f}`));
+const aiLabel = (d: string | undefined) => tCommon(`difficulty.${d === 'easy' || d === 'hard' || d === 'brutal' ? d : 'normal'}`);
+const TERRAIN = [[0.15, 'low'], [0.4, 'normal'], [0.65, 'high']] as const;
+/** A multiplayer mode's name / description (net/settings.ts MODES, game data). */
+const modeName = (m: { id: string; name: string }) => dt('netmode', m.id, 'name', m.name);
+const modeDesc = (m: { id: string; desc: string }) => dt('netmode', m.id, 'desc', m.desc);
+/** A curated map's name (maps/defs.ts, game data). */
+const mapName = (m: { id: string; name: string }) => dt('map', m.id, 'name', m.name);
 
 let client: NetClient | null = null;
 let root: HTMLElement | null = null;
@@ -207,8 +219,14 @@ class LobbyView {
     this.root = el('div', 'lob');
     this.panel = el('div', 'lob-panel panel');
     this.root.appendChild(this.panel);
+    this.root.setAttribute('role', 'dialog');
+    this.root.setAttribute('aria-label', ARIA_TEXT.multiplayer);
+    this.panel.tabIndex = -1; // focus parks here after Esc in a text field, so the next Esc still reaches the lobby
     this.root.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !(e.target as HTMLElement).closest('input')) { e.stopPropagation(); this.leave(); }
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if ((e.target as HTMLElement).closest('input')) { this.panel.focus({ preventScroll: true }); return; } // first Esc leaves the field
+      this.leave();
     });
   }
 
@@ -221,19 +239,19 @@ class LobbyView {
     const seat = loadSeat();
     this.panel.className = 'lob-panel panel narrow';
     this.panel.innerHTML = `
-      <div class="lob-head"><span class="mp-ic">${picto('globe', 'ic')}</span><div><small>Online · no account needed</small><h2>Multiplayer</h2></div><i class="sp"></i><span class="lob-pill" data-st><i></i>Checking server…</span></div>
-      ${this.error ? `<div class="lob-err">${esc(this.error)}</div>` : ''}
-      <div class="lob-sec"><div class="lob-label">Callsign</div>
+      <div class="lob-head"><span class="mp-ic">${picto('globe', 'ic')}</span><div><small>${tLobby.html('connect.kicker')}</small><h2>${tLobby.html('connect.title')}</h2></div><i class="sp"></i><span class="lob-pill" data-st><i></i>${tLobby.html('connect.checking')}</span></div>
+      ${this.error ? `<div class="lob-err">${esc(trSource(this.error))}</div>` : ''}
+      <div class="lob-sec"><div class="lob-label">${tLobby.html('connect.callsign')}</div>
         <div class="lob-row"><input type="text" data-k="name" maxlength="20" value="${esc(loadName())}" spellcheck="false" autocomplete="off" style="flex:1"></div>
-        <div class="lob-note">Shown to the players in your room. No account, no e-mail, nothing stored on the server.</div></div>
-      ${seat ? `<div class="lob-sec"><div class="lob-label">Your match</div><div class="lob-row"><button class="btn" data-a="rejoin" style="flex:1">${ICONS.replay}<span>Rejoin room ${esc(seat.code)}</span></button></div></div>` : ''}
-      <div class="lob-sec"><div class="lob-label">Join a room</div>
-        <div class="lob-row"><input type="text" class="code" data-k="code" maxlength="64" placeholder="CODE" value="${esc(join ?? '')}" spellcheck="false" autocomplete="off"><button class="btn" data-a="join" style="flex:1">${ICONS.arrowR}<span>${join ? `Join room ${esc(join)}` : 'Join'}</span></button></div>
-        <div class="lob-note">Type the six-letter code, or paste an invite link.</div></div>
-      <div class="lob-sec"><div class="lob-label">Create a room</div>
-        <div class="lob-modes">${MODES.map((m) => `<button class="lob-mode${m.id === this.mode ? ' on' : ''}" data-mode="${m.id}"><b>${esc(m.name)}</b><span>${esc(m.desc)}</span></button>`).join('')}</div>
-        <div class="lob-row"><button class="btn" data-a="create" style="flex:1">${ICONS.plus}<span>Create room</span></button></div></div>
-      <div class="lob-foot"><button class="btn" data-a="back">${picto('back', 'ic')}<span>Back</span><kbd>Esc</kbd></button><span class="why">Lockstep over a relay · same build and mods for everyone</span></div>`;
+        <div class="lob-note">${tLobby.html('connect.callsignNote')}</div></div>
+      ${seat ? `<div class="lob-sec"><div class="lob-label">${tLobby.html('connect.yourMatch')}</div><div class="lob-row"><button class="btn" data-a="rejoin" style="flex:1">${ICONS.replay}<span>${tLobby.html('connect.rejoin', { code: seat.code })}</span></button></div></div>` : ''}
+      <div class="lob-sec"><div class="lob-label">${tLobby.html('connect.joinTitle')}</div>
+        <div class="lob-row"><input type="text" class="code" data-k="code" maxlength="64" placeholder="${esc(tLobby('connect.codePlaceholder'))}" value="${esc(join ?? '')}" spellcheck="false" autocomplete="off"><button class="btn" data-a="join" style="flex:1">${ICONS.arrowR}<span>${join ? tLobby.html('connect.joinCode', { code: join }) : tLobby.html('connect.join')}</span></button></div>
+        <div class="lob-note">${tLobby.html('connect.joinNote')}</div></div>
+      <div class="lob-sec"><div class="lob-label">${tLobby.html('connect.createTitle')}</div>
+        <div class="lob-modes">${MODES.map((m) => `<button class="lob-mode${m.id === this.mode ? ' on' : ''}" data-mode="${m.id}"><b>${esc(modeName(m))}</b><span>${esc(modeDesc(m))}</span></button>`).join('')}</div>
+        <div class="lob-row"><button class="btn" data-a="create" style="flex:1">${ICONS.plus}<span>${tLobby.html('connect.create')}</span></button></div></div>
+      <div class="lob-foot"><button class="btn" data-a="back">${picto('back', 'ic')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button><span class="why">${tLobby.html('connect.footer')}</span></div>`;
     const name = this.panel.querySelector('[data-k="name"]') as HTMLInputElement;
     const code = this.panel.querySelector('[data-k="code"]') as HTMLInputElement;
     const go = (fn: (c: NetClient) => void) => {
@@ -267,8 +285,8 @@ class LobbyView {
       const pill = this.panel.querySelector('[data-st]');
       if (!pill) return;
       pill.className = `lob-pill ${s.ok ? 'ok' : 'bad'}`;
-      pill.innerHTML = `<i></i>${s.ok ? (s.build === BUILD_FINGERPRINT ? 'Server online' : 'Server online · other version') : 'Server unavailable'}`;
-      if (!s.ok) this.panel.querySelectorAll<HTMLButtonElement>('[data-a="create"], [data-a="join"], [data-a="rejoin"]').forEach((b) => { b.disabled = true; b.title = 'No multiplayer server answers here (see docs/MULTIPLAYER.md to host one).'; });
+      pill.innerHTML = `<i></i>${tLobby.html(s.ok ? (s.build === BUILD_FINGERPRINT ? 'connect.online' : 'connect.onlineOther') : 'connect.unavailable')}`;
+      if (!s.ok) this.panel.querySelectorAll<HTMLButtonElement>('[data-a="create"], [data-a="join"], [data-a="rejoin"]').forEach((b) => { b.disabled = true; b.title = tLobby('connect.noServer'); });
     });
     (join ? this.panel.querySelector('[data-a="join"]') as HTMLElement : name)?.focus();
   }
@@ -283,7 +301,7 @@ class LobbyView {
     this.offs.push(c.on((m) => this.onMessage(m)));
     this.offs.push(c.onState((s) => {
       if (s === 'closed') {
-        const reason = c.lastError?.msg ?? (c.endReason === 'kicked' ? 'You were removed from the room.' : c.endReason && c.endReason !== 'left' ? `Disconnected (${c.endReason}).` : '');
+        const reason = c.lastError?.msg ?? (c.endReason === 'kicked' ? tLobby('err.removed') : c.endReason && c.endReason !== 'left' ? tLobby('err.disconnected', { reason: reasonText(c.endReason) }) : '');
         if (client === c) client = null;
         saveSeat(null);
         this.error = reason;
@@ -293,7 +311,7 @@ class LobbyView {
     if (c.room) {
       if (c.room.phase === 'over' && c.room.host === c.seat) c.send({ t: 'lobby' }); // back from a match: the host reopens the lobby
       this.render();
-    } else this.panel.innerHTML = `<div class="lob-head"><span class="mp-ic">${picto('globe', 'ic')}</span><div><small>Multiplayer</small><h2>Connecting…</h2></div></div>`;
+    } else this.panel.innerHTML = `<div class="lob-head"><span class="mp-ic">${picto('globe', 'ic')}</span><div><small>${tLobby.html('connect.title')}</small><h2>${tLobby.html('connect.connecting')}</h2></div></div>`;
   }
 
   private detach() {
@@ -362,25 +380,26 @@ class LobbyView {
     const typing = this.panel.querySelector('[data-chat] input') as HTMLInputElement | null;
     const draft = typing ? { value: typing.value, focus: document.activeElement === typing } : null;
     this.panel.className = 'lob-panel panel';
-    const why = startProblem(room);
+    const issue = startIssue(room);
+    const why = issue ? tx(`net.start.${issue.id}`, issue.map ? { name: mapName(issue.map), n: issue.map.players } : undefined) : null;
     const over = room.phase !== 'lobby';
     this.panel.innerHTML = `
-      <div class="lob-head"><span class="mp-ic">${ICONS.people}</span><div><small>${isHost ? 'You host this room' : 'Multiplayer room'} · ${esc(MODES.find((x) => x.id === s.mode)?.name ?? s.mode)}</small><h2>Lobby</h2></div><i class="sp"></i>
-        <div class="lob-code"><small style="font-size:.65rem;letter-spacing:.2em;color:var(--muted)">CODE</small><b data-code>${esc(room.code)}</b>
-          <button class="lob-ib" data-a="copycode" title="Copy the code">${ICONS.copy}</button><button class="btn" data-a="invite" style="height:2.2rem">${ICONS.copy}<span>Copy invite link</span></button></div></div>
-      ${this.error ? `<div class="lob-err">${esc(this.error)}</div>` : ''}
-      ${over ? `<div class="lob-err" style="border-color:rgba(var(--warn-rgb),.5);background:rgba(var(--warn-rgb),.1);color:var(--text)">The last match is still finishing on another player's screen. ${isHost ? 'The lobby reopens when it ends.' : 'The host reopens the lobby when it ends.'}</div>` : ''}
+      <div class="lob-head"><span class="mp-ic">${ICONS.people}</span><div><small>${tLobby.html('room.kicker', { who: tLobby(isHost ? 'room.youHost' : 'room.guest'), mode: (() => { const md = MODES.find((x) => x.id === s.mode); return md ? modeName(md) : s.mode; })() })}</small><h2>${tLobby.html('room.title')}</h2></div><i class="sp"></i>
+        <div class="lob-code"><small style="font-size:.65rem;letter-spacing:.2em;color:var(--muted)">${tLobby.html('room.code')}</small><b data-code>${esc(room.code)}</b>
+          <button class="lob-ib" data-a="copycode" title="${esc(tLobby('room.copyCode'))}">${ICONS.copy}</button><button class="btn" data-a="invite" style="height:2.2rem">${ICONS.copy}<span>${tLobby.html('room.copyInvite')}</span></button></div></div>
+      ${this.error ? `<div class="lob-err">${esc(trSource(this.error))}</div>` : ''}
+      ${over ? `<div class="lob-err" style="border-color:rgba(var(--warn-rgb),.5);background:rgba(var(--warn-rgb),.1);color:var(--text)">${tLobby.html(isHost ? 'room.overHost' : 'room.overGuest')}</div>` : ''}
       <div class="lob-grid">
-        <div class="lob-sec"><div class="lob-label">Players</div><div class="lob-slots">${room.slots.map((sl, i) => this.slotHtml(room, sl, i, isHost)).join('')}</div>
-          <div class="lob-sec lob-chat"><div class="lob-label">Chat <button class="lob-ib${this.muteAll ? ' on' : ''}" data-a="muteall" title="${this.muteAll ? 'Show chat' : 'Mute all chat'}" style="width:1.8rem;height:1.8rem">${this.muteAll ? ICONS.eyeOff : ICONS.eye}</button></div>
+        <div class="lob-sec"><div class="lob-label">${tLobby.html('room.players')}</div><div class="lob-slots">${room.slots.map((sl, i) => this.slotHtml(room, sl, i, isHost)).join('')}</div>
+          <div class="lob-sec lob-chat"><div class="lob-label">${tLobby.html('room.chat')} <button class="lob-ib${this.muteAll ? ' on' : ''}" data-a="muteall" title="${esc(tLobby(this.muteAll ? 'room.showChat' : 'room.muteAll'))}" style="width:1.8rem;height:1.8rem">${this.muteAll ? ICONS.eyeOff : ICONS.eye}</button></div>
             <div class="lob-log" data-log></div>
-            <form data-chat><input type="text" maxlength="160" placeholder="Say something (Enter)" autocomplete="off" spellcheck="false"><button class="btn" type="submit">Send</button></form></div></div>
-        <div class="lob-sec"><div class="lob-label">Battle settings${isHost ? '' : ' · set by the host'}</div>${this.settingsHtml(room, isHost)}</div>
+            <form data-chat><input type="text" maxlength="160" placeholder="${esc(tLobby('room.chatPlaceholder'))}" autocomplete="off" spellcheck="false"><button class="btn" type="submit">${tLobby.html('room.send')}</button></form></div></div>
+        <div class="lob-sec"><div class="lob-label">${tLobby.html(isHost ? 'room.settings' : 'room.settingsByHost')}</div>${this.settingsHtml(room, isHost)}</div>
       </div>
-      <div class="lob-foot"><button class="btn" data-a="leave">${ICONS.exit}<span>Leave</span></button>
-        <span class="why">${esc(isHost ? why ?? 'Everyone is ready' : me?.ready ? 'Waiting for the host to start' : 'Get ready when you are')}</span>
-        ${isHost ? `<button class="btn-primary" data-a="start" ${why || over ? 'disabled' : ''}><span>Start match</span>${ICONS.arrowR}</button>`
-          : `<button class="btn-primary" data-a="ready" ${over ? 'disabled' : ''}><span>${me?.ready ? 'Not ready' : 'Ready'}</span>${ICONS.check}</button>`}</div>`;
+      <div class="lob-foot"><button class="btn" data-a="leave">${ICONS.exit}<span>${tLobby.html('room.leave')}</span></button>
+        <span class="why">${esc(isHost ? why ?? tLobby('room.allReady') : tLobby(me?.ready ? 'room.waitHost' : 'room.getReady'))}</span>
+        ${isHost ? `<button class="btn-primary" data-a="start" ${why || over ? 'disabled' : ''}><span>${tLobby.html('room.start')}</span>${ICONS.arrowR}</button>`
+          : `<button class="btn-primary" data-a="ready" ${over ? 'disabled' : ''}><span>${tLobby.html(me?.ready ? 'room.notReady' : 'room.ready')}</span>${ICONS.check}</button>`}</div>`;
     this.bind(room, isHost);
     this.renderChat();
     if (draft) {
@@ -395,38 +414,38 @@ class LobbyView {
     const mine = sl.seat === c.seat;
     const color = hexColor(SLOT_COLORS[i]);
     const inMode = i < modeSlots(mode);
-    const team = sl.kind === 'closed' || !inMode ? '' : mode === 'ffa' ? `P${i + 1}` : `Team ${'AB'[slotTeam(mode, i, sl.kind === 'open' ? 'human' : sl.kind)]}`;
-    const fac = (cur: FactionPick, attr: string, enabled: boolean) => `<select ${attr} ${enabled ? '' : 'disabled'}>${(['random', 'allies', 'soviet'] as FactionPick[]).map((f) => `<option value="${f}"${f === cur ? ' selected' : ''}>${FACTION_LABEL[f]}</option>`).join('')}</select>`;
+    const team = sl.kind === 'closed' || !inMode ? '' : mode === 'ffa' ? tLobby.html('slot.ffa', { n: String(i + 1) }) : tLobby.html('slot.team', { team: 'AB'[slotTeam(mode, i, sl.kind === 'open' ? 'human' : sl.kind)] });
+    const fac = (cur: FactionPick, attr: string, enabled: boolean) => `<select ${attr} ${enabled ? '' : 'disabled'}>${(['random', 'allies', 'soviet'] as FactionPick[]).map((f) => `<option value="${f}"${f === cur ? ' selected' : ''}>${esc(factionLabel(f))}</option>`).join('')}</select>`;
     if (sl.kind === 'human') {
-      const tags = [sl.seat === room.host ? 'Host' : '', mine ? 'You' : ''].filter(Boolean).join(' · ');
+      const tags = [sl.seat === room.host ? tLobby('slot.host') : '', mine ? tLobby('slot.you') : ''].filter(Boolean).join(' · ');
       let doctrine = '';
       if (room.settings.rules === 'commander' && (sl.faction === 'allies' || sl.faction === 'soviet')) {
         const rank = (() => { try { return rankIndexFor(loadProfile().xp); } catch { return 0; } })();
         const list = doctrinesFor(sl.faction);
         doctrine = mine
-          ? `<select data-me="doctrine" title="Doctrine"><option value="">No doctrine</option>${list.map((d) => `<option value="${esc(d.id)}"${d.id === sl.doctrine ? ' selected' : ''}${doctrineUnlocked(d, rank) ? '' : ' disabled'}>${esc(d.name)}</option>`).join('')}</select>`
-          : sl.doctrine ? `<span class="st">${esc(list.find((d) => d.id === sl.doctrine)?.name ?? 'Doctrine')}</span>` : '';
+          ? `<select data-me="doctrine" title="${esc(tLobby('slot.doctrine'))}"><option value="">${tLobby.html('slot.noDoctrine')}</option>${list.map((d) => `<option value="${esc(d.id)}"${d.id === sl.doctrine ? ' selected' : ''}${doctrineUnlocked(d, rank) ? '' : ' disabled'}>${esc(doctrineName(d))}</option>`).join('')}</select>`
+          : sl.doctrine ? `<span class="st">${esc((() => { const d = list.find((x) => x.id === sl.doctrine); return d ? doctrineName(d) : tLobby('slot.doctrine'); })())}</span>` : '';
       }
-      const state = !sl.connected ? '<span class="st off">Reconnecting</span>' : `<span class="st${sl.ready ? ' ready' : ''}">${sl.ready ? 'Ready' : 'Not ready'}</span>`;
+      const state = !sl.connected ? `<span class="st off">${tLobby.html('slot.reconnecting')}</span>` : `<span class="st${sl.ready ? ' ready' : ''}">${tLobby.html(sl.ready ? 'slot.ready' : 'slot.notReady')}</span>`;
       const muted = this.muted.has(sl.seat!);
       return `<div class="lob-slot${mine ? ' me' : ''}" style="--c:${color}"><i class="sw"></i><span class="tm">${team}</span>
-        <div class="nm"><b>${esc(sl.name ?? 'Commander')}</b><small>${esc(tags || 'Player')}</small></div>
+        <div class="nm"><b>${esc(sl.name ?? tLobby('slot.defaultName'))}</b><small>${esc(tags || tLobby('slot.player'))}</small></div>
         ${fac(sl.faction, mine ? 'data-me="faction"' : '', mine)}${doctrine}${state}
-        ${!mine ? `<button class="lob-ib${muted ? ' on' : ''}" data-mute="${sl.seat}" title="${muted ? 'Unmute' : 'Mute'} this player's chat">${muted ? ICONS.eyeOff : ICONS.eye}</button>` : ''}
-        ${isHost && !mine ? `<button class="lob-ib danger" data-kick="${sl.seat}" title="Remove from the room">${ICONS.close}</button>` : ''}</div>`;
+        ${!mine ? `<button class="lob-ib${muted ? ' on' : ''}" data-mute="${sl.seat}" title="${esc(tLobby(muted ? 'slot.unmute' : 'slot.mute'))}">${muted ? ICONS.eyeOff : ICONS.eye}</button>` : ''}
+        ${isHost && !mine ? `<button class="lob-ib danger" data-kick="${sl.seat}" title="${esc(tLobby('slot.kick'))}">${ICONS.close}</button>` : ''}</div>`;
     }
-    if (!inMode) return `<div class="lob-slot closed" style="--c:#333"><i class="sw"></i><span class="tm"></span><div class="nm"><b>—</b><small>Not used in this mode</small></div></div>`;
+    if (!inMode) return `<div class="lob-slot closed" style="--c:#333"><i class="sw"></i><span class="tm"></span><div class="nm"><b>—</b><small>${tLobby.html('slot.unused')}</small></div></div>`;
     const kindSel = isHost && room.phase === 'lobby'
-      ? `<select data-slot="${i}">${[['open', 'Open'], ['closed', 'Closed'], ...(mode === '1v1' ? [] : (['easy', 'normal', 'hard', 'brutal'] as const).map((d) => [`ai:${d}`, `AI · ${AI_LABEL[d]}`]))].map(([v, l]) => `<option value="${v}"${(sl.kind === 'ai' ? `ai:${sl.ai}` : sl.kind) === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`
+      ? `<select data-slot="${i}">${[['open', tLobby('slot.open')], ['closed', tLobby('slot.closed')], ...(mode === '1v1' ? [] : (['easy', 'normal', 'hard', 'brutal'] as const).map((d) => [`ai:${d}`, tLobby('slot.ai', { level: aiLabel(d) })]))].map(([v, l]) => `<option value="${v}"${(sl.kind === 'ai' ? `ai:${sl.ai}` : sl.kind) === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`
       : '';
     if (sl.kind === 'ai') {
-      return `<div class="lob-slot" style="--c:${color}"><i class="sw"></i><span class="tm">${team}</span><div class="nm"><b>AI commander</b><small>${AI_LABEL[sl.ai ?? 'normal']}</small></div>
+      return `<div class="lob-slot" style="--c:${color}"><i class="sw"></i><span class="tm">${team}</span><div class="nm"><b>${tLobby.html('slot.aiCommander')}</b><small>${esc(aiLabel(sl.ai))}</small></div>
         ${fac(sl.faction, isHost ? `data-aifac="${i}"` : '', isHost)}${kindSel}</div>`;
     }
     const canMove = sl.kind === 'open' && room.phase === 'lobby';
     return `<div class="lob-slot${sl.kind === 'closed' ? ' closed' : ''}" style="--c:${color}"><i class="sw"></i><span class="tm">${team}</span>
-      <div class="nm"><b>${sl.kind === 'open' ? 'Open seat' : 'Closed'}</b><small>${sl.kind === 'open' ? 'Waiting for a player' : 'Nobody plays here'}</small></div>
-      ${sl.kind === 'open' && canMove ? `<button class="btn" data-move="${i}" style="height:2.1rem;font-size:.7rem">Sit here</button>` : ''}${kindSel}</div>`;
+      <div class="nm"><b>${tLobby.html(sl.kind === 'open' ? 'slot.openSeat' : 'slot.closed')}</b><small>${tLobby.html(sl.kind === 'open' ? 'slot.waiting' : 'slot.nobody')}</small></div>
+      ${sl.kind === 'open' && canMove ? `<button class="btn" data-move="${i}" style="height:2.1rem;font-size:.7rem">${tLobby.html('slot.sit')}</button>` : ''}${kindSel}</div>`;
   }
 
   private settingsHtml(room: RoomView, isHost: boolean): string {
@@ -434,28 +453,28 @@ class LobbyView {
     const dis = isHost && room.phase === 'lobby' ? '' : 'disabled';
     const sel = (k: string, opts: [string | number, string][], cur: string | number) => `<select data-set="${k}" ${dis}>${opts.map(([v, l]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
     const n = Math.max(2, activeSlots(room).length);
-    const maps: [string, string][] = [['gen', 'Generated battlefield'], ...mapsFor(Math.min(n, 4)).map((m): [string, string] => [m.id, `${m.name} · ${m.players} players`])];
-    if (s.map !== 'gen' && !maps.some(([id]) => id === s.map)) { const d = getMapDef(s.map); maps.push([s.map, d ? `${d.name} · ${d.players} players` : s.map]); }
+    const maps: [string, string][] = [['gen', tLobby('set.generated')], ...mapsFor(Math.min(n, 4)).map((m): [string, string] => [m.id, tLobby('set.mapPlayers', { map: mapName(m), n: m.players })])];
+    if (s.map !== 'gen' && !maps.some(([id]) => id === s.map)) { const d = getMapDef(s.map); maps.push([s.map, d ? tLobby('set.mapPlayers', { map: mapName(d), n: d.players }) : s.map]); }
     const near = (v: number) => TERRAIN.reduce((a, b) => (Math.abs(b[0] - v) < Math.abs(a[0] - v) ? b : a))[0];
     const gen = s.map === 'gen';
     const muts = MUTATORS.filter((m) => mutatorEligible(m, { climate: s.climate, faction: 'allies' }) || mutatorEligible(m, { climate: s.climate, faction: 'soviet' }));
     return `<div class="lob-set">
-      <span>Mode</span>${sel('mode', MODES.map((m) => [m.id, m.name]), s.mode)}
-      <span>Rules</span>${sel('rules', [['commander', 'Commander'], ['classic', 'Classic']], s.rules)}
-      <span>Map</span><div class="wide">${sel('map', maps, s.map)}</div>
-      ${gen ? `<span>Size</span>${sel('size', MAP_SIZES.map((v) => [v, `${v} × ${v}`]), s.size)}
-      <span>Climate</span>${sel('climate', CLIMATES.map((v) => [v, v[0].toUpperCase() + v.slice(1)]), s.climate)}
-      <span>Water</span>${sel('water', TERRAIN.map(([v, l]) => [v, l]), near(s.water))}
-      <span>Forests</span>${sel('trees', TERRAIN.map(([v, l]) => [v, l]), near(s.trees))}
-      <span>Ore</span>${sel('ore', TERRAIN.map(([v, l]) => [v, l]), near(s.ore))}` : ''}
-      <span>Credits</span>${sel('credits', CREDIT_OPTIONS.map((v) => [v, `$${v.toLocaleString('en-US')}`]), s.credits)}
-      <span>Start with</span>${sel('startUnits', [['mcv', 'MCV only'], ['light', 'Light squad'], ['heavy', 'Heavy squad']], s.startUnits)}
-      <span>Fog of war</span>${sel('fog', [['true', 'On'], ['false', 'Off']], String(s.fog))}
-      <span>Build-up time</span>${sel('ceasefire', CEASEFIRE_OPTIONS.map((v) => [v, v ? `${v} min ceasefire` : 'None']), s.ceasefire)}
-      ${s.rules === 'commander' ? `<span>Events</span>${sel('events', [['true', 'Battlefield events on'], ['false', 'Off']], String(s.events))}` : ''}
+      <span>${tLobby.html('set.mode')}</span>${sel('mode', MODES.map((m) => [m.id, modeName(m)]), s.mode)}
+      <span>${tLobby.html('set.rules')}</span>${sel('rules', [['commander', tCommon('rules.commander')], ['classic', tCommon('rules.classic')]], s.rules)}
+      <span>${tLobby.html('set.map')}</span><div class="wide">${sel('map', maps, s.map)}</div>
+      ${gen ? `<span>${tLobby.html('set.size')}</span>${sel('size', MAP_SIZES.map((v) => [v, `${v} × ${v}`]), s.size)}
+      <span>${tLobby.html('set.climate')}</span>${sel('climate', CLIMATES.map((v) => [v, tLobby(`set.${v}`)]), s.climate)}
+      <span>${tLobby.html('set.water')}</span>${sel('water', TERRAIN.map(([v, l]) => [v, tLobby(`set.${l}`)]), near(s.water))}
+      <span>${tLobby.html('set.forests')}</span>${sel('trees', TERRAIN.map(([v, l]) => [v, tLobby(`set.${l}`)]), near(s.trees))}
+      <span>${tLobby.html('set.ore')}</span>${sel('ore', TERRAIN.map(([v, l]) => [v, tLobby(`set.${l}`)]), near(s.ore))}` : ''}
+      <span>${tLobby.html('set.credits')}</span>${sel('credits', CREDIT_OPTIONS.map((v) => [v, fmtMoney(v)]), s.credits)}
+      <span>${tLobby.html('set.startWith')}</span>${sel('startUnits', [['mcv', tLobby('set.mcv')], ['light', tLobby('set.light')], ['heavy', tLobby('set.heavy')]], s.startUnits)}
+      <span>${tLobby.html('set.fog')}</span>${sel('fog', [['true', tCommon('on')], ['false', tCommon('off')]], String(s.fog))}
+      <span>${tLobby.html('set.buildUp')}</span>${sel('ceasefire', CEASEFIRE_OPTIONS.map((v) => [v, v ? tLobby('set.ceasefire', { n: v }) : tCommon('none')]), s.ceasefire)}
+      ${s.rules === 'commander' ? `<span>${tLobby.html('set.events')}</span>${sel('events', [['true', tLobby('set.eventsOn')], ['false', tCommon('off')]], String(s.events))}` : ''}
     </div>
-    <div class="lob-label" style="margin-top:.3rem">Mutators${s.mutators.length ? ` · ${s.mutators.length}` : ''}</div>
-    <div class="lob-muts">${(isHost ? muts : muts.filter((m) => s.mutators.includes(m.id))).map((m) => `<button class="lob-mut${s.mutators.includes(m.id) ? ' on' : ''}" data-mut="${esc(m.id)}" title="${esc(m.desc)}" ${dis}>${picto(m.icon, 'ic')}${esc(m.name)}</button>`).join('') || '<span class="lob-note">None</span>'}</div>`;
+    <div class="lob-label" style="margin-top:.3rem">${s.mutators.length ? tLobby.html('set.mutatorsCount', { n: s.mutators.length }) : tLobby.html('set.mutators')}</div>
+    <div class="lob-muts">${(isHost ? muts : muts.filter((m) => s.mutators.includes(m.id))).map((m) => `<button class="lob-mut${s.mutators.includes(m.id) ? ' on' : ''}" data-mut="${esc(m.id)}" title="${esc(mutatorDesc(m))}" ${dis}>${picto(m.icon, 'ic')}${esc(mutatorName(m))}</button>`).join('') || `<span class="lob-note">${tCommon.html('none')}</span>`}</div>`;
   }
 
   private bind(room: RoomView, isHost: boolean) {
@@ -496,9 +515,9 @@ class LobbyView {
     (P.querySelector('[data-a="muteall"]') as HTMLElement).onclick = () => { this.muteAll = !this.muteAll; this.host.play('click'); this.render(); };
     (P.querySelector('[data-a="leave"]') as HTMLElement).onclick = () => this.leave();
     const cc = P.querySelector('[data-a="copycode"]') as HTMLElement;
-    cc.onclick = () => void copy(room.code).then((ok) => tip(cc, ok ? 'Code copied' : 'Copy failed'));
+    cc.onclick = () => void copy(room.code).then((ok) => tip(cc, tLobby(ok ? 'room.codeCopied' : 'room.copyFailed')));
     const inv = P.querySelector('[data-a="invite"]') as HTMLElement;
-    inv.onclick = () => void copy(inviteLink(room.code)).then((ok) => { this.host.play('click'); tip(inv, ok ? 'Invite link copied' : 'Copy failed'); });
+    inv.onclick = () => void copy(inviteLink(room.code)).then((ok) => { this.host.play('click'); tip(inv, tLobby(ok ? 'room.inviteCopied' : 'room.copyFailed')); });
     const start = P.querySelector('[data-a="start"]') as HTMLButtonElement | null;
     if (start) start.onclick = () => { this.host.play('click'); this.error = ''; c.send({ t: 'start' }); };
     const ready = P.querySelector('[data-a="ready"]') as HTMLButtonElement | null;
@@ -526,7 +545,7 @@ class LobbyView {
     const lines = this.muteAll ? [] : this.chatLog.filter((l) => !this.muted.has(l.seat));
     log.innerHTML = lines.length
       ? lines.map((l) => `<div class="ln"><b style="color:${color(l.seat)}">${esc(l.name)}</b>${esc(l.text)}</div>`).join('')
-      : `<div class="sys">${this.muteAll ? 'Chat muted.' : 'No messages yet. Share the invite link to bring a friend.'}</div>`;
+      : `<div class="sys">${tLobby.html(this.muteAll ? 'room.chatMuted' : 'room.noMessages')}</div>`;
     log.scrollTop = log.scrollHeight;
   }
 }

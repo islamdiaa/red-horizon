@@ -9,6 +9,8 @@ import { defaultStorage, loadProfile, saveProfile, type KV } from '../meta/profi
 import { rankIndexFor, rankName } from '../meta/ranks';
 import { DOCTRINES, PERKS, TITLES } from './data';
 import { RUN_VERSION, owned, type ConquestRun } from './state';
+import { RUN } from '../i18n/en/conquest-run'; // the English stored in the run (translated where shown)
+import { fill as en } from './text';
 
 export type { KV };
 export const RUN_KEY = 'rh.conquest.run';
@@ -127,14 +129,14 @@ export function recordRunEnd(run: ConquestRun, kv: KV = defaultStorage(), now = 
   });
   if (meta.history.length > 12) meta.history.length = 12;
   const unlocks: string[] = [];
-  for (const d of DOCTRINES) if (d.renown > before && d.renown <= meta.renown) unlocks.push(`Doctrine: ${d.name}`);
+  for (const d of DOCTRINES) if (d.renown > before && d.renown <= meta.renown) unlocks.push(en(RUN.unlock.doctrine, { name: d.name }));
   const perkNames = new Set<string>();
-  for (const p of PERKS) if ((p.renown ?? 0) > before && (p.renown ?? 0) <= meta.renown && !perkNames.has(p.id)) { perkNames.add(p.id); unlocks.push(`Perk: ${p.name}`); }
+  for (const p of PERKS) if ((p.renown ?? 0) > before && (p.renown ?? 0) <= meta.renown && !perkNames.has(p.id)) { perkNames.add(p.id); unlocks.push(en(RUN.unlock.perk, { name: p.name })); }
   const earn = (id: string) => {
     if (meta.titles.includes(id)) return;
     meta.titles.push(id);
     const t = TITLES.find((x) => x.id === id);
-    if (t) unlocks.push(`Title: ${t.name}`);
+    if (t) unlocks.push(en(RUN.unlock.title, { name: t.name }));
     meta.title ??= id;
   };
   earn('field_commander');

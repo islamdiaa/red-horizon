@@ -5,6 +5,11 @@ import type { EntityRenderer } from './entities';
 import type { DynamicLights } from './dynlights';
 import { visualScale } from './scale';
 
+// light options reused every frame (DynamicLights.add copies them): no per-light objects in the hot loop
+const FLOOD = { priority: 0.5 };
+const HEAD_SPOT = { x: 0, y: -0.32, z: 0, angle: 0.9 };
+const HEAD = { priority: 0.4, spot: HEAD_SPOT };
+
 /**
  * Fake light pools on the ground (one instanced draw call): warm floodlights around
  * powered structures and headlight beams in front of vehicles. Used at night.
@@ -48,7 +53,7 @@ export class LightPools {
         const on = !b.owner.lowPower || b.bt.power > 0;
         const flicker = on ? 1 : 0.25 + 0.15 * Math.sin(time * 9 + b.id);
         const r = Math.max(b.w, b.h) * 1.15 + 2.4;
-        dyn.add(b.x, map.surfaceAt(b.x, b.y) + 1.5 + Math.max(b.w, b.h) * 0.25, b.y + b.h * 0.3, 0xffbf73, 3 * strength * flicker, r, 0, { priority: 0.5 });
+        dyn.add(b.x, map.surfaceAt(b.x, b.y) + 1.5 + Math.max(b.w, b.h) * 0.25, b.y + b.h * 0.3, 0xffbf73, 3 * strength * flicker, r, 0, FLOOD);
       }
       for (const u of w.units) {
         if (!u.alive || u.kind !== 'vehicle' || !this.ents.isShown(u.id)) continue;
@@ -57,7 +62,9 @@ export class LightPools {
         // from the front of the (visually scaled) hull
         const vs = visualScale('vehicle', u.type.id);
         const ahead = u.ut.radius * 0.9 * vs;
-        dyn.add(x + c * ahead, map.surfaceAt(x, y) + 0.42 * vs, y + sn * ahead, 0xdce6ff, 0.9 * strength, 3.6, 0, { priority: 0.4, spot: { x: c, y: -0.32, z: sn, angle: 0.9 } });
+        HEAD_SPOT.x = c;
+        HEAD_SPOT.z = sn;
+        dyn.add(x + c * ahead, map.surfaceAt(x, y) + 0.42 * vs, y + sn * ahead, 0xdce6ff, 0.9 * strength, 3.6, 0, HEAD);
       }
       return;
     }

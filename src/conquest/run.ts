@@ -14,6 +14,9 @@ import {
   personalityOf, resCount, territory, withRng,
   type BattleReport, type ConquestRun, type Score, type Territory, type Veteran, type VetChange,
 } from './state';
+import { RUN as T } from '../i18n/en/conquest-run'; // the English stored in the run (translated where shown)
+import { BATTLE } from '../i18n/en/conquest-battle';
+import { fill as en } from './text';
 
 const ALL_TYPES = [...Object.keys(BUILDINGS), ...Object.keys(UNITS)];
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
@@ -60,7 +63,7 @@ export function perkPool(run: ConquestRun): PerkDef[] {
 /** Offer a choice of three perks (stored in the run until picked). */
 export function offerPerks(run: ConquestRun) {
   const pool = perkPool(run);
-  if (!pool.length) { run.warChest += 2000; log(run, 'perk', 'No new doctrine to adopt: High Command sends $2,000 instead.'); return; }
+  if (!pool.length) { run.warChest += 2000; log(run, 'perk', T.log.noPerk); return; }
   run.perkChoice = withRng(run, (rng) => {
     const left = [...pool], out: string[] = [];
     while (out.length < 3 && left.length) {
@@ -79,7 +82,7 @@ export function pickPerk(run: ConquestRun, id: string): boolean {
   run.perks.push(id);
   run.perkChoice = null;
   if (id === 'iron_will') { run.moraleMax++; run.morale = Math.min(run.moraleMax, run.morale + 1); }
-  log(run, 'perk', `New doctrine adopted: ${perkDef(id, run.faction)?.name ?? id}.`);
+  log(run, 'perk', en(T.log.perk, { perk: perkDef(id, run.faction)?.name ?? id }));
   return true;
 }
 
@@ -98,7 +101,7 @@ export function buyResearch(run: ConquestRun, id: string): boolean {
   if (!r || researchState(run, r) !== 'available') return false;
   run.rp -= r.cost;
   run.research.push(id);
-  log(run, 'research', `Research complete: ${r.name}.`);
+  log(run, 'research', en(T.log.research, { research: r.name }));
   return true;
 }
 
@@ -178,7 +181,7 @@ export function planBattle(run: ConquestRun, targetId: string, committed = defau
   const strength = action === 'defend'
     ? Math.max(2, Math.min(6, (from?.strength ?? 3) + (run.difficulty === 'hard' ? 1 : 0) - spy))
     : Math.max(1, Math.min(6, t.strength - (t.capital ? 0 : spy)));
-  const pers = neutral ? { commander: `${t.name} Defence Force`, personality: 'fortress' as const } : personalityOf(run, action === 'defend' && from ? from : t);
+  const pers = neutral ? { commander: en(BATTLE.neutralForce, { territory: t.name }), personality: 'fortress' as const } : personalityOf(run, action === 'defend' && from ? from : t);
   const climate = climateOf(t, run.turn);
   const seed = ((run.seed * 31 + run.turn * 7919) ^ hashStr(t.id)) >>> 0;
   const { map, label } = battleMap(kind, t.terrain, climate, seed % 100000, strength);
@@ -241,7 +244,7 @@ export function startBattle(run: ConquestRun, targetId: string, committed = defa
   const t = territory(run, targetId);
   run.warChest -= c;
   run.pending = { spec, action: spec.kind === 'defend' ? 'defend' : 'attack', committed: c };
-  log(run, 'info', `${run.pending.action === 'defend' ? 'Defending' : 'Attacking'} ${t.name} (${spec.mapLabel.toLowerCase()}, strength ${spec.strength}).`);
+  log(run, 'info', en(run.pending.action === 'defend' ? T.log.defending : T.log.attacking, { territory: t.name, map: spec.mapLabel.toLowerCase(), n: spec.strength }));
   return pendingSetup(run)!;
 }
 
@@ -259,7 +262,7 @@ function captureTerritory(run: ConquestRun, t: Territory) {
   run.stats.capturedValue += t.value;
   run.stats.peakTerritories = Math.max(run.stats.peakTerritories, owned(run).length);
   if (run.threat && run.threat.from === t.id) run.threat = null;
-  if (run.superThreat?.territory === t.id) { run.superThreat = null; log(run, 'win', `The superweapon site in ${t.name} is in our hands.`); }
+  if (run.superThreat?.territory === t.id) { run.superThreat = null; log(run, 'win', en(T.log.swCaptured, { territory: t.name })); }
 }
 
 function loseTerritory(run: ConquestRun, t: Territory) {
@@ -268,7 +271,7 @@ function loseTerritory(run: ConquestRun, t: Territory) {
   t.fort = 0;
   t.captured = undefined;
   run.stats.lost++;
-  if (t.capital === 'player') finishRun(run, 'lost', `${t.name}, our capital, has fallen.`);
+  if (t.capital === 'player') finishRun(run, 'lost', en(T.ending.capitalFell, { territory: t.name }));
 }
 
 /** Apply a finished battle to the run, then play the enemy phase and start the next turn. */
@@ -337,11 +340,11 @@ export function resolveBattle(run: ConquestRun, outcome: BattleOutcome): BattleR
       run.threat = null;
     }
     if (done('swift')) {
-      report.bonus.push({ label: 'Swift victory', credits: 1000, rp: 0 });
-      if (hasPerk(run, 'blitzkrieg')) report.bonus.push({ label: 'Blitzkrieg', credits: 2000, rp: 1 });
+      report.bonus.push({ label: T.bonus.swift, credits: 1000, rp: 0 });
+      if (hasPerk(run, 'blitzkrieg')) report.bonus.push({ label: T.bonus.blitz, credits: 2000, rp: 1 });
     }
-    if (done('veterans')) report.bonus.push({ label: 'No veteran lost', credits: 500, rp: 0 });
-    if (done('counter')) report.bonus.push({ label: 'Enemy staging base destroyed', credits: 1000, rp: 0 });
+    if (done('veterans')) report.bonus.push({ label: T.bonus.veterans, credits: 500, rp: 0 });
+    if (done('counter')) report.bonus.push({ label: T.bonus.counter, credits: 1000, rp: 0 });
   } else {
     run.stats.battlesLost++;
     run.morale--;
@@ -351,7 +354,7 @@ export function resolveBattle(run: ConquestRun, outcome: BattleOutcome): BattleR
   }
   if (done('sw') || (outcome.superweaponDestroyed && run.superThreat?.territory === t.id)) {
     if (run.superThreat?.territory === t.id) run.superThreat = null;
-    report.bonus.push({ label: 'Superweapon destroyed', credits: 0, rp: 1 });
+    report.bonus.push({ label: T.bonus.superweapon, credits: 0, rp: 1 });
   }
   const bonusCredits = report.bonus.reduce((s, b) => s + b.credits, 0), bonusRp = report.bonus.reduce((s, b) => s + b.rp, 0);
   run.warChest += report.loot + bonusCredits;
@@ -363,10 +366,10 @@ export function resolveBattle(run: ConquestRun, outcome: BattleOutcome): BattleR
   run.armyAt = t.owner === 'player' ? t.id : findTerritory(run, S.fromId)?.owner === 'player' ? S.fromId : capitalOf(run, 'player').id;
   if (territory(run, run.armyAt).owner !== 'player') run.armyAt = capitalOf(run, 'player').id;
   log(run, won ? 'win' : 'loss', won
-    ? `${p.action === 'defend' ? `${t.name} held` : `${t.name} captured`} in ${fmt(outcome.time)}. +${money(report.loot + bonusCredits)}, +${report.rp + bonusRp} RP.`
-    : `${p.action === 'defend' ? `${t.name} lost` : `The attack on ${t.name} failed`}. Morale ${run.morale}/${run.moraleMax}.`);
+    ? en(p.action === 'defend' ? T.log.held : T.log.captured, { territory: t.name, time: fmt(outcome.time), money: money(report.loot + bonusCredits), rp: report.rp + bonusRp })
+    : en(p.action === 'defend' ? T.log.lost : T.log.failed, { territory: t.name, morale: run.morale, max: run.moraleMax }));
   if (S.kind === 'boss' && won) {
-    finishRun(run, 'won', `${t.name} has fallen. The war is won.`);
+    finishRun(run, 'won', en(T.ending.won, { territory: t.name }));
     return report;
   }
   if (won && p.action === 'attack' && t.value >= 2) { offerPerks(run); report.perkOffered = !!run.perkChoice; }
@@ -397,7 +400,7 @@ export function regroup(run: ConquestRun) {
   if (run.status !== 'active' || run.pending) return;
   run.warChest += 1500;
   run.rp += 1;
-  log(run, 'info', 'The army regroups and refits: +$1,500, +1 RP.');
+  log(run, 'info', T.log.regroup);
   run.report = null;
   run.reportSeen = true;
   endTurn(run);
@@ -410,21 +413,21 @@ export function regroup(run: ConquestRun) {
 export function income(run: ConquestRun): { credits: number; rp: number; lines: { label: string; credits: number; rp: number }[] } {
   const lines: { label: string; credits: number; rp: number }[] = [];
   const mine = owned(run);
-  lines.push({ label: `${mine.length} territories`, credits: mine.reduce((s, t) => s + t.income, 0), rp: 0 });
+  lines.push({ label: en(T.income.territories, { n: mine.length }), credits: mine.reduce((s, t) => s + t.income, 0), rp: 0 });
   const oil = resCount(run, 'oil'), port = resCount(run, 'port'), sci = resCount(run, 'science');
-  if (oil) lines.push({ label: `Oil fields x${oil}`, credits: 600 * oil, rp: 0 });
-  if (port) lines.push({ label: `Naval ports x${port}`, credits: 300 * port, rp: 0 });
-  if (sci) lines.push({ label: `Research institutes x${sci}`, credits: 0, rp: sci });
-  if (hasPerk(run, 'lend_lease')) lines.push({ label: 'Lend-Lease', credits: 1000, rp: 0 });
-  if (hasResearch(run, 'logistics_net')) lines.push({ label: 'Logistics Network', credits: 750, rp: 0 });
+  if (oil) lines.push({ label: en(T.income.oil, { n: oil }), credits: 600 * oil, rp: 0 });
+  if (port) lines.push({ label: en(T.income.ports, { n: port }), credits: 300 * port, rp: 0 });
+  if (sci) lines.push({ label: en(T.income.science, { n: sci }), credits: 0, rp: sci });
+  if (hasPerk(run, 'lend_lease')) lines.push({ label: T.income.lendLease, credits: 1000, rp: 0 });
+  if (hasResearch(run, 'logistics_net')) lines.push({ label: T.income.logistics, credits: 750, rp: 0 });
   return { credits: lines.reduce((s, l) => s + l.credits, 0), rp: lines.reduce((s, l) => s + l.rp, 0), lines };
 }
 
 function checkDefeat(run: ConquestRun) {
   if (run.status !== 'active') return;
-  if (capitalOf(run, 'player').owner !== 'player') finishRun(run, 'lost', 'Our capital has fallen.');
-  else if (run.morale <= 0) finishRun(run, 'lost', 'Morale has collapsed. High Command relieves you of command.');
-  else if (!owned(run).length) finishRun(run, 'lost', 'We hold no territory.');
+  if (capitalOf(run, 'player').owner !== 'player') finishRun(run, 'lost', T.ending.capital);
+  else if (run.morale <= 0) finishRun(run, 'lost', T.ending.morale);
+  else if (!owned(run).length) finishRun(run, 'lost', T.ending.noTerritory);
 }
 
 /** The enemy phase: unanswered counterattacks land, superweapons fire, the front reinforces, a new attack is declared. */
@@ -434,9 +437,9 @@ export function endTurn(run: ConquestRun) {
     if (run.threat) {
       const t = territory(run, run.threat.target);
       if (t.owner === 'player') {
-        if (hasPerk(run, 'fortified_lines') && rng.chance(0.5)) log(run, 'win', `${t.name}'s fortified lines repelled the enemy counterattack.`);
-        else if (t.fort >= 2 && rng.chance(0.35)) log(run, 'win', `${t.name}'s garrison held without help.`);
-        else { loseTerritory(run, t); log(run, 'loss', `${t.name} was overrun by the enemy counterattack.`); }
+        if (hasPerk(run, 'fortified_lines') && rng.chance(0.5)) log(run, 'win', en(T.log.fortified, { territory: t.name }));
+        else if (t.fort >= 2 && rng.chance(0.35)) log(run, 'win', en(T.log.garrison, { territory: t.name }));
+        else { loseTerritory(run, t); log(run, 'loss', en(T.log.overrun, { territory: t.name })); }
       }
       run.threat = null;
     }
@@ -453,8 +456,9 @@ export function endTurn(run: ConquestRun) {
         run.warChest -= loss;
         hit.fort = 0;
         let vet = '';
-        if (run.core.length) { const v = rng.pick(run.core); run.core.splice(run.core.indexOf(v), 1); run.stats.veteransLost++; vet = ` ${v.name} was caught in the blast.`; }
-        log(run, 'threat', `The enemy ${st.kind === 'nuke' ? 'nuclear missile' : 'superweapon'} in ${src.name} struck ${hit.name}: -${money(loss)}.${vet}`);
+        if (run.core.length) { const v = rng.pick(run.core); run.core.splice(run.core.indexOf(v), 1); run.stats.veteransLost++; vet = v.name; }
+        const nuke = st.kind === 'nuke';
+        log(run, 'threat', en(vet ? (nuke ? T.log.nukeVet : T.log.superVet) : nuke ? T.log.nuke : T.log.super, { src: src.name, territory: hit.name, money: money(loss), vet }));
         st.turns = 4;
       }
     }
@@ -467,7 +471,7 @@ export function endTurn(run: ConquestRun) {
         t.strength++;
         n++;
       }
-      if (n) log(run, 'threat', 'Enemy reinforcements reach the front: its garrisons grow stronger.');
+      if (n) log(run, 'threat', T.log.reinforce);
     }
     // declare a counterattack
     if (run.turn >= 2) {
@@ -487,7 +491,7 @@ export function endTurn(run: ConquestRun) {
           let pick = cands[0];
           for (const c of cands) { r -= Math.max(0.2, c.w); if (r <= 0) { pick = c; break; } }
           run.threat = { target: pick.t.id, from: pick.from.id };
-          log(run, 'threat', `Enemy forces in ${pick.from.name} are massing against ${pick.t.name}! Defend it this turn or lose it.`);
+          log(run, 'threat', en(T.log.massing, { from: pick.from.name, territory: pick.t.name }));
         }
       }
     }
@@ -503,7 +507,7 @@ export function beginTurn(run: ConquestRun) {
   run.warChest += inc.credits;
   run.rp += inc.rp;
   run.stats.creditsEarned += inc.credits;
-  log(run, 'income', `${dateOf(run.turn).label}: income ${money(inc.credits)}${inc.rp ? `, +${inc.rp} RP` : ''}.`);
+  log(run, 'income', en(inc.rp ? T.log.incomeRp : T.log.income, { date: dateOf(run.turn).label, money: money(inc.credits), rp: inc.rp }));
   run.event = rollEvent(run);
 }
 
@@ -513,16 +517,16 @@ export function beginTurn(run: ConquestRun) {
 export function computeScore(run: ConquestRun): Score {
   const lines: { label: string; value: number }[] = [];
   const add = (label: string, value: number) => { if (value) lines.push({ label, value: Math.round(value) }); };
-  add('Battles won', 250 * run.stats.battlesWon);
-  add('Territory captured', 120 * run.stats.capturedValue);
-  add('Successful defences', 150 * run.stats.defended);
-  add('Territories held', 50 * owned(run).length);
-  add('Core veterans', 40 * run.core.reduce((s, v) => s + v.rank, 0));
-  add('War chest', run.warChest / 100);
+  add(T.score.battles, 250 * run.stats.battlesWon);
+  add(T.score.captured, 120 * run.stats.capturedValue);
+  add(T.score.defences, 150 * run.stats.defended);
+  add(T.score.held, 50 * owned(run).length);
+  add(T.score.veterans, 40 * run.core.reduce((s, v) => s + v.rank, 0));
+  add(T.score.warChest, run.warChest / 100);
   if (run.status === 'won') {
-    add('Victory', 5000);
-    add('Speed bonus', Math.max(0, 30 - run.turn) * 150);
-    add('Morale', 300 * run.morale);
+    add(T.score.victory, 5000);
+    add(T.score.speed, Math.max(0, 30 - run.turn) * 150);
+    add(T.score.morale, 300 * run.morale);
   }
   const multiplier = run.difficulty === 'easy' ? 0.75 : run.difficulty === 'hard' ? 1.4 : 1;
   const total = Math.round(lines.reduce((s, l) => s + l.value, 0) * multiplier);
@@ -542,5 +546,5 @@ export function finishRun(run: ConquestRun, status: 'won' | 'lost', ending: stri
 }
 
 export function abandonRun(run: ConquestRun) {
-  finishRun(run, 'lost', 'The campaign was abandoned.');
+  finishRun(run, 'lost', T.ending.abandoned);
 }

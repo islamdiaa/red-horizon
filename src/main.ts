@@ -1,39 +1,51 @@
 import './ui/styles.css';
 import { AudioSystem } from './audio';
-import { Game, type GameSetup } from './game';
+import type { Game, GameSetup } from './game';
 import { Menus, type Settings } from './ui/menu';
-import { showCampaign, showDebrief } from './ui/campaign';
 import { campaignMissions } from './missions';
-import { showProfile } from './ui/profile';
-import { showChallenges } from './ui/challenges';
 import { setToastSound } from './meta';
 import { readSave, type SaveData } from './sim/save';
 import { GAME_TITLE } from './config';
 import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
 import type { TimeOfDay } from './render/renderer';
-import { chargeArmies, debugConstruct } from './debug';
-import { AIController } from './sim/ai';
 import { installErrorBoundary, reportError } from './platform/errors';
 import { checkSupport, renderUnsupported } from './platform/webgl';
 import { detectQuality } from './platform/gpu';
 import { registerServiceWorker } from './platform/pwa';
 import { enterFullscreen } from './platform/fullscreen';
 import { hdModelsWanted, loadSettings, saveSettings } from './ui/settings';
-import { hdModelsEnabled, hdStatus, prefetchHdFiles, setHdModels } from './render/models/hd';
-import { preloadHd as preloadHdModelsFor } from './render/models';
-import { attachPlayback } from './replay/playback'; // replays
 import { resolveTestSetup } from './replay/launch';
 import { customMissionSetup, initEditorStore } from './editor/store';
 import { activeModSet, showModBadge, showMods } from './mods'; // mods
-import { attachModes, modesOnEnd, offerMoments, setModeHost } from './modes/ui'; // KOTH, challenges, branches, co-op
-import { saveRun, loadRun, type BattleKind, type ConquestSetup } from './conquest';
-import { attachVariety } from './ui/variety-hud';
+import { saveRun, loadRun } from './conquest/storage';
+import type { BattleKind, ConquestSetup } from './conquest/battle';
 import { showQuickCard } from './ui/variety';
 import './ui/doctrine-picker'; // registers the doctrine picker in the skirmish Rules tab
-import { createAttractGame } from './share/attract'; // directed menu backdrop
 import type { LobbyHost } from './ui/lobby'; // multiplayer lobby (loaded on demand)
 import { boardOfSetup, portableMathFor, withPortableFlag } from './net/boards'; // multiplayer and ranked runs: portable maths, verified leaderboards
+import { i18nReady } from './i18n/core'; // interface language (src/i18n)
+import tMenu from './i18n/en/menu';
+import tLoading from './i18n/en/loading';
+
+/**
+ * The engine (src/engine.ts: three.js, the renderer, models, HUD, the menu backdrop) is its own chunk, requested
+ * right here so it downloads while the menu is already up; the backdrop battle starts once it has arrived.
+ */
+type Engine = typeof import('./engine');
+const engineLoad: Promise<Engine> = import('./engine');
+engineLoad.catch(() => {}); // (reported where it is awaited)
+await i18nReady; // the saved or browser language: its catalogue downloads alongside the engine
+let engineMod: Engine | null = null;
+let engineReady: Promise<Engine> | null = null;
+function engine(): Promise<Engine> {
+  return (engineReady ??= engineLoad.then((E) => {
+    engineMod = E;
+    // how mode screens (challenges, result, end-screen offers) start games and return to the menus
+    E.setModeHost({ start: (s) => void startGame(s), quality: () => menus.settings.quality, toMenu: () => { audio.stopMusic(); startDemo(); }, openChallenges: () => openChallenges(), openReplays: () => menus.showReplays() });
+    return E;
+  }));
+}
 
 document.title = GAME_TITLE;
 const support = checkSupport(); // before anything creates a WebGLRenderer
@@ -88,7 +100,7 @@ const menus = new Menus(audio, {
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
   openConquest: () => openConquest(),
-  conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? `Turn ${r.turn}` : null; },
+  conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? tMenu('main.conquestTurn', { n: r.turn }) : null; },
   openChallenges: () => openChallenges(),
   openProfile: () => openProfile(),
   openBootCamp: () => deployMission('bootcamp'),
@@ -98,7 +110,7 @@ const menus = new Menus(audio, {
   backToLobby: () => void import('./ui/lobby').then((m) => { m.keepConnection(); audio.stopMusic(); startDemo(); menus.hide(); m.openLobby(lobbyHost); }).catch((e) => reportError(e)), // after a match: back to its room
   continueInfo: () => {
     const s = latestSave();
-    return s ? { label: s.game?.label ?? 'Saved game', savedAt: s.savedAt } : null;
+    return s ? { label: s.game?.label ?? tMenu('main.savedGame'), savedAt: s.savedAt } : null;
   },
   continueGame: () => {
     const s = latestSave();
@@ -106,8 +118,6 @@ const menus = new Menus(audio, {
   },
   saveGame: () => game?.save('manual') ?? false,
 });
-// how mode screens (challenges, result, end-screen offers) start games and return to the menus
-setModeHost({ start: (s) => void startGame(s), quality: () => menus.settings.quality, toMenu: () => { audio.stopMusic(); startDemo(); }, openChallenges: () => openChallenges(), openReplays: () => menus.showReplays() });
 
 function latestSave(): SaveData | null {
   const a = readSave('auto'), m = readSave('manual');
@@ -134,6 +144,7 @@ function deployMission(id: string) {
 /** Map & mission editor (the menu backdrop battle is stopped while it is open). */
 function openEditorScreen() {
   returnToEditor = false;
+  demoToken++; // (a backdrop still waiting for the engine stays away)
   game?.dispose();
   game = null;
   exposeDebug(null);
@@ -152,7 +163,7 @@ function openEditorScreen() {
 
 /** Campaign / special operations screen. */
 function openCampaign() {
-  showCampaign({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onDeploy: (id) => deployMission(id) });
+  void import('./ui/campaign').then(({ showCampaign }) => showCampaign({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onDeploy: (id) => deployMission(id) })).catch((e) => reportError(e));
 }
 
 /** Conquest: the roguelite campaign across Europe (src/ui/conquest.ts). */
@@ -176,11 +187,12 @@ function deployConquest(c: ConquestSetup) {
 }
 
 function openChallenges() {
-  showChallenges({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onProfile: () => openProfile(), onDeploy: (id) => deployMission(id) });
+  // (the challenge screens use the mode runtime, so the engine comes first)
+  void Promise.all([import('./ui/challenges'), engine()]).then(([{ showChallenges }]) => showChallenges({ play: (k) => audio.play(k), onBack: () => menus.showMain(), onProfile: () => openProfile(), onDeploy: (id) => deployMission(id) })).catch((e) => reportError(e));
 }
 
 function openProfile() {
-  showProfile({ play: (k) => audio.play(k), onBack: () => menus.showMain() });
+  void import('./ui/profile').then(({ showProfile }) => showProfile({ play: (k) => audio.play(k), onBack: () => menus.showMain() })).catch((e) => reportError(e));
 }
 
 function applySettings(g: Game, s: Settings) {
@@ -205,15 +217,15 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => set
  * not known up front: missions, saves, replays, random opponents). Bounded: a slow network starts the match
  * with procedural models rather than waiting.
  */
-async function preloadHd(setup: GameSetup): Promise<void> {
+async function preloadHd(E: Engine, setup: GameSetup): Promise<void> {
   const on = hdModelsWanted(menus.settings, setup.quality);
-  setHdModels(on, setup.quality === 'high' ? 'high' : 'medium');
+  E.setHdModels(on, setup.quality === 'high' ? 'high' : 'medium');
   if (!on) return;
   const both = !!(setup.mission || setup.load || setup.replay || setup.conquest || setup.allies?.length) || setup.opponents.some((o) => o.faction === 'random');
   const facs = new Set<Faction>(both ? ['soviet', 'allies'] : [setup.faction, ...setup.opponents.map((o) => o.faction as Faction)]);
-  setLoading(0.02, 'Loading HD models');
+  setLoading(0.02, tLoading('stage.hdModels'));
   await Promise.race([
-    preloadHdModelsFor([...facs], [], (d, n) => setLoading(0.02 + (0.06 * d) / Math.max(1, n), 'Loading HD models')),
+    E.preloadHd([...facs], [], (d, n) => setLoading(0.02 + (0.06 * d) / Math.max(1, n), tLoading('stage.hdModels'))),
     new Promise<void>((r) => setTimeout(r, 20000)),
   ]);
 }
@@ -223,14 +235,14 @@ async function preloadHd(setup: GameSetup): Promise<void> {
  * before the first frame, so none of it has to swap from procedural later; the rest loads lazily
  * (EntityRenderer: structures when placed or seen, units when first produced).
  */
-async function preloadHdWorld(g: Game): Promise<void> {
-  if (!hdModelsEnabled()) return;
+async function preloadHdWorld(E: Engine, g: Game): Promise<void> {
+  if (!E.hdModelsEnabled()) return;
   const types: [string, Faction][] = [];
   for (const e of [...g.world.buildings, ...g.world.units]) if (e.alive) types.push([e.type.id, e.owner.faction]);
-  setLoading(0.96, 'Loading HD models');
-  await Promise.race([preloadHdModelsFor([], types), new Promise<void>((r) => setTimeout(r, 15000))]);
+  setLoading(0.96, tLoading('stage.hdModels'));
+  await Promise.race([E.preloadHd([], types), new Promise<void>((r) => setTimeout(r, 15000))]);
   g.warmHd();
-  prefetchHdFiles([...new Set(g.world.players.map((p) => p.faction))]); // offline: the service worker caches the rest
+  E.prefetchHdFiles([...new Set(g.world.players.map((p) => p.faction))]); // offline: the service worker caches the rest
 }
 
 async function startGame(setup: GameSetup) {
@@ -240,22 +252,32 @@ async function startGame(setup: GameSetup) {
   // still inside the Deploy click, so the browser allows it
   if (menus.settings.fullscreen !== false && !params.get('autostart')) void enterFullscreen();
   menus.hide();
-  setLoading(0, 'Initialising');
+  setLoading(0, tLoading('stage.initialising'));
   if (setup.quick && !setup.load && !setup.replay) showQuickCard(setup.quick); // what the Quick Battle rolled
+  demoToken++; // (a backdrop still waiting for the engine stays away)
   await nextFrame();
+  let E: Engine;
+  try {
+    if (!engineMod) setLoading(0.01, tLoading('stage.engine')); // (a slow connection: still downloading)
+    E = await engine();
+  } catch (e) {
+    reportError(e, true);
+    hideLoading();
+    return;
+  }
   game?.dispose();
   game = null;
   lastSetup = setup;
-  await preloadHd(setup); // the match's factions' baked models (procedural meanwhile / on failure)
+  await preloadHd(E, setup); // the match's factions' baked models (procedural meanwhile / on failure)
   setup = withPortableFlag(setup); // multiplayer and ranked runs: the same maths on every machine, recorded with the game
   await setPortable(portableMathFor(setup));
   try {
-    game = new Game(setup, audio, {
+    game = new E.Game(setup, audio, {
       onPause: () => menus.showPause(game!),
       onEnd: (g, won) => {
         if (g.setup.replay) return; // replay playback shows its own end panel
         g.paused = true;
-        if (modesOnEnd(g, won)) return; // challenge result screen · mode medals
+        if (E.modesOnEnd(g, won)) return; // challenge result screen · mode medals
         if (g.setup.conquest) { // the result goes back to the campaign: battle report, then the strategic map
           const conquest = g.setup.conquest;
           void import('./ui/conquest').then(({ showConquestAfterBattle }) => showConquestAfterBattle(g.world, conquest, {
@@ -266,32 +288,33 @@ async function startGame(setup: GameSetup) {
           return;
         }
         const def = g.missionDef, res = g.missionResult;
-        if (!def || !res) { menus.showEnd(g, won); offerMoments(g, won); return; } // "make this a challenge" offers
+        if (!def || !res) { menus.showEnd(g, won); E.offerMoments(g, won); return; } // "make this a challenge" offers
         // campaign / special operation: debrief with objectives, stars and the next mission
         const next = won && def.campaign !== 'special' ? campaignMissions(def.campaign).find((m) => m.index === def.index + 1) : undefined;
-        showDebrief(res, def, {
+        void import('./ui/campaign').then(({ showDebrief }) => showDebrief(res, def, {
           onNext: next ? () => deployMission(next.id) : undefined,
           onRetry: () => deployMission(def.id),
           onMenu: () => { audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); menus.hide(); openCampaign(); }, // playtests return to the editor
-        });
+        })).catch((e) => reportError(e));
       },
       onProgress: (f, l) => setLoading(f, l),
     });
     applySettings(game, menus.settings);
     showModBadge(game.setup.mods); // "Modded" badge
     exposeDebug(game);
-    (window as any).__debug = { construct: (t: string, x: number, y: number) => debugConstruct(game!.world, game!.local, t, x, y) };
-    applyTestParams(game);
-    await preloadHdWorld(game);
+    (window as any).__debug = { construct: (t: string, x: number, y: number) => E.debugConstruct(game!.world, game!.local, t, x, y) };
+    applyTestParams(E, game);
+    await preloadHdWorld(E, game);
     // scanned terrain materials and HD trees in place before the first frame (bounded: a slow network starts anyway)
     await Promise.race([Promise.all([game.gfx.terrain.texturesReady, game.gfx.vegetation.hdReady]), new Promise<void>((r) => setTimeout(r, 8000))]);
     // watching a replay: playback controls, spectator HUD, seeking (backwards = restart + seek)
-    if (setup.replay) attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } });
-    attachModes(game); // KOTH HUD, branch / challenge badge, moment tracking
-    attachVariety(game); // mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
+    if (setup.replay) (await import('./replay/playback')).attachPlayback(game, { restart: (s) => void startGame(s), exit: (toReplays) => { audio.stopMusic(); startDemo(); if (toReplays) menus.showReplays(); } }); // (the replay viewer: its own chunk)
+    E.attachModes(game); // KOTH HUD, branch / challenge badge, moment tracking
+    E.attachVariety(game); // mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
     if (setup.net && !setup.replay) (await import('./net/game-link')).attachNetMatch(game, { quit: () => { menus.hide(); audio.stopMusic(); startDemo(); }, play: (k) => audio.play(k) }); // a multiplayer match: lockstep, network status, desync dialog
     if (boardOfSetup(game.setup)) (await import('./net/leaderboard')).attachLeaderboard(game, { tainted: !!(params.get('scenario') || params.get('charge') || params.get('selfplay')), play: (k) => audio.play(k) }); // ranked runs
     game.start();
+    if (!setup.replay) { void import('./ui/results').catch(() => {}); void import('./ui/clips').catch(() => {}); } // the end screen's chunks, ready before the match ends
   } catch (e) {
     reportError(e, true);
   }
@@ -299,11 +322,11 @@ async function startGame(setup: GameSetup) {
 }
 
 /** URL testing hooks: scenario=base|battle, ff=seconds, charge=1, cam=x,y,dist, sel=army */
-function applyTestParams(g: Game) {
+function applyTestParams(E: Engine, g: Game) {
   if (params.get('autostart')) g.gfx.dynamicResolution = false; // stable screenshots in tests
   const sc = params.get('scenario');
   if (sc) g.applyScenario(sc);
-  if (params.get('charge')) chargeArmies(g.world);
+  if (params.get('charge')) E.chargeArmies(g.world);
   const ff = numParam('ff', 0, 0, 1800);
   if (ff > 0) g.fastForward(ff);
   const cam = params.get('cam');
@@ -317,7 +340,7 @@ function applyTestParams(g: Game) {
   }
   if (params.get('hour')) g.hours = numParam('hour', 12, 0, 24);
   const sp = params.get('selfplay');
-  if (sp) g.world.ais.push(new AIController(g.world, g.local, sp as AIDifficulty));
+  if (sp) g.world.ais.push(new E.AIController(g.world, g.local, sp as AIDifficulty));
   if (sc || params.get('charge') || sp) { g.recorder?.discard(); g.recorder = null; } // edited worlds can't be replayed
   if (params.get('speed')) g.speed = numParam('speed', 1, 0.1, 16);
   if (params.get('sel') === 'army') {
@@ -327,8 +350,11 @@ function applyTestParams(g: Game) {
 
 /** Test / dev hook. Only exposed in dev builds or test runs, so a quit game isn't kept alive. */
 function exposeDebug(g: Game | null) {
-  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) { (window as any).__game = g; (window as any).__hdStatus = hdStatus; } // status for tests
+  if (import.meta.env.DEV || params.get('autostart') || params.get('debug')) { (window as any).__game = g; (window as any).__hdStatus = engineMod?.hdStatus; } // status for tests
 }
+
+/** Bumped by everything that replaces the menu backdrop, so a backdrop still waiting for the engine stays away. */
+let demoToken = 0;
 
 function startDemo() {
   game?.dispose();
@@ -337,14 +363,20 @@ function startDemo() {
   game = null;
   returnToEditor = false;
   showModBadge(null);
+  const token = ++demoToken;
   if (params.get('demo') !== '0') {
-    try {
-      game = createDemo(); // the directed attract mode (src/share/attract.ts)
-      exposeDebug(game);
-      game.start();
-    } catch (e) {
-      console.warn('demo failed', e);
-    }
+    // the menu is up at once; the backdrop battle joins it as soon as the engine has loaded
+    void engine().then(async (E) => {
+      await nextFrame(); // the menu paints first: building the backdrop battle holds the main thread for a moment
+      if (token !== demoToken || game) return; // a match or the editor took over meanwhile
+      try {
+        game = createDemo(E); // the directed attract mode (src/share/attract.ts)
+        exposeDebug(game);
+        game.start();
+      } catch (e) {
+        console.warn('demo failed', e);
+      }
+    }, (e) => console.warn('engine failed to load', e));
   }
   menus.showMain();
   hideLoading();
@@ -354,16 +386,16 @@ function startDemo() {
  * The menu backdrop: a directed battle (src/share/attract.ts) that a fresh battlefield replaces behind a
  * fade every few loops, without touching the menus. ?attract=0 keeps the old free-running AI battle.
  */
-function createDemo(): Game {
+function createDemo(E: Engine): Game {
   if (params.get('attract') !== '0') {
     try {
-      return createAttractDemo();
+      return createAttractDemo(E);
     } catch (e) {
       console.warn('attract mode failed, using the free-running backdrop', e);
     }
   }
   const tods: TimeOfDay[] = ['day', 'dusk', 'night'];
-  const g = new Game({
+  const g = new E.Game({
     faction: 'allies', color: 0x3d7be0, opponents: [{ faction: 'soviet', difficulty: 'hard' }], mapSize: 64, water: 0.5, trees: 0.6, ore: 0.8,
     credits: 10000, startUnits: 'heavy', fog: false, timeOfDay: tods[Math.floor(Math.random() * 3)], quality: menus.settings.quality,
     seed: (Math.random() * 1e9) | 0, demo: true,
@@ -373,14 +405,14 @@ function createDemo(): Game {
   return g;
 }
 
-function createAttractDemo(): Game {
-  const g: Game = createAttractGame({
-    makeGame: (setup) => new Game(setup, audio, { onPause: () => {}, onEnd: () => {} }), quality: menus.settings.quality, tod: params.get('tod'), climate: params.get('climate'),
+function createAttractDemo(E: Engine): Game {
+  const g: Game = E.createAttractGame({
+    makeGame: (setup) => new E.Game(setup, audio, { onPause: () => {}, onEnd: () => {} }), quality: menus.settings.quality, tod: params.get('tod'), climate: params.get('climate'),
     rebuild: () => {
       if (game !== g) return; // a real match (or the editor) took over meanwhile
       g.dispose();
       game = null;
-      try { game = createDemo(); exposeDebug(game); game.start(); } catch (e) { console.warn('demo failed', e); }
+      try { game = createDemo(E); exposeDebug(game); game.start(); } catch (e) { console.warn('demo failed', e); }
     },
   });
   return g;
@@ -412,13 +444,13 @@ if (params.get('autostart') && params.get('conquest')) {
   }).then(startGame);
 } else if (params.get('trailer')) {
   // ?trailer=1: the ~85 s trailer cut with title cards, recorded to WebM (src/share/trailer.ts)
-  setLoading(0.5, 'Loading');
-  void import('./share/trailer').then(({ startTrailer }) => {
-    startTrailer({ audio, makeGame: (setup) => new Game(setup, audio, { onPause: () => {}, onEnd: () => {} }), quality: menus.settings.quality, setGame: (g) => { game = g; exposeDebug(g); }, exit: () => { location.href = location.pathname; } }, params);
+  setLoading(0.5, tLoading('stage.loading'));
+  void Promise.all([import('./share/trailer'), engine()]).then(([{ startTrailer }, E]) => {
+    startTrailer({ audio, makeGame: (setup) => new E.Game(setup, audio, { onPause: () => {}, onEnd: () => {} }), quality: menus.settings.quality, setGame: (g) => { game = g; exposeDebug(g); }, exit: () => { location.href = location.pathname; } }, params);
     hideLoading();
   }).catch((e) => reportError(e, true));
 } else {
-  setLoading(0.5, 'Loading');
+  setLoading(0.5, tLoading('stage.loading'));
   // custom maps / missions are listed in the menus: load the editor library first (bounded wait)
   setTimeout(() => void Promise.race([initEditorStore(), new Promise((r) => setTimeout(r, 1500))]).finally(() => { startDemo(); openShare(); openInvite(); }), 30); // share links · invite links
 }

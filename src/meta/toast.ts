@@ -3,7 +3,9 @@
  * Self-contained DOM with injected CSS; safe to call from anywhere (no-ops without a document).
  */
 import { insigniaSvg, picto } from './art';
-import type { ContractProgress } from './contracts';
+import { moneyShort, type ContractProgress } from './contracts';
+import { fmtInt } from '../i18n/core';
+import tMeta from '../i18n/en/meta';
 
 export interface ToastInfo {
   title: string;
@@ -190,10 +192,12 @@ function next() {
     const r = 2.2 + (i % 3) * 0.9;
     sparks += `<i class="rhx-sp" style="--x:${(Math.cos(ang) * r).toFixed(2)};--y:${(Math.sin(ang) * r).toFixed(2)};--d:${((i % 4) * 0.07).toFixed(2)}"></i>`;
   }
-  const kicker = rank ? 'Promotion' : a.kind === 'contract' ? `Contract complete${a.tier ? ' · ' + a.tier : ''}` : a.kind === 'unlock' ? `Unlocked${a.tier ? ' · ' + a.tier : ''}` : `Medal unlocked${a.tier ? ' · ' + a.tier : ''}`;
+  const tier = a.tier ? { tier: a.tier } : undefined;
+  const kicker = rank ? tMeta('toast.promotion') : a.kind === 'contract' ? tMeta(tier ? 'toast.contractTier' : 'toast.contract', tier)
+    : a.kind === 'unlock' ? tMeta(tier ? 'toast.unlockedTier' : 'toast.unlocked', tier) : tMeta(tier ? 'toast.medalTier' : 'toast.medal', tier);
   el.innerHTML = `<div class="rhx-medal"><div class="rhx-rays"></div>${sparks}${a.icon}</div>
     <div class="rhx-txt"><div class="rhx-k"><i></i><span>${escHtml(kicker)}</span></div><div class="rhx-ti">${escHtml(a.title)}</div><div class="rhx-d">${escHtml(a.desc)}</div></div>
-    ${a.xp > 0 ? `<div class="rhx-xp">+${a.xp.toLocaleString('en-US')}<small>XP</small></div>` : ''}
+    ${a.xp > 0 ? `<div class="rhx-xp">+${fmtInt(a.xp)}<small>${tMeta.html('xpUnit')}</small></div>` : ''}
     <div class="rhx-life"></div>`;
   host.appendChild(el);
   try { sfx?.(rank ? 'rank' : 'medal'); } catch { /* audio not ready */ }
@@ -216,13 +220,13 @@ export function showXpSummary(s: XpSummary, ms = 11000) {
   el.className = 'rhx-sum';
   const promoted = s.rankAfter > s.rankBefore;
   const lines = s.lines.filter((l) => l.xp > 0).slice(0, 7);
-  el.innerHTML = `<div class="rhx-sum-h"><span>Service record</span><span>${s.won ? 'Victory' : 'Debrief'}</span></div>
-    <div class="rhx-sum-xp">+${s.xp.toLocaleString('en-US')}<small>XP</small></div>
-    <div class="rhx-lines">${lines.map((l, i) => `<div class="rhx-line" style="--i:${i}"><span>${escHtml(l.label)}</span><b>+${l.xp.toLocaleString('en-US')}</b></div>`).join('')}</div>
+  el.innerHTML = `<div class="rhx-sum-h"><span>${tMeta.html('card.serviceRecord')}</span><span>${tMeta.html(s.won ? 'card.victory' : 'card.debrief')}</span></div>
+    <div class="rhx-sum-xp">+${fmtInt(s.xp)}<small>${tMeta.html('xpUnit')}</small></div>
+    <div class="rhx-lines">${lines.map((l, i) => `<div class="rhx-line" style="--i:${i}"><span>${escHtml(l.label)}</span><b>+${fmtInt(l.xp)}</b></div>`).join('')}</div>
     <div class="rhx-rank">${insigniaSvg(s.rankAfter, s.faction === 'soviet' ? 'soviet' : 'allies')}
-      <div class="rhx-rk"><div class="rhx-rk-n"><span>${escHtml(s.rankName)}</span><small>${s.nextName ? `${Math.floor(s.intoAfter).toLocaleString('en-US')} / ${s.spanAfter.toLocaleString('en-US')}` : 'MAX'}</small></div>
+      <div class="rhx-rk"><div class="rhx-rk-n"><span>${escHtml(s.rankName)}</span><small>${s.nextName ? `${fmtInt(Math.floor(s.intoAfter))} / ${fmtInt(s.spanAfter)}` : tMeta.html('card.max')}</small></div>
       <div class="rhx-bar"><i style="--from:${promoted ? 0 : s.fracBefore.toFixed(4)};--to:${s.fracAfter.toFixed(4)}"></i></div></div></div>
-    ${promoted ? `<div class="rhx-promo">${picto('chevrons')} Promoted to ${escHtml(s.rankName)}</div>` : ''}${contractsHtml(s)}`;
+    ${promoted ? `<div class="rhx-promo">${picto('chevrons')} ${tMeta.html('card.promotedTo', { rank: s.rankName })}</div>` : ''}${contractsHtml(s)}`;
   document.body.appendChild(el);
   requestAnimationFrame(() => requestAnimationFrame(() => el.querySelector('.rhx-bar i')?.classList.add('go')));
   try { sfx?.('xp'); } catch { /* ignore */ }
@@ -236,14 +240,14 @@ function contractsHtml(s: XpSummary): string {
   const list = (s.contracts ?? []).filter((c) => c.after > c.before || c.justDone).slice(0, 3);
   let out = '';
   if (list.length || s.commendations) {
-    out += `<div class="rhx-ct"><div class="rhx-ct-h"><span>Contracts</span><span>${s.commendations ? `+${s.commendations} Commendations` : ''}</span></div>`;
+    out += `<div class="rhx-ct"><div class="rhx-ct-h"><span>${tMeta.html('card.contracts')}</span><span>${s.commendations ? tMeta.html('card.commendations', { n: s.commendations }) : ''}</span></div>`;
     for (const c of list) {
-      const f = (v: number) => (c.money ? `$${Math.round(v / 1000)}k` : String(Math.floor(v)));
-      out += `<div class="rhx-ctr${c.done ? ' done' : ''}"><b>${escHtml(c.title)}</b><em>${c.done ? 'Complete' : `${f(c.after)} / ${f(c.target)}`}</em><i><u style="width:${((c.after / Math.max(1, c.target)) * 100).toFixed(1)}%"></u></i></div>`;
+      const f = (v: number) => (c.money ? moneyShort(Math.round(v / 1000) * 1000) : String(Math.floor(v)));
+      out += `<div class="rhx-ctr${c.done ? ' done' : ''}"><b>${escHtml(c.title)}</b><em>${c.done ? tMeta.html('card.complete') : `${escHtml(f(c.after))} / ${escHtml(f(c.target))}`}</em><i><u style="width:${((c.after / Math.max(1, c.target)) * 100).toFixed(1)}%"></u></i></div>`;
     }
     out += '</div>';
   }
-  if (s.unlocks?.length) out += `<div class="rhx-tz">${picto('lock')}<span>Unlocked: <b>${s.unlocks.slice(0, 2).map((u) => escHtml(u.name)).join(', ')}${s.unlocks.length > 2 ? ` +${s.unlocks.length - 2}` : ''}</b></span></div>`;
-  else if (s.teaser) out += `<div class="rhx-tz">${picto('lock')}<span>Next: <b>${escHtml(s.teaser.text)}</b></span></div>`;
+  if (s.unlocks?.length) out += `<div class="rhx-tz">${picto('lock')}<span>${tMeta.html('card.unlocked', { items: `${s.unlocks.slice(0, 2).map((u) => u.name).join(', ')}${s.unlocks.length > 2 ? ` +${s.unlocks.length - 2}` : ''}` })}</span></div>`;
+  else if (s.teaser) out += `<div class="rhx-tz">${picto('lock')}<span>${tMeta.html('card.next', { text: s.teaser.text })}</span></div>`;
   return out;
 }

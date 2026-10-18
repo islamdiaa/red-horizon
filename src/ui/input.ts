@@ -28,6 +28,11 @@ import { FORMATION_INFO, OrderViz, injectCtrlStyles } from './orderui';
 import { TouchController } from './touch';
 import { attachGamepad, gamepadFrame } from './gamepad';
 import { visualScale } from '../render/scale';
+import { ACTION_COMMAND, isAction, isHeld, keyLabel, lookup, eventBase, modHeld, groupMods, type ActionId } from './keymap';
+import { BATTLE_TEXT, fmt } from './a11y-strings';
+import tControls from '../i18n/en/controls';
+import tHud from '../i18n/en/hud';
+import { typeName } from '../i18n/names';
 
 export type Mode = 'normal' | 'place' | 'sell' | 'repair' | 'attackMove' | 'attackGround' | 'super' | 'layMines'
   /** click patrol waypoints (Shift: more) / click a unit or structure to guard / click to plan a structure. */
@@ -69,12 +74,16 @@ export const SUPER_RETICLE: Record<SuperKind, { r: number; color: number }> = {
   paratroopers: { r: 2.5, color: 0xf0f4ff }, parabombs: { r: 3.5, color: 0xff8a30 },
 };
 
-/** Stance hotkeys (F1–F4). */
+/** Stance hotkeys (default F1–F4; rebindable in ui/keymap.ts). */
 export const STANCE_KEYS: Record<string, Stance> = { f1: 'aggressive', f2: 'guard', f3: 'hold', f4: 'passive' };
-export const STANCE_NAME: Record<Stance, string> = { aggressive: 'Aggressive', guard: 'Guard', hold: 'Hold position', passive: 'Hold fire' };
+const STANCE_ACTIONS: [ActionId, Stance][] = [['stanceAggressive', 'aggressive'], ['stanceGuard', 'guard'], ['stanceHold', 'hold'], ['stancePassive', 'passive']];
+/** A stance's name in the interface language. */
+export const stanceName = (s: Stance): string => tHud(`stance.${s}.title`);
 
-/** Camera bookmark keys: F6–F9 jump, Ctrl / Shift + F6–F9 store. */
-const BOOKMARK_KEYS = ['f6', 'f7', 'f8', 'f9'];
+/** Camera bookmarks (default F6–F9): the key jumps, Ctrl / Shift + the key stores. */
+const BOOKMARK_ACTIONS: ActionId[] = ['bookmark1', 'bookmark2', 'bookmark3', 'bookmark4'];
+/** Idle, formation and the single-key commands that go through keyCommand (stances, bookmarks and groups are separate). */
+const KEY_ACTIONS = ['nextIdle', 'formation', ...Object.keys(ACTION_COMMAND)] as ActionId[];
 
 export interface InputHost {
   world: World;
@@ -98,6 +107,7 @@ export interface InputHost {
 
 const _ray = new THREE.Raycaster();
 const _v = new THREE.Vector3();
+const _proj: [number, number, number] = [0, 0, 0];
 const _ndc = new THREE.Vector2();
 
 export function voiceOf(u: Unit): VoiceKind {
@@ -154,8 +164,8 @@ export class InputController {
   patrolPts: [number, number][] = [];
   /** Plan-mode ghost is on a plannable spot. */
   planOk = false;
-  /** Camera bookmarks (F6–F9): x, y, zoom, yaw. */
-  bookmarks = new Map<string, [number, number, number, number]>();
+  /** Camera bookmarks (slots 0–3, default keys F6–F9): x, y, zoom, yaw. */
+  bookmarks = new Map<number, [number, number, number, number]>();
   readonly touch: TouchController;
   private viz: OrderViz;
   /** Timestamp of the touch tap being handled (double taps are timed on event timestamps). */
@@ -233,9 +243,13 @@ export class InputController {
     return [x, z];
   }
 
-  private project(x: number, y: number, z: number): [number, number, number] {
+  /** Screen position and depth of a world point; the tuple is reused (callers destructure it at once: hover picks every frame). */
+  private project(x: number, y: number, z: number): readonly [number, number, number] {
     _v.set(x, y, z).project(this.h.gfx.cam.camera);
-    return [(_v.x * 0.5 + 0.5) * window.innerWidth, (-_v.y * 0.5 + 0.5) * window.innerHeight, _v.z];
+    _proj[0] = (_v.x * 0.5 + 0.5) * window.innerWidth;
+    _proj[1] = (-_v.y * 0.5 + 0.5) * window.innerHeight;
+    _proj[2] = _v.z;
+    return _proj;
   }
 
   /** Entity under a screen point. `slack` widens the unit hit radius (fingers are less precise than mice). */
@@ -415,7 +429,7 @@ export class InputController {
       return u.order.type === 'idle' || u.order.type === 'guard';
     }).sort((a, b) => a.id - b.id);
     if (!idle.length) {
-      this.h.message(harvesters ? 'No idle harvesters' : 'No idle units');
+      this.h.message(tControls(harvesters ? 'msg.noIdleHarvesters' : 'msg.noIdleUnits'));
       return;
     }
     const next = idle.find((u) => u.id > this.idleCursor) ?? idle[0];
@@ -430,7 +444,7 @@ export class InputController {
     const ids = this.ownSelectedUnits().filter((u) => u.weapons.length).map((u) => u.id);
     if (!ids.length) return;
     this.h.issue({ c: 'stance', player: this.h.local.id, units: ids, stance });
-    this.h.message(`Stance: ${STANCE_NAME[stance]}`);
+    this.h.message(tHud('stances.set', { name: stanceName(stance) }));
     this.h.audio.play('click');
   }
 
@@ -438,9 +452,9 @@ export class InputController {
   setFormation(shape: FormationShape) {
     if (this.spectator) return;
     const ids = this.ownSelectedUnits().filter(isGroundUnit).map((u) => u.id);
-    if (ids.length < 2) { this.h.message('Select two or more ground units for a formation'); return; }
+    if (ids.length < 2) { this.h.message(tControls('msg.formationNeedTwo')); return; }
     this.h.issue({ c: 'formation', player: this.h.local.id, units: ids, shape });
-    this.h.message(`Formation: ${FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape}`);
+    this.h.message(tHud('formations.set', { name: FORMATION_INFO.find((f) => f.id === shape)?.title ?? shape }));
     this.h.audio.play('click');
   }
 
@@ -487,7 +501,7 @@ export class InputController {
     for (const [k2, list] of this.groups) if (k2 !== g) this.groups.set(k2, list.filter((id) => !ids.includes(id)));
     this.groups.set(g, members);
     for (const id of members) ov.set(id, g);
-    this.h.message(add ? `Added to group ${g} (${members.length})` : `Group ${g} assigned`);
+    this.h.message(add ? tControls('msg.groupAdded', { g, n: members.length }) : tControls('msg.groupAssigned', { g }));
   }
 
   // ---------------------------------------------------------------------------
@@ -529,13 +543,13 @@ export class InputController {
     this.setMode('plan');
     this.placeType = type;
     this.h.placement.set(type, new THREE.Color(0x8fd0ff));
-    this.h.message(`Plan ${getType(type).name}: click to queue it (Shift-click: several). The yard builds and places it when affordable.`);
+    this.h.message(tControls('msg.plan', { name: typeName(getType(type)) }));
   }
 
   beginSuperweapon(kind: SuperKind) {
     if (this.spectator) return;
     if (SUPER_TARGET[kind] === 'unit-point' && !this.ownSelectedUnits().some((u) => u.kind === 'vehicle')) {
-      this.h.message('Select a vehicle to chronoshift first', true);
+      this.h.message(tControls('msg.chronoSelect'), true);
       this.h.audio.play('error');
       return;
     }
@@ -619,12 +633,12 @@ export class InputController {
         const type = this.placeType!;
         if (!this.planValid(type, cx, cy)) {
           this.h.audio.play('error');
-          this.h.message('Cannot plan here: open ground next to your base or another planned structure', true);
+          this.h.message(tControls('msg.planInvalid'), true);
           return;
         }
         this.h.issue({ c: 'queuePlan', player: local.id, items: [{ type, cx, cy }] });
         this.h.audio.play('build_place');
-        this.h.message(`${getType(type).name} planned (#${local.buildPlan.length + 1})`);
+        this.h.message(tControls('msg.planned', { name: typeName(getType(type)), n: String(local.buildPlan.length + 1) }));
         if (!e.shiftKey) this.setMode('normal');
         return;
       }
@@ -636,7 +650,7 @@ export class InputController {
         if (e.shiftKey && this.patrolPts.length < 12) return;
         this.h.issue({ c: 'patrol', player: local.id, units: units.map((u) => u.id), points: this.patrolPts.slice() });
         this.voice('move', voiceOf(units[0]));
-        this.h.message(`Patrolling ${this.patrolPts.length + 1} waypoints`);
+        this.h.message(tControls('msg.patrolling', { n: this.patrolPts.length + 1 }));
         this.setMode('normal');
         return;
       }
@@ -649,12 +663,12 @@ export class InputController {
             this.h.issue({ c: 'guard', player: local.id, units: ids, target: t.id, queue: e.shiftKey });
             this.marker(t.x, t.y, 'rally');
             this.voice('move', voiceOf(units[0]));
-            this.h.message(`Guarding the ${t.type.name}`);
+            this.h.message(tControls('msg.guarding', { name: typeName(t.type) }));
           }
           if (!e.shiftKey) this.setMode('normal');
         } else {
           this.h.audio.play('error');
-          this.h.message('Guard: click one of your (or an ally\'s) units or structures', true);
+          this.h.message(tControls('msg.guardInvalid'), true);
         }
         return;
       }
@@ -702,7 +716,7 @@ export class InputController {
         const tanks = this.readyChronoTanks();
         if (!tanks.length || !chronoTarget(world, local, gx, gy)) {
           this.h.audio.play('error');
-          this.h.message(tanks.length ? 'Cannot chronoshift there: explored open ground only' : 'No Chrono Tank ready', true);
+          this.h.message(tControls(tanks.length ? 'msg.chronoInvalid' : 'msg.noChrono'), true);
           return;
         }
         tanks.forEach((u, k) => this.h.issue({ c: 'chronoJump', player: local.id, unit: u.id, x: gx + (k % 3) * 1.1, y: gy + Math.floor(k / 3) * 1.1 }));
@@ -864,7 +878,7 @@ export class InputController {
       if (t instanceof Unit && t.owner === local && selectableUnit(t) && t.kind !== 'aircraft' && rallyTo.length) {
         for (const b of rallyTo) this.h.issue({ c: 'rallyUnit', player: local.id, building: b.id, target: t.id });
         this.marker(t.x, t.y, 'rally');
-        this.h.message(`Rally: new units join the ${t.ut.name}`);
+        this.h.message(tControls('msg.rallyUnit', { name: typeName(t.ut) }));
         return;
       }
       for (const b of fac) this.h.issue({ c: 'rally', player: local.id, building: b.id, x: gx, y: gy });
@@ -993,7 +1007,9 @@ export class InputController {
     const target = e.target as HTMLElement;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) return;
     const k = e.key.toLowerCase();
-    if (down) this.keys.add(k); else this.keys.delete(k);
+    // held keys by base key and by position (camera scrolling reads them through the keymap)
+    const base = eventBase(e), code = '#' + e.code;
+    if (down) { this.keys.add(k); this.keys.add(base); this.keys.add(code); } else { this.keys.delete(k); this.keys.delete(base); this.keys.delete(code); }
     this.h.overlay.showAllBars = e.altKey;
     if (!down) return;
     // Alt+Enter: the classic fullscreen toggle (works while paused too)
@@ -1009,53 +1025,57 @@ export class InputController {
     }
     if (this.h.paused) return;
     if (k === 'tab' || k === 'alt') e.preventDefault();
-    if (/^f[1-4]$/.test(k)) {
-      // stance hotkeys (the browser's F1 help / F3 find are suppressed in game)
+    // stances (default F1–F4; the browser's F1 help / F3 find are suppressed in game)
+    const stance = STANCE_ACTIONS.find(([id]) => isAction(id, e, { anyMods: true }));
+    if (stance) {
       e.preventDefault();
-      this.setStance(STANCE_KEYS[k]);
+      this.setStance(stance[1]);
       return;
     }
-    // camera bookmarks: F6–F9 jump, Ctrl / Shift + F6–F9 store
-    if (BOOKMARK_KEYS.includes(k)) {
+    // camera bookmarks: the key jumps, Ctrl / Shift + the key stores
+    const bm = BOOKMARK_ACTIONS.findIndex((id) => isAction(id, e, { anyMods: true }));
+    if (bm >= 0) {
       e.preventDefault();
-      this.bookmark(k, e.ctrlKey || e.metaKey || e.shiftKey);
+      this.bookmark(bm, e.ctrlKey || e.metaKey || e.shiftKey);
       return;
     }
-    // control groups (by key position, so Shift+1 works on every layout): Ctrl assign, Shift add, plain recall
+    // control groups (by key position, so Shift+1 works on every layout): assign / add modifiers (default Ctrl / Shift), plain recall
     const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code)?.[1] ?? (/^[0-9]$/.test(k) ? k : null);
     if (digit !== null) {
       const g = +digit;
-      if (e.ctrlKey || e.metaKey) {
+      const mods = groupMods();
+      if (modHeld(e, mods.assign)) {
         e.preventDefault();
         this.assignGroup(g, false);
-      } else if (e.shiftKey && this.ownSelectedUnits().length) {
+      } else if (modHeld(e, mods.add) && this.ownSelectedUnits().length) {
         e.preventDefault();
         this.assignGroup(g, true);
       } else this.recallGroup(g);
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && k === 'a') {
+    if (isAction('selectScreen', e)) {
       e.preventDefault();
       this.selectOnScreen();
       return;
     }
     if (e.ctrlKey || e.metaKey) return;
-    if (k === 'i') { this.cycleIdle(e.shiftKey); return; }
-    if (k === 'l') { if (!this.spectator) this.cycleFormation(e.shiftKey ? -1 : 1); return; }
-    this.keyCommand(k);
+    const act = lookup(e, KEY_ACTIONS);
+    if (act === 'nextIdle') { this.cycleIdle(e.shiftKey); return; }
+    if (act === 'formation') { if (!this.spectator) this.cycleFormation(e.shiftKey ? -1 : 1); return; }
+    if (act) this.keyCommand(ACTION_COMMAND[act]!);
   }
 
-  /** Store or recall a camera bookmark. */
-  bookmark(key: string, store: boolean) {
+  /** Store or recall a camera bookmark (slot 0–3). */
+  bookmark(slot: number, store: boolean) {
     const cam = this.h.gfx.cam;
-    const n = BOOKMARK_KEYS.indexOf(key) + 6;
+    const key = keyLabel(BOOKMARK_ACTIONS[slot]) || `F${slot + 6}`;
     if (store) {
-      this.bookmarks.set(key, [cam.x, cam.y, cam.targetDist, cam.targetYaw]);
-      this.h.message(`Camera position F${n} saved`);
+      this.bookmarks.set(slot, [cam.x, cam.y, cam.targetDist, cam.targetYaw]);
+      this.h.message(fmt(BATTLE_TEXT.bookmarkSaved, { key }));
       return;
     }
-    const b = this.bookmarks.get(key);
-    if (!b) { this.h.message(`No camera position on F${n} yet: Ctrl + F${n} saves one`); return; }
+    const b = this.bookmarks.get(slot);
+    if (!b) { this.h.message(fmt(BATTLE_TEXT.bookmarkEmpty, { key })); return; }
     cam.flyToPoint(b[0], b[1]);
     cam.targetDist = b[2];
     cam.targetYaw = b[3];
@@ -1090,8 +1110,8 @@ export class InputController {
         if (chrono.length) {
           if (this.readyChronoTanks().length) {
             this.setMode(this.mode === 'chrono' ? 'normal' : 'chrono');
-            if (this.mode === 'chrono') this.h.message('Chronoshift: click a spot you have explored');
-          } else this.h.message(`Chrono Tank recharging (${Math.ceil(Math.min(...chrono.map((u) => u.chronoCooldown)))} s)`);
+            if (this.mode === 'chrono') this.h.message(tControls('msg.chronoMode'));
+          } else this.h.message(tControls('msg.chronoRecharging', { n: Math.ceil(Math.min(...chrono.map((u) => u.chronoCooldown))) }));
         }
         break;
       }
@@ -1108,14 +1128,14 @@ export class InputController {
         // units: patrol (click waypoints, Shift-click for more); a factory: primary
         if (units.some((u) => u.kind !== 'aircraft')) {
           this.setMode(this.mode === 'patrol' ? 'normal' : 'patrol');
-          if (this.mode === 'patrol') this.h.message('Patrol: click the far end of the route (Shift-click: add waypoints)');
+          if (this.mode === 'patrol') this.h.message(tControls('msg.patrolMode'));
         } else if (blds.length === 1) this.h.issue({ c: 'primary', player: local.id, building: blds[0].id });
         break;
       case 'c':
         // guard / escort: click the unit or structure to protect
         if (units.some((u) => u.kind !== 'aircraft')) {
           this.setMode(this.mode === 'guard' ? 'normal' : 'guard');
-          if (this.mode === 'guard') this.h.message('Guard: click a unit to escort or a structure to defend');
+          if (this.mode === 'guard') this.h.message(tControls('msg.guardMode'));
         }
         break;
       case 'h': {
@@ -1146,7 +1166,7 @@ export class InputController {
         break;
       case 'f':
         this.follow = !this.follow && this.h.selection.size > 0;
-        this.h.message(this.follow ? 'Camera following the selection (F or scroll to release)' : 'Camera released');
+        this.h.message(tControls(this.follow ? 'msg.follow' : 'msg.released'));
         break;
       case 'backspace':
         this.h.gfx.cam.targetYaw = Math.round(this.h.gfx.cam.targetYaw / (Math.PI * 2)) * Math.PI * 2;
@@ -1179,10 +1199,10 @@ export class InputController {
     gamepadFrame();
     const cam = this.h.gfx.cam;
     let px = this.padPan[0], py = this.padPan[1];
-    if (this.keys.has('arrowleft')) px -= 1;
-    if (this.keys.has('arrowright')) px += 1;
-    if (this.keys.has('arrowup')) py -= 1;
-    if (this.keys.has('arrowdown')) py += 1;
+    if (isHeld('camLeft', this.keys)) px -= 1;
+    if (isHeld('camRight', this.keys)) px += 1;
+    if (isHeld('camUp', this.keys)) py -= 1;
+    if (isHeld('camDown', this.keys)) py += 1;
     if (this.edgeScroll && this.hasMoved && document.hasFocus() && !this.middleDown && !this.rightDown && !this.touch.active) {
       if (this.pointerInside) {
         // a band rather than the last pixel row: easy to hit in a window as well as fullscreen
@@ -1248,8 +1268,16 @@ export class InputController {
       this.h.reticle.show(this.groundX, this.groundY, 0.9, ok ? SUPER_RETICLE.chrono.color : 0xff3020, time);
     } else this.h.reticle?.hide();
     this.touch.update(dt);
-    this.updateCursor();
+    // the hover pick walks every unit: a still pointer re-picks every other frame (30 Hz is plenty for a cursor)
+    if (this.mouseX !== this.pickX || this.mouseY !== this.pickY || (++this.pickTick & 1) === 0) {
+      this.pickX = this.mouseX;
+      this.pickY = this.mouseY;
+      this.updateCursor();
+    }
   }
+  private pickX = NaN;
+  private pickY = NaN;
+  private pickTick = 0;
 
   private updateCursor() {
     if (this.middleDown || this.rightDown?.moved) { document.body.dataset.cursor = 'pan'; this.applyCursor('pan'); return; }
@@ -1335,10 +1363,10 @@ function canEngage(u: Unit, t: Entity): boolean {
 /** Why a structure can't go where the player clicked. */
 function placementText(issue: PlacementIssue, wall: boolean, water = false): string {
   switch (issue) {
-    case 'no-yard': return 'You need a Construction Yard to build structures';
-    case 'terrain': return water ? 'Cannot build here: shipyards and sub pens go on open water next to your base' : 'Cannot build here: needs clear, dry ground';
-    case 'occupied': return 'Cannot build here: something is in the way';
-    case 'exit': return 'Cannot build here: it would block a factory exit or refinery dock';
-    case 'distance': return wall ? 'Too far from your base: walls must stay close to your structures' : 'Too far from your base: build next to your other structures';
+    case 'no-yard': return tControls('place.noYard');
+    case 'terrain': return tControls(water ? 'place.water' : 'place.terrain');
+    case 'occupied': return tControls('place.occupied');
+    case 'exit': return tControls('place.exit');
+    case 'distance': return tControls(wall ? 'place.wallDistance' : 'place.distance');
   }
 }

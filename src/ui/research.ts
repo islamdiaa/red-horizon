@@ -12,10 +12,14 @@ import type { Building } from '../sim/entities';
 import type { Player } from '../sim/player';
 import type { Command } from '../sim/types';
 import type { World } from '../sim/world';
-import { LEVEL2_TIER, RESEARCH, SYNERGY, TIER_NAMES, UPGRADES, researchFor, type ResearchDef } from '../sim/economy-data';
+import { LEVEL2_TIER, RESEARCH, SYNERGY, UPGRADES, researchFor } from '../sim/economy-data';
 import { researchCost, researchIssue, taskSeconds } from '../sim/economy';
 import { ICONS } from './icons';
 import { el, esc, tipHtml, type Tooltip } from './dom';
+import { tierName } from './economy';
+import tRes from '../i18n/en/research';
+import { currentLang, fmtMoney, fmtPct } from '../i18n/core';
+import { researchBlurb, researchEffect, researchName, upgradeName } from '../i18n/names';
 
 export interface ResearchHost {
   world: World;
@@ -29,7 +33,7 @@ export interface ResearchHost {
 }
 
 const ROMAN = ['', 'I', 'II'];
-const BRANCH: Record<ResearchDef['branch'], string> = { armour: 'Armour', firepower: 'Firepower', production: 'Production', economy: 'Economy', support: 'Support' };
+const money = (n: number) => fmtMoney(n);
 
 interface Node { id: string; level: 1 | 2; el: HTMLButtonElement; bar: HTMLElement; st: HTMLElement; key: string }
 
@@ -41,17 +45,17 @@ export class ResearchTree {
   private lab: Building | null = null;
   private headKey = '';
   private faction = '';
+  private lang = '';
 
   constructor(private host: ResearchHost, parent: HTMLElement) {
     injectCss();
     const r = el('div', 'rsch panel');
     r.id = 'rsch';
     r.setAttribute('role', 'dialog');
-    r.setAttribute('aria-label', 'Research tree');
-    r.innerHTML = `<div class="rs-head"><span class="rs-ic">${ICONS.flag}</span><span class="rs-title"><small>Commander economy</small><b>Research</b></span>
-      <span class="rs-labs"></span><button type="button" class="rs-x" aria-label="Close research">${ICONS.close}</button></div>
+    r.innerHTML = `<div class="rs-head"><span class="rs-ic">${ICONS.flag}</span><span class="rs-title"><small></small><b></b></span>
+      <span class="rs-labs"></span><button type="button" class="rs-x">${ICONS.close}</button></div>
       <div class="rs-tiers"></div><div class="rs-grid"></div>
-      <div class="rs-foot">Click a level to research it at an idle lab · click a running project to cancel it (refunded) · Level II needs Tier ${LEVEL2_TIER}</div>`;
+      <div class="rs-foot"></div>`;
     this.root = r;
     this.labsEl = r.querySelector('.rs-labs')!;
     this.tierEl = r.querySelector('.rs-tiers')!;
@@ -93,20 +97,27 @@ export class ResearchTree {
     grid.innerHTML = '';
     this.nodes = [];
     this.faction = this.host.local.faction;
+    this.lang = currentLang();
+    this.headKey = '';
+    const r0 = this.root;
+    r0.setAttribute('aria-label', tRes('aria'));
+    r0.querySelector('.rs-title small')!.textContent = tRes('kicker');
+    r0.querySelector('.rs-title b')!.textContent = tRes('title');
+    r0.querySelector('.rs-x')!.setAttribute('aria-label', tRes('close'));
+    r0.querySelector('.rs-foot')!.textContent = tRes('foot', { n: LEVEL2_TIER });
     const doctrine = this.host.local.cmd?.doctrine ?? '';
     for (const r of researchFor(this.host.local.faction)) {
       const syn = SYNERGY[doctrine] === r.id;
       const row = el('div', 'rs-row' + (syn ? ' syn' : ''));
-      row.innerHTML = `<div class="rs-line"><span class="rs-lic">${(ICONS as Record<string, string>)[r.icon] ?? ICONS.star}</span><span class="rs-lt"><b>${esc(r.name)}</b>
-        <small>${esc(BRANCH[r.branch])}${r.factions.length > 1 ? ' · shared' : ''}</small></span>${syn ? `<span class="rs-syn" title="Fits your doctrine: 25% off">Doctrine −25%</span>` : ''}</div>`;
+      row.innerHTML = `<div class="rs-line"><span class="rs-lic">${(ICONS as Record<string, string>)[r.icon] ?? ICONS.star}</span><span class="rs-lt"><b>${esc(researchName(r))}</b>
+        <small>${tRes.html(`branch.${r.branch}`)}${r.factions.length > 1 ? ` · ${tRes.html('shared')}` : ''}</small></span>${syn ? `<span class="rs-syn" title="${esc(tRes('synergyTip'))}">${tRes.html('synergy')}</span>` : ''}</div>`;
       for (const level of [1, 2] as const) {
-        const lv = r.levels[level - 1];
-        const b = el('button', 'rs-node', `<span class="rn-l">${ROMAN[level]}</span><span class="rn-fx">${esc(lv.effect)}</span>
+        const b = el('button', 'rs-node', `<span class="rn-l">${ROMAN[level]}</span><span class="rn-fx">${esc(researchEffect(r, level))}</span>
           <span class="rn-meta"></span><span class="rn-bar"><i></i></span><span class="rn-st"></span>`);
         b.type = 'button';
         b.dataset.tech = r.id;
         b.dataset.level = String(level);
-        b.setAttribute('aria-label', `${r.name} ${ROMAN[level]}`);
+        b.setAttribute('aria-label', tRes('node', { name: researchName(r), level: ROMAN[level] }));
         b.onclick = () => this.click(r.id, level);
         row.appendChild(b);
         this.nodes.push({ id: r.id, level, el: b, bar: b.querySelector('.rn-bar i')!, st: b.querySelector('.rn-st')!, key: '' });
@@ -142,17 +153,17 @@ export class ResearchTree {
       return;
     }
     if (lv >= level) { this.host.sound('error'); return; }
-    if (level > lv + 1) { this.host.sound('error'); this.host.message(`${RESEARCH[id].name} ${ROMAN[level]} needs level ${ROMAN[lv + 1]} first`, true); return; }
+    if (level > lv + 1) { this.host.sound('error'); this.host.message(tRes('msg.needsLevel', { name: researchName(RESEARCH[id]), level: ROMAN[level], prev: ROMAN[lv + 1] }), true); return; }
     const lab = this.targetLab();
     if (!lab) {
       this.host.sound('error');
-      this.host.message(this.labs().length ? 'Every Research Lab is busy' : 'Build a Research Lab first (Tier 2)', true);
+      this.host.message(tRes(this.labs().length ? 'msg.labsBusy' : 'msg.buildLab'), true);
       return;
     }
     const issue = researchIssue(world, local, lab, id);
     if (issue) {
       this.host.sound('error');
-      this.host.message(issue === 'tier' ? `Level II research needs Tier ${LEVEL2_TIER}` : issue === 'researching' ? 'Already being researched' : 'Not available', true);
+      this.host.message(issue === 'tier' ? tRes('msg.tier', { n: LEVEL2_TIER }) : tRes(issue === 'researching' ? 'msg.researching' : 'msg.unavailable'), true);
       return;
     }
     this.host.sound('click');
@@ -164,7 +175,7 @@ export class ResearchTree {
     if (!this.open) return;
     const { world, local } = this.host;
     if (!world.econ) { this.close(); return; }
-    if (this.faction !== local.faction || !this.nodes.length) this.build();
+    if (this.faction !== local.faction || !this.nodes.length || this.lang !== currentLang()) this.build();
     if (this.lab && !this.lab.alive) this.lab = null;
     const e = local.econ!;
     const labs = this.labs();
@@ -172,10 +183,10 @@ export class ResearchTree {
     const head = `${labs.length}|${idle}|${e.tier}`;
     if (head !== this.headKey) {
       this.headKey = head;
-      this.labsEl.innerHTML = labs.length ? `<b>${labs.length}</b> lab${labs.length > 1 ? 's' : ''} · <b>${idle}</b> idle` : '<span class="rs-bad">No Research Lab</span>';
+      this.labsEl.innerHTML = labs.length ? tRes.html('labs', { n: labs.length, idle }) : `<span class="rs-bad">${tRes.html('noLab')}</span>`;
       const next = e.tier < 3 ? UPGRADES[e.tier === 1 ? 'cy_t2' : 'cy_t3'] : null;
-      this.tierEl.innerHTML = [1, 2, 3].map((t) => `<span class="rt${t <= e.tier ? ' on' : ''}${t === e.tier ? ' cur' : ''}"><b>T${t}</b><small>${esc(TIER_NAMES[t])}</small></span>`).join('<i></i>') +
-        `<span class="rt-next">${next ? `Next: <b>${esc(next.name)}</b> at the Construction Yard · $${next.cost.toLocaleString('en-US')}` : 'Top tier reached'}</span>`;
+      this.tierEl.innerHTML = [1, 2, 3].map((t) => `<span class="rt${t <= e.tier ? ' on' : ''}${t === e.tier ? ' cur' : ''}"><b>${tRes.html('tierShort', { n: t })}</b><small>${esc(tierName(t))}</small></span>`).join('<i></i>') +
+        `<span class="rt-next">${next ? tRes.html('next', { name: upgradeName(next), cost: money(next.cost) }) : tRes.html('topTier')}</span>`;
     }
     const lab = this.targetLab();
     for (const n of this.nodes) {
@@ -187,11 +198,11 @@ export class ResearchTree {
       let why = '';
       if (lv >= n.level) st = 'done';
       else if (active) st = 'build';
-      else if (n.level > lv + 1) { st = 'locked'; why = `Needs level ${ROMAN[n.level - 1]} first`; }
-      else if (n.level === 2 && e.tier < LEVEL2_TIER) { st = 'locked'; why = `Requires Tier ${LEVEL2_TIER}`; }
-      else if (run) { st = 'locked'; why = 'Being researched'; }
-      else if (!labs.length) { st = 'locked'; why = 'Build a Research Lab'; }
-      else if (!lab) { st = 'wait'; why = 'All labs busy'; }
+      else if (n.level > lv + 1) { st = 'locked'; why = tRes('why.needsLevel', { level: ROMAN[n.level - 1] }); }
+      else if (n.level === 2 && e.tier < LEVEL2_TIER) { st = 'locked'; why = tRes('why.tier', { n: LEVEL2_TIER }); }
+      else if (run) { st = 'locked'; why = tRes('why.researching'); }
+      else if (!labs.length) { st = 'locked'; why = tRes('why.buildLab'); }
+      else if (!lab) { st = 'wait'; why = tRes('why.labsBusy'); }
       else st = local.credits < cost ? 'poor' : 'ready';
       const pct = active ? Math.floor(run!.task!.progress * 100) : st === 'done' ? 100 : 0;
       const key = `${st}|${pct}|${cost}|${why}`;
@@ -200,11 +211,11 @@ export class ResearchTree {
       n.el.dataset.state = st;
       n.bar.style.width = `${pct}%`;
       const secs = Math.ceil(taskSeconds(local, RESEARCH[n.id].levels[n.level - 1].time));
-      (n.el.querySelector('.rn-meta') as HTMLElement).innerHTML = st === 'done' ? '<span class="rn-ok">Researched</span>'
-        : st === 'build' ? `<b>${pct}%</b> <small>click to cancel</small>` : `$${cost.toLocaleString('en-US')} · ${secs}s${why ? ` · <span class="rn-why">${esc(why)}</span>` : ''}`;
+      (n.el.querySelector('.rn-meta') as HTMLElement).innerHTML = st === 'done' ? `<span class="rn-ok">${tRes.html('state.done')}</span>`
+        : st === 'build' ? `<b>${fmtPct(pct / 100)}</b> <small>${tRes.html('state.cancel')}</small>` : `${money(cost)} · ${tRes.html('state.secsShort', { s: secs })}${why ? ` · <span class="rn-why">${esc(why)}</span>` : ''}`;
       n.st.innerHTML = st === 'done' ? ICONS.check : st === 'locked' ? ICONS.lock : '';
       const r = RESEARCH[n.id];
-      n.el.dataset.tip = tipHtml(`${esc(r.name)} ${ROMAN[n.level]}`, `${esc(r.levels[n.level - 1].effect)}<br><i>${esc(r.blurb)}</i><br>$${cost.toLocaleString('en-US')} · ${secs} s${why ? `<br><span class="tt-bad">${esc(why)}</span>` : ''}`);
+      n.el.dataset.tip = tipHtml(tRes.html('node', { name: researchName(r), level: ROMAN[n.level] }), `${esc(researchEffect(r, n.level))}<br><i>${esc(researchBlurb(r))}</i><br>${money(cost)} · ${tRes.html('state.secs', { s: secs })}${why ? `<br><span class="tt-bad">${esc(why)}</span>` : ''}`);
       this.host.tip?.refresh(n.el, n.el.dataset.tip);
     }
   }

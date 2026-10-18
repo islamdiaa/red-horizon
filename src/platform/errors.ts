@@ -12,6 +12,7 @@ import {
   ACCENT_RGB, DANGER_RGB, FONT, MONO, Z_TOP, backdrop, button, buttonRow, codeBox, css, emblem, fadeIn, fadeOutAndRemove,
   glassPanel, h, paragraph, title,
 } from './ui';
+import tErrors from '../i18n/en/errors';
 
 export type ErrorKind = 'error' | 'rejection' | 'frame' | 'manual';
 
@@ -116,15 +117,30 @@ export function recordError(err: unknown, kind: ErrorKind = 'manual', source?: s
 
 const pad = (s: string, n = 13) => (s + ':').padEnd(n);
 
+/** Recorded errors, newest first (diagnostics reports). */
+export const recentErrors = (): ErrorRecord[] => [...ring].reverse();
+
+/** The GPU as reports describe it: the game's own context when there is one. */
+export function reportGpu(): { vendor: string; renderer: string; webgl2: boolean; maxTextureSize: number } {
+  try {
+    const gl = opts.getGl?.();
+    return gl && !gl.isContextLost() ? getGpuInfo(gl) : getGpuInfo();
+  } catch {
+    return { vendor: '?', renderer: '?', webgl2: false, maxTextureSize: 0 };
+  }
+}
+
+let diagnosticsBuilder: (() => string) | null = null;
+/** The full diagnostics report (ui/a11y-diagnostics.ts registers it): the crash screen's "Copy diagnostics". */
+export function setDiagnosticsBuilder(fn: (() => string) | null) {
+  diagnosticsBuilder = fn;
+}
+
 /** Plain-text report for bug trackers: environment, GPU, context and the recent error stacks. */
 export function buildErrorReport(): string {
   const lines: string[] = [];
   const nav = (typeof navigator !== 'undefined' ? navigator : {}) as Navigator & { deviceMemory?: number };
-  let gpu = { vendor: '?', renderer: '?', webgl2: false, maxTextureSize: 0 };
-  try {
-    const gl = opts.getGl?.();
-    gpu = gl && !gl.isContextLost() ? getGpuInfo(gl) : getGpuInfo();
-  } catch { /* ignore */ }
+  const gpu = reportGpu();
   lines.push(`${GAME_TITLE} error report`, '='.repeat(GAME_TITLE.length + 13));
   lines.push(`${pad('Version')}${VERSION}${typeof import.meta !== 'undefined' && import.meta.env?.PROD === false ? ' (dev)' : ''}`);
   lines.push(`${pad('Time')}${new Date().toISOString()}`);
@@ -152,7 +168,8 @@ export function buildErrorReport(): string {
   return lines.join('\n');
 }
 
-async function copyText(text: string): Promise<boolean> {
+/** Copy to the clipboard (falls back to a hidden textarea); false when both fail. */
+export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard && isSecureContext) { await navigator.clipboard.writeText(text); return true; }
   } catch { /* fall through */ }
@@ -192,7 +209,7 @@ export function showErrorToast(message: string) {
       fontWeight: '700', fontSize: '1rem',
     }, ['!']);
     const text = h('div', { minWidth: '0', flex: '1' }, [
-      h('div', { fontSize: '0.78rem', fontWeight: '700', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#f3f7fb' }, ['Recovered from an error']),
+      h('div', { fontSize: '0.78rem', fontWeight: '700', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#f3f7fb' }, [tErrors('toast.title')]),
       h('div', { fontFamily: MONO, fontSize: '0.72rem', color: '#9fb3c8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, [message], { 'data-msg': '' }),
     ]);
     const count = h('span', {
@@ -205,7 +222,7 @@ export function showErrorToast(message: string) {
       fontFamily: FONT, background: `linear-gradient(90deg, rgba(${ACCENT_RGB}, 0.18), rgba(10, 14, 20, 0.92) 45%), rgba(10, 14, 20, 0.7)`,
       border: `1px solid rgba(${ACCENT_RGB}, 0.4)`, boxShadow: `0 0.5rem 1.4rem rgba(0, 0, 0, 0.45), inset 3px 0 0 rgb(${ACCENT_RGB})`,
       backdropFilter: 'blur(8px)', pointerEvents: 'auto',
-    } as Record<string, string>, [icon, text, count], { role: 'status', 'aria-live': 'polite', title: 'Click to dismiss' });
+    } as Record<string, string>, [icon, text, count], { role: 'status', 'aria-live': 'polite', title: tErrors('toast.dismiss') });
     toastEl.addEventListener('click', () => hideToast());
     document.body.append(toastEl);
     fadeIn(toastEl);
@@ -233,7 +250,7 @@ export function showFatalError(err?: unknown) {
   const latest = ring[ring.length - 1];
   const summary = latest
     ? `${latest.name}: ${latest.message}${latest.count > 1 ? `  (x${latest.count})` : ''}\n${latest.stack.split('\n').filter((l) => !l.includes(latest.message)).slice(0, 5).map((l) => '  ' + l.trim()).join('\n')}`
-    : 'Unknown error';
+    : tErrors('fatal.unknown');
 
   const root = backdrop(Z_TOP);
   root.setAttribute('role', 'alertdialog');
@@ -241,38 +258,42 @@ export function showFatalError(err?: unknown) {
   root.setAttribute('aria-labelledby', 'rh-fatal-title');
   const panel = glassPanel(ACCENT_RGB, '36rem');
   const head = h('div', { display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.9rem' });
-  const t = title('Something went wrong');
+  const t = title(tErrors('fatal.title'));
   t.id = 'rh-fatal-title';
   head.append(emblem('3.2rem'), h('div', {}, [
     t,
-    h('div', { fontFamily: MONO, fontSize: '0.74rem', letterSpacing: '0.08em', color: `rgba(${DANGER_RGB}, 0.9)`, textTransform: 'uppercase' }, ['Simulation halted']),
+    h('div', { fontFamily: MONO, fontSize: '0.74rem', letterSpacing: '0.08em', color: `rgba(${DANGER_RGB}, 0.9)`, textTransform: 'uppercase' }, [tErrors('fatal.halted')]),
   ]));
   panel.append(head);
-  panel.append(paragraph('The game hit an unexpected error and stopped to protect your session. You can return to the main menu, reload the page, or copy a report for the developers.'));
+  panel.append(paragraph(tErrors('fatal.body')));
   panel.append(codeBox(summary));
 
   const status = h('div', { minHeight: '1.1rem', marginTop: '0.75rem', fontFamily: MONO, fontSize: '0.74rem', color: '#7d8c9d' });
   const buttons: HTMLElement[] = [];
   if (opts.onReturnToMenu) {
-    buttons.push(button('Return to menu', () => {
+    buttons.push(button(tErrors('fatal.returnToMenu'), () => {
       dismissFatalError();
       try { opts.onReturnToMenu?.(); } catch (e) { recordError(e, 'manual'); showFatalError(); }
     }, 'primary'));
   }
-  buttons.push(button('Reload', () => location.reload(), opts.onReturnToMenu ? 'ghost' : 'primary'));
-  const copyBtn = button('Copy error report', async () => {
-    const ok = await copyText(buildErrorReport());
-    copyBtn.textContent = ok ? 'Copied ✓' : 'Copy failed';
-    status.textContent = ok ? 'Report copied to the clipboard — paste it into a bug report.' : 'Clipboard unavailable: the report was printed to the browser console.';
-    if (!ok) console.error(buildErrorReport());
-    setTimeout(() => { copyBtn.textContent = 'Copy error report'; }, 2500);
+  buttons.push(button(tErrors('fatal.reload'), () => location.reload(), opts.onReturnToMenu ? 'ghost' : 'primary'));
+  // the full diagnostics (versions, browser, GPU, settings, recent errors and warnings) when available
+  const copyLabel = tErrors(diagnosticsBuilder ? 'fatal.copyDiagnostics' : 'fatal.copyReport');
+  const copyBtn = button(copyLabel, async () => {
+    let text: string;
+    try { text = diagnosticsBuilder ? diagnosticsBuilder() : buildErrorReport(); } catch { text = buildErrorReport(); }
+    const ok = await copyText(text);
+    copyBtn.textContent = tErrors(ok ? 'fatal.copied' : 'fatal.copyFailed');
+    status.textContent = tErrors(ok ? 'fatal.copiedStatus' : 'fatal.copyFailedStatus');
+    if (!ok) console.error(text);
+    setTimeout(() => { copyBtn.textContent = copyLabel; }, 2500);
   });
   buttons.push(copyBtn);
   panel.append(buttonRow(buttons), status);
   panel.append(h('div', {
     marginTop: '0.4rem', paddingTop: '0.7rem', borderTop: '1px solid rgba(255, 255, 255, 0.07)',
     fontFamily: MONO, fontSize: '0.68rem', color: '#556270', display: 'flex', justifyContent: 'space-between', gap: '1rem',
-  }, [h('span', {}, [`${GAME_TITLE} v${VERSION}`]), h('span', {}, [`${ring.reduce((n, r) => n + r.count, 0)} error(s) logged`])]));
+  }, [h('span', {}, [`${GAME_TITLE} v${VERSION}`]), h('span', {}, [tErrors('fatal.logged', { n: ring.reduce((n, r) => n + r.count, 0) })])]));
   root.append(panel);
   // swallow input so the (possibly half-broken) game underneath can't be clicked
   for (const ev of ['pointerdown', 'mousedown', 'wheel', 'contextmenu', 'keydown'] as const) {

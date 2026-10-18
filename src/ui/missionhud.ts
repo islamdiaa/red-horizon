@@ -1,8 +1,11 @@
 import type { MissionEvent, MissionRuntime, Objective, Portrait } from '../sim/mission';
+import { srAnnounce } from './a11y';
 import { formatTime } from '../core/util';
 import { castPortrait } from './campaign';
 import { esc } from './dom';
 import { ICONS } from './icons';
+import tMission from '../i18n/en/mission';
+import { fmtInt, onLanguageChange, trSource } from '../i18n/core';
 
 const CSS = `
 .mh-obj { position: absolute; top: calc(var(--rem, 1px) * 0 + 58px); left: 12px; width: 330px; z-index: 6; pointer-events: none;
@@ -103,6 +106,7 @@ export class MissionHud {
   private trow: HTMLElement;
   private srow: HTMLElement;
   private trowKey = '';
+  private offLang: () => void;
 
   constructor(private runtime: MissionRuntime, private sound: (k: 'tab' | 'ready_ping' | 'click') => void) {
     if (!document.getElementById('mh-style')) {
@@ -124,6 +128,7 @@ export class MissionHud {
     this.obj.append(this.list, this.trow, this.srow);
     this.tx = document.createElement('div');
     this.tx.className = 'mh-tx';
+    this.tx.setAttribute('aria-hidden', 'true'); // typed out letter by letter: screen readers get the whole line (srAnnounce)
     this.timer = document.createElement('div');
     this.timer.className = 'mh-timer';
     this.scoreEl = document.createElement('div');
@@ -133,6 +138,7 @@ export class MissionHud {
     const col = document.getElementById('topbar');
     if (col && document.body.classList.contains('hud-modern')) col.prepend(this.obj);
     this.renderObjectives();
+    this.offLang = onLanguageChange(() => { this.renderObjectives(); this.trowKey = ''; });
   }
 
   handle(ev: MissionEvent) {
@@ -150,9 +156,10 @@ export class MissionHud {
         break;
       case 'score':
         this.scoreEl.classList.add('on');
-        this.scoreEl.innerHTML = `${Math.round(ev.value).toLocaleString('en-US')}<small>${esc(ev.label.toUpperCase())}</small>`;
+        // (the label is the script's English: translated here)
+        this.scoreEl.innerHTML = `${fmtInt(ev.value)}<small>${esc(trSource(ev.label).toUpperCase())}</small>`;
         this.srow.classList.add('on');
-        this.srow.innerHTML = `${ICONS.trophy}<span class="lb">${esc(ev.label)}</span><span class="tm">${Math.round(ev.value).toLocaleString('en-US')}</span>`;
+        this.srow.innerHTML = `${ICONS.trophy}<span class="lb">${esc(trSource(ev.label))}</span><span class="tm">${fmtInt(ev.value)}</span>`;
         break;
     }
   }
@@ -162,9 +169,10 @@ export class MissionHud {
     this.obj.classList.toggle('empty', !list.length); // Modern drops the empty panel from the column
     if (!list.length) { this.obj.style.opacity = '0'; return; }
     this.obj.style.opacity = '1';
-    const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${esc(o.text)}</span>${o.progress ? `<span class="pg">${esc(String(o.progress))}</span>` : ''}</div>`;
+    // objective and progress texts are the mission script's English: translated here
+    const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${esc(trSource(o.text))}</span>${o.progress ? `<span class="pg">${esc(trSource(String(o.progress)))}</span>` : ''}</div>`;
     const prim = list.filter((o) => o.primary), sec = list.filter((o) => !o.primary);
-    this.list.innerHTML = `<h5><span class="mh-ic">${ICONS.target}</span>OBJECTIVES</h5>${prim.map(row).join('')}${sec.length ? `<h5 class="opt" style="margin-top:8px">OPTIONAL</h5>${sec.map(row).join('')}` : ''}`;
+    this.list.innerHTML = `<h5><span class="mh-ic">${ICONS.target}</span>${tMission.html('objectives')}</h5>${prim.map(row).join('')}${sec.length ? `<h5 class="opt" style="margin-top:8px">${tMission.html('optional')}</h5>${sec.map(row).join('')}` : ''}`;
   }
 
   update(dt: number) {
@@ -172,14 +180,17 @@ export class MissionHud {
     if (!this.showing && this.queue.length) {
       const m = this.queue.shift()!;
       this.showing = true;
-      this.full = m.text;
+      // the radio line and the speaker are the script's English: translated here (the portrait goes by the English name)
+      const text = trSource(m.text), speaker = trSource(m.speaker);
+      this.full = text;
       this.typing = 0;
-      this.hideT = 2.8 + m.text.length * 0.045;
-      this.tx.innerHTML = `<div class="pt">${castPortrait(m.speaker, m.portrait)}</div><div style="flex:1"><div class="sp">${esc(m.speaker.toUpperCase())}</div><div class="tt"></div><div class="wave">${'<i></i>'.repeat(12)}</div></div>`;
+      this.hideT = 2.8 + text.length * 0.045;
+      this.tx.innerHTML = `<div class="pt">${castPortrait(m.speaker, m.portrait)}</div><div style="flex:1"><div class="sp">${esc(speaker.toUpperCase())}</div><div class="tt"></div><div class="wave">${'<i></i>'.repeat(12)}</div></div>`;
       this.tx.querySelectorAll<HTMLElement>('.wave i').forEach((i, k) => { i.style.animationDelay = `${(k * 0.07) % 0.5}s`; });
       this.textEl = this.tx.querySelector('.tt');
       this.tx.classList.add('on');
       this.sound('click');
+      srAnnounce(tMission('radioSr', { speaker, text }));
     }
     if (this.showing) {
       if (this.typing < this.full.length) {
@@ -201,14 +212,15 @@ export class MissionHud {
       this.timer.classList.add('on');
       this.timer.classList.toggle('urgent', t < 30);
       this.timer.classList.toggle('soon', t < 60); // Modern shows the big countdown for the final minute only
-      this.timer.innerHTML = `<div class="lb">${esc(this.timerLabel.toUpperCase())}</div><div class="tm">${formatTime(Math.ceil(t))}</div>`;
+      const label = trSource(this.timerLabel); // (the script's English)
+      this.timer.innerHTML = `<div class="lb">${esc(label.toUpperCase())}</div><div class="tm">${formatTime(Math.ceil(t))}</div>`;
       // inline countdown row of the Modern checklist
       const tk = `${this.timerLabel}|${Math.ceil(t)}`;
       if (tk !== this.trowKey) {
         this.trowKey = tk;
         this.trow.classList.add('on');
         this.trow.classList.toggle('urgent', t < 30);
-        this.trow.innerHTML = `${ICONS.clock}<span class="lb">${esc(this.timerLabel)}</span><span class="tm">${formatTime(Math.ceil(t))}</span>`;
+        this.trow.innerHTML = `${ICONS.clock}<span class="lb">${esc(label)}</span><span class="tm">${formatTime(Math.ceil(t))}</span>`;
       }
     } else {
       this.timer.classList.remove('on');
@@ -217,6 +229,7 @@ export class MissionHud {
   }
 
   dispose() {
+    this.offLang();
     this.obj.remove();
     this.tx.remove();
     this.timer.remove();

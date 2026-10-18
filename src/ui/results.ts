@@ -19,9 +19,15 @@ import { mapCodeForSetup } from '../maps/code';
 import { ICONS, medalSvg as gradeSvg, rankBadge, type MedalTier } from './icons';
 import { el, esc, hexColor, reducedMotion } from './dom';
 import {
-  ACH_BY_ID, achievementMetal, insigniaSvg, isTiered, loadProfile, medalSvg, nextUnlock, picto, rankName, unlockContext, type MatchSummary,
+  ACH_BY_ID, achievementMetal, achievementTitle, insigniaSvg, isTiered, loadProfile, medalSvg, moneyShort, nextUnlock, picto, rankName, unlockContext, type MatchSummary,
 } from '../meta';
 import type { BattleReport, ReportSample } from '../meta/report';
+import { dt, fmtInt, fmtMoney } from '../i18n/core';
+import { typeName } from '../i18n/names';
+import { UNITS } from '../data/rules';
+import tResults from '../i18n/en/results';
+import tCommon from '../i18n/en/common';
+import tMeta from '../i18n/en/meta';
 import { commanderLook } from '../meta/cosmetics';
 import { showLocker } from './locker';
 import { SHARE_ICONS } from '../share/dialog'; // clip button icon
@@ -34,8 +40,8 @@ export interface ResultsCallbacks {
   keepWatching(): void;
   menu(): void;
   copyCode?(code: string, el: HTMLElement): void;
-  /** Record a highlight clip of the moment `t` (seconds into the battle) from this match's replay. */
-  recordClip?(t: number, label: string): void;
+  /** Record a highlight clip of the moment `t` (seconds into the battle) from this match's replay. `fileLabel`: the label in English (file names). */
+  recordClip?(t: number, label: string, fileLabel?: string): void;
 }
 
 const CSS = `
@@ -179,9 +185,11 @@ function ensureCss() {
   document.head.appendChild(st);
 }
 
-const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
-const money = (n: number) => (n >= 10000 ? `$${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : `$${fmt(n)}`);
+const fmt = (n: number) => fmtInt(n);
+const money = (n: number) => (n >= 10000 ? moneyShort(n, n >= 100000 ? 0 : 1) : fmtMoney(Math.round(n)));
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+/** A curated map's name in the active language (game data map.<id>.name). */
+const mapName = (id: string) => { const d = getMapDef(id); return d ? dt('map', d.id, 'name', d.name) : ''; };
 const ease = (x: number) => 1 - Math.pow(1 - clamp01(x), 3);
 
 /** Clean axis maximum (1, 2, 2.5, 5 x 10^n). */
@@ -219,7 +227,7 @@ function lineChart(title: string, unit: string, times: number[], series: Series[
   const me = series.find((s) => s.me);
   const last = me?.values[me.values.length - 1] ?? 0;
   box.innerHTML = `<h4><span>${esc(title)}</span><span>${esc(me ? f(last) : '')}${esc(unit)}</span></h4>
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${title} over time. ${series.map((s) => `${s.name}: ${f(s.values[s.values.length - 1] ?? 0)}`).join(', ')}`)}">${svg}</svg><div class="rr-tip"></div>`;
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(tResults('report.chartAria', { title, values: series.map((s) => tResults('report.chartValue', { name: s.name, value: f(s.values[s.values.length - 1] ?? 0) })).join(', ') }))}">${svg}</svg><div class="rr-tip"></div>`;
   // hover / touch: crosshair and the values at that moment
   const sv = box.querySelector('svg') as SVGSVGElement;
   const xh = box.querySelector('.xh') as SVGLineElement;
@@ -250,22 +258,22 @@ function battleReport(game: Game, report: BattleReport | null): HTMLElement {
   const box = el('div', 'rr-rep');
   const samples: ReportSample[] = report?.samples ?? [];
   if (samples.length < 2) {
-    box.innerHTML = '<div class="rr-none">The battle was too short for a report.</div>';
+    box.innerHTML = `<div class="rr-none">${tResults.html('report.tooShort')}</div>`;
     return box;
   }
   const players = game.world.players;
   const times = samples.map((s) => s.t);
   const series = (pick: (p: ReportSample['players'][number]) => number): Series[] => players.map((p, i) => ({
-    name: p === game.local ? `${p.name} (you)` : p.name, color: hexColor(p.color), me: p === game.local, values: samples.map((s) => (s.players[i] ? pick(s.players[i]) : 0)),
+    name: p === game.local ? tResults('report.you', { name: p.name }) : p.name, color: hexColor(p.color), me: p === game.local, values: samples.map((s) => (s.players[i] ? pick(s.players[i]) : 0)),
   }));
   const charts = el('div', 'rr-charts');
   charts.append(
-    lineChart('Army value', '', times, series((p) => p.army), money),
-    lineChart('Income', '/min', times, series((p) => p.income), money),
-    lineChart('Kills', '', times, series((p) => p.kills), (v) => fmt(v)),
+    lineChart(tResults('report.armyValue'), '', times, series((p) => p.army), money),
+    lineChart(tResults('report.income'), tResults('report.perMinute'), times, series((p) => p.income), money),
+    lineChart(tResults('report.kills'), '', times, series((p) => p.kills), (v) => fmt(v)),
   );
   box.appendChild(charts);
-  box.appendChild(el('div', 'rr-legend', players.map((p) => `<span><i style="background:${hexColor(p.color)}"></i>${esc(p.name)}${p === game.local ? ' <em>you</em>' : ''}</span>`).join('')));
+  box.appendChild(el('div', 'rr-legend', players.map((p) => `<span><i style="background:${hexColor(p.color)}"></i>${esc(p.name)}${p === game.local ? ` <em>${tResults.html('report.youTag')}</em>` : ''}</span>`).join('')));
   return box;
 }
 
@@ -273,37 +281,44 @@ function scoreboard(game: Game): HTMLElement {
   const me = game.local;
   const rows = game.world.players.map((p) => {
     const kills = p.stats.unitsKilled + p.stats.buildingsKilled;
+    const faction = tCommon(p.faction === 'soviet' ? 'faction.sovietAdj' : 'faction.alliesAdj');
+    const sub = p.defeated ? tResults('board.eliminated', { faction }) : p.team === game.world.winnerTeam ? tResults('board.victor', { faction }) : faction;
     return `<tr class="${p === me ? 'me' : ''}${p.defeated ? ' dead' : ''}" style="--c:${hexColor(p.color)}">
-      <td><span class="pl"><i></i><span><b>${esc(p.name)}</b><small>${p.faction === 'soviet' ? 'Soviet' : 'Allied'}${p.defeated ? ' · eliminated' : p.team === game.world.winnerTeam ? ' · victor' : ''}</small></span></span></td>
+      <td><span class="pl"><i></i><span><b>${esc(p.name)}</b><small>${esc(sub)}</small></span></span></td>
       <td>${fmt(p.stats.unitsBuilt)}</td><td>${fmt(p.stats.unitsLost)}</td><td>${fmt(kills)}</td><td>${fmt(p.stats.buildingsLost)}</td><td>${money(Math.round(p.stats.harvested))}</td></tr>`;
   }).join('');
   const t = el('table', 'stats-table');
-  t.innerHTML = `<thead><tr><th>Commander</th><th>Built</th><th>Lost</th><th>Kills</th><th>Structures lost</th><th>Harvested</th></tr></thead><tbody>${rows}</tbody>`;
+  const th = (['commander', 'built', 'lost', 'kills', 'structuresLost', 'harvested'] as const).map((k) => `<th>${tResults.html(`board.${k}`)}</th>`).join('');
+  t.innerHTML = `<thead><tr>${th}</tr></thead><tbody>${rows}</tbody>`;
   return t;
 }
 
 const HL_ICON: Record<string, string> = { 'first-blood': 'crosshair', superweapon: 'nuke', elite: 'chevrons', capture: 'capture', eliminated: 'skull', peak: 'tank', clash: 'flames', comeback: 'phoenix', chrono: 'chrono' };
 
-function mvpAndHighlights(game: Game, won: boolean, report: BattleReport | null, clip?: (t: number, label: string) => void): HTMLElement {
+function mvpAndHighlights(game: Game, won: boolean, report: BattleReport | null, clip?: (t: number, label: string, fileLabel: string) => void): HTMLElement {
   const wrap = el('div', 'rr-bottom');
   const me = game.local;
   const m = report?.mvp() ?? (() => {
     const u = game.world.units.filter((x) => x.alive && x.owner === me && x.kills > 0).sort((a, b) => b.kills - a.kills || b.xp - a.xp)[0];
     return u ? { id: u.id, type: u.type.id, name: u.type.name, kills: u.kills, xp: u.xp, rank: u.rank, alive: true } : null;
   })();
+  const mvpTag = `<div class="mvp-tag">${ICONS.trophy}<span>${tResults.html('mvp.tag')}</span></div>`;
   if (m) {
     const img = game.thumbs.get(m.type);
-    wrap.appendChild(el('div', 'end-mvp', `<div class="mvp-tag">${ICONS.trophy}<span>MVP</span></div>
+    const def = UNITS[m.type];
+    const rank = tResults((['mvp.rookie', 'mvp.veteran', 'mvp.elite'] as const)[Math.max(0, Math.min(2, m.rank))]);
+    wrap.appendChild(el('div', 'end-mvp', `${mvpTag}
       <div class="mvp-por">${img ? `<img src="${img}" alt="">` : ICONS.vehicle}<span class="mvp-rank">${rankBadge(m.rank)}</span></div>
-      <div class="mvp-info"><b>${esc(m.name)}</b><small>${['Rookie', 'Veteran', 'Elite'][m.rank] ?? 'Elite'}${m.alive ? '' : ' · fell in battle'}</small></div>
-      <div class="mvp-stat"><b>${fmt(m.kills)}</b><small>kills</small></div>`));
+      <div class="mvp-info"><b>${esc(def ? typeName(def) : m.name)}</b><small>${esc(m.alive ? rank : tResults('mvp.fell', { rank }))}</small></div>
+      <div class="mvp-stat"><b>${fmt(m.kills)}</b><small>${tResults.html('mvp.kills')}</small></div>`));
   } else {
-    wrap.appendChild(el('div', 'end-mvp none', `<div class="mvp-tag">${ICONS.trophy}<span>MVP</span></div><div class="mvp-info"><b>No kills on record</b><small>Next time, take the fight to them</small></div>`));
+    wrap.appendChild(el('div', 'end-mvp none', `${mvpTag}<div class="mvp-info"><b>${tResults.html('mvp.none')}</b><small>${tResults.html('mvp.noneSub')}</small></div>`));
   }
   const hl = report?.highlights(won) ?? [];
-  const box = el('div', 'rr-hl', `<h5>Highlights</h5>${hl.length ? hl.map((h, i) => `<div><em>${formatTime(h.t)}</em>${picto(HL_ICON[h.kind] ?? 'flag')}<span>${esc(h.text)}</span>${clip ? `<button class="rr-clip" data-hl="${i}" title="Record a highlight clip of this moment (video)">${SHARE_ICONS.record}<b>Clip</b></button>` : ''}</div>`).join('') : '<div><span>A quiet battle.</span></div>'}`);
+  const clipBtn = (i: number) => `<button class="rr-clip" data-hl="${i}" title="${tResults.html('highlights.clipTip')}">${SHARE_ICONS.record}<b>${tResults.html('highlights.clip')}</b></button>`;
+  const box = el('div', 'rr-hl', `<h5>${tResults.html('highlights.title')}</h5>${hl.length ? hl.map((h, i) => `<div><em>${formatTime(h.t)}</em>${picto(HL_ICON[h.kind] ?? 'flag')}<span>${esc(h.text)}</span>${clip ? clipBtn(i) : ''}</div>`).join('') : `<div><span>${tResults.html('highlights.quiet')}</span></div>`}`);
   // "Record clip": the replay plays this moment through a cinematic camera and records it
-  if (clip) box.querySelectorAll<HTMLElement>('[data-hl]').forEach((b) => { const h = hl[+b.dataset.hl!]; if (h) b.onclick = () => clip(h.t, h.text); });
+  if (clip) box.querySelectorAll<HTMLElement>('[data-hl]').forEach((b) => { const h = hl[+b.dataset.hl!]; if (h) b.onclick = () => clip(h.t, h.text, h.en); });
   wrap.appendChild(box);
   return wrap;
 }
@@ -322,15 +337,15 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   if (instant) s.classList.add('rr-instant');
   const me = game.local;
   const sum = opts.summary;
-  const title = won ? 'VICTORY' : 'DEFEAT';
+  const title = tResults(won ? 'head.victory' : 'head.defeat');
   const foes = game.world.players.filter((o) => me.isEnemy(o));
   const code = mapCodeForSetup(game.setup);
   s.innerHTML = '<div class="end-wash"></div><div class="end-rays"></div>';
   const wrap = el('div', 'end-wrap');
   wrap.innerHTML = `<div class="rr-head">
-      <div class="end-kicker">${won ? 'Mission accomplished' : 'Mission failed'}</div>
-      <h1 class="end-title" data-text="${title}">${[...title].map((c, i) => `<span class="ltr" style="--i:${i}">${c}</span>`).join('')}</h1>
-      <div class="end-meta"><span>${ICONS.clock}${formatTime(game.world.time)}</span><span>${ICONS.map}${game.setup.mapId ? esc(getMapDef(game.setup.mapId)?.name ?? '') + ' · ' : ''}${game.world.map.w}×${game.world.map.h}</span><span>${ICONS.target}${foes.length} opponent${foes.length === 1 ? '' : 's'}</span>${code ? `<span class="end-code">${ICONS.copy}<code>${esc(code)}</code></span>` : ''}<span class="rr-grade" title="${esc(opts.rating.title)} · score ${fmt(opts.rating.score)}">${gradeSvg(opts.rating.tier)}Grade ${opts.rating.grade} · ${fmt(opts.rating.score)}</span></div>
+      <div class="end-kicker">${tResults.html(won ? 'head.accomplished' : 'head.failed')}</div>
+      <h1 class="end-title" data-text="${esc(title)}">${[...title].map((c, i) => `<span class="ltr" style="--i:${i}">${esc(c)}</span>`).join('')}</h1>
+      <div class="end-meta"><span>${ICONS.clock}${formatTime(game.world.time)}</span><span>${ICONS.map}${game.setup.mapId ? esc(mapName(game.setup.mapId)) + ' · ' : ''}${game.world.map.w}×${game.world.map.h}</span><span>${ICONS.target}${tResults.html('head.opponents', { n: foes.length })}</span>${code ? `<span class="end-code">${ICONS.copy}<code>${esc(code)}</code></span>` : ''}<span class="rr-grade" title="${esc(tResults('head.gradeTip', { title: opts.rating.title, score: fmt(opts.rating.score) }))}">${gradeSvg(opts.rating.tier)}${tResults.html('head.grade', { grade: opts.rating.grade, score: fmt(opts.rating.score) })}</span></div>
     </div>`;
   const grid = el('div', 'rr-grid');
   // ---------------------------------------------------------------- progression
@@ -339,17 +354,17 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   const ctx = unlockContext(profile);
   const look = commanderLook(ctx);
   const promoted = !!sum && sum.rankAfter > sum.rankBefore;
-  const nextLabel = (r: number) => (sum && r < 14 ? `Next: ${rankName(r + 1, sum.faction)}` : 'Highest rank');
+  const nextLabel = (r: number) => (sum && r < 14 ? tResults('record.nextRank', { rank: rankName(r + 1, sum.faction) }) : tResults('record.highestRank'));
   const rankBefore = sum ? nextLabel(sum.rankBefore) : '';
-  prog.innerHTML = `<div class="rr-h">${picto('chevrons')}<span>Service record</span><i class="sp"></i><span class="rr-skip">Enter · skip</span></div>
+  prog.innerHTML = `<div class="rr-h">${picto('chevrons')}<span>${tResults.html('record.title')}</span><i class="sp"></i><span class="rr-skip">${tResults.html('record.skip', { key: tCommon('keys.enter') })}</span></div>
     <div class="rr-svc" style="--banner:${look.banner}">
       <div class="rr-por">${look.portrait}</div>
       <div class="rr-who"><small>${esc(sum ? sum.rankName : '')}</small><b>${esc(profile.name)}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
-      <div class="rr-xpn">${sum ? '+<span data-xp>0</span>' : '—'}<small>XP</small></div>
+      <div class="rr-xpn">${sum ? '+<span data-xp>0</span>' : '—'}<small>${tMeta.html('xpUnit')}</small></div>
       <div class="rr-rank"><span class="ins">${sum ? insigniaSvg(sum.rankBefore, sum.faction === 'soviet' ? 'soviet' : 'allies') : ''}</span>
-        <div class="rr-bw"><div class="rn"><span data-rn>${esc(rankBefore || (sum?.rankName ?? 'Unranked battle'))}</span><small>${sum ? (sum.nextName ? `${fmt(sum.intoAfter)} / ${fmt(sum.spanAfter)}` : 'MAX') : ''}</small></div>
+        <div class="rr-bw"><div class="rn"><span data-rn>${esc(rankBefore || (sum?.rankName ?? tResults('record.unranked')))}</span><small>${sum ? (sum.nextName ? `${fmt(sum.intoAfter)} / ${fmt(sum.spanAfter)}` : tResults.html('record.max')) : ''}</small></div>
         <div class="rr-bar"><i style="width:${sum ? sum.fracBefore * 100 : 0}%"></i></div></div></div>
-      <div class="rr-promo">${picto('chevrons')}<span>Promoted${promoted && sum ? ` · ${esc(sum.rankName)}` : ''}</span></div>
+      <div class="rr-promo">${picto('chevrons')}<span>${promoted && sum ? tResults.html('record.promotedTo', { rank: sum.rankName }) : tResults.html('record.promoted')}</span></div>
     </div>
     ${sum && sum.lines.length ? `<div class="rr-lines">${sum.lines.filter((l) => l.xp > 0).slice(0, 6).map((l) => `<div class="rr-line"><span>${esc(l.label)}</span><b>+${fmt(l.xp)}</b></div>`).join('')}</div>` : ''}`;
   // contracts
@@ -357,21 +372,22 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   const shown = cts.filter((c) => c.after > c.before || c.justDone);
   for (const c of cts) if (shown.length < 4 && !shown.includes(c) && c.cadence === 'daily') shown.push(c);
   const ctBox = el('div', 'rr-sec');
-  ctBox.innerHTML = `<div class="rr-h">${picto('target')}<span>Contracts</span><i class="sp"></i>${sum?.commendations ? `<span class="cmd">+<span data-cmd>0</span> ${picto('medal')}</span>` : `<small>${fmt(profile.commendations)} Commendations</small>`}</div>
+  ctBox.innerHTML = `<div class="rr-h">${picto('target')}<span>${tResults.html('contracts.title')}</span><i class="sp"></i>${sum?.commendations ? `<span class="cmd">+<span data-cmd>0</span> ${picto('medal')}</span>` : `<small>${tResults.html('contracts.commendations', { n: fmt(profile.commendations) })}</small>`}</div>
     <div class="rr-cts">${shown.length ? shown.slice(0, 4).map((c, i) => `<div class="rr-ct${c.after > c.before || c.justDone ? ' moved' : ''}${c.done && !c.justDone ? ' done' : ''}" data-ct="${i}">
-      <span class="ic">${picto(c.done && !c.justDone ? 'untouchable' : c.picto)}</span><b>${esc(c.title)}<em>${c.cadence}</em></b><span class="v">${c.done && !c.justDone ? 'Complete' : ''}</span>
+      <span class="ic">${picto(c.done && !c.justDone ? 'untouchable' : c.picto)}</span><b>${esc(c.title)}<em>${tMeta.html(c.cadence === 'weekly' ? 'cadence.weekly' : 'cadence.daily')}</em></b><span class="v">${c.done && !c.justDone ? tResults.html('contracts.complete') : ''}</span>
       <span class="tr"><s style="width:${((c.before / Math.max(1, c.target)) * 100).toFixed(1)}%"></s><u style="width:${((c.before / Math.max(1, c.target)) * 100).toFixed(1)}%"></u></span></div>`).join('')
-      : `<div class="rr-none">${sum ? 'No contract progress this time. Today\'s orders are on the main menu.' : 'This battle does not count towards contracts.'}</div>`}</div>`;
+      : `<div class="rr-none">${tResults.html(sum ? 'contracts.none' : 'contracts.notCounted')}</div>`}</div>`;
   prog.appendChild(ctBox);
   // medals
   const medalIds = [...new Set(sum?.medalIds ?? [])]; // (a medal can climb two tiers in one battle: shown once, at its tier)
   if (medalIds.length) {
     const md = el('div', 'rr-sec');
-    md.innerHTML = `<div class="rr-h">${picto('medal')}<span>Medals earned</span><i class="sp"></i><small>${medalIds.length}</small></div><div class="rr-medals">${medalIds.slice(0, 6).map((id) => {
+    md.innerHTML = `<div class="rr-h">${picto('medal')}<span>${tResults.html('medals.title')}</span><i class="sp"></i><small>${medalIds.length}</small></div><div class="rr-medals">${medalIds.slice(0, 6).map((id) => {
       const a = ACH_BY_ID[id];
       if (!a) return '';
       const t = Math.max(0, (profile.medals[id]?.tier ?? 1) - 1);
-      return `<span class="rr-medal" title="${esc(a.title)}">${medalSvg({ metal: achievementMetal(a, isTiered(a) ? t : 0), picto: a.picto, category: a.category })}<span>${esc(a.title)}</span></span>`;
+      const name = achievementTitle(a);
+      return `<span class="rr-medal" title="${esc(name)}">${medalSvg({ metal: achievementMetal(a, isTiered(a) ? t : 0), picto: a.picto, category: a.category })}<span>${esc(name)}</span></span>`;
     }).join('')}${medalIds.length > 6 ? `<span class="rr-medal">+${medalIds.length - 6}</span>` : ''}</div>`;
     prog.appendChild(md);
   }
@@ -379,50 +395,51 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   const tz = el('div', 'rr-tease');
   const fresh = sum?.unlocks ?? [];
   const nextT = sum ? null : nextUnlock(ctx);
+  const lockerBtn = `<button class="rr-lk">${tResults.html('unlock.locker')}</button>`;
   if (fresh.length) {
     tz.classList.add('new');
-    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>Unlocked</small><button class="rr-lk">Locker</button><b>${esc(fresh.slice(0, 3).map((u) => u.name).join(', '))}${fresh.length > 3 ? ` +${fresh.length - 3}` : ''}</b>`;
+    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>${tResults.html('unlock.unlocked')}</small>${lockerBtn}<b>${esc(fresh.slice(0, 3).map((u) => u.name).join(', '))}${fresh.length > 3 ? ` +${fresh.length - 3}` : ''}</b>`;
   } else if (sum?.teaser) {
-    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>Next unlock</small><button class="rr-lk">Locker</button><b>${esc(sum.teaser.text)}</b><span class="tr"><i style="width:${(sum.teaser.before * 100).toFixed(1)}%"></i></span>`;
+    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>${tResults.html('unlock.next')}</small>${lockerBtn}<b>${esc(sum.teaser.text)}</b><span class="tr"><i style="width:${(sum.teaser.before * 100).toFixed(1)}%"></i></span>`;
   } else if (!sum && nextT) {
-    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>Next unlock</small><button class="rr-lk">Locker</button><b>${esc(nextT.text)}</b><span class="tr"><i style="width:${(nextT.status.frac * 100).toFixed(1)}%"></i></span>`;
+    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>${tResults.html('unlock.next')}</small>${lockerBtn}<b>${esc(nextT.text)}</b><span class="tr"><i style="width:${(nextT.status.frac * 100).toFixed(1)}%"></i></span>`;
   } else {
-    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>Locker</small><button class="rr-lk">Locker</button><b>Every cosmetic earned. Impressive.</b>`;
+    tz.innerHTML = `<span class="ic">${picto('lock')}</span><small>${tResults.html('unlock.locker')}</small>${lockerBtn}<b>${tResults.html('unlock.allEarned')}</b>`;
   }
   (tz.querySelector('.rr-lk') as HTMLElement).onclick = () => showLocker({ audio: opts.audio, onBack: () => {} });
   prog.appendChild(tz);
   // ---------------------------------------------------------------- battle report
   const rep = el('section', 'rr-col panel rr-report');
-  rep.innerHTML = `<div class="rr-h">${picto('chart')}<span>Battle report</span><i class="sp"></i><small>every ${10} s</small></div>`;
-  rep.append(battleReport(game, opts.report), scoreboard(game), mvpAndHighlights(game, won, opts.report, opts.recordClip ? (t, label) => { done(); opts.recordClip!(t, label); } : undefined)); // clips
+  rep.innerHTML = `<div class="rr-h">${picto('chart')}<span>${tResults.html('report.title')}</span><i class="sp"></i><small>${tResults.html('report.every', { n: 10 })}</small></div>`;
+  rep.append(battleReport(game, opts.report), scoreboard(game), mvpAndHighlights(game, won, opts.report, opts.recordClip ? (t, label, fileLabel) => { done(); opts.recordClip!(t, label, fileLabel); } : undefined)); // clips
   grid.append(prog, rep);
   wrap.appendChild(grid);
   // ---------------------------------------------------------------- buttons
   const btns = el('div', 'btn-row end-btns rr-btns');
-  const again = el('button', 'btn-primary rr-again', `${ICONS.restart}<span>Play again</span><kbd>Enter</kbd>`);
-  again.title = 'Same settings, a fresh battlefield';
+  const again = el('button', 'btn-primary rr-again', `${ICONS.restart}<span>${tResults.html('buttons.playAgain')}</span><kbd>${tCommon.html('keys.enter')}</kbd>`);
+  again.title = tResults('buttons.playAgainTip');
   again.onclick = () => { done(); opts.playAgain(); };
   btns.appendChild(again);
   if (opts.rematch) {
-    const rm = el('button', 'btn', `${ICONS.dice}<span>Rematch</span>`);
-    rm.title = 'The same battlefield and seed';
+    const rm = el('button', 'btn', `${ICONS.dice}<span>${tResults.html('buttons.rematch')}</span>`);
+    rm.title = tResults('buttons.rematchTip');
     rm.onclick = () => { done(); opts.rematch!(); };
     btns.appendChild(rm);
   }
   if (opts.watchReplay) {
-    const rb = el('button', 'btn', `${ICONS.replay}<span>Watch replay</span>`);
+    const rb = el('button', 'btn', `${ICONS.replay}<span>${tResults.html('buttons.replay')}</span>`);
     rb.onclick = () => { done(); opts.watchReplay!(); };
     btns.appendChild(rb);
   }
-  const watch = el('button', 'btn', `${ICONS.eye}<span>Keep watching</span>`);
+  const watch = el('button', 'btn', `${ICONS.eye}<span>${tResults.html('buttons.keepWatching')}</span>`);
   watch.onclick = () => { done(); opts.keepWatching(); };
-  const quit = el('button', 'btn', `${ICONS.exit}<span>Menu</span>`);
+  const quit = el('button', 'btn', `${ICONS.exit}<span>${tCommon.html('menu')}</span>`);
   quit.onclick = () => { done(); opts.menu(); };
   btns.append(watch, quit);
   wrap.appendChild(btns);
   s.appendChild(wrap);
   const codeEl = wrap.querySelector('.end-code') as HTMLElement | null;
-  if (codeEl && code) { codeEl.title = 'Copy the map code'; codeEl.onclick = () => opts.copyCode?.(code, codeEl); }
+  if (codeEl && code) { codeEl.title = tResults('head.copyCode'); codeEl.onclick = () => opts.copyCode?.(code, codeEl); }
   // "Make this a challenge" offers (src/modes/ui.ts) land before the buttons: keep them inside the report column
   const mo = new MutationObserver(() => {
     const box = wrap.querySelector(':scope > .mom-offers');
@@ -478,7 +495,7 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
           popped.add(i);
           row.classList.add('done', 'pop');
           (row.querySelector('.ic') as HTMLElement).innerHTML = picto('untouchable');
-          val.textContent = `+${fmt(c.xp)} XP`;
+          val.textContent = tResults('contracts.xpGain', { n: fmt(c.xp) });
           if (t < 1e6) { try { opts.audio?.play('ready_ping'); } catch { /* audio off */ } }
         }
       });

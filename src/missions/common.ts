@@ -6,29 +6,33 @@ import type { MissionRuntime, Portrait, Pt } from '../sim/mission';
 import type { Building, Entity, Unit } from '../sim/entities';
 import type { World } from '../sim/world';
 import { floodReach } from '../sim/mapgen';
+import { CAST as N } from '../i18n/en/campaign-cast';
 
 export interface Speaker {
   name: string;
   portrait: Portrait;
 }
 
-/** The recurring cast. Portraits: Allied officers use the commander/intel art, Soviets the red art. */
+/**
+ * The recurring cast. Portraits: Allied officers use the commander/intel art, Soviets the red art. The names are
+ * English from src/i18n/en/campaign-cast.ts (the radio translates them where it shows them).
+ */
 export const CAST = {
   // --- Allied
-  rourke: { name: 'Field Marshal Rourke', portrait: 'commander' },
-  brandt: { name: 'Major Brandt', portrait: 'intel' },
-  kestrel: { name: 'Kestrel', portrait: 'commando' },
-  saarinen: { name: 'Dr. Saarinen', portrait: 'scientist' },
-  hollander: { name: 'Capt. Hollander', portrait: 'pilot' },
+  rourke: { name: N.rourke, portrait: 'commander' },
+  brandt: { name: N.brandt, portrait: 'intel' },
+  kestrel: { name: N.kestrel, portrait: 'commando' },
+  saarinen: { name: N.saarinen, portrait: 'scientist' },
+  hollander: { name: N.hollander, portrait: 'pilot' },
   // --- Soviet
-  morozov: { name: 'General Morozov', portrait: 'enemy' },
-  orlova: { name: 'Commissar Orlova', portrait: 'intel' },
-  orlovaEnemy: { name: 'Commissar Orlova', portrait: 'enemy' },
-  belinsky: { name: 'Dr. Belinsky', portrait: 'scientist' },
-  belinskyEnemy: { name: 'Dr. Belinsky', portrait: 'enemy' },
-  gromova: { name: 'Sgt. Gromova', portrait: 'commando' },
+  morozov: { name: N.morozov, portrait: 'enemy' },
+  orlova: { name: N.orlova, portrait: 'intel' },
+  orlovaEnemy: { name: N.orlova, portrait: 'enemy' },
+  belinsky: { name: N.belinsky, portrait: 'scientist' },
+  belinskyEnemy: { name: N.belinsky, portrait: 'enemy' },
+  gromova: { name: N.gromova, portrait: 'commando' },
   // --- neutral voices
-  eva: { name: 'Battle Control', portrait: 'eva' },
+  eva: { name: N.eva, portrait: 'eva' },
 } satisfies Record<string, Speaker>;
 
 export function say(m: MissionRuntime, who: Speaker, text: string) {

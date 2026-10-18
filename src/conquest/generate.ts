@@ -9,6 +9,8 @@ import { REGIONS, REGION_BY_ID, buildMesh, coastCells, isLand, landBorders, part
 import { COMMANDERS, DOCTRINES, SUPREME, type Difficulty, type ResourceKind } from './data';
 import { addVeteran } from './run';
 import { RUN_VERSION, distances, emptyStats, type ConquestRun, type EnemyFront, type Link, type Territory, type AttackObjective } from './state';
+import { RUN } from '../i18n/en/conquest-run'; // the English stored in the run (translated where shown)
+import { fill as en } from './text';
 
 export interface NewRunOptions {
   seed: number;
@@ -64,6 +66,7 @@ const RES_HINT: Record<string, ResourceKind> = {
   normandy: 'port', crimea: 'port', bavaria: 'airfield', kursk: 'airfield', warsaw: 'manpower', kiev: 'manpower', budapest: 'manpower',
 };
 
+// operation codenames ("Operation Iron Tide") are names: not translated
 const CODE_A = ['Iron', 'Red', 'Northern', 'Steel', 'Thunder', 'Crimson', 'Silent', 'Winter', 'Broken', 'Golden', 'Black', 'Burning', 'Distant', 'Last', 'Grey'];
 const CODE_B = ['Tide', 'Dawn', 'Hammer', 'Storm', 'Lance', 'Anvil', 'Gale', 'Spear', 'Horizon', 'Citadel', 'Avalanche', 'Sabre', 'Harvest', 'Bastion', 'Rampart'];
 
@@ -224,6 +227,6 @@ export function generateRun(opts: NewRunOptions): ConquestRun {
   };
   for (const c of doctrine.core ?? []) addVeteran(run, c[faction], c.rank);
   run.stats.peakTerritories = territories.filter((t) => t.owner === 'player').length;
-  run.log.push({ turn: 1, kind: 'info', text: `${faction === 'allies' ? 'Allied' : 'Soviet'} High Command takes the field from ${pCap.name}. Objective: ${eCap.name}.` });
+  run.log.push({ turn: 1, kind: 'info', text: en(faction === 'allies' ? RUN.log.alliedStart : RUN.log.sovietStart, { territory: pCap.name, target: eCap.name }) });
   return run;
 }

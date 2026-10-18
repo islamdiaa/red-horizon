@@ -1,4 +1,6 @@
 import type { Quality } from '../render/renderer';
+import { applyA11y, type SubtitleSize, type TeamPalette } from './a11y';
+import { setKeymap, type GroupMods, type KeymapOverrides } from './keymap';
 
 export interface Settings {
   quality: Quality;
@@ -17,6 +19,17 @@ export interface Settings {
   hudLayout?: HudLayout;
   /** Model detail: baked 'hd' models or the procedural 'standard' ones (unset: HD on High / Medium, Standard on Low). */
   modelDetail?: ModelDetail;
+  /** Team colours: setup colours, a colour-blind safe palette, or you blue / enemies orange (display only). */
+  teamPalette?: TeamPalette;
+  /** Interface scale for the HUD and menus, 0.8–1.5 (1 = default). */
+  uiScale?: number;
+  /** Announcer captions (default on). */
+  subtitles?: boolean;
+  subtitleSize?: SubtitleSize;
+  /** Rebound hotkeys: only the actions that differ from the defaults (ui/keymap.ts). */
+  keys?: KeymapOverrides;
+  /** Control-group modifiers (default Ctrl assigns, Shift adds). */
+  groupMods?: Partial<GroupMods>;
 }
 
 /** Model detail setting. */
@@ -55,6 +68,8 @@ export function saveSettings(s: Settings) {
 
 /** UI-level settings that are pure presentation (body classes). */
 export function applyUiSettings(s: Settings = loadSettings()) {
+  setKeymap(s.keys, s.groupMods);
+  applyA11y(s);
   document.body.classList.toggle('reduce-motion', !!s.reduceMotion);
   document.body.classList.toggle('hide-fps', s.showFps === false);
 }

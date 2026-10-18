@@ -3,11 +3,14 @@
  * examples (public/mods), and read a summary of every change a mod (and the active set) makes.
  */
 import { BUILDINGS, UNITS } from '../data/rules';
-import { checkMods, formatModValue, pristineTables, type ModReport } from './engine';
+import { checkMods, formatModValue, pristineTables, type ModIssue, type ModReport } from './engine';
 import { MOD_FORMAT, MOD_VERSION, modSetHash, type ModFile, type TableName } from './format';
 import { activeModSet, enabledModIds, installMod, installedMods, moveMod, removeMod, setModEnabled } from './store';
 import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
 import { assetUrl } from '../platform/paths'; // base-path helper
+import tMods from '../i18n/en/mods';
+import tCommon from '../i18n/en/common';
+import { dt, hasKey, tx } from '../i18n/core';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -80,33 +83,54 @@ function injectCss() {
   document.head.appendChild(st);
 }
 
-const LABEL: Record<TableName, string> = { units: 'Units', buildings: 'Structures', weapons: 'Weapons', warheads: 'Warheads' };
+const ONE: Record<TableName, 'unit' | 'building' | 'weapon' | 'warhead'> = { units: 'unit', buildings: 'building', weapons: 'weapon', warheads: 'warhead' };
 const nameOf = (table: TableName, id: string, tables = pristineTables()) => {
   const e = tables[table][id] as { name?: string } | undefined;
-  return e?.name ?? (table === 'units' ? UNITS[id]?.name : table === 'buildings' ? BUILDINGS[id]?.name : undefined) ?? id;
+  const name = e?.name ?? (table === 'units' ? UNITS[id]?.name : table === 'buildings' ? BUILDINGS[id]?.name : undefined);
+  if (!name) return id;
+  return table === 'units' || table === 'buildings' ? dt(table === 'units' ? 'unit' : 'building', id, 'name', name) : name; // (the base rules: game data)
 };
+
+/** A checker message in the player's language (the engine's English when the code is unknown). */
+export function issueText(e: ModIssue): string {
+  const key = `mods.issue.${e.code}`;
+  if (!e.code || !hasKey(key)) return e.message;
+  const p: Record<string, string> = { ...(e.params ?? {}) };
+  if (p.table && hasKey(`mods.tableWord.${p.table}`)) p.table = tx(`mods.tableWord.${p.table}`);
+  if (p.why && hasKey(`mods.why.${p.why}`)) p.why = tx(`mods.why.${p.why}`);
+  p.hint = e.suggest ? ` ${tMods('issue.didYouMean', { s: e.suggest })}` : '';
+  return tx(key, p);
+}
+
+/** HTML of a translation with `{name}` parameters replaced by trusted markup (after escaping). */
+function htmlWith(html: (params: Record<string, string>) => string, markup: Record<string, string>): string {
+  const marks = Object.keys(markup);
+  let out = html(Object.fromEntries(marks.map((k, i) => [k, `\u0000${i}\u0000`])));
+  marks.forEach((k, i) => { out = out.split(`\u0000${i}\u0000`).join(markup[k]); });
+  return out;
+}
 
 function changeRows(r: ModReport): string {
   const tables = pristineTables();
   let html = '';
   if (r.added.length) {
-    html += `<h4>NEW VARIANTS</h4>` + r.added.map((a) => `<div class="mods-row"><span class="who">${esc(a.name ?? a.id)}</span><span class="fld">${esc(a.id)} · copy of ${esc(nameOf(a.table, a.base, tables))}</span><span class="val">${esc(LABEL[a.table].replace(/s$/, ''))}</span></div>`).join('');
+    html += `<h4>${tMods.html('changes.variants')}</h4>` + r.added.map((a) => `<div class="mods-row"><span class="who">${esc(a.name ?? a.id)}</span><span class="fld">${tMods.html('changes.copyOf', { id: a.id, name: nameOf(a.table, a.base, tables) })}</span><span class="val">${tMods.html(`table.${ONE[a.table]}`)}</span></div>`).join('');
   }
   for (const t of ['units', 'buildings', 'weapons', 'warheads'] as TableName[]) {
     const ch = r.changes.filter((c) => c.table === t);
     if (!ch.length) continue;
-    html += `<h4>${LABEL[t].toUpperCase()} · ${ch.length} change${ch.length === 1 ? '' : 's'}</h4>`;
+    html += `<h4>${tMods.html('changes.head', { table: tMods(`table.${t}`), n: ch.length })}</h4>`;
     html += ch.map((c) => {
       const dir = typeof c.from === 'number' && typeof c.to === 'number' ? (c.to > c.from ? '▲' : '▼') : '';
       return `<div class="mods-row"><span class="who">${esc(t === 'weapons' || t === 'warheads' ? c.id : nameOf(t, c.id, tables))}</span><span class="fld">${esc(c.field)}</span><span class="val"><s>${esc(formatModValue(c.from))}</s> → <b>${esc(formatModValue(c.to))}</b><i>${dir}</i></span></div>`;
     }).join('');
   }
-  return html || '<div class="mods-empty">No changes.</div>';
+  return html || `<div class="mods-empty">${tMods.html('changes.none')}</div>`;
 }
 
 function issues(r: ModReport): string {
-  return r.errors.map((e) => `<div class="mods-issue e"><code>${esc(e.path || 'mod')}</code> ${esc(e.message)}</div>`).join('')
-    + r.warnings.map((w) => `<div class="mods-issue w"><code>${esc(w.path || 'mod')}</code> ${esc(w.message)}</div>`).join('');
+  return r.errors.map((e) => `<div class="mods-issue e"><code>${esc(e.path || 'mod')}</code> ${esc(issueText(e))}</div>`).join('')
+    + r.warnings.map((w) => `<div class="mods-issue w"><code>${esc(w.path || 'mod')}</code> ${esc(issueText(w))}</div>`).join('');
 }
 
 function download(name: string, text: string) {
@@ -121,15 +145,15 @@ function download(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/** Read and validate a mod file; throws a user-facing message. */
+/** Read and validate a mod file; throws a user-facing (translated) message. */
 export async function readModFile(file: File): Promise<ModFile> {
-  if (file.size > 2 * 1024 * 1024) throw new Error('File too large for a mod (2 MB max).');
+  if (file.size > 2 * 1024 * 1024) throw new Error(tMods('file.tooLarge'));
   let data: unknown;
   try { data = parseUntrustedJson(await file.text(), { maxChars: 2 << 20 }); } catch (e) {
-    throw new Error(e instanceof UntrustedInputError ? e.message : 'Not a mod file (invalid JSON).');
+    throw new Error(e instanceof UntrustedInputError ? e.message : tMods('file.invalidJson'));
   }
   const r = checkMods([data as ModFile]);
-  if (!r.ok) throw new Error(r.errors.slice(0, 6).map((e) => `${e.path || 'mod'}: ${e.message}`).join('\n'));
+  if (!r.ok) throw new Error(r.errors.slice(0, 6).map((e) => `${e.path || 'mod'}: ${issueText(e)}`).join('\n'));
   return data as ModFile;
 }
 
@@ -180,7 +204,7 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
       const mod = await readModFile(f);
       const replaced = installMod(mod);
       selected = mod.id;
-      message = { text: `${replaced ? 'Updated' : 'Installed'} "${mod.name}". Enable it to use it in new matches.`, bad: false };
+      message = { text: tMods(replaced ? 'file.updated' : 'file.installed', { name: mod.name }), bad: false };
     } catch (e) {
       message = { text: (e as Error).message, bad: true };
     }
@@ -200,37 +224,37 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
       const on = enabled.includes(m.id);
       const i = enabled.indexOf(m.id);
       return `<div class="mod-card ${m.id === selected ? 'sel' : ''} ${r.ok ? '' : 'bad'}" data-id="${esc(m.id)}">
-        ${installed ? `<button class="mod-sw ${on ? 'on' : ''}" data-act="toggle" title="${on ? 'Disable' : 'Enable'}" ${r.ok ? '' : 'disabled'}><i></i></button>` : '<span></span>'}
+        ${installed ? `<button class="mod-sw ${on ? 'on' : ''}" data-act="toggle" title="${esc(tMods(on ? 'card.disable' : 'card.enable'))}" ${r.ok ? '' : 'disabled'}><i></i></button>` : '<span></span>'}
         <div><div class="nm">${esc(m.name)}<small>${esc(m.modVersion ? 'v' + m.modVersion : '')}${m.author ? ' · ' + esc(m.author) : ''}</small></div>
           <div class="ds">${esc((m.description ?? '').slice(0, 160))}${(m.description ?? '').length > 160 ? '…' : ''}</div>
-          <div class="st ${r.ok ? '' : 'err'}">${r.ok ? `${r.changes.length + r.added.length} CHANGE${r.changes.length + r.added.length === 1 ? '' : 'S'}${on ? ` · ACTIVE #${i + 1}` : ''}` : `${r.errors.length} ERROR${r.errors.length === 1 ? '' : 'S'}`}</div></div>
+          <div class="st ${r.ok ? '' : 'err'}">${r.ok ? (on ? tMods.html('card.changesActive', { n: r.changes.length + r.added.length, pos: String(i + 1) }) : tMods.html('card.changes', { n: r.changes.length + r.added.length })) : tMods.html('card.errors', { n: r.errors.length })}</div></div>
         <div class="side">${installed
-          ? `${on && enabled.length > 1 ? `<span class="ord"><button data-act="up" ${i === 0 ? 'disabled' : ''} title="Apply earlier">▲</button><button data-act="down" ${i === enabled.length - 1 ? 'disabled' : ''} title="Apply later">▼</button></span>` : ''}
-             <button class="mods-btn sm" data-act="export">Export</button><button class="mods-btn sm danger" data-act="remove">Remove</button>`
-          : `<button class="mods-btn sm pri" data-act="install">Install</button>`}</div>
+          ? `${on && enabled.length > 1 ? `<span class="ord"><button data-act="up" ${i === 0 ? 'disabled' : ''} title="${esc(tMods('card.earlier'))}">▲</button><button data-act="down" ${i === enabled.length - 1 ? 'disabled' : ''} title="${esc(tMods('card.later'))}">▼</button></span>` : ''}
+             <button class="mods-btn sm" data-act="export">${tMods.html('card.export')}</button><button class="mods-btn sm danger" data-act="remove">${tMods.html('card.remove')}</button>`
+          : `<button class="mods-btn sm pri" data-act="install">${tMods.html('card.install')}</button>`}</div>
       </div>`;
     };
     const notInstalled = examples.filter((e) => !mods.some((m) => m.id === e.id));
     root.innerHTML = `
       <div class="mods-panel mods-head">
-        <div class="ttl"><div class="mods-kick">RULES WORKSHOP</div><h1>MODS</h1></div>
-        <div class="set">${set ? `<b>${set.mods.length} ACTIVE</b>RULE SET ${set.hash.slice(0, 8).toUpperCase()}` : enabled.length ? '<b style="color:#ff8a7a">CONFLICT</b>ENABLED MODS DO NOT VALIDATE' : '<b>BASE RULES</b>NO MODS ACTIVE'}</div>
-        <button class="mods-btn" data-act="import">Import mod</button>
-        <button class="mods-btn" data-act="back">Back</button>
+        <div class="ttl"><div class="mods-kick">${tMods.html('screen.kicker')}</div><h1>${tMods.html('screen.title')}</h1></div>
+        <div class="set">${set ? `<b>${tMods.html('screen.active', { n: set.mods.length })}</b>${tMods.html('screen.ruleSet', { hash: set.hash.slice(0, 8).toUpperCase() })}` : enabled.length ? `<b style="color:#ff8a7a">${tMods.html('screen.conflict')}</b>${tMods.html('screen.conflictSub')}` : `<b>${tMods.html('screen.baseRules')}</b>${tMods.html('screen.noMods')}`}</div>
+        <button class="mods-btn" data-act="import">${tMods.html('screen.import')}</button>
+        <button class="mods-btn" data-act="back">${tCommon.html('back')}</button>
       </div>
       <div class="mods-panel mods-list">
         ${message ? `<div class="mods-issue ${message.bad ? 'e' : 'w'}" style="white-space:pre-line">${esc(message.text)}</div>` : ''}
-        <div class="mods-sec">INSTALLED</div>
-        ${mods.length ? mods.map((m) => card(m, true)).join('') : '<div class="mods-empty">No mods installed yet.<br>Import a <code>.rhmod.json</code> file or install an example below.</div>'}
-        ${notInstalled.length ? `<div class="mods-sec">EXAMPLES</div>${notInstalled.map((m) => card(m, false)).join('')}` : ''}
-        <div class="mods-help">Mods change unit, structure, weapon and warhead rules for <b>new</b> matches. Saves and replays remember the mods they were played with.
-          Format: <code>{ "id", "name", "units": { "2tnk": { "cost": 600 } }, "scale": [ … ] }</code> — see public/mods for examples.</div>
+        <div class="mods-sec">${tMods.html('screen.installed')}</div>
+        ${mods.length ? mods.map((m) => card(m, true)).join('') : `<div class="mods-empty">${tMods.html('screen.empty')}<br>${htmlWith((p) => tMods.html('screen.emptyHint', p), { file: '<code>.rhmod.json</code>' })}</div>`}
+        ${notInstalled.length ? `<div class="mods-sec">${tMods.html('screen.examples')}</div>${notInstalled.map((m) => card(m, false)).join('')}` : ''}
+        <div class="mods-help">${tMods.html('screen.help')}
+          ${htmlWith((p) => tMods.html('screen.format', p), { format: `<code>${esc('{ "id", "name", "units": { "2tnk": { "cost": 600 } }, "scale": [ … ] }')}</code>` })}</div>
       </div>
       <div class="mods-panel mods-detail">
         ${sel && selReport ? `<h2>${esc(sel.name.toUpperCase())}</h2><div class="by">${esc([sel.author, sel.modVersion ? 'v' + sel.modVersion : '', sel.id].filter(Boolean).join(' · ').toUpperCase())}</div>
           <p>${esc(sel.description ?? '')}</p>${issues(selReport)}<div class="mods-changes">${changeRows(selReport)}</div>`
-          : `<h2>ACTIVE RULE SET</h2><div class="by">${enabled.length} ENABLED</div>`}
-        ${enabled.length > 1 ? `<div class="mods-changes" style="flex:0 0 auto;max-height:30%"><h4>COMBINED (${enabled.length} MODS, IN ORDER)</h4>${issues(all)}<div class="mods-row"><span class="who">${all.changes.length} changes, ${all.added.length} new variants</span><span class="fld">hash</span><span class="val">${esc(modSetHash(enabled.map((id) => mods.find((m) => m.id === id)!).filter(Boolean)).slice(0, 12))}</span></div></div>` : ''}
+          : `<h2>${tMods.html('screen.activeSet')}</h2><div class="by">${tMods.html('screen.enabled', { n: enabled.length })}</div>`}
+        ${enabled.length > 1 ? `<div class="mods-changes" style="flex:0 0 auto;max-height:30%"><h4>${tMods.html('screen.combined', { n: enabled.length })}</h4>${issues(all)}<div class="mods-row"><span class="who">${tMods.html('screen.combinedSummary', { changes: all.changes.length, added: all.added.length })}</span><span class="fld">${tMods.html('screen.hash')}</span><span class="val">${esc(modSetHash(enabled.map((id) => mods.find((m) => m.id === id)!).filter(Boolean)).slice(0, 12))}</span></div></div>` : ''}
       </div>`;
     root.querySelectorAll<HTMLElement>('.mod-card').forEach((c) => {
       const id = c.dataset.id!;
@@ -241,9 +265,9 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
         if (act === 'toggle') { setModEnabled(id, !enabled.includes(id)); play('tab'); }
         else if (act === 'up') moveMod(id, -1);
         else if (act === 'down') moveMod(id, 1);
-        else if (act === 'remove') { if (confirm(`Remove the mod "${mod?.name ?? id}"?`)) { removeMod(id); if (selected === id) selected = null; } }
+        else if (act === 'remove') { if (confirm(tMods('card.confirmRemove', { name: mod?.name ?? id }))) { removeMod(id); if (selected === id) selected = null; } }
         else if (act === 'export' && mod) download(`${id}.rhmod.json`, JSON.stringify({ format: MOD_FORMAT, version: MOD_VERSION, ...mod }, null, 2));
-        else if (act === 'install' && mod) { installMod(mod); setModEnabled(id, true); message = { text: `Installed and enabled "${mod.name}".`, bad: false }; play('click'); }
+        else if (act === 'install' && mod) { installMod(mod); setModEnabled(id, true); message = { text: tMods('file.installedEnabled', { name: mod.name }), bad: false }; play('click'); }
         selected = id;
         render();
       };

@@ -15,6 +15,7 @@ import type { NetClient } from './client';
 import { Lockstep } from './lockstep';
 import type { MatchStart, ServerMessage } from './protocol';
 import { netPlayers } from './roster';
+import tNet from '../i18n/en/net';
 
 export interface StallInfo { seat: number; name: string; ms: number; canDrop: boolean; gone: boolean; loading: boolean }
 export interface DesyncInfo { tick: number; mine: string | null; hashes: [number, string][] }
@@ -87,7 +88,7 @@ export class MatchSession {
         this.rtt = new Map(m.rtt);
         break;
       case 'stall':
-        this.stall = m.seat < 0 ? null : { seat: m.seat, name: this.names.get(m.seat) ?? 'A player', ms: m.ms, canDrop: m.canDrop, gone: m.gone, loading: m.loading };
+        this.stall = m.seat < 0 ? null : { seat: m.seat, name: this.names.get(m.seat) ?? tNet('player.someone'), ms: m.ms, canDrop: m.canDrop, gone: m.gone, loading: m.loading };
         break;
       case 'desync':
         this.ls.status = 'desync';
@@ -166,7 +167,7 @@ export class MatchSession {
 
   /** Name of a seat's player. */
   nameOf(seat: number): string {
-    return this.names.get(seat) ?? `Seat ${seat}`;
+    return this.names.get(seat) ?? tNet('player.seat', { n: String(seat) });
   }
 
   dispose() {

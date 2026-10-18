@@ -10,6 +10,10 @@ import {
   type ConquestRun, type PendingEvent, type Territory,
 } from './state';
 import { addVeteran, offerPerks } from './run';
+import { RUN } from '../i18n/en/conquest-run'; // the English stored in the run (translated where shown)
+import { fill as en } from './text';
+
+const E = RUN.event;
 
 export interface EventChoice {
   label: string;
@@ -36,7 +40,9 @@ const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 /** Gamble odds, better with partisan contacts. */
 const odds = (run: ConquestRun, p: number) => Math.min(0.95, p + (hasPerk(run, 'partisans') ? 0.2 : 0));
 const pay = (run: ConquestRun, c: number) => { run.warChest = Math.max(0, run.warChest - c); };
-const tName = (run: ConquestRun, ev: PendingEvent) => findTerritory(run, ev.territory)?.name ?? 'the front';
+const tName = (run: ConquestRun, ev: PendingEvent) => findTerritory(run, ev.territory)?.name ?? E.theFront;
+/** An event line with the event's territory filled in. */
+const at = (template: string, run: ConquestRun, ev: PendingEvent) => en(template, { territory: tName(run, ev) });
 const mainTank = (run: ConquestRun) => (run.faction === 'allies' ? '2tnk' : '3tnk');
 const enemyTank = (run: ConquestRun) => (run.enemy === 'allies' ? '2tnk' : '3tnk');
 
@@ -47,50 +53,50 @@ function frontier(run: ConquestRun): Territory[] {
 
 export const EVENTS: EventDef[] = [
   {
-    id: 'partisans', title: 'Partisan Uprising', icon: 'flag', weight: 1.2,
+    id: 'partisans', title: E.partisans.title, icon: 'flag', weight: 1.2,
     prepare(run, rng) {
       const f = frontier(run).filter((t) => !t.partisans);
       return f.length ? { id: 'partisans', territory: rng.pick(f).id } : null;
     },
-    text: (run, ev) => `Resistance fighters in ${tName(run, ev)} have risen against the occupation. They ask for weapons, and for us to come soon.`,
+    text: (run, ev) => at(E.partisans.text, run, ev),
     choices: () => [
       {
-        label: 'Arm the partisans', hint: '$1,500 · they fight beside you when you attack', cost: 1500,
+        label: E.partisans.arm, hint: E.partisans.armHint, cost: 1500,
         apply(run, ev, rng) {
           pay(run, 1500);
           const t = territory(run, ev.territory!);
           t.partisans = true;
-          if (rng.chance(odds(run, 0.5))) { t.strength = Math.max(1, t.strength - 1); return `The uprising spreads: ${t.name}'s garrison is weakened (strength ${t.strength}) and partisans will join our attack.`; }
-          return `The partisans are armed and waiting for our attack on ${t.name}.`;
+          if (rng.chance(odds(run, 0.5))) { t.strength = Math.max(1, t.strength - 1); return en(E.partisans.spread, { territory: t.name, n: t.strength }); }
+          return en(E.partisans.armed, { territory: t.name });
         },
       },
       {
-        label: 'Ask for intelligence', hint: '+1 research point',
-        apply(run, ev) { run.rp += 1; return `Partisan couriers bring maps and codes from ${tName(run, ev)}. +1 research point.`; },
+        label: E.partisans.intel, hint: E.partisans.intelHint,
+        apply(run, ev) { run.rp += 1; return at(E.partisans.intelDone, run, ev); },
       },
-      { label: 'Stay out of it', hint: 'Nothing happens', apply: (run, ev) => `The uprising in ${tName(run, ev)} is crushed. Some say we could have helped.` },
+      { label: E.partisans.ignore, hint: E.nothing, apply: (run, ev) => at(E.partisans.crushed, run, ev) },
     ],
   },
   {
-    id: 'convoy', title: 'Supply Convoy', icon: 'crate', weight: 1.3,
+    id: 'convoy', title: E.convoy.title, icon: 'crate', weight: 1.3,
     prepare: () => ({ id: 'convoy' }),
-    text: () => 'A supply convoy has reached the front intact. Logistics asks where you want it.',
+    text: () => E.convoy.text,
     choices: (run) => [
-      { label: 'The war chest', hint: '+$3,000', apply(r) { r.warChest += 3000; r.stats.creditsEarned += 3000; return 'The convoy is sold off to the quartermasters: +$3,000.'; } },
-      { label: 'The laboratories', hint: '+2 research points', apply(r) { r.rp += 2; return 'Precision instruments for the labs: +2 research points.'; } },
+      { label: E.convoy.chest, hint: '+$3,000', apply(r) { r.warChest += 3000; r.stats.creditsEarned += 3000; return E.convoy.chestDone; } },
+      { label: E.convoy.labs, hint: E.convoy.labsHint, apply(r) { r.rp += 2; return E.convoy.labsDone; } },
       {
-        label: 'Arm the core army', hint: 'A veteran tank joins the core',
+        label: E.convoy.arm, hint: E.convoy.armHint,
         apply(r) {
           const v = addVeteran(r, mainTank(r), 1);
-          if (v) return `A veteran tank crew joins the core army: ${v.name}.`;
+          if (v) return en(E.convoy.armDone, { vet: v.name });
           r.warChest += 800;
-          return 'The core army is full; the tank is sold to another division. +$800.';
+          return E.convoy.armFull;
         },
       },
     ],
   },
   {
-    id: 'superweapon', title: 'Superweapon Threat', icon: 'nuke', weight: 0.8,
+    id: 'superweapon', title: E.superweapon.title, icon: 'nuke', weight: 0.8,
     prepare(run, rng) {
       if (run.superThreat || run.turn < 4) return null;
       const opts = run.territories.filter((t) => t.owner === 'enemy' && !t.capital);
@@ -98,142 +104,144 @@ export const EVENTS: EventDef[] = [
       const kind = rng.pick(['nuke', 'iron', 'chrono'] as const);
       return { id: 'superweapon', territory: rng.pick(opts).id, data: { kind } };
     },
-    text: (run, ev) => `Intelligence confirms the enemy is readying a ${ev.data?.kind === 'nuke' ? 'nuclear missile silo' : ev.data?.kind === 'iron' ? 'superweapon' : 'superweapon'} in ${tName(run, ev)}. In three turns it will strike one of our territories.`,
+    text: (run, ev) => at(ev.data?.kind === 'nuke' ? E.superweapon.textNuke : E.superweapon.text, run, ev),
     choices: () => [
       {
-        label: 'Commando raid', hint: '$2,500 · 60% to destroy it', cost: 2500,
+        label: E.superweapon.raid, hint: E.superweapon.raidHint, cost: 2500,
         apply(run, ev, rng) {
           pay(run, 2500);
-          if (rng.chance(odds(run, 0.6))) { run.rp += 1; return 'The commandos blew the site sky-high and brought back blueprints. +1 research point.'; }
+          if (rng.chance(odds(run, 0.6))) { run.rp += 1; return E.superweapon.raidDone; }
           run.superThreat = { territory: ev.territory!, turns: 3, kind: ev.data!.kind };
-          return `The raid failed. The weapon in ${tName(run, ev)} is still being readied: capture the territory or destroy it in battle.`;
+          return at(E.superweapon.raidFailed, run, ev);
         },
       },
       {
-        label: 'Accelerate the offensive', hint: 'It strikes in 3 turns unless you take the territory',
-        apply(run, ev) { run.superThreat = { territory: ev.territory!, turns: 3, kind: ev.data!.kind }; return `Every attack on ${tName(run, ev)} now has a superweapon to destroy. Three turns.`; },
+        label: E.superweapon.push, hint: E.superweapon.pushHint,
+        apply(run, ev) { run.superThreat = { territory: ev.territory!, turns: 3, kind: ev.data!.kind }; return at(E.superweapon.pushDone, run, ev); },
       },
     ],
   },
   {
-    id: 'defection', title: 'Defection', icon: 'user', weight: 0.9,
+    id: 'defection', title: E.defection.title, icon: 'user', weight: 0.9,
     prepare(run, rng) {
       const f = frontier(run);
       return f.length ? { id: 'defection', territory: rng.pick(f).id, data: { rank: rng.chance(0.3) ? 'General' : 'Colonel' } } : null;
     },
-    text: (run, ev) => `A ${ev.data?.rank ?? 'Colonel'} of the enemy garrison in ${tName(run, ev)} offers to defect with his tank crews. It could be a trap.`,
+    text: (run, ev) => at(ev.data?.rank === 'General' ? E.defection.textGeneral : E.defection.textColonel, run, ev),
     choices: () => [
       {
-        label: 'Welcome him', hint: 'Enemy tanks join your core (20% trap)',
+        label: E.defection.welcome, hint: E.defection.welcomeHint,
         apply(run, ev, rng) {
-          if (rng.chance(hasPerk(run, 'partisans') ? 0.05 : 0.2)) { pay(run, 1500); return 'It was a trap! Saboteurs hit our depots before vanishing: -$1,500.'; }
+          if (rng.chance(hasPerk(run, 'partisans') ? 0.05 : 0.2)) { pay(run, 1500); return E.defection.trap; }
           const a = addVeteran(run, enemyTank(run), 1), b = addVeteran(run, enemyTank(run), 2);
-          return `The defectors drive their tanks across the line${a || b ? `: ${[a, b].filter(Boolean).map((v) => v!.name).join(' and ')} join the core army` : ', but the core army is full'}.`;
+          const names = [a, b].filter(Boolean).map((v) => v!.name);
+          return names.length === 2 ? en(E.defection.joined2, { a: names[0], b: names[1] }) : names.length ? en(E.defection.joined1, { a: names[0] }) : E.defection.full;
         },
       },
       {
-        label: 'Demand his maps', hint: 'Weaken the garrison',
+        label: E.defection.maps, hint: E.defection.mapsHint,
         apply(run, ev) {
           const t = territory(run, ev.territory!);
           t.strength = Math.max(1, t.strength - 2);
-          return `His maps expose the defences of ${t.name}: garrison strength now ${t.strength}.`;
+          return en(E.defection.mapsDone, { territory: t.name, n: t.strength });
         },
       },
-      { label: 'Refuse', hint: 'Nothing happens', apply: () => 'We send him back across the line. Trust is a luxury.' },
+      { label: E.defection.refuse, hint: E.nothing, apply: () => E.defection.refused },
     ],
   },
   {
-    id: 'breakthrough', title: 'Scientific Breakthrough', icon: 'chart', weight: 1,
+    id: 'breakthrough', title: E.breakthrough.title, icon: 'chart', weight: 1,
     prepare: () => ({ id: 'breakthrough' }),
-    text: () => 'Our scientists report a breakthrough, but scaling it up will be expensive.',
+    text: () => E.breakthrough.text,
     choices: () => [
-      { label: 'Fund it', hint: '$2,000 · +3 research points', cost: 2000, apply(r) { pay(r, 2000); r.rp += 3; return 'The programme is funded: +3 research points.'; } },
-      { label: 'Shelve it', hint: '+1 research point', apply(r) { r.rp += 1; return 'The notes are filed for later: +1 research point.'; } },
+      { label: E.breakthrough.fund, hint: E.breakthrough.fundHint, cost: 2000, apply(r) { pay(r, 2000); r.rp += 3; return E.breakthrough.funded; } },
+      { label: E.breakthrough.shelve, hint: E.breakthrough.shelveHint, apply(r) { r.rp += 1; return E.breakthrough.shelved; } },
     ],
   },
   {
-    id: 'winter', title: 'Harsh Winter', icon: 'snow', weight: 1,
+    id: 'winter', title: E.winter.title, icon: 'snow', weight: 1,
     prepare(run) { const m = (2 + run.turn - 1) % 12; return m === 11 || m <= 1 ? { id: 'winter' } : null; },
-    text: () => 'The cold is biting. Fuel lines freeze and engines will not start. The men need winter gear.',
+    text: () => E.winter.text,
     choices: () => [
-      { label: 'Buy winter gear', hint: '$1,500', cost: 1500, apply(r) { pay(r, 1500); return 'Greatcoats and antifreeze reach the front. The army stays fit.'; } },
+      { label: E.winter.gear, hint: E.cost1500, cost: 1500, apply(r) { pay(r, 1500); return E.winter.gearDone; } },
       {
-        label: 'Endure', hint: 'Lose 20% of the war chest',
-        apply(r) { const loss = Math.round(r.warChest * 0.2); pay(r, loss); return `Frostbite and frozen engines cost us ${money(loss)} in repairs.`; },
+        label: E.winter.endure, hint: E.winter.endureHint,
+        apply(r) { const loss = Math.round(r.warChest * 0.2); pay(r, loss); return en(E.winter.endured, { money: money(loss) }); },
       },
     ],
   },
   {
-    id: 'mercenaries', title: 'Mercenary Offer', icon: 'coin', weight: 0.8,
+    id: 'mercenaries', title: E.mercenaries.title, icon: 'coin', weight: 0.8,
     prepare: (run) => (run.core.length < 12 ? { id: 'mercenaries' } : null),
-    text: () => 'A freelance armoured company offers its services. Veterans, every one of them, and they do not come cheap.',
+    text: () => E.mercenaries.text,
     choices: (run) => [
       {
-        label: 'Hire them', hint: '$2,500 · three veterans join the core', cost: 2500,
+        label: E.mercenaries.hire, hint: E.mercenaries.hireHint, cost: 2500,
         apply(r) {
           pay(r, 2500);
-          const got = [addVeteran(r, mainTank(r), 1), addVeteran(r, 'e3', 1), addVeteran(r, r.faction === 'allies' ? 'jeep' : 'v2rl', 1)].filter(Boolean);
-          return got.length ? `${got.map((v) => v!.name).join(', ')} sign the contract.` : 'The core army is full; the mercenaries take the money and run.';
+          const got = [addVeteran(r, mainTank(r), 1), addVeteran(r, 'e3', 1), addVeteran(r, r.faction === 'allies' ? 'jeep' : 'v2rl', 1)].filter(Boolean).map((v) => v!.name);
+          const [a, b, c] = got;
+          return got.length >= 3 ? en(E.mercenaries.hired3, { a, b, c }) : got.length === 2 ? en(E.mercenaries.hired2, { a, b }) : got.length ? en(E.mercenaries.hired1, { a }) : E.mercenaries.full;
         },
       },
-      { label: 'Decline', hint: 'Nothing happens', apply: () => 'The mercenaries move on to the next war.' },
+      { label: E.mercenaries.decline, hint: E.nothing, apply: () => E.mercenaries.declined },
     ],
   },
   {
-    id: 'profiteer', title: 'War Profiteer', icon: 'money', weight: 0.7,
+    id: 'profiteer', title: E.profiteer.title, icon: 'money', weight: 0.7,
     prepare: (run) => (run.perkChoice ? null : { id: 'profiteer' }),
-    text: () => 'A smuggler offers rare equipment and expertise, for a price. Military police would love to meet him.',
+    text: () => E.profiteer.text,
     choices: () => [
-      { label: 'Buy his wares', hint: '$4,000 · choose a perk', cost: 4000, apply(r) { pay(r, 4000); offerPerks(r); return 'The crates are opened: choose your new advantage.'; } },
-      { label: 'Report him', hint: '+$800 reward', apply(r) { r.warChest += 800; return 'The profiteer is arrested. The bounty pays $800.'; } },
+      { label: E.profiteer.buy, hint: E.profiteer.buyHint, cost: 4000, apply(r) { pay(r, 4000); offerPerks(r); return E.profiteer.bought; } },
+      { label: E.profiteer.report, hint: E.profiteer.reportHint, apply(r) { r.warChest += 800; return E.profiteer.reported; } },
     ],
   },
   {
-    id: 'spy', title: 'Spy Captured', icon: 'spy', weight: 0.9,
+    id: 'spy', title: E.spy.title, icon: 'spy', weight: 0.9,
     prepare: () => ({ id: 'spy' }),
-    text: () => 'Military police caught an enemy spy photographing our depots.',
+    text: () => E.spy.text,
     choices: (run) => [
-      { label: 'Interrogate him', hint: '+2 research points', apply(r) { r.rp += 2; return 'He talks: enemy codes and equipment specs. +2 research points.'; } },
+      { label: E.spy.interrogate, hint: E.spy.interrogateHint, apply(r) { r.rp += 2; return E.spy.interrogated; } },
       {
-        label: 'Turn him', hint: run.threat ? 'Call off the enemy counterattack' : 'Feed the enemy false plans',
+        label: E.spy.turn, hint: run.threat ? E.spy.turnThreatHint : E.spy.turnHint,
         apply(r) {
-          if (r.threat) { const t = findTerritory(r, r.threat.target); r.threat = null; return `False reports convince the enemy to call off the attack on ${t?.name ?? 'our lines'}.`; }
+          if (r.threat) { const t = findTerritory(r, r.threat.target); r.threat = null; return en(E.spy.calledOff, { territory: t?.name ?? E.spy.ourLines }); }
           r.pursuit = false;
           for (const t of frontier(r)) if (t.strength > 1 && t.value === 1) { t.strength--; break; }
-          return 'Fed false plans, the enemy shifts troops away from the front.';
+          return E.spy.fed;
         },
       },
-      { label: 'Trade him', hint: '+$2,000', apply(r) { r.warChest += 2000; return 'Exchanged for one of ours and a briefcase of cash: +$2,000.'; } },
+      { label: E.spy.trade, hint: E.spy.tradeHint, apply(r) { r.warChest += 2000; return E.spy.traded; } },
     ],
   },
   {
-    id: 'refugees', title: 'Refugee Columns', icon: 'user', weight: 0.7,
+    id: 'refugees', title: E.refugees.title, icon: 'user', weight: 0.7,
     prepare: (run) => (run.morale < run.moraleMax ? { id: 'refugees' } : null),
-    text: () => 'Columns of civilians flee the fighting. Sheltering them would cost supplies, but the men would remember it.',
+    text: () => E.refugees.text,
     choices: () => [
-      { label: 'Shelter them', hint: '$1,000 · +1 morale', cost: 1000, apply(r) { pay(r, 1000); r.morale = Math.min(r.moraleMax, r.morale + 1); return 'The refugees are fed and sheltered. Morale rises.'; } },
-      { label: 'Push on', hint: 'Nothing happens', apply: () => 'The army has no time to spare.' },
+      { label: E.refugees.shelter, hint: E.refugees.shelterHint, cost: 1000, apply(r) { pay(r, 1000); r.morale = Math.min(r.moraleMax, r.morale + 1); return E.refugees.sheltered; } },
+      { label: E.refugees.push, hint: E.nothing, apply: () => E.refugees.pushed },
     ],
   },
   {
-    id: 'hero', title: 'A Hero Emerges', icon: 'medal', weight: 0.8,
+    id: 'hero', title: E.hero.title, icon: 'medal', weight: 0.8,
     prepare(run, rng) {
       const vets = run.core.filter((v) => v.rank < 2);
       return vets.length ? { id: 'hero', data: { vet: rng.pick(vets).id } } : null;
     },
-    text: (run, ev) => { const v = run.core.find((x) => x.id === ev.data?.vet); return `${v?.name ?? 'A veteran'} (${UNITS[v?.type ?? 'e1']?.name ?? 'unit'}) turned the tide in the last engagement. The men speak of nothing else.`; },
+    text: (run, ev) => { const v = run.core.find((x) => x.id === ev.data?.vet); return en(E.hero.text, { vet: v?.name ?? 'A veteran', unit: UNITS[v?.type ?? 'e1']?.name ?? 'unit' }); },
     choices: () => [
-      { label: 'Promote to elite', hint: 'Elite rank', apply(r, ev) { const v = r.core.find((x) => x.id === ev.data?.vet); if (v) v.rank = 2; return `${v?.name ?? 'The veteran'} is promoted to elite.`; } },
-      { label: 'Train recruits', hint: '+1 research point, +$1,000', apply(r) { r.rp += 1; r.warChest += 1000; return 'Hard-won lessons spread through the army: +1 research point and +$1,000.'; } },
+      { label: E.hero.promote, hint: E.hero.promoteHint, apply(r, ev) { const v = r.core.find((x) => x.id === ev.data?.vet); if (v) v.rank = 2; return en(E.hero.promoted, { vet: v?.name ?? 'The veteran' }); } },
+      { label: E.hero.train, hint: E.hero.trainHint, apply(r) { r.rp += 1; r.warChest += 1000; return E.hero.trained; } },
     ],
   },
   {
-    id: 'sabotage', title: 'Rail Sabotage', icon: 'bridge', weight: 0.7,
+    id: 'sabotage', title: E.sabotage.title, icon: 'bridge', weight: 0.7,
     prepare: (run) => (owned(run).length >= 4 ? { id: 'sabotage' } : null),
-    text: () => 'Enemy saboteurs have blown a railway bridge behind our lines. Supplies are piling up at the break.',
+    text: () => E.sabotage.text,
     choices: () => [
-      { label: 'Repair it at once', hint: '$1,500', cost: 1500, apply(r) { pay(r, 1500); return 'Engineers rebuild the bridge in two days.'; } },
-      { label: 'Reroute the trains', hint: 'Lose a research point', apply(r) { r.rp = Math.max(0, r.rp - 1); return 'Supplies take the long way round; the labs wait. -1 research point.'; } },
+      { label: E.sabotage.repair, hint: E.cost1500, cost: 1500, apply(r) { pay(r, 1500); return E.sabotage.repaired; } },
+      { label: E.sabotage.reroute, hint: E.sabotage.rerouteHint, apply(r) { r.rp = Math.max(0, r.rp - 1); return E.sabotage.rerouted; } },
     ],
   },
 ];

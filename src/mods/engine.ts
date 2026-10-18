@@ -15,6 +15,7 @@
  */
 import { BUILDINGS, UNITS, WARHEADS, WEAPONS } from '../data/rules';
 import { MOD_FORMAT, MOD_VERSION, TABLE_NAMES, makeModSet, modSetHash, type ModChange, type ModFile, type ModSet, type ScaleRule, type TableName, type TypePatch } from './format';
+import { MOD_ISSUES, MOD_WHY, fillIssue, type ModIssueCode, type ModWhy } from './messages';
 
 type Entry = Record<string, unknown> & { id: string };
 type Tables = Record<TableName, Record<string, Entry>>;
@@ -46,18 +47,18 @@ type FieldSpec =
   | { t: 'verses' }
   | { t: 'cell' }
   | { t: 'sfx' }
-  | { t: 'ro'; why?: string };
+  | { t: 'ro'; why?: ModWhy };
 
 const ARMORS = ['none', 'wood', 'light', 'heavy', 'concrete'] as const;
 const PROJECTILES = ['bullet', 'flak', 'cannon', 'ballistic', 'lobbed', 'missile', 'scud', 'tesla', 'flame', 'fireball', 'melee', 'heal', 'torpedo', 'depthcharge', 'bomb'] as const;
 const EXPLOSIONS = ['none', 'piff', 'small', 'medium', 'large', 'huge', 'fire', 'electric', 'nuke', 'building'] as const;
 const INF_DEATHS = ['normal', 'blown', 'burn', 'electro', 'bite'] as const;
 
-const MODEL = 'models and animations are built for the original type';
-const BEHAVIOUR = 'it selects hard-coded behaviour';
+const MODEL: ModWhy = 'model';
+const BEHAVIOUR: ModWhy = 'behaviour';
 
 const BASE_FIELDS: Record<string, FieldSpec> = {
-  id: { t: 'ro', why: 'the id is the key of the entry' },
+  id: { t: 'ro', why: 'key' },
   name: { t: 'str', max: 60 },
   description: { t: 'str', max: 400 },
   cost: { t: 'num', min: 0, max: 100000, int: true },
@@ -67,7 +68,7 @@ const BASE_FIELDS: Record<string, FieldSpec> = {
   owner: { t: 'factions' },
   prereq: { t: 'refs', table: 'buildings', alt: true },
   buildable: { t: 'bool' },
-  category: { t: 'ro', why: 'production queues and the sidebar depend on it' },
+  category: { t: 'ro', why: 'category' },
   gapRadius: { t: 'num', min: 0, max: 40 },
   jamRadius: { t: 'num', min: 0, max: 40 },
 };
@@ -108,7 +109,7 @@ const SCHEMA: Record<TableName, Record<string, FieldSpec>> = {
   buildings: {
     ...BASE_FIELDS,
     kind: { t: 'ro', why: MODEL },
-    size: { t: 'ro', why: 'the 3D model is built for the original footprint' },
+    size: { t: 'ro', why: 'footprint' },
     power: { t: 'num', min: -2000, max: 2000, int: true },
     storage: { t: 'num', min: 0, max: 100000, int: true },
     primary: { t: 'ref', table: 'weapons', nullable: true },
@@ -132,7 +133,7 @@ const SCHEMA: Record<TableName, Record<string, FieldSpec>> = {
     powers: { t: 'ro', why: BEHAVIOUR },
   },
   weapons: {
-    id: { t: 'ro', why: 'the id is the key of the entry' },
+    id: { t: 'ro', why: 'key' },
     damage: { t: 'num', min: -10000, max: 100000 },
     rof: { t: 'num', min: 1, max: 2000, int: true },
     range: { t: 'num', min: 0.5, max: 99 },
@@ -148,7 +149,7 @@ const SCHEMA: Record<TableName, Record<string, FieldSpec>> = {
     charge: { t: 'num', min: 0, max: 200, int: true },
   },
   warheads: {
-    id: { t: 'ro', why: 'the id is the key of the entry' },
+    id: { t: 'ro', why: 'key' },
     spread: { t: 'num', min: 0, max: 20 },
     verses: { t: 'verses' },
     wall: { t: 'bool' },
@@ -159,6 +160,7 @@ const SCHEMA: Record<TableName, Record<string, FieldSpec>> = {
   },
 };
 
+/** The {table} word of the messages (src/mods/messages.ts). */
 const TABLE_LABEL: Record<TableName, string> = { units: 'unit', buildings: 'structure', weapons: 'weapon', warheads: 'warhead' };
 
 /** Field spec, falling back to the type of the value other entries already have (fields added later). */
@@ -172,7 +174,7 @@ function fieldSpec(tables: Tables, table: TableName, field: string): FieldSpec |
     if (typeof v === 'number') return { t: 'num', min: -1e6, max: 1e6 };
     if (typeof v === 'boolean') return { t: 'bool' };
     if (typeof v === 'string') return { t: 'str', max: 400 };
-    return { t: 'ro', why: 'structured fields added after this mod format can only be changed by code' };
+    return { t: 'ro', why: 'structured' };
   }
   return null;
 }
@@ -191,13 +193,14 @@ function levenshtein(a: string, b: string): number {
   return d[b.length];
 }
 
-function suggest(word: string, options: Iterable<string>): string {
+/** The closest option to a misspelt word, if any is close. */
+function suggest(word: string, options: Iterable<string>): string | undefined {
   let best = '', bd = Infinity;
   for (const o of options) {
     const d = levenshtein(word.toLowerCase(), o.toLowerCase());
     if (d < bd) { bd = d; best = o; }
   }
-  return best && bd <= Math.max(2, Math.floor(word.length / 3)) ? ` (did you mean "${best}"?)` : '';
+  return best && bd <= Math.max(2, Math.floor(word.length / 3)) ? best : undefined;
 }
 
 const show = (v: unknown) => (typeof v === 'string' ? `"${v}"` : JSON.stringify(v));
@@ -208,7 +211,25 @@ const show = (v: unknown) => (typeof v === 'string' ? `"${v}"` : JSON.stringify(
 export interface ModIssue {
   /** Where: e.g. `units.2tnk.cost`. */
   path: string;
+  /** In English. */
   message: string;
+  /** The message template (src/mods/messages.ts) and its parameters, for translated display. */
+  code?: ModIssueCode;
+  params?: Record<string, string>;
+  /** "Did you mean …" suggestion. */
+  suggest?: string;
+}
+
+/** A problem without its path: what checkValue() finds. */
+interface Problem { code: ModIssueCode; params?: Record<string, string>; suggest?: string }
+
+/** Build an issue, with its English message. */
+function issue(path: string, code: ModIssueCode, params: Record<string, string> = {}, suggestion?: string): ModIssue {
+  const en: Record<string, string> = { ...params, hint: suggestion ? ` ${fillIssue(MOD_ISSUES.didYouMean, { s: suggestion })}` : '' };
+  if (params.why) en.why = MOD_WHY[params.why as ModWhy] ?? params.why;
+  const out: ModIssue = { path, message: fillIssue(MOD_ISSUES[code], en), code, params };
+  if (suggestion) out.suggest = suggestion;
+  return out;
 }
 
 export interface ModReport {
@@ -226,75 +247,76 @@ const TYPE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/;
 /** Structural checks of the file itself (not the rules it refers to). */
 function checkHeader(mod: ModFile, errors: ModIssue[], warnings: ModIssue[]): boolean {
   const m = mod as unknown as Record<string, unknown>;
-  if (!m || typeof m !== 'object' || Array.isArray(m)) { errors.push({ path: '', message: 'a mod must be a JSON object' }); return false; }
-  if (m.format !== undefined && m.format !== MOD_FORMAT) errors.push({ path: 'format', message: `expected "${MOD_FORMAT}", got ${show(m.format)}` });
-  if (m.version !== undefined && m.version !== MOD_VERSION) errors.push({ path: 'version', message: `unsupported version ${show(m.version)} (this build reads version ${MOD_VERSION})` });
-  if (typeof m.id !== 'string' || !ID_RE.test(m.id)) errors.push({ path: 'id', message: 'required: lower-case letters, digits and dashes (e.g. "tank-rush")' });
-  if (typeof m.name !== 'string' || !m.name.trim() || m.name.length > 60) errors.push({ path: 'name', message: 'required: a display name of up to 60 characters' });
+  if (!m || typeof m !== 'object' || Array.isArray(m)) { errors.push(issue('', 'notObject')); return false; }
+  if (m.format !== undefined && m.format !== MOD_FORMAT) errors.push(issue('format', 'format', { want: MOD_FORMAT, got: show(m.format) }));
+  if (m.version !== undefined && m.version !== MOD_VERSION) errors.push(issue('version', 'version', { got: show(m.version), want: String(MOD_VERSION) }));
+  if (typeof m.id !== 'string' || !ID_RE.test(m.id)) errors.push(issue('id', 'id'));
+  if (typeof m.name !== 'string' || !m.name.trim() || m.name.length > 60) errors.push(issue('name', 'name'));
   for (const k of ['description', 'author', 'modVersion'] as const) {
-    if (m[k] !== undefined && typeof m[k] !== 'string') errors.push({ path: k, message: 'must be a string' });
+    if (m[k] !== undefined && typeof m[k] !== 'string') errors.push(issue(k, 'mustString'));
   }
   const known = new Set(['format', 'version', 'id', 'name', 'description', 'author', 'modVersion', 'scale', ...TABLE_NAMES]);
-  for (const k of Object.keys(m)) if (!known.has(k)) warnings.push({ path: k, message: `unknown section ignored${suggest(k, known)}` });
+  for (const k of Object.keys(m)) if (!known.has(k)) warnings.push(issue(k, 'unknownSection', {}, suggest(k, known)));
   for (const t of TABLE_NAMES) {
     const sec = m[t];
-    if (sec !== undefined && (typeof sec !== 'object' || sec === null || Array.isArray(sec))) errors.push({ path: t, message: 'must be an object of id -> fields' });
+    if (sec !== undefined && (typeof sec !== 'object' || sec === null || Array.isArray(sec))) errors.push(issue(t, 'sectionObject'));
   }
-  if (m.scale !== undefined && !Array.isArray(m.scale)) errors.push({ path: 'scale', message: 'must be an array of scale rules' });
+  if (m.scale !== undefined && !Array.isArray(m.scale)) errors.push(issue('scale', 'scaleArray'));
   return true;
 }
 
-/** Check one value against its spec; returns the (normalised) value or an error message. */
-function checkValue(tables: Tables, spec: FieldSpec, v: unknown, sfx: Set<string>): { ok: true; v: unknown } | { ok: false; msg: string } {
+/** Check one value against its spec; returns the (normalised) value or the problem. */
+function checkValue(tables: Tables, spec: FieldSpec, v: unknown, sfx: Set<string>): { ok: true; v: unknown } | ({ ok: false } & Problem) {
+  const no = (code: ModIssueCode, params?: Record<string, string>, sug?: string): { ok: false } & Problem => ({ ok: false, code, params, suggest: sug });
   switch (spec.t) {
     case 'ro':
-      return { ok: false, msg: `this field can't be modded (${spec.why ?? 'read-only'})` };
+      return no('readOnlyField', { why: spec.why ?? 'readOnly' });
     case 'num': {
-      if (typeof v !== 'number' || !Number.isFinite(v)) return { ok: false, msg: `expected a number, got ${show(v)}` };
-      if (spec.int && !Number.isInteger(v)) return { ok: false, msg: `expected a whole number, got ${v}` };
-      if (spec.min !== undefined && v < spec.min) return { ok: false, msg: `must be at least ${spec.min}, got ${v}` };
-      if (spec.max !== undefined && v > spec.max) return { ok: false, msg: `must be at most ${spec.max}, got ${v}` };
+      if (typeof v !== 'number' || !Number.isFinite(v)) return no('number', { got: show(v) });
+      if (spec.int && !Number.isInteger(v)) return no('whole', { got: String(v) });
+      if (spec.min !== undefined && v < spec.min) return no('atLeast', { min: String(spec.min), got: String(v) });
+      if (spec.max !== undefined && v > spec.max) return no('atMost', { max: String(spec.max), got: String(v) });
       return { ok: true, v };
     }
     case 'str':
-      if (typeof v !== 'string') return { ok: false, msg: `expected a string, got ${show(v)}` };
-      if (spec.max && v.length > spec.max) return { ok: false, msg: `at most ${spec.max} characters` };
+      if (typeof v !== 'string') return no('string', { got: show(v) });
+      if (spec.max && v.length > spec.max) return no('maxChars', { max: String(spec.max) });
       return { ok: true, v };
     case 'bool':
-      return typeof v === 'boolean' ? { ok: true, v } : { ok: false, msg: `expected true or false, got ${show(v)}` };
+      return typeof v === 'boolean' ? { ok: true, v } : no('bool', { got: show(v) });
     case 'enum':
-      return typeof v === 'string' && spec.values.includes(v) ? { ok: true, v } : { ok: false, msg: `expected one of ${spec.values.join(', ')}; got ${show(v)}${typeof v === 'string' ? suggest(v, spec.values) : ''}` };
+      return typeof v === 'string' && spec.values.includes(v) ? { ok: true, v } : no('oneOf', { values: spec.values.join(', '), got: show(v) }, typeof v === 'string' ? suggest(v, spec.values) : undefined);
     case 'sfx':
-      return typeof v === 'string' && sfx.has(v) ? { ok: true, v } : { ok: false, msg: `expected a weapon sound (${[...sfx].sort().join(', ')}); got ${show(v)}` };
+      return typeof v === 'string' && sfx.has(v) ? { ok: true, v } : no('sound', { values: [...sfx].sort().join(', '), got: show(v) });
     case 'ref': {
       if (v === null && spec.nullable) return { ok: true, v: undefined };
-      if (typeof v !== 'string') return { ok: false, msg: `expected a ${TABLE_LABEL[spec.table]} id, got ${show(v)}` };
-      if (!own(tables[spec.table], v)) return { ok: false, msg: `unknown ${TABLE_LABEL[spec.table]} "${v}"${suggest(v, Object.keys(tables[spec.table]))}` };
+      if (typeof v !== 'string') return no('refType', { table: TABLE_LABEL[spec.table], got: show(v) });
+      if (!own(tables[spec.table], v)) return no('unknownRef', { table: TABLE_LABEL[spec.table], id: v }, suggest(v, Object.keys(tables[spec.table])));
       return { ok: true, v };
     }
     case 'refs': {
-      if (!Array.isArray(v)) return { ok: false, msg: `expected an array of ids, got ${show(v)}` };
+      if (!Array.isArray(v)) return no('idArray', { got: show(v) });
       const pool = spec.table === 'types' ? { ...tables.units, ...tables.buildings } : tables[spec.table];
       for (const x of v) {
-        if (typeof x !== 'string') return { ok: false, msg: `expected ids (strings), got ${show(x)}` };
+        if (typeof x !== 'string') return no('idStrings', { got: show(x) });
         for (const part of spec.alt ? x.split('|') : [x]) {
-          if (!own(pool, part)) return { ok: false, msg: `unknown ${spec.table === 'types' ? 'type' : TABLE_LABEL[spec.table as TableName]} "${part}"${suggest(part, Object.keys(pool))}` };
+          if (!own(pool, part)) return no('unknownRef', { table: spec.table === 'types' ? 'type' : TABLE_LABEL[spec.table as TableName], id: part }, suggest(part, Object.keys(pool)));
         }
       }
       return { ok: true, v: [...v] };
     }
     case 'factions': {
-      if (!Array.isArray(v) || !v.length || !v.every((x) => x === 'allies' || x === 'soviet')) return { ok: false, msg: `expected ["allies"], ["soviet"] or ["allies", "soviet"]; got ${show(v)}` };
+      if (!Array.isArray(v) || !v.length || !v.every((x) => x === 'allies' || x === 'soviet')) return no('factions', { got: show(v) });
       return { ok: true, v: [...new Set(v)] };
     }
     case 'verses': {
       if (!Array.isArray(v) || v.length !== 5 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 10)) {
-        return { ok: false, msg: `expected 5 multipliers (vs none, wood, light, heavy, concrete armour), each 0..10; got ${show(v)}` };
+        return no('verses', { got: show(v) });
       }
       return { ok: true, v: [...v] };
     }
     case 'cell':
-      return { ok: false, msg: 'read-only' };
+      return no('readOnly');
   }
 }
 
@@ -329,10 +351,10 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
     const mod = mods[mi];
     const pre = mods.length > 1 ? `[${(mod as ModFile)?.id ?? mi}] ` : '';
     const e0 = errors.length;
-    const err = (path: string, message: string) => errors.push({ path: pre + path, message });
-    const warn = (path: string, message: string) => warnings.push({ path: pre + path, message });
+    const err = (path: string, code: ModIssueCode, params?: Record<string, string>, sug?: string) => errors.push(issue(pre + path, code, params, sug));
+    const warn = (path: string, code: ModIssueCode, params?: Record<string, string>, sug?: string) => warnings.push(issue(pre + path, code, params, sug));
     if (!checkHeader(mod, errors, warnings)) continue;
-    if (ids.has(mod.id)) err('id', `the mod "${mod.id}" is in the set twice`);
+    if (ids.has(mod.id)) err('id', 'twice', { id: mod.id });
     ids.add(mod.id);
     const record = (table: TableName, id: string, field: string, from: unknown, to: unknown) => {
       if (JSON.stringify(from) === JSON.stringify(to)) return;
@@ -346,20 +368,20 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
       for (const [id, patch] of Object.entries(sec)) {
         empty = false;
         const at = `${table}.${id}`;
-        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) { err(at, 'must be an object of field -> value'); continue; }
-        if (RESERVED_KEYS.has(id)) { err(at, 'reserved id'); continue; }
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) { err(at, 'patchObject'); continue; }
+        if (RESERVED_KEYS.has(id)) { err(at, 'reservedId'); continue; }
         let entry = own(tables[table], id);
         const isNew = !entry;
         if (patch.clone !== undefined) {
           if (typeof patch.clone !== 'string' || !own(tables[table], patch.clone)) {
-            err(`${at}.clone`, `unknown ${TABLE_LABEL[table]} "${String(patch.clone)}" to copy${typeof patch.clone === 'string' ? suggest(patch.clone, Object.keys(tables[table])) : ''}`);
+            err(`${at}.clone`, 'unknownClone', { table: TABLE_LABEL[table], id: String(patch.clone) }, typeof patch.clone === 'string' ? suggest(patch.clone, Object.keys(tables[table])) : undefined);
             continue;
           }
-          if (!isNew) { err(`${at}.clone`, `"${id}" already exists: drop "clone" to change it, or pick a new id for the variant`); continue; }
-          if (!TYPE_ID_RE.test(id)) { err(at, 'a new id must be 1-32 letters, digits, "-", "_" or "."'); continue; }
-          if ((table === 'units' && tables.buildings[id]) || (table === 'buildings' && tables.units[id])) { err(at, `"${id}" is already used by a ${table === 'units' ? 'structure' : 'unit'}`); continue; }
+          if (!isNew) { err(`${at}.clone`, 'exists', { id }); continue; }
+          if (!TYPE_ID_RE.test(id)) { err(at, 'newId'); continue; }
+          if ((table === 'units' && tables.buildings[id]) || (table === 'buildings' && tables.units[id])) { err(at, 'usedBy', { id, table: table === 'units' ? 'structure' : 'unit' }); continue; }
         } else if (isNew) {
-          err(at, `unknown ${TABLE_LABEL[table]} "${id}"${suggest(id, Object.keys(tables[table]))}; to add a variant, set "clone" to the id it is based on`);
+          err(at, 'unknownEntry', { table: TABLE_LABEL[table], id }, suggest(id, Object.keys(tables[table])));
           continue;
         }
         // check every field before touching the entry
@@ -368,9 +390,9 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
         for (const [field, value] of Object.entries(patch)) {
           if (field === 'clone') continue;
           const spec = fieldSpec(tables, table, field);
-          if (!spec) { err(`${at}.${field}`, `unknown field for a ${TABLE_LABEL[table]}${suggest(field, Object.keys(SCHEMA[table]))}`); bad = true; continue; }
+          if (!spec) { err(`${at}.${field}`, 'unknownField', { table: TABLE_LABEL[table] }, suggest(field, Object.keys(SCHEMA[table]))); bad = true; continue; }
           const r = checkValue(tables, spec, value, sfx);
-          if (!r.ok) { err(`${at}.${field}`, r.msg); bad = true; continue; }
+          if (!r.ok) { err(`${at}.${field}`, r.code, r.params, r.suggest); bad = true; continue; }
           fields.push([field, r.v]);
         }
         if (bad || errors.length > e0) continue;
@@ -391,8 +413,8 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
         }
         if (isNew) added[added.length - 1].name = typeof entry.name === 'string' ? entry.name : undefined;
         // cross-field sanity
-        if (table === 'weapons' && typeof entry.minRange === 'number' && entry.minRange >= (entry.range as number)) err(`${at}.minRange`, `must be less than the range (${entry.range})`);
-        if ((table === 'units' || table === 'buildings') && Array.isArray(entry.owner) && entry.buildable && Array.isArray(entry.prereq) && (entry.prereq as string[]).includes(id)) err(`${at}.prereq`, 'a type cannot require itself');
+        if (table === 'weapons' && typeof entry.minRange === 'number' && entry.minRange >= (entry.range as number)) err(`${at}.minRange`, 'minRange', { range: String(entry.range) });
+        if ((table === 'units' || table === 'buildings') && Array.isArray(entry.owner) && entry.buildable && Array.isArray(entry.prereq) && (entry.prereq as string[]).includes(id)) err(`${at}.prereq`, 'selfPrereq');
       }
     }
     // ---- scale rules
@@ -400,19 +422,22 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
       empty = false;
       const at = `scale[${ri}]`;
       const r = rule as ScaleRule;
-      if (!r || typeof r !== 'object') { err(at, 'must be an object { table, fields, ids?, where? }'); continue; }
-      if (!TABLE_NAMES.includes(r.table)) { err(`${at}.table`, `expected one of ${TABLE_NAMES.join(', ')}; got ${show(r.table)}`); continue; }
-      if (!r.fields || typeof r.fields !== 'object' || !Object.keys(r.fields).length) { err(`${at}.fields`, 'expected { "field": multiplier, ... }'); continue; }
+      if (!r || typeof r !== 'object') { err(at, 'ruleObject', { example: '{ table, fields, ids?, where? }' }); continue; }
+      if (!TABLE_NAMES.includes(r.table)) { err(`${at}.table`, 'oneOf', { values: TABLE_NAMES.join(', '), got: show(r.table) }); continue; }
+      if (!r.fields || typeof r.fields !== 'object' || !Object.keys(r.fields).length) { err(`${at}.fields`, 'expected', { example: '{ "field": multiplier, ... }' }); continue; }
       let bad = false;
       for (const [f, k] of Object.entries(r.fields)) {
         const spec = fieldSpec(tables, r.table, f);
-        if (!spec || spec.t !== 'num') { err(`${at}.fields.${f}`, spec ? 'only numeric fields can be scaled' : `unknown field for a ${TABLE_LABEL[r.table]}${suggest(f, Object.keys(SCHEMA[r.table]))}`); bad = true; }
-        else if (typeof k !== 'number' || !Number.isFinite(k) || k < 0 || k > 100) { err(`${at}.fields.${f}`, `expected a multiplier between 0 and 100, got ${show(k)}`); bad = true; }
+        if (!spec || spec.t !== 'num') {
+          if (spec) err(`${at}.fields.${f}`, 'numericOnly');
+          else err(`${at}.fields.${f}`, 'unknownField', { table: TABLE_LABEL[r.table] }, suggest(f, Object.keys(SCHEMA[r.table])));
+          bad = true;
+        } else if (typeof k !== 'number' || !Number.isFinite(k) || k < 0 || k > 100) { err(`${at}.fields.${f}`, 'multiplier', { got: show(k) }); bad = true; }
       }
-      if (r.ids !== undefined && (!Array.isArray(r.ids) || !r.ids.every((x) => typeof x === 'string'))) { err(`${at}.ids`, 'expected an array of ids'); bad = true; }
-      if (r.where !== undefined && (typeof r.where !== 'object' || r.where === null || Array.isArray(r.where))) { err(`${at}.where`, 'expected { "field": value, ... }'); bad = true; }
+      if (r.ids !== undefined && (!Array.isArray(r.ids) || !r.ids.every((x) => typeof x === 'string'))) { err(`${at}.ids`, 'idsArray'); bad = true; }
+      if (r.where !== undefined && (typeof r.where !== 'object' || r.where === null || Array.isArray(r.where))) { err(`${at}.where`, 'expected', { example: '{ "field": value, ... }' }); bad = true; }
       if (bad || errors.length > e0) continue;
-      for (const id of r.ids ?? []) if (!own(tables[r.table], id)) warn(`${at}.ids`, `no ${TABLE_LABEL[r.table]} "${id}" in this build (skipped)${suggest(id, Object.keys(tables[r.table]))}`);
+      for (const id of r.ids ?? []) if (!own(tables[r.table], id)) warn(`${at}.ids`, 'noEntry', { table: TABLE_LABEL[r.table], id }, suggest(id, Object.keys(tables[r.table])));
       let n = 0;
       for (const [id, entry] of Object.entries(tables[r.table])) {
         if (r.ids && !r.ids.includes(id)) continue;
@@ -430,9 +455,9 @@ function run(tables: Tables, mods: ModFile[]): ModReport {
           if (!added.some((a) => a.table === r.table && a.id === id)) record(r.table, id, f, from, v);
         }
       }
-      if (!n) warn(at, 'matches no entries');
+      if (!n) warn(at, 'matchesNone');
     }
-    if (empty) warn('', 'this mod changes nothing');
+    if (empty) warn('', 'changesNothing');
   }
   return { ok: errors.length === 0, errors, warnings, changes, added };
 }

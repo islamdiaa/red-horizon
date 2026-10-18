@@ -26,6 +26,7 @@ import { HAZE_GLSL, HeatHazePass, HeatSources, hazeSettings } from './effects/he
 import type { ParticleSkyLight, SoftDepthSource } from './effects/smokelight';
 import { JUICE } from './effects/juiceflags';
 import { FXDC } from './effects/fxflags';
+import { classifyGpu, readGpuStrings } from '../platform/gpu';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
@@ -446,6 +447,15 @@ class SceneAOPass extends Pass {
   }
 }
 
+/** A tile-based mobile GPU (Adreno, Mali, PowerVR, Apple on a phone or tablet...): render-target switches are costly. */
+function tileBasedGpu(gl: WebGLRenderingContext | WebGL2RenderingContext): boolean {
+  try {
+    return classifyGpu(readGpuStrings(gl).renderer, typeof navigator !== 'undefined' ? navigator.userAgent : '').tier === 'mobile';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Soft particles: once the opaque scene (and the transparent layers below the effects) is drawn, a marker that
  * sorts just before the particle batches converts the scene depth into a linear-depth copy (R16F, render
@@ -709,7 +719,9 @@ export class GameRenderer {
       this.haze = haze;
       this.composer.addPass(haze);
     }
-    if (q !== 'low' && FXDC.on) {
+    // soft particles copy the depth mid-pass: a framebuffer switch that tile-based mobile GPUs pay for with a full
+    // tile flush and reload, so Medium on a phone or tablet keeps hard-edged smoke (High there is the player's call)
+    if (q !== 'low' && FXDC.on && !(q === 'medium' && tileBasedGpu(this.renderer.getContext()))) {
       const soft = new SoftDepthCopy(scenePass.target, this.cam.camera);
       this.softDepth = soft;
       this.scene.add(soft.marker);
@@ -842,7 +854,7 @@ export class GameRenderer {
     this.water = new Water(map, (x, y) => map.heightAt(x, y), this.sunDir, frozen, q);
     if (q !== 'low') this.water.sun = this.sun;
     this.scene.add(this.water.mesh);
-    this.vegetation = new Vegetation(map, hFn, q === 'low' ? 'low' : 'high', climate, this.skirt.treeSpots);
+    this.vegetation = new Vegetation(map, hFn, q, climate, this.skirt.treeSpots);
     this.scene.add(this.vegetation.group);
     this.ore = new OreRenderer(map, hFn);
     this.scene.add(this.ore.group);

@@ -5,10 +5,11 @@
  */
 import type { MissionDef, MissionRuntime } from '../sim/mission';
 import { CAST, centroid, ground, hunt, huntWave, ids, layout, say, squad, type Speaker } from './common';
+import EN from '../i18n/en/tutorial'; // the English this script emits (translated where it is shown)
 
 const ALLIED_BLUE = 0x3d7be0;
 const SOVIET_RED = 0xd23a2c;
-const SGT: Speaker = { name: 'Sgt. Major Harlan', portrait: 'commander' };
+const SGT: Speaker = { name: EN.sergeant, portrait: 'commander' };
 
 type Step = 'move' | 'fight' | 'deploy' | 'power' | 'ore' | 'infantry' | 'defend' | 'armour' | 'assault' | 'done';
 
@@ -48,32 +49,24 @@ export const BOOT_CAMP: MissionDef = {
   id: 'bootcamp',
   campaign: 'special',
   index: 0,
-  title: 'Boot Camp',
-  codename: 'FIRST STEPS',
-  location: 'Training Ground Delta, England',
-  date: 'March 1953',
-  briefing: [
-    'Before you take a command at the front, Sergeant Major Harlan will walk you through the basics on the training ground.',
-    'Nine short drills: moving and fighting, building a base, earning money from ore, training troops, defending, and leading an assault. Each drill unlocks the next.',
-    'Take your time. Nobody is grading the first one, except the Sergeant Major.',
-  ],
-  tips: [
-    'Left-drag to box-select, right-click to move or attack.',
-    'Arrow keys, the screen edge or right-drag scroll the map; the mouse wheel zooms.',
-    'The build bar at the bottom (the sidebar on the right in the Classic layout) builds structures and trains units.',
-  ],
+  title: EN.title,
+  codename: 'FIRST STEPS', // operation codenames are names (not translated)
+  location: EN.location,
+  date: EN.date,
+  briefing: [EN.briefing.intro, EN.briefing.drills, EN.briefing.grading],
+  tips: [EN.tips.select, EN.tips.scroll, EN.tips.build],
   map: { size: 56, seed: 1201, players: 2, water: 0.2, trees: 0.45, ore: 0.8, climate: 'temperate', hour: 10.5, dayCycle: false, weather: 'clear' },
   players: [
-    { name: 'Training Company', faction: 'allies', color: ALLIED_BLUE },
-    { name: 'Opposing Force', faction: 'soviet', color: SOVIET_RED, ai: 'passive', credits: 0 },
+    { name: EN.player.you, faction: 'allies', color: ALLIED_BLUE },
+    { name: EN.player.enemy, faction: 'soviet', color: SOVIET_RED, ai: 'passive', credits: 0 },
   ],
   credits: 6000,
   parTime: 900,
   allowedBuild: [],
   debrief: {
     speaker: SGT.name, portrait: SGT.portrait,
-    win: 'Not bad at all, Commander. You move, you build, you fight. The front is waiting. Try not to make me regret signing your papers.',
-    lose: 'Everybody loses a drill once. Shake it off and run it again. That is what a training ground is for.',
+    win: EN.debrief.win,
+    lose: EN.debrief.lose,
   },
   setup(m) {
     const s = m.start(0), e = m.start(1);
@@ -87,25 +80,25 @@ export const BOOT_CAMP: MissionDef = {
     m.flags.camp = camp.filter(Boolean).map((b) => b!.id);
     squad(m, 1, ['e1', 'e1', 'e1', 'e2'], e, s, 3, 0);
     goTo(m, 'move');
-    m.objective('move', 'Move your squad to the flashing beacon');
+    m.objective('move', EN.objective.move);
   },
   update(m) {
     const s = m.start(0), e = m.start(1);
     const step = m.flags.step as Step;
     hunt(m);
     if (m.after(1, 'hello')) {
-      say(m, SGT, 'Morning, Commander. Sergeant Major Harlan. Today you learn to run a battle. First things first: your squad. Drag a box around them with the left mouse button.');
-      say(m, SGT, 'Now right-click near the flashing beacon to move them there. Scroll with the arrow keys or the screen edge, zoom with the wheel.');
+      say(m, SGT, EN.radio.hello);
+      say(m, SGT, EN.radio.move);
     }
     // keep the drills going if the player spends everything
     const me = m.player(0);
     if (step !== 'done' && me.credits < 400 && m.every(20, 'stipend')) {
       m.give(0, 1200);
-      say(m, CAST.eva, 'Training funds transferred: $1,200.');
+      say(m, CAST.eva, EN.stipend);
     }
     // losing everything ends the drill
     if (step !== 'move' && step !== 'fight' && step !== 'done' && !m.units(0).length && !m.buildings(0).length) {
-      m.lose('Your training company was wiped out.');
+      m.lose(EN.wipedOut);
       return;
     }
 
@@ -115,8 +108,8 @@ export const BOOT_CAMP: MissionDef = {
         if (m.unitsNear(0, m.flags.bx, m.flags.by, 3.5).length >= 3) {
           m.complete('move');
           goTo(m, 'fight');
-          m.objective('fight', 'Destroy the enemy scouts');
-          say(m, SGT, 'Good. Enemy scouts up ahead. Select your squad and right-click one of them to attack. Your men pick the next target on their own.');
+          m.objective('fight', EN.objective.fight);
+          say(m, SGT, EN.radio.fight);
         }
         break;
       }
@@ -130,8 +123,8 @@ export const BOOT_CAMP: MissionDef = {
           const mcv = m.spawnUnit(0, 'mcv', x, y, Math.atan2(e.y - s.y, e.x - s.x));
           m.flags.mcv = mcv.id;
           m.camera(x, y);
-          m.objective('deploy', 'Deploy the MCV into a Construction Yard');
-          say(m, SGT, 'Scouts down. Here comes your MCV, a base on wheels. Select it and press D, or click it a second time, to unpack the Construction Yard.');
+          m.objective('deploy', EN.objective.deploy);
+          say(m, SGT, EN.radio.deploy);
         }
         break;
       }
@@ -141,8 +134,8 @@ export const BOOT_CAMP: MissionDef = {
         if (m.buildings(0, 'fact').length) {
           m.complete('deploy');
           goTo(m, 'power');
-          m.objective('power', 'Build a Power Plant');
-          say(m, SGT, 'That is your Construction Yard. Everything else needs power. Click the Power Plant card in the build panel; when it reads READY, click the ground next to your yard to place it.'); // either layout
+          m.objective('power', EN.objective.power);
+          say(m, SGT, EN.radio.power); // either layout
         }
         break;
       }
@@ -150,8 +143,8 @@ export const BOOT_CAMP: MissionDef = {
         if (me.has('powr')) {
           m.complete('power');
           goTo(m, 'ore');
-          m.objective('ore', 'Build an Ore Refinery');
-          say(m, SGT, 'Lights on. Now money. An Ore Refinery comes with a free Ore Truck that harvests the gold fields on its own. Gems are worth double.');
+          m.objective('ore', EN.objective.ore);
+          say(m, SGT, EN.radio.ore);
         }
         break;
       }
@@ -160,8 +153,8 @@ export const BOOT_CAMP: MissionDef = {
           m.complete('ore');
           goTo(m, 'infantry');
           m.flags.e1Base = ids(m.units(0, 'e1'));
-          m.objective('infantry', 'Build a Barracks and train 5 Riflemen');
-          say(m, SGT, 'Ore is flowing. Next, a Barracks. Once it stands, click the Rifleman card five times; Shift-click queues five at once.');
+          m.objective('infantry', EN.objective.infantry);
+          say(m, SGT, EN.radio.infantry);
         }
         break;
       }
@@ -174,8 +167,8 @@ export const BOOT_CAMP: MissionDef = {
           m.complete('infantry');
           goTo(m, 'defend');
           m.flags.waveAt = m.time + 30;
-          m.objective('defend', 'Hold the base against the attack');
-          say(m, SGT, 'Heads up: the opposing force is sending a raid in about thirty seconds. Pillboxes are unlocked. Tip: select your riflemen and press Ctrl+1, then press 1 any time to call them back up.');
+          m.objective('defend', EN.objective.defend);
+          say(m, SGT, EN.radio.defend);
         }
         break;
       }
@@ -184,13 +177,13 @@ export const BOOT_CAMP: MissionDef = {
           m.flags.waveSent = true;
           const from = ground(m, ...m.toward(e, s, 4));
           m.flags.raid = ids(huntWave(m, 1, ['e1', 'e1', 'e1', 'e1', 'dog', 'dog'], from, [s.x, s.y]));
-          say(m, SGT, 'Here they come! Dogs in front: they kill infantry in one bite, so shoot them first.');
+          say(m, SGT, EN.radio.raid);
         }
         if (m.flags.waveSent && !m.livingUnits(m.flags.raid).length) {
           m.complete('defend');
           goTo(m, 'armour');
-          m.objective('armour', 'Build a War Factory and a Light Tank');
-          say(m, SGT, 'Raid repelled. Infantry alone will not crack a defended camp, so build a War Factory and roll out a Light Tank.');
+          m.objective('armour', EN.objective.armour);
+          say(m, SGT, EN.radio.armour);
         }
         break;
       }
@@ -198,11 +191,11 @@ export const BOOT_CAMP: MissionDef = {
         if (m.units(0, '1tnk').length) {
           m.complete('armour');
           goTo(m, 'assault');
-          m.objective('assault', 'Destroy the enemy training camp');
+          m.objective('assault', EN.objective.assault);
           m.reveal(0, e.x, e.y, 9);
           m.camera(e.x, e.y);
-          say(m, SGT, 'There is their camp: barracks, two power plants, two pillboxes. Gather your army, press A, then click near the camp: an attack-move fights everything on the way.');
-          say(m, SGT, 'Rocket Soldiers make short work of armour; tanks and riflemen handle pillboxes. Medium Tanks are unlocked too.');
+          say(m, SGT, EN.radio.assault);
+          say(m, SGT, EN.radio.counters);
         }
         break;
       }
@@ -212,7 +205,7 @@ export const BOOT_CAMP: MissionDef = {
         if (!m.buildings(1).filter((b) => !b.bt.wall).length) {
           m.complete('assault');
           m.flags.step = 'done';
-          say(m, SGT, 'Camp destroyed. That is the whole job, Commander: build, harvest, train, fight. Dismissed.');
+          say(m, SGT, EN.radio.done);
           m.win();
         }
         break;

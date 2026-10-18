@@ -31,15 +31,17 @@ from _ak import lamp, HEAD, RED, AMBER, GREEN, WHITE_L, PI, ROT_X, ROT_Z, D, Mt,
 # palette
 
 class NavPal:
-    """Ship paint set: haze-grey hull and superstructure, dark decks, team trims."""
+    """Ship paint set: light haze-grey hull and superstructure, mid-grey decks, team trims. Tuned for the RTS camera
+    (wave 2): at the default zoom the ships must read as clearly as the procedural ones, so the hull and decks are
+    as light as naval.ts and the weathering stays subtle (grime and streaks darken a 100-px ship to a silhouette)."""
 
-    def __init__(self, fac='allies', hull=0x7b838a, sup=0xaab0b5, deck=0x4c5155):
+    def __init__(self, fac='allies', hull=0x99a1a8, sup=0xc2c7cb, deck=0x686d71):
         self.fac = fac
-        self.hull = painted(hull, panels=(0.14, 0.05), rivets=False, wear=0.4, rust=0.14, grime=0.4, streaks=0.7, rough=0.55, metal=0.25, var=0.07)
-        self.hull_flat = painted(hull, panels=None, wear=0.4, rust=0.12, grime=0.4, streaks=0.6, rough=0.55, metal=0.25, var=0.07)
-        self.sup = painted(sup, panels=None, wear=0.4, rust=0.08, grime=0.35, streaks=0.6, rough=0.52, metal=0.2, var=0.05)
-        self.sup_dk = painted(0x878e94, panels=None, wear=0.4, rust=0.08, grime=0.38, streaks=0.5, rough=0.52, metal=0.25, var=0.05)
-        self.deck = painted(deck, panels=None, wear=0.2, rust=0.0, grime=0.35, streaks=0.05, rough=0.85, metal=0.05, var=0.1)
+        self.hull = painted(hull, panels=(0.14, 0.05), rivets=False, wear=0.35, rust=0.08, grime=0.26, streaks=0.45, rough=0.52, metal=0.22, var=0.06)
+        self.hull_flat = painted(hull, panels=None, wear=0.35, rust=0.07, grime=0.26, streaks=0.4, rough=0.52, metal=0.22, var=0.06)
+        self.sup = painted(sup, panels=None, wear=0.35, rust=0.05, grime=0.22, streaks=0.4, rough=0.5, metal=0.18, var=0.05)
+        self.sup_dk = painted(0x9ba2a7, panels=None, wear=0.35, rust=0.05, grime=0.25, streaks=0.35, rough=0.5, metal=0.22, var=0.05)
+        self.deck = painted(deck, panels=None, wear=0.2, rust=0.0, grime=0.25, streaks=0.05, rough=0.85, metal=0.05, var=0.1)
         self.teak = painted(0x8c6c4a, panels=None, wear=0.1, rust=0.0, grime=0.45, streaks=0.05, rough=0.85, metal=0.0, var=0.22)
         self.team = team(wear=0.4, grime=0.3, rust=0.08, panels=None, rough=0.48)
         self.dark = painted(0x3c4146, panels=None, wear=0.5, rust=0.12, grime=0.4, streaks=0.3, rough=0.55, metal=0.35, var=0.08)
@@ -238,10 +240,14 @@ class Hull:
         return verts, faces
 
 
+STRAKE_SCALE = 2.5  # the team sheer strake / hull band, relative to the widths the ship scripts pass (wave 2: readability)
+
+
 def hull_dress(m, p, H, P, x0=None, x1=None, edge=0.008, strake=True, strake_w=0.016, inset=0.005, rail=None, segs=4):
     """Crisp bright deck edges: a light toe rail (geometry, worn by the bake) along both deck edges, station to
-    station; and a team sheer strake just under the deck edge on the hull sides (a few decals: many decals on one
-    material overflow the bake shader)."""
+    station; and a broad team hull band (the sheer strake) just under the deck edge on the hull sides, the ship's
+    strongest team-colour read from the RTS camera (a few decals: many decals on one material overflow the bake shader)."""
+    strake_w *= STRAKE_SCALE
     rail = rail or P.sup
     x0 = H.x0 + 0.02 if x0 is None else x0
     x1 = H.x1 - 0.05 if x1 is None else x1
@@ -256,8 +262,8 @@ def hull_dress(m, p, H, P, x0=None, x1=None, edge=0.008, strake=True, strake_w=0
             for i in range(segs):
                 xa = x0 + (x1 - x0) * i / segs
                 xb = x0 + (x1 - x0) * (i + 1) / segs
-                ya = H.deck_at(xa) - strake_w * 0.7
-                yb = H.deck_at(xb) - strake_w * 0.7
+                ya = H.deck_at(xa) - strake_w * 0.62
+                yb = H.deck_at(xb) - strake_w * 0.62
                 za, zb = H.half_at(xa) * s, H.half_at(xb) * s
                 nrm = (-(zb - za) * s, 0.0, (xb - xa) * s)
                 m.decal(D.solid(TEAM_NEUTRAL), at=((xa + xb) / 2, (ya + yb) / 2, (za + zb) / 2), size=(math.hypot(xb - xa, zb - za) + 0.01, strake_w),
@@ -413,10 +419,10 @@ class SubPal(NavPal):
 
     def __init__(self, fac='soviet'):
         super().__init__(fac)
-        self.hull = painted(0x2e3236, panels=(0.16, 0.06), rivets=False, wear=0.35, rust=0.12, grime=0.3, streaks=0.55, rough=0.6, metal=0.2, var=0.06)
-        self.hull_flat = painted(0x2e3236, panels=None, wear=0.35, rust=0.1, grime=0.3, streaks=0.5, rough=0.6, metal=0.2, var=0.06)
-        self.casing = painted(0x4a5056, panels=None, wear=0.45, rust=0.1, grime=0.35, streaks=0.3, rough=0.72, metal=0.15, var=0.08)
-        self.sail = painted(0x353a3f, panels=(0.06, 0.04), rivets=False, wear=0.45, rust=0.1, grime=0.3, streaks=0.5, rough=0.58, metal=0.2, var=0.06)
+        self.hull = painted(0x41464b, panels=(0.16, 0.06), rivets=False, wear=0.35, rust=0.1, grime=0.24, streaks=0.45, rough=0.6, metal=0.2, var=0.06)
+        self.hull_flat = painted(0x41464b, panels=None, wear=0.35, rust=0.08, grime=0.24, streaks=0.4, rough=0.6, metal=0.2, var=0.06)
+        self.casing = painted(0x646b71, panels=None, wear=0.4, rust=0.08, grime=0.26, streaks=0.25, rough=0.72, metal=0.15, var=0.08)
+        self.sail = painted(0x4a5056, panels=(0.06, 0.04), rivets=False, wear=0.4, rust=0.08, grime=0.24, streaks=0.4, rough=0.58, metal=0.2, var=0.06)
 
 
 def sub_sail(m, p, P, sx, dy, number):

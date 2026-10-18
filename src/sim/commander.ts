@@ -85,15 +85,15 @@ export const POWERS: Record<PowerId, PowerDef> = {
     desc: 'Reveals the target area for 25 s.' },
   repair: { id: 'repair', name: 'Field Repair', tier: 1, factions: BOTH, icon: 'repair', target: 'point', radius: 4.5, color: 0x5cff8a, cooldown: 90, offensive: false,
     desc: 'Repairs 45% of the health of your units in the area, and 20% of your structures.' },
-  funds: { id: 'funds', name: 'Emergency Funds', tier: 1, factions: BOTH, icon: 'funds', target: 'none', radius: 0, color: 0xffd34d, cooldown: 210, offensive: false,
+  funds: { id: 'funds', name: 'Emergency Funds', tier: 1, factions: BOTH, icon: 'funds', target: 'none', radius: 0, color: 0xffd34d, cooldown: 300, offensive: false,
     desc: 'An immediate $1,000 from High Command (more when you are behind, less when far ahead).' },
   rally: { id: 'rally', name: 'Rally Cry', tier: 2, factions: BOTH, icon: 'rally', target: 'point', radius: 5, color: 0xffb040, cooldown: 100, offensive: false,
     desc: 'Your units in the area move 30% faster and fire 33% faster for 20 s.' },
-  elite: { id: 'elite', name: 'Elite Training', tier: 2, factions: BOTH, icon: 'elite', target: 'none', radius: 0, color: 0xffe27a, cooldown: 120, offensive: false,
+  elite: { id: 'elite', name: 'Elite Training', tier: 2, factions: BOTH, icon: 'elite', target: 'none', radius: 0, color: 0xffe27a, cooldown: 180, offensive: false,
     desc: 'Your next 4 combat units arrive as Veterans.' },
-  barrage: { id: 'barrage', name: 'Artillery Barrage', tier: 2, factions: BOTH, icon: 'barrage', target: 'point', radius: 3.5, color: 0xff6a30, cooldown: 100, offensive: true,
+  barrage: { id: 'barrage', name: 'Artillery Barrage', tier: 2, factions: BOTH, icon: 'barrage', target: 'point', radius: 3.5, color: 0xff6a30, cooldown: 120, offensive: true,
     desc: 'After a 3 s warning that the enemy sees too, 14 shells rain on the area.' },
-  reinforce: { id: 'reinforce', name: 'Reinforcements', tier: 3, factions: BOTH, icon: 'reinforce', target: 'point', radius: 1.5, color: 0x8fd0ff, cooldown: 210, offensive: false,
+  reinforce: { id: 'reinforce', name: 'Reinforcements', tier: 3, factions: BOTH, icon: 'reinforce', target: 'point', radius: 1.5, color: 0x8fd0ff, cooldown: 270, offensive: false,
     desc: 'A tank column rolls in from the map edge behind your base and heads for the target.' },
   sabotage: { id: 'sabotage', name: 'Sabotage', tier: 3, factions: BOTH, icon: 'sabotage', target: 'structure', radius: 1, color: 0xff3a6a, cooldown: 150, offensive: true,
     desc: 'Cuts the power at an enemy structure for 40 s: a power plant stops generating, a defence goes silent.' },
@@ -103,6 +103,11 @@ export const POWERS: Record<PowerId, PowerDef> = {
     desc: 'After a 2 s warning, 10 lightning strikes hit enemies in the area.' },
 };
 
+/*
+ * Recharge times (balance pass, docs/BALANCE.md): Emergency Funds 300 s (was 210), Reinforcements 270 s (210), Elite
+ * Training 180 s (120) and the Barrage 120 s (100), so the powers hand out about a third less free money, units and
+ * veterans per match: an AI using its powers beat one that never did in 100% of self-play matches before, 94% after.
+ */
 export const POWER_IDS = Object.keys(POWERS) as PowerId[];
 
 /** A faction's power tree: three tiers, in display order. */

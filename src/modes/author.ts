@@ -3,6 +3,7 @@
  * detected moment (end screen) or from a built-in. DOM-free.
  */
 import { VERSION } from '../config';
+import { SIM_VERSION } from '../sim/version';
 import { BUILDINGS } from '../data/rules';
 import type { GameSetup } from '../game';
 import type { AIDifficulty } from '../sim/ai';
@@ -11,6 +12,7 @@ import { baseSetup } from '../replay/branch';
 import { TICK_HZ } from '../sim/types';
 import type { ChallengeDef, ChallengeGoal, ChallengeSetup, StartView } from './types';
 import { momentGoal, type Moment } from './moments';
+import { MODES_EN, fillEn } from './text';
 
 const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
 
@@ -38,7 +40,7 @@ export function challengeFromState(o: {
   title: string; description?: string; par?: ChallengeDef['par']; source?: ChallengeDef['source'];
 }): ChallengeDef {
   return {
-    v: 1, id: newChallengeId(), title: o.title.trim() || 'Challenge', description: o.description, createdAt: Date.now(), gameVersion: VERSION,
+    v: 1, id: newChallengeId(), title: o.title.trim() || MODES_EN.speaker.challenge, description: o.description, createdAt: Date.now(), gameVersion: VERSION, sim: SIM_VERSION,
     setup: challengeBase(o.setup), state: o.state, view: o.view, side: o.side, ai: o.ai ?? sourceAI(o.setup), goal: o.goal, timeLimit: o.timeLimit,
     par: o.par, source: o.source,
   };
@@ -69,7 +71,7 @@ export interface TargetOption {
 
 const NOTABLE = ['fact', 'weap', 'proc', 'mslo', 'iron', 'pdox', 'atek', 'stek', 'dome', 'afld', 'hpad', 'tent', 'barr', 'syrd', 'spen', 'tsla', 'powr', 'apwr'];
 
-/** Structures worth destroying (enemies of `side`) or protecting (own), for the challenge form. */
+/** Structures worth destroying (enemies of `side`) or protecting (own), for the challenge form (labels in English; the form names them itself). */
 export function notableTargets(world: World, side: number): { enemy: TargetOption[]; own: TargetOption[] } {
   const me = world.players[side];
   const enemy: TargetOption[] = [], own: TargetOption[] = [];
@@ -93,9 +95,8 @@ export function notableTargets(world: World, side: number): { enemy: TargetOptio
   return { enemy, own };
 }
 
-/** Default title for a challenge made at a replay moment. */
+/** Default title for a challenge made at a replay moment (English, like the rest of this module: trSource shows it). */
 export function defaultTitle(mapName: string, tick: number, goal: ChallengeGoal['kind']): string {
   const s = Math.floor(tick / TICK_HZ);
-  const word = goal === 'win' ? 'Win from here' : goal === 'survive' ? 'Hold on' : goal === 'destroy' ? 'Strike' : goal === 'protect' ? 'Defend' : 'Hold the ground';
-  return `${word} · ${mapName} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  return fillEn(MODES_EN.authorTitle[goal], { map: mapName, time: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` });
 }

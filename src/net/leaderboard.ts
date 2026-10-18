@@ -11,7 +11,10 @@ import { boardOfSetup, utcDay, type BoardInfo, type BoardKind, type Submission }
 import { RunRecorder } from './runrecord';
 import { relayHttpUrl } from './endpoint';
 import { cleanName } from './names';
-import { currentDailyDay } from '../missions/special';
+import { SURVIVAL_VARIANTS, currentDailyDay, parseCoopId } from '../missions/special';
+import { BUILTINS } from '../modes/builtins';
+import tNet from '../i18n/en/net';
+import { dt, fmtInt, trSource } from '../i18n/core';
 import { esc, el } from '../ui/dom';
 import { picto } from '../meta/art';
 
@@ -67,6 +70,21 @@ export async function fetchTop(kind: BoardKind, id: string, day?: string): Promi
   }
 }
 
+/**
+ * A board's title in the player's language (BoardInfo.title is the English the server builds; the leaderboard
+ * screens show this instead).
+ */
+export function boardTitle(b: BoardInfo): string {
+  if (b.kind === 'daily') return tNet('board.daily');
+  if (b.kind === 'challenge') { const c = Object.prototype.hasOwnProperty.call(BUILTINS, b.id) ? BUILTINS[b.id] : undefined; return c ? dt('builtin', c.def.id, 'title', c.def.title) : b.title; }
+  const v = SURVIVAL_VARIANTS.find((x) => x.id === b.id);
+  if (v) return tNet('board.survival', { front: dt('mission', v.id, 'title', v.title) });
+  const p = parseCoopId(b.id);
+  if (!p || !p.allies.length) return b.title;
+  return tNet('board.coop', { front: dt('mission', p.variant.id, 'title', p.variant.title), n: p.allies.length, level: p.allies[0].difficulty });
+}
+
+/** `error` is in the player's language (the server's English is translated on arrival). */
 export type SubmitResult = { ok: true; rank: number; score: number; day: string; improved: boolean } | { ok: false; error: string };
 
 /** Submit a finished run; the server verifies it (a long run takes a few seconds). */
@@ -74,9 +92,9 @@ export async function submitRun(sub: Submission): Promise<SubmitResult> {
   try {
     const r = await post('lb/submit', sub, 150_000);
     if (r.json && r.json.ok === true) return r.json as unknown as SubmitResult;
-    return { ok: false, error: typeof r.json?.error === 'string' ? r.json.error : `The leaderboard server is not available (${r.status}).` };
+    return { ok: false, error: typeof r.json?.error === 'string' ? trSource(r.json.error) : tNet('submit.unavailable', { status: String(r.status) }) };
   } catch {
-    return { ok: false, error: 'The leaderboard server could not be reached.' };
+    return { ok: false, error: tNet('submit.unreachable') };
   }
 }
 
@@ -119,9 +137,9 @@ function offerSubmit(run: PendingRun, play?: (k: 'click') => void) {
   ensureCss();
   const r = run.rec.result!;
   const card = el('div', 'lbs-card panel');
-  card.innerHTML = `<div class="lbs-h">${picto('trophy', 'ic')}<div><small>Global leaderboard · ${esc(run.board.title)}</small><b>Score ${r.score.toLocaleString('en-US')}</b></div></div>
-    <p>Submit this run? The server replays it to verify the score. Your callsign is shown on the board.</p>
-    <div class="lbs-row"><input type="text" maxlength="20" value="${esc(callsign())}" spellcheck="false" autocomplete="off"><button class="btn" data-a="go">Submit</button><button class="btn" data-a="no">Not now</button></div>
+  card.innerHTML = `<div class="lbs-h">${picto('trophy', 'ic')}<div><small>${tNet.html('submit.kicker', { board: boardTitle(run.board) })}</small><b>${tNet.html('submit.score', { score: fmtInt(r.score) })}</b></div></div>
+    <p>${tNet.html('submit.ask')}</p>
+    <div class="lbs-row"><input type="text" maxlength="20" value="${esc(callsign())}" spellcheck="false" autocomplete="off"><button class="btn" data-a="go">${tNet.html('submit.submit')}</button><button class="btn" data-a="no">${tNet.html('submit.notNow')}</button></div>
     <div class="lbs-msg"></div>`;
   document.body.appendChild(card);
   const input = card.querySelector('input') as HTMLInputElement;
@@ -133,10 +151,10 @@ function offerSubmit(run: PendingRun, play?: (k: 'click') => void) {
     const b = e.currentTarget as HTMLButtonElement;
     b.disabled = true;
     setCallsign(input.value);
-    msg.textContent = 'Verifying the run on the server…';
+    msg.textContent = tNet('submit.verifying');
     const res = await submitAndMark(run, input.value);
     msg.className = `lbs-msg ${res.ok ? 'ok' : 'bad'}`;
-    msg.textContent = res.ok ? (res.rank ? `Verified. Rank #${res.rank} today.` : 'Verified, but not in today\'s top.') : res.error;
+    msg.textContent = res.ok ? (res.rank ? tNet('submit.ranked', { rank: res.rank }) : tNet('submit.unranked')) : res.error;
     if (res.ok) setTimeout(() => card.remove(), 6000); else b.disabled = false;
   };
 }
@@ -144,7 +162,7 @@ function offerSubmit(run: PendingRun, play?: (k: 'click') => void) {
 /** Submit a pending run (the card or the leaderboard screen). */
 export async function submitAndMark(run: PendingRun, name: string): Promise<SubmitResult> {
   const sub = run.rec.submission(cleanName(name), playerId());
-  if (!sub) return { ok: false, error: 'This run cannot be submitted.' };
+  if (!sub) return { ok: false, error: tNet('submit.cannot') };
   const res = await submitRun(sub);
   if (res.ok) run.submitted = true;
   return res;

@@ -8,6 +8,7 @@
  *    tech structures nobody holds yet
  *  - the storm front: the renderer's storm weather while aircraft are grounded
  */
+import { ARIA_TEXT } from './a11y-strings';
 import * as THREE from 'three';
 import type { Game } from '../game';
 import { picto } from '../meta';
@@ -17,6 +18,24 @@ import { TICK_HZ } from '../sim/types';
 import type { WeatherKind } from '../render/weather';
 import { el, esc } from './dom';
 import { ICONS } from './icons';
+import tVar, { EVENT_NEWS } from '../i18n/en/variety';
+import tCommon from '../i18n/en/common';
+import { fmtMoney, trSource } from '../i18n/core';
+import { mutatorDesc, mutatorName, typeName } from '../i18n/names';
+import { BUILDINGS } from '../data/rules';
+
+/**
+ * A battlefield news title or text (written in English by the sim) in the active language. The sentence template
+ * is translated by trSource; the English it carries inside (a mercenary squad, a tech structure's name) afterwards.
+ */
+function newsText(s: string): string {
+  const out = trSource(s);
+  if (out === s) return out;
+  let t = out;
+  for (const squad of Object.values(EVENT_NEWS.mercs.squad)) if (t.includes(squad)) t = t.replace(squad, trSource(squad));
+  for (const b of Object.values(BUILDINGS)) if (b.tech && t.includes(b.name)) t = t.replace(b.name, typeName(b));
+  return t;
+}
 
 const CSS = `
 .vr-strip { position: absolute; z-index: 6; top: calc(var(--edge) + 3.3rem); left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem; max-width: 40rem; pointer-events: auto;
@@ -107,6 +126,9 @@ export class VarietyHud {
     const ui = document.getElementById('ui') ?? document.body;
     this.strip = el('div', 'vr-strip');
     this.radio = el('div', 'vr-radio');
+    this.radio.setAttribute('role', 'log'); // event cards are read out as they arrive
+    this.radio.setAttribute('aria-live', 'polite');
+    this.radio.setAttribute('aria-relevant', 'additions');
     ui.append(this.strip, this.radio);
     document.body.classList.toggle('vr-koth', !!game.world.mission?.flags.koth);
     game.gfx.scene.add(this.group);
@@ -140,23 +162,25 @@ export class VarietyHud {
     const dyn = dynamicStatus(this.game.world);
     const live = v.active.filter((e) => e.phase === 'live' || e.phase === 'warn');
     const ids = normaliseMutators(v.mutators);
-    const key = `${v.rules}|${ids.join(',')}|${dyn.on ? dyn.level : 'x'}|${live.map((e) => e.kind + e.phase).join(',')}`;
+    const key = `${v.rules}|${ids.join(',')}|${dyn.on ? dyn.level : 'x'}|${live.map((e) => e.kind + e.phase).join(',')}|${tCommon('rules.commander')}`;
     if (key === this.stripKey) return;
     this.stripKey = key;
     const pills: string[] = [];
-    if (v.rules === 'commander') pills.push(`<span class="vr-pill" title="Commander rules: doctrines, commander powers${v.events ? ', battlefield events' : ''} and neutral tech structures (capture them with an Engineer).">${picto('chevrons', 'ic')}Commander</span>`);
+    if (v.rules === 'commander') pills.push(`<span class="vr-pill" title="${esc(tVar(v.events ? 'hud.commanderTip' : 'hud.commanderTipNoEvents'))}">${picto('chevrons', 'ic')}${esc(tCommon('rules.commander'))}</span>`);
     for (const id of ids) {
       const m = MUTATOR_BY_ID[id];
-      pills.push(`<span class="vr-pill" title="${esc(m.name)}: ${esc(m.desc)}">${picto(m.icon, 'ic')}${esc(m.name)}</span>`);
+      pills.push(`<span class="vr-pill" title="${esc(tVar('hud.mutatorTip', { name: mutatorName(m), desc: mutatorDesc(m) }))}">${picto(m.icon, 'ic')}${esc(mutatorName(m))}</span>`);
     }
     if (dyn.on) {
       const cls = dyn.level > 0 ? ' up' : dyn.level < 0 ? ' down' : '';
-      const txt = dyn.level ? `AI ${dyn.pct > 0 ? '+' : ''}${dyn.pct}%` : 'even';
-      pills.push(`<span class="vr-pill dyn${cls}" title="Dynamic difficulty is on: the AI's income, build speed and aggression flex (up to ±24%) to keep the match close. ${dyn.level > 0 ? 'You are ahead: the AI is pushing harder.' : dyn.level < 0 ? 'The AI is easing off.' : 'The match is even.'}">${picto('chart', 'ic')}Dynamic · ${txt}</span>`);
+      const txt = dyn.level ? tVar('hud.dynamicAi', { pct: `${dyn.pct > 0 ? '+' : ''}${dyn.pct}` }) : tVar('hud.dynamicEven');
+      const tip = tVar(dyn.level > 0 ? 'hud.dynamicTipUp' : dyn.level < 0 ? 'hud.dynamicTipDown' : 'hud.dynamicTipEven');
+      pills.push(`<span class="vr-pill dyn${cls}" title="${esc(tip)}">${picto('chart', 'ic')}${tVar.html('hud.dynamic', { state: txt })}</span>`);
     }
     for (const e of live) {
-      const label = e.kind === 'convoy' ? 'Convoy' : e.kind === 'airdrop' ? 'Airdrop' : e.kind === 'pilot' ? 'Pilot down' : e.kind === 'storm' ? 'Storm' : e.kind === 'mercs' ? 'Mercenaries' : 'Ore surge';
-      pills.push(`<span class="vr-pill ev">${picto(KIND_ICON[e.kind] ?? 'flag', 'ic')}${label}${e.phase === 'warn' ? ' · inbound' : ''}</span>`);
+      const kind = e.kind === 'convoy' || e.kind === 'airdrop' || e.kind === 'pilot' || e.kind === 'storm' || e.kind === 'mercs' ? e.kind : 'surge';
+      const label = tVar(`hud.event.${kind}`);
+      pills.push(`<span class="vr-pill ev">${picto(KIND_ICON[e.kind] ?? 'flag', 'ic')}${esc(e.phase === 'warn' ? tVar('hud.inbound', { label }) : label)}</span>`);
     }
     this.strip.innerHTML = pills.join('');
   }
@@ -166,29 +190,30 @@ export class VarietyHud {
     const me = g.local.id;
     // rewards and captures concern their commander; the rest goes out to everyone
     if (n.player >= 0 && n.player !== me && n.phase === 'reward') {
-      g.hud?.message(`${n.title}: ${n.text}`);
+      g.hud?.message(tVar('hud.message', { title: newsText(n.title), text: newsText(n.text) }));
       return;
     }
     const ev = n.event ? v.active.find((e) => e.id === n.event) : undefined;
     const kind = n.kind === 'site' ? 'site' : n.phase === 'reward' ? 'reward' : 'event';
     const card = el('div', `vr-card2 ${kind}`);
     const icon = n.kind === 'site' ? picto('capture', 'ic') : n.kind === 'dyn' ? picto('chart', 'ic') : picto(ev ? KIND_ICON[ev.kind] ?? 'flag' : 'flag', 'ic');
-    const kicker = n.kind === 'site' ? 'Tech structure' : n.kind === 'dyn' ? 'Dynamic difficulty' : n.phase === 'reward' ? 'Reward' : 'Battlefield event';
-    card.innerHTML = `<div class="vr-k">${n.phase === 'warn' || n.phase === 'offer' ? '<i class="vr-live"></i>' : icon}<span>${kicker}</span></div><h4>${esc(n.title)}</h4><p>${esc(n.text)}</p>`;
+    const kicker = tVar(n.kind === 'site' ? 'hud.kicker.site' : n.kind === 'dyn' ? 'hud.kicker.dyn' : n.phase === 'reward' ? 'hud.kicker.reward' : 'hud.kicker.event');
+    card.innerHTML = `<div class="vr-k">${n.phase === 'warn' || n.phase === 'offer' ? '<i class="vr-live"></i>' : icon}<span>${esc(kicker)}</span></div><h4>${esc(newsText(n.title))}</h4><p>${esc(newsText(n.text))}</p>`;
     const x = el('button', 'vr-x', ICONS.close);
-    x.title = 'Dismiss';
+    x.title = tVar('hud.dismiss');
+    x.setAttribute('aria-label', ARIA_TEXT.dismiss);
     card.appendChild(x);
     let life = n.phase === 'warn' ? 12 : n.phase === 'offer' ? 60 : 8;
     let bar: HTMLElement | undefined;
     if (ev && ev.kind === 'mercs' && n.phase === 'offer' && !g.setup.replay && g.input) {
       const act = el('div', 'vr-act');
-      const btn = el('button', '', `Hire · $${(ev.price ?? 0).toLocaleString('en-US')}`) as HTMLButtonElement;
+      const btn = el('button', '', tVar.html('hud.hire', { price: fmtMoney(ev.price ?? 0) })) as HTMLButtonElement;
       const note = el('small', '');
       btn.onclick = () => {
-        if (g.local.credits < (ev.price ?? 0)) { note.textContent = 'Not enough credits'; g.audio.play('error'); return; }
+        if (g.local.credits < (ev.price ?? 0)) { note.textContent = tVar('hud.noCredits'); g.audio.play('error'); return; }
         g.issue({ c: 'battleEvent', player: me, event: ev.id, act: 'hire' });
         btn.disabled = true;
-        note.textContent = 'Squad inbound';
+        note.textContent = tVar('hud.hired');
         g.audio.play('click');
       };
       act.append(btn, note);
@@ -232,7 +257,8 @@ export class VarietyHud {
     const want = (key: string, x: number, y: number, r: number, color: number) => {
       let m = this.markers.get(key);
       if (!m) {
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 });
+        // (a flat ground ring: one pass, not three.js's back-then-front pair with a program check each frame)
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: -4 });
         const mesh = new THREE.Mesh(ringGeometry(), mat);
         mesh.renderOrder = 5;
         this.group.add(mesh);

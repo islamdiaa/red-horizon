@@ -5,6 +5,7 @@
  * captureStream: the speakers keep playing). Everything stays in the page: the result is a Blob the player
  * downloads or shares. Real time, at the quality the game already renders.
  */
+import tShare from '../i18n/en/share'; // (error messages are shown to the player)
 
 export interface RecordFormat {
   mime: string;
@@ -66,7 +67,7 @@ export class CanvasRecorder {
 
   constructor(private o: RecorderOptions) {
     const fmt = pickFormat();
-    if (!fmt) throw new Error('This browser cannot record video.');
+    if (!fmt) throw new Error(tShare('record.unsupported'));
     this.format = fmt;
     const sw = Math.max(2, o.source.width), sh = Math.max(2, o.source.height);
     const k = Math.min(1, (o.maxWidth ?? 1920) / sw, (o.maxHeight ?? 1080) / sh);
@@ -77,7 +78,7 @@ export class CanvasRecorder {
     this.comp.width = this.width;
     this.comp.height = this.height;
     const ctx = this.comp.getContext('2d', { alpha: false });
-    if (!ctx) throw new Error('No 2D canvas for recording.');
+    if (!ctx) throw new Error(tShare('record.noCanvas'));
     this.ctx = ctx;
     ctx.imageSmoothingQuality = 'high';
     const fps = o.fps ?? 30;
@@ -92,7 +93,7 @@ export class CanvasRecorder {
       for (const t of video.getVideoTracks()) t.stop();
       this.resolveStop(new Blob(this.chunks, { type: fmt.mime.split(';')[0] }));
     };
-    this.rec.onerror = (e) => this.rejectStop((e as unknown as { error?: unknown }).error ?? new Error('Recording failed.'));
+    this.rec.onerror = (e) => this.rejectStop((e as unknown as { error?: unknown }).error ?? new Error(tShare('record.failed')));
   }
 
   /** Seconds recorded so far. */

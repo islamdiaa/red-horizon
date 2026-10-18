@@ -1,3 +1,4 @@
+import { teamColor } from './a11y';
 import { GameMap, T } from '../sim/map';
 import type { Player } from '../sim/player';
 import type { Unit } from '../sim/entities';
@@ -171,7 +172,7 @@ export class Minimap {
       const x = b.cx * sx, y = b.cy * sy, w = b.w * sx, h = b.h * sy;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
-      ctx.fillStyle = hex('color' in b ? b.color : b.owner.color);
+      ctx.fillStyle = hex('color' in b ? b.color : teamColor(b.owner, p)); // (markers come in palette colours)
       ctx.fillRect(x, y, w, h);
       ctx.strokeStyle = 'rgba(255,255,255,0.45)';
       ctx.lineWidth = 1.2;
@@ -190,7 +191,8 @@ export class Minimap {
       ctx.fillRect(x - 1, y - 1, s + 2, s + 2);
       // a disguised enemy spy shows in the colours of the player it mimics
       const shown = disguisedAs(world, u, p)?.owner ?? u.owner;
-      ctx.fillStyle = shown === p ? lighten(shown.color) : hex(shown.color);
+      const col = teamColor(shown, p); // team colour palette (ui/a11y.ts)
+      ctx.fillStyle = shown === p ? lighten(col) : hex(col);
       ctx.fillRect(x, y, s, s);
     }
     // camera view

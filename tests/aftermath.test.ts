@@ -479,7 +479,8 @@ describe('AI use of the Aftermath units', () => {
   });
 
   test('an Allied AI with the tech builds Chrono Tanks and Mechanics', () => {
-    const { world, p0, p1 } = sandbox({ w: 64, h: 64, ai: ['hard', undefined], credits: 30000 });
+    // (no ore in this sandbox: the bank has to cover the Allied build order, radar spy and helipads, then the Aftermath units)
+    const { world, p0, p1 } = sandbox({ w: 64, h: 64, ai: ['hard', undefined], credits: 60000 });
     for (const [id, x, y] of [['fact', 8, 8], ['proc', 12, 8], ['tent', 8, 13], ['weap', 12, 13], ['dome', 16, 8], ['atek', 16, 12], ['fix', 16, 16]] as const) building(world, id, p0, x, y);
     powerUp(world, p0, 2, 20, 4);
     building(world, 'fact', p1, 50, 50);

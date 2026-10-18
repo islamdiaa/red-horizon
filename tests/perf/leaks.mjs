@@ -1,13 +1,16 @@
 // Leak audit: start a battle, quit to the main menu, start again... 5 times, and track GPU
 // resources, JS heap, DOM, listeners and whether each disposed Game is actually garbage-collected.
-//   node tests/perf/leaks.mjs [iterations=5] [secondsPerGame=8] [--demo]
+// Every system is on by default: Commander rules (doctrines, events, the economy), High quality (heat haze,
+// battle scars, soft particles), HD models; --classic runs plain Classic rules on the default preset instead.
+//   node tests/perf/leaks.mjs [iterations=5] [secondsPerGame=8] [--demo] [--classic]   (PORT=5190)
 import { startServer, launch, sleep } from './lib.mjs';
 
-const ITER = +(process.argv[2] ?? 5);
-const SECS = +(process.argv[3] ?? 8);
 const DEMO = process.argv.includes('--demo');
+const ALL = process.argv.includes('--classic') ? '' : '&rules=commander&q=high&hd=1';
+const nums = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const ITER = +(nums[0] ?? 5), SECS = +(nums[1] ?? 8);
 
-const { server, url } = await startServer(5190);
+const { server, url } = await startServer(+(process.env.PORT ?? 5190));
 const browser = await launch(['--enable-precise-memory-info', '--js-flags=--expose-gc']);
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const cdp = await page.context().newCDPSession(page);
@@ -31,6 +34,19 @@ async function countInstances(name) {
   return len.value;
 }
 
+/** NAMES=1: live instances of a class grouped by name (what accumulates between matches). */
+async function namesOf(name) {
+  const { result } = await cdp.send('Runtime.evaluate', { expression: `window.__protos && window.__protos[${JSON.stringify(name)}]` });
+  if (!result.objectId) return null;
+  const { objects } = await cdp.send('Runtime.queryObjects', { prototypeObjectId: result.objectId });
+  const { result: r } = await cdp.send('Runtime.callFunctionOn', {
+    objectId: objects.objectId, returnByValue: true,
+    functionDeclaration: 'function(){const m={};for(const o of this){const k=(o.name||o.type||o.constructor?.name||"?").replace(/[0-9a-f]{6,}|[0-9.]+/g,"#");m[k]=(m[k]||0)+1}return m}',
+  });
+  await cdp.send('Runtime.releaseObject', { objectId: objects.objectId });
+  return r.value;
+}
+
 async function listeners() {
   const out = {};
   for (const target of ['window', 'document']) {
@@ -50,7 +66,7 @@ const pageStats = () => page.evaluate(() => ({
 
 const PROTOS = ['Game', 'World', 'WebGLRenderer', 'Scene', 'Object3D', 'BufferGeometry', 'Material', 'Texture', 'WebGLRenderTarget', 'Unit'];
 
-await page.goto(`${url}?autostart=1&size=64&scenario=battle&charge=1&fog=0${DEMO ? '' : '&demo=0'}`, { waitUntil: 'load' });
+await page.goto(`${url}?autostart=1&size=64&scenario=battle&charge=1&fog=0${ALL}${DEMO ? '' : '&demo=0'}`, { waitUntil: 'load' });
 const rows = [];
 for (let i = 1; i <= ITER; i++) {
   await page.waitForFunction(() => window.__game && !window.__game.__audited && !window.__game.setup.demo, null, { timeout: 120000 });
@@ -91,7 +107,11 @@ for (let i = 1; i <= ITER; i++) {
     window.__weak = { game: new WeakRef(g), world: new WeakRef(g.world), renderer: new WeakRef(g.gfx.renderer), scene: new WeakRef(g.gfx.scene) };
     g.pause();
   });
-  await page.getByText('Quit to menu').click({ timeout: 180000 }); // quitting builds the menu demo battle synchronously
+  await page.getByText('Quit to menu').click({ timeout: 180000 }).catch(async (e) => {
+    await page.screenshot({ path: '/tmp/rh-leaks-stuck.png' }).catch(() => {});
+    console.log('stuck before "Quit to menu" (screenshot /tmp/rh-leaks-stuck.png); page errors:', [...errors.keys()].slice(0, 5));
+    throw e;
+  }); // quitting starts the menu backdrop battle
   await page.waitForSelector('.mm-layout', { timeout: 180000 });
   await sleep(1500);
   // main.ts keeps window.__game pointing at the quit game (debug hook): drop it so we measure real leaks
@@ -103,6 +123,13 @@ for (let i = 1; i <= ITER; i++) {
   const counts = {};
   for (const p of PROTOS) counts[p] = await countInstances(p);
   const ls = await listeners();
+  if (process.env.NAMES) for (const p of ['Texture', 'Material']) {
+    const now = await namesOf(p);
+    const before = (globalThis.__names ??= {})[p] ?? {};
+    const grew = Object.entries(now ?? {}).map(([k, n]) => [k, n - (before[k] ?? 0)]).filter(([, d]) => d > 0).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    console.log(`   ${p} growth by name: ${grew.map(([k, d]) => `${k}+${d}`).join(' ')}`);
+    globalThis.__names[p] = now;
+  }
   rows.push({ i, inGame, inGameStats, menuStats, alive, counts, ls, debugHookRetains });
   console.log(`#${i} in-game: geo=${inGame.geometries} tex=${inGame.textures} programs=${inGame.programs} calls=${inGame.calls} ents=${inGame.entities} heap=${inGameStats.heapMB}MB dom=${inGameStats.dom}`);
   console.log(`   menu(after gc): heap=${menuStats.heapMB}MB dom=${menuStats.dom} canvases=${menuStats.canvases} gameAlive=${JSON.stringify(alive)} __game-retained-by-debug-hook=${debugHookRetains}`);

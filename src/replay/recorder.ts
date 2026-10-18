@@ -12,6 +12,10 @@ import type { Command } from '../sim/types';
 import { CommandRecorder, hookStep } from './core';
 import { REPLAY_VERSION, newReplayId, type RecorderState, type ReplayData } from './format';
 import { saveReplay } from './store';
+import { SIM_VERSION, simVersionOf } from '../sim/version';
+import { REPLAY_SOURCE } from '../i18n/en/replay';
+
+const fillName = (tpl: string, w: number, h: number) => tpl.replace('{w}', String(w)).replace('{h}', String(h));
 
 /** Matches shorter than this (and not finished) are not worth keeping. */
 const MIN_TICKS = 20 * 30;
@@ -19,6 +23,8 @@ const MIN_TICKS = 20 * 30;
 export class ReplayRecorder {
   readonly id: string;
   readonly createdAt: number;
+  /** Simulation version of the whole recording: the one it started with (src/sim/version.ts). */
+  readonly sim: number;
   private core: CommandRecorder;
   private unhook: () => void;
   private done = false;
@@ -29,6 +35,7 @@ export class ReplayRecorder {
     const now = Date.now();
     this.id = restore?.id ?? newReplayId(now, Math.random());
     this.createdAt = restore?.createdAt ?? now;
+    this.sim = restore ? simVersionOf(restore) : SIM_VERSION; // (resumed from a save: the version it began under)
     this.core = new CommandRecorder(game.world, restore ?? undefined);
     this.unhook = hookStep(game.world, null, () => {
       this.core.afterStep();
@@ -46,7 +53,7 @@ export class ReplayRecorder {
 
   /** In-progress state for save games. */
   snapshot(): RecorderState {
-    return { id: this.id, createdAt: this.createdAt, cmds: this.core.cmds, hashes: this.core.hashes };
+    return { id: this.id, createdAt: this.createdAt, sim: this.sim, cmds: this.core.cmds, hashes: this.core.hashes };
   }
 
   /** Stop recording without storing anything (test scenarios that edit the world directly). */
@@ -62,8 +69,9 @@ export class ReplayRecorder {
     const code = mapCodeForSetup(setup);
     const local = g.local;
     return {
-      v: REPLAY_VERSION, id: this.id, createdAt: this.createdAt, gameVersion: VERSION, setup,
-      mapName: def?.name ?? `Random ${w.map.w}×${w.map.h}`, mapCode: code ?? undefined, mapW: w.map.w, mapH: w.map.h,
+      v: REPLAY_VERSION, id: this.id, createdAt: this.createdAt, gameVersion: VERSION, sim: this.sim, setup,
+      // (the map name stays English in the file: display sites translate it with trSource)
+      mapName: def?.name ?? fillName(REPLAY_SOURCE.randomMap, w.map.w, w.map.h), mapCode: code ?? undefined, mapW: w.map.w, mapH: w.map.h,
       players: w.players.map((p) => ({ name: p.name, faction: p.faction, color: p.color, team: p.team, ai: w.ais.find((a) => a.player === p)?.difficulty })),
       local: local.id, ticks: w.tick,
       result: w.gameOver ? (w.winnerTeam === local.team ? 'victory' : 'defeat') : 'abandoned', winnerTeam: w.winnerTeam,

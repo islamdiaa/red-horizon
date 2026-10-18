@@ -1,3 +1,4 @@
+import { healthColors } from '../ui/a11y'; // colour-blind palettes
 import * as THREE from 'three';
 import { BAIL_COUNT } from '../data/rules';
 import { lerp } from '../core/util';
@@ -11,6 +12,9 @@ interface FloatText { x: number; y: number; z: number; text: string; color: stri
 const _v = new THREE.Vector3();
 
 /** Screen-space 2D overlay drawn on a canvas above the 3D view. */
+/** Health thresholds marked on every bar (the colour changes there too). */
+const HP_TICKS = [0.25, 0.5];
+
 export class Overlay {
   readonly canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -236,7 +240,8 @@ export class Overlay {
   private healthBar(x: number, y: number, w: number, frac: number, selected: boolean, own: boolean) {
     const ctx = this.ctx;
     const h = 4;
-    const col = frac > 0.5 ? '#4cff7a' : frac > 0.25 ? '#ffd23c' : '#ff4a3a';
+    const hc = healthColors(); // colour-blind palettes swap the hues; the ticks below carry the thresholds without colour
+    const col = frac > 0.5 ? hc[0] : frac > 0.25 ? hc[1] : hc[2];
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     this.round(x - 1.5, y - 1.5, w + 3, h + 3, 2.5);
@@ -251,6 +256,11 @@ export class Overlay {
       ctx.globalAlpha = selected || own ? 1 : 0.85;
       ctx.fillRect(x + i * sw + 0.5, y, sw * f - 1, h);
     }
+    // 50% and 25% ticks: bright notches above and below the bar
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.round(x + w * HP_TICKS[0]) - 0.5, y - 2.5, 1, h + 5);
+    ctx.fillRect(Math.round(x + w * HP_TICKS[1]) - 0.5, y - 2.5, 1, h + 5);
     ctx.restore();
   }
 

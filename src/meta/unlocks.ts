@@ -7,18 +7,18 @@
  * Pure data + logic (no DOM): the Locker (src/ui/locker.ts) renders it, src/meta/cosmetics.ts applies the
  * equipped items, and the MetaTracker announces new unlocks after a battle.
  */
-import { ACH_BY_ID, TIER_NAMES } from './achievements';
+import { ACH_BY_ID, achievementTitle, tierName } from './achievements';
 import { RANKS, rankName } from './ranks';
 import type { Profile } from './profile';
+import { dt, fmtInt } from '../i18n/core';
+import tMeta, { SLOT_TEXT } from '../i18n/en/meta';
 
 export type CosmeticSlot = 'paint' | 'theme' | 'portrait' | 'title' | 'banner' | 'voice' | 'fanfare';
 export const COSMETIC_SLOTS: CosmeticSlot[] = ['paint', 'theme', 'portrait', 'title', 'banner', 'voice', 'fanfare'];
-export const SLOT_LABEL: Record<CosmeticSlot, string> = {
-  paint: 'Paint scheme', theme: 'HUD theme', portrait: 'Portrait', title: 'Title', banner: 'Banner', voice: 'Announcer', fanfare: 'Victory fanfare',
-};
+/** Slot display names (translated on read: src/i18n/en/meta.ts). */
+export const SLOT_LABEL: Record<CosmeticSlot, string> = SLOT_TEXT;
 /** Pictogram (src/meta/art.ts PICTO) per slot. */
 export const SLOT_PICTO: Record<CosmeticSlot, string> = { paint: 'tank', theme: 'eye', portrait: 'user', title: 'laurel', banner: 'flag', voice: 'wave', fanfare: 'trophy' };
-const SLOT_NOUN: Record<CosmeticSlot, string> = { paint: 'paint', theme: 'HUD theme', portrait: 'portrait', title: 'title', banner: 'banner', voice: 'announcer', fanfare: 'fanfare' };
 
 export type UnlockReq =
   | { kind: 'default' }
@@ -199,8 +199,12 @@ export interface UnlockStatus {
   need: string;
 }
 
-const fmt = (n: number) => Math.max(0, Math.round(n)).toLocaleString('en-US');
-const plural = (n: number, one: string, many: string) => `${fmt(n)} ${n === 1 ? one : many}`;
+const whole = (n: number) => Math.max(0, Math.round(n));
+const fmt = (n: number) => fmtInt(whole(n));
+
+/** A cosmetic's display name and description (game data cosmetic.<id>). */
+export const cosmeticName = (def: Pick<CosmeticDef, 'id' | 'name'>): string => dt('cosmetic', def.id, 'name', def.name);
+export const cosmeticDesc = (def: Pick<CosmeticDef, 'id' | 'desc'>): string => dt('cosmetic', def.id, 'desc', def.desc);
 
 export function unlockStatus(def: CosmeticDef, ctx: UnlockCtx): UnlockStatus {
   const p = ctx.profile;
@@ -211,34 +215,38 @@ export function unlockStatus(def: CosmeticDef, ctx: UnlockCtx): UnlockStatus {
   };
   switch (r.kind) {
     case 'default':
-      return { unlocked: true, purchasable: false, affordable: false, cur: 1, target: 1, frac: 1, how: 'Standard issue', need: '' };
+      return { unlocked: true, purchasable: false, affordable: false, cur: 1, target: 1, frac: 1, how: tMeta('unlock.standard'), need: '' };
     case 'rank': {
-      const name = rankName(r.n, p.faction);
-      return st(p.xp, RANKS[Math.min(r.n, RANKS.length - 1)].xp, `Reach the rank of ${name}`, (left) => `${fmt(left)} XP to ${name}`);
+      const rank = rankName(r.n, p.faction);
+      return st(p.xp, RANKS[Math.min(r.n, RANKS.length - 1)].xp, tMeta('unlock.rankHow', { rank }), (left) => tMeta('unlock.rankNeed', { xp: fmt(left), rank }));
     }
     case 'wins':
-      return st(p.stats.wins, r.n, `Win ${plural(r.n, 'battle', 'battles')}`, (left) => `${plural(left, 'more win', 'more wins')}`);
+      return st(p.stats.wins, r.n, tMeta('unlock.winsHow', { n: whole(r.n) }), (left) => tMeta('unlock.winsNeed', { n: whole(left) }));
     case 'games':
-      return st(p.stats.games, r.n, `Fight ${plural(r.n, 'battle', 'battles')}`, (left) => `${plural(left, 'more battle', 'more battles')}`);
+      return st(p.stats.games, r.n, tMeta('unlock.gamesHow', { n: whole(r.n) }), (left) => tMeta('unlock.gamesNeed', { n: whole(left) }));
     case 'contracts':
-      return st(p.contracts.completed, r.n, `Complete ${plural(r.n, 'contract', 'contracts')}`, (left) => `${plural(left, 'more contract', 'more contracts')}`);
+      return st(p.contracts.completed, r.n, tMeta('unlock.contractsHow', { n: whole(r.n) }), (left) => tMeta('unlock.contractsNeed', { n: whole(left) }));
     case 'streak':
-      return st(p.daily.longest, r.n, `Reach a ${r.n}-day Daily Challenge streak`, () => `a ${r.n}-day daily streak (best ${p.daily.longest})`);
+      return st(p.daily.longest, r.n, tMeta('unlock.streakHow', { n: String(r.n) }), () => tMeta('unlock.streakNeed', { n: String(r.n), best: String(p.daily.longest) }));
     case 'renown':
-      return st(ctx.renown, r.n, `Earn ${fmt(r.n)} Conquest renown`, (left) => `${fmt(left)} more Conquest renown`);
+      return st(ctx.renown, r.n, tMeta('unlock.renownHow', { n: fmt(r.n) }), (left) => tMeta('unlock.renownNeed', { n: fmt(left) }));
     case 'medal': {
       const a = ACH_BY_ID[r.id];
       const tier = Math.max(1, r.tier ?? 1);
       const have = p.medals[r.id]?.tier ?? 0;
       // a hidden medal keeps its secret until it is earned
       const secret = !!a?.hidden && have < 1;
-      const label = secret ? 'a classified medal' : `the ${a ? `${a.title}${a.tiers && a.tiers.length > 1 ? ` (${TIER_NAMES[tier - 1]})` : ''}` : r.id} medal`;
-      const how = `Earn ${label}`;
+      const medal = a ? achievementTitle(a) : r.id;
+      const tiered = !!a?.tiers && a.tiers.length > 1;
+      const tierLabel = tiered ? tierName(tier - 1) : '';
+      const label = secret ? tMeta('unlock.medalSecretNeed') : tiered ? tMeta('unlock.medalTierNeed', { medal, tier: tierLabel }) : tMeta('unlock.medalNeed', { medal });
+      const how = secret ? tMeta('unlock.medalSecretHow') : tiered ? tMeta('unlock.medalTierHow', { medal, tier: tierLabel }) : tMeta('unlock.medalHow', { medal });
       if (have >= tier) return { unlocked: true, purchasable: false, affordable: false, cur: 1, target: 1, frac: 1, how, need: '' };
       if (a?.counter && a.tiers && !secret) {
         const target = a.tiers[Math.min(tier, a.tiers.length) - 1];
         const cur = p.counters[a.counter] ?? 0;
-        return { ...st(cur, target, how, () => `${label.replace(/^the /, '')} (${fmt(Math.min(cur, target))}/${fmt(target)})`), unlocked: false };
+        const prog = { medal, tier: tierLabel, cur: fmt(Math.min(cur, target)), target: fmt(target) };
+        return { ...st(cur, target, how, () => (tiered ? tMeta('unlock.medalTierProgress', prog) : tMeta('unlock.medalProgress', prog))), unlocked: false };
       }
       return { unlocked: false, purchasable: false, affordable: false, cur: 0, target: 1, frac: 0, how, need: label };
     }
@@ -247,8 +255,8 @@ export function unlockStatus(def: CosmeticDef, ctx: UnlockCtx): UnlockStatus {
       const bal = p.commendations;
       return {
         unlocked: owned, purchasable: !owned, affordable: !owned && bal >= r.cost, cur: owned ? r.cost : Math.min(bal, r.cost), target: r.cost,
-        frac: owned ? 1 : Math.min(1, bal / r.cost), how: `Claim with ${plural(r.cost, 'Commendation', 'Commendations')}`,
-        need: owned ? '' : bal >= r.cost ? 'ready to claim in the Locker' : `${plural(r.cost - bal, 'more Commendation', 'more Commendations')}`,
+        frac: owned ? 1 : Math.min(1, bal / r.cost), how: tMeta('unlock.cmdHow', { n: whole(r.cost) }),
+        need: owned ? '' : bal >= r.cost ? tMeta('unlock.cmdReady') : tMeta('unlock.cmdNeed', { n: whole(r.cost - bal) }),
       };
     }
   }
@@ -261,7 +269,7 @@ export function isUnlocked(id: string, ctx: UnlockCtx): boolean {
 
 /** "Arctic White paint", "Field Marshal announcer", "“Tank Hunter” title". */
 export function cosmeticLabel(def: CosmeticDef): string {
-  return def.slot === 'title' ? `“${def.name}” title` : `${def.name} ${SLOT_NOUN[def.slot]}`;
+  return tMeta(`item.${def.slot}`, { name: cosmeticName(def) });
 }
 
 /** The equipped item of a slot (falls back to the default when the stored choice is not unlocked). */
@@ -335,7 +343,7 @@ export function nextUnlock(ctx: UnlockCtx): Teaser | null {
     else if (def.req.kind === 'medal' && s.frac === 0) score = -1; // no progress to show
     if (score > bestScore) {
       bestScore = score;
-      best = { def, status: s, text: s.affordable ? `${cosmeticLabel(def)}: ${s.need}` : `${s.need} → ${cosmeticLabel(def)}` };
+      best = { def, status: s, text: s.affordable ? tMeta('unlock.teaserReady', { item: cosmeticLabel(def), need: s.need }) : tMeta('unlock.teaser', { need: s.need, item: cosmeticLabel(def) }) };
     }
   }
   return best;

@@ -17,15 +17,25 @@ import type { Faction } from '../data/rules';
 import type { AIDifficulty } from '../sim/ai';
 import { PERSONALITIES, resolvePersonality, withTweaks, type Personality, type TraitKey } from '../sim/ai-personality';
 import { defaultStorage, type KV } from './profile';
+import { flatten, format, trSource, tx, type Params } from '../i18n/core';
+import { formatMessage } from '../i18n/format';
+import tRivals, { RIVAL_SRC, TAUNT_TEXT } from '../i18n/en/rivals';
+
+// The rival logic stores and compares English (rh.rivals, the skirmish setup and its replays): the display helpers at
+// the end of this file (rivalText, rivalRankLabel, rivalDisplayName...) translate it.
+const R = RIVAL_SRC.rank;
+/** English text with parameters (never the interface language: it is stored). */
+const fillEn = (tpl: string, params: Params) => formatMessage(tpl, params, 'en');
 
 export const RIVALS_KEY = 'rh.rivals';
 export const RIVALS_VERSION = 1;
 /** Active rivals kept on the roster. */
 export const ROSTER_SIZE = 4;
 
+/** Rival ranks in English (stored; rivalRankLabel() translates). */
 export const RIVAL_RANKS: Record<Faction, string[]> = {
-  soviet: ['Lieutenant', 'Captain', 'Major', 'Colonel', 'General', 'Marshal'],
-  allies: ['Lieutenant', 'Captain', 'Major', 'Colonel', 'General', 'Field Marshal'],
+  soviet: [R.lieutenant, R.captain, R.major, R.colonel, R.general, R.marshal],
+  allies: [R.lieutenant, R.captain, R.major, R.colonel, R.general, R.fieldMarshal],
 };
 export const MAX_RIVAL_RANK = 5;
 
@@ -159,19 +169,7 @@ const LAST: Record<Faction, string[]> = {
   allies: ['Harrington', 'Lindqvist', 'Moreau', 'Calloway', 'van Dijk', 'Ashford', 'Brennan', 'Delacroix', 'Whitmore', 'Bergstrom', 'Kessler', 'Fairfax', 'Rasmussen', 'Duval', 'Hale', 'Okafor'],
 };
 const surname = (first: string, last: string) => (FEMININE.has(first) && /(ov|ev|in)$/.test(last) ? last + 'a' : last);
-const NICKS: Record<string, string[]> = {
-  balanced: ['the Professor', 'the Chessmaster', 'Old Owl'],
-  rusher: ['the Hammer', 'Blitz', 'Iron Gauntlet'],
-  turtle: ['the Wall', 'the Tortoise', 'Lightning Rod'],
-  admiral: ['Sea Wolf', 'the Admiral', 'Riptide'],
-  airmarshal: ['Skyfall', 'the Hawk', 'Thunderbird'],
-  saboteur: ['the Ghost', 'Whisper', 'the Locksmith'],
-  siege: ['the Long Arm', 'Big Bertha', 'the Mason'],
-  guerrilla: ['the Fox', 'Shadow', 'the Wasp'],
-  ironfist: ['the Anvil', 'Steel Rain', 'the Bulldozer'],
-  horde: ['the Tide', 'Many Hands', 'the Swarm'],
-  tycoon: ['the Baron', 'Goldfinger', 'the Banker'],
-};
+const NICKS: Record<string, string[]> = Object.fromEntries(Object.entries(RIVAL_SRC.nick).map(([k, v]) => [k, Object.values(v)]));
 
 // ---------------------------------------------------------------------------
 // Small seeded RNG (the roster is generated deterministically from the store's sequence number)
@@ -277,7 +275,7 @@ export function rivalName(r: Rival, withRank = true): string {
   return `${withRank ? rankName(r) + ' ' : ''}${r.first}${nick} ${r.last}`;
 }
 
-/** Short radio call sign: "Col. Volkov". */
+/** Short radio call sign: "Col. Volkov" (English: stored by the setup; rivalCallSign() is the display form). */
 export function callSign(r: Rival): string {
   const short: Record<string, string> = { Lieutenant: 'Lt.', Captain: 'Capt.', Major: 'Maj.', Colonel: 'Col.', General: 'Gen.', Marshal: 'Marshal', 'Field Marshal': 'F.M.' };
   return `${short[rankName(r)] ?? rankName(r)} ${r.last}`;
@@ -320,8 +318,8 @@ export function ensureRoster(store: RivalStore, now = Date.now()): Rival[] {
       const back = pickOf(r, dead);
       back.status = 'active';
       back.returns++;
-      addTrait(back, back.returns > 1 ? 'Undying' : 'Scarred', { aggression: 0.08, caution: -0.05 });
-      if (!back.titles.includes('the Returned')) back.titles.push('the Returned');
+      addTrait(back, back.returns > 1 ? RIVAL_SRC.trait.undying : RIVAL_SRC.trait.scarred, { aggression: 0.08, caution: -0.05 });
+      if (!back.titles.includes(RIVAL_SRC.title.returned)) back.titles.push(RIVAL_SRC.title.returned);
       back.portrait.facial = 9; // the scar
       risen.push(back);
       store.seq++;
@@ -372,58 +370,60 @@ export function habitsFor(store: RivalStore, r: Rival): Habits {
   };
 }
 
+const P = RIVAL_SRC.plan;
+
 export function counterPlan(r: Rival, h: Habits): CounterPlan {
   const plan: CounterPlan = { traits: {}, prefer: {}, notes: [] };
   const add = (k: TraitKey, d: number) => { plan.traits[k] = (plan.traits[k] ?? 0) + d; };
   const like = (ids: string[], m: number) => { for (const id of ids) plan.prefer[id] = (plan.prefer[id] ?? 1) * m; };
   const sov = r.faction === 'soviet';
   if (h.games < 1) {
-    plan.notes.push('Has no file on you yet: plays its own game.');
+    plan.notes.push(P.noFile);
     return plan;
   }
   if (h.armour > 0.5) {
     like(['e3'], 1.6);
     like(sov ? ['4tnk', 'tsla'] : ['2tnk', 'gun'], 1.4);
     add('defence', 0.1);
-    plan.notes.push('Expects your armour: rocket teams and anti-tank guns.');
+    plan.notes.push(P.armour);
   }
   if (h.infantry > 0.4) {
     like(sov ? ['e2', 'e4', 'ftur', 'v2rl'] : ['pbox', 'arty', 'jeep'], 1.6);
     add('artillery', 0.15);
-    plan.notes.push('Knows you love infantry: flamers, grenades and machine guns.');
+    plan.notes.push(P.infantry);
   }
   if (h.air > 0.12) {
     like(['e3'], 1.4);
     like(sov ? ['sam', '4tnk'] : ['agun'], 1.8);
     add('defence', 0.1);
-    plan.notes.push('Has seen your air force: anti-aircraft everywhere.');
+    plan.notes.push(P.air);
   }
   if (h.naval > 0.12) {
     add('naval', 0.35);
     like(sov ? ['ss'] : ['dd', 'pt'], 1.5);
-    plan.notes.push('Ready for your fleet: its own navy is waiting.');
+    plan.notes.push(P.naval);
   }
   if (h.rushMinute > 0 && h.rushMinute < 6.5) {
     add('defence', 0.25);
     add('caution', 0.1);
     add('aggression', -0.1);
-    plan.notes.push('Braced for your early rush: defences first.');
+    plan.notes.push(P.rush);
   } else if (h.rushMinute > 13 || h.defence > 0.4) {
     add('aggression', 0.2);
     add('artillery', 0.2);
     add('economy', 0.15);
-    plan.notes.push('Counts on you turtling: artillery and an early push.');
+    plan.notes.push(P.turtle);
   }
   if (h.superweapons >= 0.5) {
     add('aggression', 0.15);
     add('subterfuge', 0.15);
-    plan.notes.push('Means to end it before your superweapons charge.');
+    plan.notes.push(P.superweapons);
   }
   if (h.subterfuge > 1.2 && sov) {
     like(['dog'], 2);
-    plan.notes.push('Dogs on the perimeter for your spies.');
+    plan.notes.push(P.dogs);
   }
-  if (!plan.notes.length) plan.notes.push('Has studied your balanced style: plays the long game.');
+  if (!plan.notes.length) plan.notes.push(P.balanced);
   return plan;
 }
 
@@ -479,12 +479,14 @@ export function recordHabits(store: RivalStore, m: MatchHabits) {
   store.habits = emaHabits(store.habits, m);
 }
 
-const WIN_TITLES = ['the Unbroken', 'Victor of the Steppe', 'the Relentless', 'the Iron-Willed', 'Hero of the Front', 'the Unstoppable'];
-const FAST_TITLES = ['the Swift', 'Lightning'];
+const T = RIVAL_SRC.title, TR = RIVAL_SRC.trait;
+const WIN_TITLES = [T.unbroken, T.steppe, T.relentless, T.ironWilled, T.hero, T.unstoppable];
+const FAST_TITLES = [T.swift, T.lightning];
 const WIN_TRAITS: [string, Partial<Record<TraitKey, number>>][] = [
-  ['Confident', { aggression: 0.06 }], ['Methodical', { tech: 0.06, caution: 0.04 }], ['Greedy', { economy: 0.08 }],
-  ['Bloodthirsty', { aggression: 0.08, caution: -0.06 }], ['Fortifier', { defence: 0.08 }], ['Raider', { harass: 0.08 }],
+  [TR.confident, { aggression: 0.06 }], [TR.methodical, { tech: 0.06, caution: 0.04 }], [TR.greedy, { economy: 0.08 }],
+  [TR.bloodthirsty, { aggression: 0.08, caution: -0.06 }], [TR.fortifier, { defence: 0.08 }], [TR.raider, { harass: 0.08 }],
 ];
+const N = RIVAL_SRC.note;
 
 export interface RivalOutcome {
   rival: Rival;
@@ -524,7 +526,7 @@ export function recordRivalBattle(store: RivalStore, id: string, res: { rivalWon
       addTrait(r, name, tw);
       out.newTrait = name;
     }
-    out.note = out.promoted ? `Promoted to ${rankName(r)}` : 'Held the line';
+    out.note = out.promoted ? fillEn(N.promoted, { rank: rankName(r) }) : N.held;
   } else {
     r.losses++;
     r.streak = Math.min(-1, r.streak - 1);
@@ -533,15 +535,15 @@ export function recordRivalBattle(store: RivalStore, id: string, res: { rivalWon
       r.status = 'dead';
       r.died = store.seq;
       out.killed = true;
-      out.note = 'Killed in action';
+      out.note = N.killed;
     } else if (r.rank === 0) {
-      addTrait(r, 'Humbled', { caution: 0.05 });
-      out.note = 'Retreated in disgrace';
+      addTrait(r, TR.humbled, { caution: 0.05 });
+      out.note = N.retreated;
     } else {
       r.rank--;
       out.demoted = true;
-      addTrait(r, 'Humbled', { caution: 0.05 });
-      out.note = `Demoted to ${rankName(r)}`;
+      addTrait(r, TR.humbled, { caution: 0.05 });
+      out.note = fillEn(N.demoted, { rank: rankName(r) });
     }
   }
   r.history.push({ at: now, rivalWon: res.rivalWon, minutes: Math.round(res.minutes * 10) / 10, playerFaction: res.playerFaction, note: out.note, plan: res.plan });
@@ -554,12 +556,7 @@ export function recordRivalBattle(store: RivalStore, id: string, res: { rivalWon
 // ---------------------------------------------------------------------------
 // Radio lines
 // ---------------------------------------------------------------------------
-const UNIT_NAMES: Record<string, string> = {
-  e1: 'riflemen', e2: 'grenadiers', e3: 'rocket teams', e4: 'flamethrowers', e7: 'Tanya', dog: 'dogs', medi: 'medics', spy: 'spies', jeep: 'Rangers',
-  '1tnk': 'light tanks', '2tnk': 'Medium Tanks', '3tnk': 'Heavy Tanks', '4tnk': 'Mammoths', arty: 'artillery', v2rl: 'V2 rockets', apc: 'APCs',
-  heli: 'Longbows', hind: 'Hinds', mig: 'MiGs', yak: 'Yaks', dd: 'destroyers', ca: 'cruisers', pt: 'gunboats', ss: 'submarines', mnly: 'minelayers',
-  ttnk: 'Tesla Tanks', ctnk: 'Chrono Tanks', shok: 'Shock Troopers', qtnk: 'M.A.D. Tanks', dtrk: 'demolition trucks', msub: 'missile subs', stnk: 'Phase Transports',
-};
+const UNIT_NAMES: Record<string, string> = RIVAL_SRC.units;
 
 export function favouriteUnit(h: Habits): string | null {
   let best: string | null = null, bv = 0;
@@ -572,39 +569,25 @@ function introLine(r: Rival, h: Habits, plan: CounterPlan, player: string): stri
   const fav = favouriteUnit(h);
   const last = r.history[r.history.length - 1];
   const lines: string[] = [];
-  if (r.returns > 0 && last && !last.rivalWon) lines.push(`You left me for dead, ${player}. You should have made sure.`, 'They pulled me from the wreckage. I have been waiting for this.');
-  else if (!r.wins && !r.losses) lines.push(`${rankName(r)} ${r.last}. They say you are good, ${player}. We shall see.`, `So you are the famous ${player}. I expected someone taller.`, `${r.last} here. Let us keep this professional, ${player}.`);
-  else if (last?.rivalWon) lines.push(`Back for more? Last time it took me ${Math.max(1, Math.round(last.minutes))} minutes.`, `${r.wins} to ${r.losses}, ${player}. Shall we make it ${r.wins + 1}?`, `I kept your last defeat on my wall, ${player}.`);
-  else lines.push(`You got lucky last time, ${player}. Luck runs out.`, `${r.losses} defeats. I remember every one of them.`, 'I have rebuilt, retrained and rethought. Have you?');
-  if (fav && h.games >= 2) lines.push(`Your ${UNIT_NAMES[fav]} will not save you this time.`);
-  if (plan.notes.some((n) => n.includes('rush'))) lines.push('Rush me again, I dare you. My guns are already waiting.');
-  if (plan.notes.some((n) => n.includes('turtling'))) lines.push('Dig in as deep as you like. I brought shovels.');
-  if (plan.notes.some((n) => n.includes('air force'))) lines.push('Your pilots will find my skies crowded.');
+  const I = RIVAL_SRC.intro;
+  const p = { player, rank: rankName(r), last: r.last, wins: String(r.wins), losses: String(r.losses), next: String(r.wins + 1) };
+  if (r.returns > 0 && last && !last.rivalWon) lines.push(fillEn(I.revenge, p), I.wreckage);
+  else if (!r.wins && !r.losses) lines.push(fillEn(I.firstMeet, p), fillEn(I.famous, p), fillEn(I.professional, p));
+  else if (last?.rivalWon) lines.push(fillEn(I.backForMore, { n: String(Math.max(1, Math.round(last.minutes))) }), fillEn(I.record, p), fillEn(I.wall, p));
+  else lines.push(fillEn(I.lucky, p), fillEn(I.defeats, p), I.rebuilt);
+  if (fav && h.games >= 2) lines.push(fillEn(I.favourite, { units: UNIT_NAMES[fav] }));
+  if (plan.notes.includes(P.rush)) lines.push(I.rush);
+  if (plan.notes.includes(P.turtle)) lines.push(I.turtle);
+  if (plan.notes.includes(P.air)) lines.push(I.air);
   return pickOf(rnd, lines);
 }
 
 export type TauntEvent = 'contact' | 'attack' | 'flank' | 'harass' | 'nuke' | 'ironcurtain' | 'firstBlood' | 'losing' | 'winning' | 'fallback' | 'expand' | 'won' | 'lost';
 
-const TAUNTS: Record<TauntEvent, string[]> = {
-  contact: ['There you are. Nice base. It would be a shame if something happened to it.', 'Found you, {player}.', 'My scouts have your measure.'],
-  attack: ['Here they come. Try to look surprised.', 'Advance! Let us see what you are made of.', 'My columns are rolling, {player}.'],
-  flank: ['Watch your flank, {player}.', 'One fist in front, one behind you.'],
-  harass: ['Your harvesters look lonely.', 'Just a little visit to your ore fields.'],
-  nuke: ['Fire. Let them see the sun rise twice today.', 'Launch confirmed. You may want to step outside.'],
-  ironcurtain: ['Iron Curtain engaged. Shoot all you like.'],
-  firstBlood: ['A scratch. Is that all?', 'You found my door. Now try to get through it.'],
-  losing: ['This is not over!', 'Fall back and regroup... I said regroup!', 'You will pay for every one of those buildings.'],
-  winning: ['Your lines are breaking, {player}.', 'Surrender now and I will be generous.', 'Was that your best? Truly?'],
-  fallback: ['Pull back! Regroup at the rally point.', 'A tactical withdrawal. Nothing more.'],
-  expand: ['More ore, more tanks. Simple arithmetic.'],
-  won: ['Victory. Remember this day, {player}.', 'Another one for the wall.', 'Well fought. Not well enough.'],
-  lost: ['This... this is not the end of {rival}.', 'Well played, {player}. I will not forget it.', 'Tell them I fought to the last.'],
-};
-
-/** A radio line for an event (rotates through the variants by count). */
+/** A radio line for an event in the active language (rotates through the variants by count). Display only. */
 export function taunt(ev: TauntEvent, n: number, ctx: { player: string; rival: string }): string {
-  const list = TAUNTS[ev];
-  return list[n % list.length].replace(/\{player\}/g, ctx.player).replace(/\{rival\}/g, ctx.rival);
+  const list: readonly string[] = TAUNT_TEXT[ev];
+  return format(list[n % list.length], { player: ctx.player, rival: ctx.rival });
 }
 
 /** The roster in board order: active first (nemesis on top), then the fallen. */
@@ -612,4 +595,75 @@ export function rosterOrder(store: RivalStore): Rival[] {
   const act = store.rivals.filter((x) => x.status === 'active').sort((a, b) => (a.id === store.nemesis ? -1 : b.id === store.nemesis ? 1 : 0) || b.rank - a.rank || (b.wins + b.losses) - (a.wins + a.losses));
   const dead = store.rivals.filter((x) => x.status === 'dead').sort((a, b) => b.lastFought - a.lastFought);
   return [...act, ...dead];
+}
+
+// ---------------------------------------------------------------------------
+// Display (translated): the logic above keeps English
+// ---------------------------------------------------------------------------
+const RANK_KEYS: Record<string, keyof typeof RIVAL_SRC.rank> = Object.fromEntries(Object.entries(RIVAL_SRC.rank).map(([k, v]) => [v, k as keyof typeof RIVAL_SRC.rank]));
+const reEsc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+let matchers: { key: string; re: RegExp; names: string[] }[] | null = null;
+
+/** Patterns for the stored lines with parameters (intro lines, history notes); a {rank} only matches a rank. */
+function lineMatchers() {
+  if (matchers) return matchers;
+  const ranks = Object.values(RIVAL_SRC.rank).sort((a, b) => b.length - a.length).map(reEsc).join('|');
+  const flat = { ...flatten(RIVAL_SRC.intro, 'rivals.src.intro'), ...flatten(RIVAL_SRC.note, 'rivals.src.note') };
+  matchers = Object.entries(flat).filter(([, v]) => /\{\w+\}/.test(v)).map(([key, v]) => {
+    const names: string[] = [];
+    const re = new RegExp(`^${v.split(/(\{\w+\})/).map((part) => {
+      const m = /^\{(\w+)\}$/.exec(part);
+      if (!m) return reEsc(part);
+      names.push(m[1]);
+      return m[1] === 'rank' ? `(${ranks})` : '(.+?)';
+    }).join('')}$`, 's');
+    return { key, re, names };
+  });
+  return matchers;
+}
+
+/**
+ * Stored rival English (radio intro, history notes, titles, traits, nicknames, plan notes, ranks) in the active
+ * language; anything unknown (an older build's text) unchanged.
+ */
+export function rivalText(text: string): string {
+  if (!text) return text;
+  for (const m of lineMatchers()) {
+    const hit = m.re.exec(text);
+    if (!hit) continue;
+    const params: Params = {};
+    m.names.forEach((n, i) => { params[n] = n === 'rank' || n === 'units' ? trSource(hit[i + 1]) : hit[i + 1]; });
+    return tx(m.key, params);
+  }
+  return trSource(text);
+}
+
+/** A rival's rank in the active language. */
+export function rivalRankLabel(r: Rival): string {
+  return trSource(rankName(r));
+}
+
+function nameParts(rank: string, first: string, nick: string, last: string, withRank: boolean): string {
+  const p = { rank: rank ? trSource(rank) : '', first, nick: nick ? trSource(nick) : '', last };
+  if (!withRank || !rank) return tRivals(nick ? 'name.plain' : 'name.plainNoNick', p);
+  return tRivals(nick ? 'name.full' : 'name.fullNoNick', p);
+}
+
+/** "Colonel Dmitri 'the Anvil' Volkov" in the active language (rank and nickname translated). */
+export function rivalDisplayName(r: Rival, withRank = true, rank = rankName(r)): string {
+  return nameParts(rank, r.first, r.nick, r.last, withRank);
+}
+
+/** The display name of a rival in a setup (RivalRef.name holds the English "Rank First 'Nick' Last"). */
+export function rivalRefName(ref: Pick<RivalRef, 'name' | 'rank'>): string {
+  const rest = ref.rank && ref.name.startsWith(ref.rank + ' ') ? ref.name.slice(ref.rank.length + 1) : null;
+  const m = rest ? /^(.*?) '(.*)' (.+)$/.exec(rest) : null;
+  if (!m) return ref.name;
+  return nameParts(ref.rank, m[1], m[2], m[3], true);
+}
+
+/** "Col. Volkov" in the active language. */
+export function rivalCallSign(r: Rival): string {
+  const k = RANK_KEYS[rankName(r)];
+  return tRivals('name.callSign', { rank: k ? tRivals(`short.${k}`) : rivalRankLabel(r), last: r.last });
 }

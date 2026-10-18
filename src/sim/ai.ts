@@ -18,6 +18,7 @@ import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
 import { commanderAI } from './ai-commander';
 import { doctrineDefences, doctrinePrefer } from './doctrine';
 import { econAI, econDocks, econPlacement, econReserve, econStructure } from './economy-ai'; // Commander economy
+import { alliedAir, alliedArtillery, alliedChrono, alliedSpies, alliedTools, coilPenalty } from './ai-allies'; // the Allied commander's own tools
 
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
@@ -67,6 +68,21 @@ const GOALS: Record<Faction, [string, number][]> = {
   ],
 };
 
+/**
+ * Skirmish build orders (missions keep GOALS, which their balance assumes). Allies: the third refinery and the
+ * second war factory before the second turret and the pillbox, so the army keeps pace with the Soviet armour, and
+ * the Chronosphere and the Missile Silo last, as a luxury of a floating economy (`allowed`). Self-play
+ * (tools/selfplay): +4 and +6 points of Allied win share at equal difficulty.
+ */
+const SKIRMISH_GOALS: Record<Faction, [string, number][]> = {
+  allies: [
+    ['tent', 1], ['proc', 1], ['weap', 1], ['proc', 2], ['dome', 1], ['gun', 1], ['proc', 3], ['weap', 2], ['gun', 2], ['fix', 1], ['pbox', 1],
+    ['atek', 1], ['agun', 1], ['hpad', 1], ['hbox', 1], ['gun', 3], ['gun', 4], ['agun', 2], ['pbox', 2], ['gun', 6], ['pbox', 4], ['weaf', 1], ['gap', 1], ['hpad', 2], ['facf', 1], ['hbox', 2],
+    ['pdox', 1], ['mslo', 1],
+  ],
+  soviet: GOALS.soviet,
+};
+
 /** The first attack wave commits at most this multiple of the difficulty's wave value. */
 const FIRST_WAVE_CAP = 1.3;
 
@@ -76,9 +92,11 @@ const FIRST_WAVE_CAP = 1.3;
  * ceasefire doesn't build forever. `commit`: the share of the army (by value) the first wave after a timed
  * ceasefire throws at the enemy; the rest stays home. `min`: the smallest army that still opens with that wave.
  */
+// (easy and normal, balance pass: easy's grand wave after a 10-minute build-up was $8,200, twice its usual first
+// wave, too much for a newcomer; now about $4,500, and normal's about $9,000 instead of $10,500)
 export const BUILDUP: Record<AIDifficulty, { cap: number; commit: number; min: number }> = {
-  easy: { cap: 14000, commit: 0.6, min: 2400 },
-  normal: { cap: 22000, commit: 0.75, min: 3000 },
+  easy: { cap: 10000, commit: 0.45, min: 2400 },
+  normal: { cap: 20000, commit: 0.65, min: 3000 },
   hard: { cap: 30000, commit: 0.85, min: 3500 },
   brutal: { cap: 40000, commit: 0.9, min: 3500 },
 };
@@ -165,6 +183,11 @@ export class AIController {
   lastExpandTry = -9999;
   nukeSince = -1;
   chronoSince = -1;
+  /** Allied AI (ai-allies.ts): spies sent for the enemy Radar Dome so far, and when the last one was bought. */
+  spyTries = 0;
+  lastSpy = -9999;
+  /** The spy on its way to the enemy Radar Dome (0 = none). */
+  radarSpy = 0;
   /** UI feed (rivals radio). */
   chatter: AIChatter[] = [];
   private foundSaid = false;
@@ -257,6 +280,7 @@ export class AIController {
     this.airStrikes();
     this.superweapons();
     contentAI(this);
+    if (this.tune.spyOn && this.d.skill >= 0.5 && alliedTools(this)) alliedSpies(this); // a spy for the enemy Radar Dome (shared radar)
     if (this.world.commander) commanderAI(this); // commander powers (Commander rules only)
     if (this.world.econ) econAI(this); // tiers, upgrades, research, bunker garrisons (Commander economy)
     aftermathAI(this); // builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
@@ -347,7 +371,7 @@ export class AIController {
 
   /** The personality's build order for our faction. */
   goalList(): [string, number][] {
-    return this.personality.goals?.[this.p.faction] ?? GOALS[this.p.faction];
+    return this.personality.goals?.[this.p.faction] ?? (this.skirmish ? SKIRMISH_GOALS : GOALS)[this.p.faction];
   }
 
   /** The structure we want next, ignoring affordability. */
@@ -415,7 +439,11 @@ export class AIController {
       for (const b of this.myBuildings()) if (DEFENSES.has(b.bt.id)) n++;
       return n < this.defenceCap();
     }
-    if (BUILDINGS[t].superweapon) return this.d.superweapons && pers.superweapons > 0.1 && this.world.time > 600 * trait(pers.superweapons, 1.8, 0.6);
+    if (BUILDINGS[t].superweapon) {
+      // (the Allied commander: only once the money floats; $2,500+ that early is an army lost: ai-allies.ts)
+      if (alliedTools(this) && (this.world.time < 1200 * trait(pers.superweapons, 1.5, 0.6) || this.p.credits < BUILDINGS[t].cost)) return false;
+      return this.d.superweapons && pers.superweapons > 0.1 && this.world.time > 600 * trait(pers.superweapons, 1.8, 0.6);
+    }
     if ((t === 'hpad' || t === 'afld') && pers.air < 0.15 && this.world.time < 1200) return t === 'afld' && this.count('afld') < 1;
     if ((t === 'atek' || t === 'stek') && pers.tech < 0.3 && this.world.time < 720) return false;
     return true;
@@ -664,6 +692,7 @@ export class AIController {
   /** Aircraft strike harvesters, defences and soft targets when fully armed. */
   private airStrikes() {
     const w = this.world;
+    if (this.due(TICK_HZ * 2) && this.tune.heliOn && alliedTools(this) && alliedAir(this)) return; // Longbow strikes (ai-allies.ts)
     if (!this.due(TICK_HZ * 4) || this.ceasefire) return; // (build-up time: aircraft wait on their pads)
     // idle and fully armed: landed on the pad or hovering at its post
     const ready = this.myUnits().filter((u) => u.kind === 'aircraft' && u.order.type === 'idle' && u.ammo >= (u.ut.ammo ?? 1) && !u.ut.passengers);
@@ -865,6 +894,7 @@ export class AIController {
       if (this.due(TICK_HZ * 2)) {
         retreatDamaged(this, alive, gx, gy);
         if (this.fallBack(alive)) return;
+        if (this.tune.artyOn && alliedTools(this)) alliedArtillery(this, alive); // howitzers stay behind the tanks
       }
       if (this.due(TICK_HZ)) focusFire(this, alive);
     }
@@ -1030,6 +1060,7 @@ export class AIController {
     const [bx, by] = fromX !== undefined ? [fromX, fromY!] : this.baseCenter();
     let best: [number, number] | null = null, bestScore = Infinity;
     const known = this.intel.knownStructures();
+    const coilWise = this.tune.teslaOn && alliedTools(this); // (Allied AI: mind the coils' reach, ai-allies.ts)
     for (const s of known) {
       if (this.world.players[s.owner]?.defeated) continue;
       let score = Math.hypot(s.x - bx, s.y - by);
@@ -1037,7 +1068,8 @@ export class AIController {
       if (s.type === 'proc' || bt?.factory) score -= 4;
       // steer around fortified spots
       if (s.armed) score += 6;
-      for (const d of known) if (d.armed && d !== s && d.owner === s.owner && Math.hypot(d.x - s.x, d.y - s.y) < 7) score += 3;
+      if (coilWise) score += coilPenalty(known, s);
+      else for (const d of known) if (d.armed && d !== s && d.owner === s.owner && Math.hypot(d.x - s.x, d.y - s.y) < 7) score += 3;
       if (score < bestScore) { bestScore = score; best = [s.x, s.y + s.h / 2 + 0.5]; }
     }
     if (best) return best;
@@ -1111,8 +1143,10 @@ export class AIController {
         this.say('chrono', ex!.x, ex!.y);
         return;
       }
+      const allied = this.tune.chronoOn && alliedTools(this);
+      if (allied && alliedChrono(this)) return; // an ore truck rescued, a tank shifted into the assault (ai-allies.ts)
       const assault = this.state === 'attack' && this.stage === 'assault';
-      if (!truce && (!timed || assault || w.tick - this.chronoSince > TICK_HZ * 120)) {
+      if (!truce && (!timed || (assault && !allied) || w.tick - this.chronoSince > TICK_HZ * (allied ? 180 : 120))) {
         const tank = this.available().find((u) => u.kind === 'vehicle' && u.ut.id === '2tnk' && !this.wave.has(u.id) && u.healthFrac > 0.8)
           ?? this.army().find((u) => u.kind === 'vehicle' && u.ut.id === '2tnk');
         const t = assault ? this.stageTarget : this.pickAttackTarget();
@@ -1141,7 +1175,7 @@ export class AIController {
       repairs: [...this.repairs], focus: this.focus, focusUntil: this.focusUntil, scout: this.scout, lastScout: this.lastScout, scoutPlan: this.scoutPlan,
       raid: [...this.raid], raidX: this.raidX, raidY: this.raidY, raidStart: this.raidStart, raidValue: this.raidValue, lastRaid: this.lastRaid,
       expansion: this.expansion, escort: [...this.escort], expansions: this.expansions, lastExpandTry: this.lastExpandTry,
-      nukeSince: this.nukeSince, chronoSince: this.chronoSince,
+      nukeSince: this.nukeSince, chronoSince: this.chronoSince, spyTries: this.spyTries, lastSpy: this.lastSpy, radarSpy: this.radarSpy,
     };
   }
 
@@ -1164,6 +1198,7 @@ export class AIController {
     this.escort = new Set(s.escort ?? []);
     this.expansions = s.expansions ?? 0; this.lastExpandTry = s.lastExpandTry ?? -9999;
     this.nukeSince = s.nukeSince ?? -1; this.chronoSince = s.chronoSince ?? -1;
+    this.spyTries = s.spyTries ?? 0; this.lastSpy = s.lastSpy ?? -9999; this.radarSpy = s.radarSpy ?? 0;
   }
 }
 

@@ -42,6 +42,7 @@ export const DAILY_MODIFIERS: DailyModifierInfo[] = [
   { id: 'bounty', name: 'Bounty Hunter', desc: 'Every enemy unit destroyed pays $100, every structure $300.', icon: 'target', group: 'enemy', bonus: -0.05 },
 ];
 export const MODIFIER_BY_ID: Record<string, DailyModifierInfo> = Object.fromEntries(DAILY_MODIFIERS.map((m) => [m.id, m]));
+// (English, also read by the mission script and the server's verification: src/meta/index.ts dailyModName etc. translate)
 
 export interface DailyConfig {
   /** UTC date key, YYYY-MM-DD. */
@@ -111,6 +112,9 @@ const PLACES: Record<Climate, string[]> = {
   winter: ['Carpathian Pass', 'Siberian Steppe', 'Murmansk Approaches', 'Finnish Frontier', 'Ural Foothills', 'Kamchatka Ridge'],
   desert: ['Sinai Peninsula', 'Kara-Kum Basin', 'Libyan Plateau', 'Persian Gulf Coast', 'Gobi Outpost', 'Negev Escarpment'],
 };
+
+/** Place names by climate (English; game data dailyPlace.<climate>.<index>, translated by src/meta/index.ts dailyPlace). */
+export const DAILY_PLACES: Readonly<Record<Climate, readonly string[]>> = PLACES;
 
 /** The daily challenge for a UTC date (default: today). */
 export function dailyConfig(day = dayKey()): DailyConfig {

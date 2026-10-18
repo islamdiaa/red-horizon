@@ -47,7 +47,7 @@ import { waterSplash, underwaterBlast, sonarPing, bowSpray, radarJamPulse, mineB
 import { TrailVisual, type TrailKind } from './specialproj';
 import type { FxCue } from './context';
 import { WATER_LEVEL } from '../../sim/map';
-import { GpuParticles, gpuParticlesSupported, GK, type GpuParticleApi } from './gpuparticles';
+import { GpuParticles, gpuParticlesSupported, GK, type BurstOptions, type GpuParticleApi } from './gpuparticles';
 import { gpuExplosion } from './gpufx';
 import type { DynamicLightApi, DynamicLightOptions, DynamicLights } from '../dynlights';
 import type { TerrainDeformApi, TerrainMesh } from '../terrain';
@@ -94,6 +94,9 @@ const MUZZLE_SMALL = { attack: 0.004, flicker: 0.35, priority: 0.45 };
 const TESLA_LIGHT = { attack: 0.01, flicker: 0.5 };
 const PROJ_LIGHT = { flicker: 0.3 };
 const _lod = new THREE.Vector3();
+
+/** Vehicle dust puffs (several per second per moving vehicle): one shared options object, read-only. */
+const DUST_BURST: BurstOptions = { life: [0.9, 1.8], size0: 0.12, size1: 0.55, alpha: 0.3, up: 0.2, radius: 0.15 };
 
 export class Effects implements EffectsApi {
   /** Accumulated camera shake; the engine reads and decays it. */
@@ -480,7 +483,7 @@ export class Effects implements EffectsApi {
 
   dust(pos: THREE.Vector3, amount = 1): void {
     dust(this.ctx, pos.x, pos.z, amount);
-    this.gpuP?.burst(GK.DUST, pos.x, this.ctx.getHeight(pos.x, pos.z) + 0.05, pos.z, 3 * amount, 0.7, { life: [0.9, 1.8], size0: 0.12, size1: 0.55, alpha: 0.3, up: 0.2, radius: 0.15 });
+    this.gpuP?.burst(GK.DUST, pos.x, this.ctx.getHeight(pos.x, pos.z) + 0.05, pos.z, 3 * amount, 0.7, DUST_BURST);
   }
 
   scorch(pos: THREE.Vector3, size: number): void {

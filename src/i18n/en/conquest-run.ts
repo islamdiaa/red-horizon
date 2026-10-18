@@ -1,0 +1,237 @@
+/**
+ * The Conquest run (src/conquest/run.ts, events.ts, generate.ts, storage.ts): war diary entries, events, battle
+ * bonuses, income, score, unlocks and endings. The run is saved as JSON, so this English is what gets stored; the
+ * Conquest screens (src/ui/conquest.ts) translate it when they show it, names inside included.
+ * {territory}, {from}, {src}: territory names · {vet}, {a}, {b}, {c}: veteran call signs · {money}: "$1,500" ·
+ * {time}: a clock (12:34) · {date}: month and year ("March 1953") · {map}: the battlefield type, in lower case.
+ */
+import { strings } from '../core';
+
+export const RUN = {
+  // a war diary entry for an event: the event's title, then its outcome
+  eventLog: '{title}: {text}',
+  // war diary
+  log: {
+    alliedStart: 'Allied High Command takes the field from {territory}. Objective: {target}.',
+    sovietStart: 'Soviet High Command takes the field from {territory}. Objective: {target}.',
+    noPerk: 'No new doctrine to adopt: High Command sends $2,000 instead.',
+    // {perk}: the doctrine (perk) just chosen
+    perk: 'New doctrine adopted: {perk}.',
+    research: 'Research complete: {research}.',
+    attacking: 'Attacking {territory} ({map}, strength {n}).',
+    defending: 'Defending {territory} ({map}, strength {n}).',
+    swCaptured: 'The superweapon site in {territory} is in our hands.',
+    held: '{territory} held in {time}. +{money}, +{rp} RP.',
+    captured: '{territory} captured in {time}. +{money}, +{rp} RP.',
+    lost: '{territory} lost. Morale {morale}/{max}.',
+    failed: 'The attack on {territory} failed. Morale {morale}/{max}.',
+    regroup: 'The army regroups and refits: +$1,500, +1 RP.',
+    fortified: '{territory}\'s fortified lines repelled the enemy counterattack.',
+    garrison: '{territory}\'s garrison held without help.',
+    overrun: '{territory} was overrun by the enemy counterattack.',
+    // an enemy superweapon strikes one of our territories ({vet} caught in the blast)
+    nukeVet: 'The enemy nuclear missile in {src} struck {territory}: -{money}. {vet} was caught in the blast.',
+    nuke: 'The enemy nuclear missile in {src} struck {territory}: -{money}.',
+    superVet: 'The enemy superweapon in {src} struck {territory}: -{money}. {vet} was caught in the blast.',
+    super: 'The enemy superweapon in {src} struck {territory}: -{money}.',
+    reinforce: 'Enemy reinforcements reach the front: its garrisons grow stronger.',
+    massing: 'Enemy forces in {from} are massing against {territory}! Defend it this turn or lose it.',
+    // a new month
+    incomeRp: '{date}: income {money}, +{rp} RP.',
+    income: '{date}: income {money}.',
+  },
+  // how the campaign ended
+  ending: {
+    capitalFell: '{territory}, our capital, has fallen.',
+    won: '{territory} has fallen. The war is won.',
+    capital: 'Our capital has fallen.',
+    morale: 'Morale has collapsed. High Command relieves you of command.',
+    noTerritory: 'We hold no territory.',
+    abandoned: 'The campaign was abandoned.',
+  },
+  // battle report bonuses
+  bonus: {
+    swift: 'Swift victory',
+    blitz: 'Blitzkrieg',
+    veterans: 'No veteran lost',
+    counter: 'Enemy staging base destroyed',
+    superweapon: 'Superweapon destroyed',
+  },
+  // income per turn, by source
+  income: {
+    territories: '{n} territories',
+    oil: 'Oil fields x{n}',
+    ports: 'Naval ports x{n}',
+    science: 'Research institutes x{n}',
+    lendLease: 'Lend-Lease',
+    logistics: 'Logistics Network',
+  },
+  // final score lines
+  score: {
+    battles: 'Battles won',
+    captured: 'Territory captured',
+    defences: 'Successful defences',
+    held: 'Territories held',
+    veterans: 'Core veterans',
+    warChest: 'War chest',
+    victory: 'Victory',
+    speed: 'Speed bonus',
+    morale: 'Morale',
+  },
+  // unlocked when a campaign ends: {name} is a doctrine, perk or title
+  unlock: {
+    doctrine: 'Doctrine: {name}',
+    perk: 'Perk: {name}',
+    title: 'Title: {name}',
+  },
+  // random events between turns: title, situation, choices (label and consequence), outcomes
+  event: {
+    // stands in for a territory name
+    theFront: 'the front',
+    partisans: {
+      title: 'Partisan Uprising',
+      text: 'Resistance fighters in {territory} have risen against the occupation. They ask for weapons, and for us to come soon.',
+      arm: 'Arm the partisans',
+      armHint: '$1,500 · they fight beside you when you attack',
+      spread: 'The uprising spreads: {territory}\'s garrison is weakened (strength {n}) and partisans will join our attack.',
+      armed: 'The partisans are armed and waiting for our attack on {territory}.',
+      intel: 'Ask for intelligence',
+      intelHint: '+1 research point',
+      intelDone: 'Partisan couriers bring maps and codes from {territory}. +1 research point.',
+      ignore: 'Stay out of it',
+      crushed: 'The uprising in {territory} is crushed. Some say we could have helped.',
+    },
+    convoy: {
+      title: 'Supply Convoy',
+      text: 'A supply convoy has reached the front intact. Logistics asks where you want it.',
+      chest: 'The war chest',
+      chestDone: 'The convoy is sold off to the quartermasters: +$3,000.',
+      labs: 'The laboratories',
+      labsHint: '+2 research points',
+      labsDone: 'Precision instruments for the labs: +2 research points.',
+      arm: 'Arm the core army',
+      armHint: 'A veteran tank joins the core',
+      armDone: 'A veteran tank crew joins the core army: {vet}.',
+      armFull: 'The core army is full; the tank is sold to another division. +$800.',
+    },
+    superweapon: {
+      title: 'Superweapon Threat',
+      textNuke: 'Intelligence confirms the enemy is readying a nuclear missile silo in {territory}. In three turns it will strike one of our territories.',
+      text: 'Intelligence confirms the enemy is readying a superweapon in {territory}. In three turns it will strike one of our territories.',
+      raid: 'Commando raid',
+      raidHint: '$2,500 · 60% to destroy it',
+      raidDone: 'The commandos blew the site sky-high and brought back blueprints. +1 research point.',
+      raidFailed: 'The raid failed. The weapon in {territory} is still being readied: capture the territory or destroy it in battle.',
+      push: 'Accelerate the offensive',
+      pushHint: 'It strikes in 3 turns unless you take the territory',
+      pushDone: 'Every attack on {territory} now has a superweapon to destroy. Three turns.',
+    },
+    defection: {
+      title: 'Defection',
+      textColonel: 'A Colonel of the enemy garrison in {territory} offers to defect with his tank crews. It could be a trap.',
+      textGeneral: 'A General of the enemy garrison in {territory} offers to defect with his tank crews. It could be a trap.',
+      welcome: 'Welcome him',
+      welcomeHint: 'Enemy tanks join your core (20% trap)',
+      trap: 'It was a trap! Saboteurs hit our depots before vanishing: -$1,500.',
+      joined2: 'The defectors drive their tanks across the line: {a} and {b} join the core army.',
+      joined1: 'The defectors drive their tanks across the line: {a} joins the core army.',
+      full: 'The defectors drive their tanks across the line, but the core army is full.',
+      maps: 'Demand his maps',
+      mapsHint: 'Weaken the garrison',
+      mapsDone: 'His maps expose the defences of {territory}: garrison strength now {n}.',
+      refuse: 'Refuse',
+      refused: 'We send him back across the line. Trust is a luxury.',
+    },
+    breakthrough: {
+      title: 'Scientific Breakthrough',
+      text: 'Our scientists report a breakthrough, but scaling it up will be expensive.',
+      fund: 'Fund it',
+      fundHint: '$2,000 · +3 research points',
+      funded: 'The programme is funded: +3 research points.',
+      shelve: 'Shelve it',
+      shelveHint: '+1 research point',
+      shelved: 'The notes are filed for later: +1 research point.',
+    },
+    winter: {
+      title: 'Harsh Winter',
+      text: 'The cold is biting. Fuel lines freeze and engines will not start. The men need winter gear.',
+      gear: 'Buy winter gear',
+      gearDone: 'Greatcoats and antifreeze reach the front. The army stays fit.',
+      endure: 'Endure',
+      endureHint: 'Lose 20% of the war chest',
+      endured: 'Frostbite and frozen engines cost us {money} in repairs.',
+    },
+    mercenaries: {
+      title: 'Mercenary Offer',
+      text: 'A freelance armoured company offers its services. Veterans, every one of them, and they do not come cheap.',
+      hire: 'Hire them',
+      hireHint: '$2,500 · three veterans join the core',
+      hired3: '{a}, {b}, {c} sign the contract.',
+      hired2: '{a}, {b} sign the contract.',
+      hired1: '{a} signs the contract.',
+      full: 'The core army is full; the mercenaries take the money and run.',
+      decline: 'Decline',
+      declined: 'The mercenaries move on to the next war.',
+    },
+    profiteer: {
+      title: 'War Profiteer',
+      text: 'A smuggler offers rare equipment and expertise, for a price. Military police would love to meet him.',
+      buy: 'Buy his wares',
+      buyHint: '$4,000 · choose a perk',
+      bought: 'The crates are opened: choose your new advantage.',
+      report: 'Report him',
+      reportHint: '+$800 reward',
+      reported: 'The profiteer is arrested. The bounty pays $800.',
+    },
+    spy: {
+      title: 'Spy Captured',
+      text: 'Military police caught an enemy spy photographing our depots.',
+      interrogate: 'Interrogate him',
+      interrogateHint: '+2 research points',
+      interrogated: 'He talks: enemy codes and equipment specs. +2 research points.',
+      turn: 'Turn him',
+      turnThreatHint: 'Call off the enemy counterattack',
+      turnHint: 'Feed the enemy false plans',
+      calledOff: 'False reports convince the enemy to call off the attack on {territory}.',
+      // stands in for a territory name ("call off the attack on our lines")
+      ourLines: 'our lines',
+      fed: 'Fed false plans, the enemy shifts troops away from the front.',
+      trade: 'Trade him',
+      tradeHint: '+$2,000',
+      traded: 'Exchanged for one of ours and a briefcase of cash: +$2,000.',
+    },
+    refugees: {
+      title: 'Refugee Columns',
+      text: 'Columns of civilians flee the fighting. Sheltering them would cost supplies, but the men would remember it.',
+      shelter: 'Shelter them',
+      shelterHint: '$1,000 · +1 morale',
+      sheltered: 'The refugees are fed and sheltered. Morale rises.',
+      push: 'Push on',
+      pushed: 'The army has no time to spare.',
+    },
+    hero: {
+      title: 'A Hero Emerges',
+      // {unit}: the veteran's unit type
+      text: '{vet} ({unit}) turned the tide in the last engagement. The men speak of nothing else.',
+      promote: 'Promote to elite',
+      promoteHint: 'Elite rank',
+      promoted: '{vet} is promoted to elite.',
+      train: 'Train recruits',
+      trainHint: '+1 research point, +$1,000',
+      trained: 'Hard-won lessons spread through the army: +1 research point and +$1,000.',
+    },
+    sabotage: {
+      title: 'Rail Sabotage',
+      text: 'Enemy saboteurs have blown a railway bridge behind our lines. Supplies are piling up at the break.',
+      repair: 'Repair it at once',
+      repaired: 'Engineers rebuild the bridge in two days.',
+      reroute: 'Reroute the trains',
+      rerouteHint: 'Lose a research point',
+      rerouted: 'Supplies take the long way round; the labs wait. -1 research point.',
+    },
+    // shared choice hints
+    nothing: 'Nothing happens',
+    cost1500: '$1,500',
+  },
+};
+strings('conquest.run', RUN);

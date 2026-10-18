@@ -1,0 +1,21 @@
+{
+  "comment": "Interface fallback fonts for the translated UI (SIL OFL 1.1), pinned to a google/fonts commit and sha256-checked. Build-time inputs only: tools/fonts/fetch.mjs downloads them to ~/.cache/red-horizon/fonts/, tools/fonts/subset.py writes the small subsets to public/fonts/.",
+  "fonts": [
+    {
+      "id": "tektur",
+      "source": "google/fonts (SIL OFL 1.1), Tektur by Adam Jagosz",
+      "files": {
+        "font": { "file": "Tektur[wdth,wght].ttf", "url": "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/tektur/Tektur%5Bwdth,wght%5D.ttf", "sha256": "a4c451e5336874811267c2a514efa09bca7bc8cabf32a310f0b44e111eacb933" },
+        "license": { "file": "OFL.txt", "url": "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/tektur/OFL.txt", "sha256": "ff4bb37f716836feb5038e1bf5c47e5a1946717fcfabb175086ed49f85ea47fd" }
+      }
+    },
+    {
+      "id": "notosanssc",
+      "source": "google/fonts (SIL OFL 1.1), Noto Sans SC by Google",
+      "files": {
+        "font": { "file": "NotoSansSC[wght].ttf", "url": "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf", "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da" },
+        "license": { "file": "OFL.txt", "url": "https://raw.githubusercontent.com/google/fonts/47d54ca1ebb14fd864695f1d39dc734f39017c33/ofl/notosanssc/OFL.txt", "sha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9" }
+      }
+    }
+  ]
+}

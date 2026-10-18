@@ -6,6 +6,9 @@ import type { AIDifficulty } from '../sim/ai';
 import type { Profile } from '../meta';
 import { coopMissionId, type SurvivalVariant } from '../missions/special';
 import { ensureModesCss } from './modes-css';
+import { esc } from './dom';
+import tLobby from '../i18n/en/lobby';
+import tCommon from '../i18n/en/common';
 
 const KEY = 'rh.coop';
 const REC_KEY = 'rh.coop.records';
@@ -52,9 +55,9 @@ export function survivalRecord(v: SurvivalVariant, p: Profile): CoopRecord | und
 export function coopSwitchHtml(): string {
   ensureModesCss();
   const p = loadCoop();
-  const b = (attr: string, v: string | number, label: string, on: boolean, tip: string) => `<button data-${attr}="${v}" class="${on ? 'on' : ''}" title="${tip}">${label}</button>`;
-  return `<span class="coop-sw">${b('coop', 0, 'Solo', p.allies === 0, 'Hold out alone')}${b('coop', 1, '+1 ally', p.allies === 1, 'Co-op: one AI teammate with its own base')}${b('coop', 2, '+2 allies', p.allies === 2, 'Co-op: two AI teammates')}</span>`
-    + (p.allies ? `<span class="coop-sw">${(['normal', 'hard', 'brutal'] as AIDifficulty[]).map((d) => b('coopd', d, d, p.difficulty === d, `Allied AI difficulty: ${d}`)).join('')}</span>` : '');
+  const b = (attr: string, v: string | number, label: string, on: boolean, tip: string) => `<button data-${attr}="${v}" class="${on ? 'on' : ''}" title="${esc(tip)}">${esc(label)}</button>`;
+  return `<span class="coop-sw">${b('coop', 0, tLobby('coop.solo'), p.allies === 0, tLobby('coop.soloTip'))}${b('coop', 1, tLobby('coop.one'), p.allies === 1, tLobby('coop.oneTip'))}${b('coop', 2, tLobby('coop.two'), p.allies === 2, tLobby('coop.twoTip'))}</span>`
+    + (p.allies ? `<span class="coop-sw">${(['normal', 'hard', 'brutal'] as const).map((d) => b('coopd', d, tCommon(`difficulty.${d}`), p.difficulty === d, tLobby('coop.levelTip', { level: d }))).join('')}</span>` : '');
 }
 
 /** Wire the switch (re-renders the hub on change). */

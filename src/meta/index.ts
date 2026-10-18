@@ -14,22 +14,26 @@ import type { World } from '../sim/world';
 import { campaignMissions, getMission } from '../missions';
 import { loadProgress, recordResult, type MissionRecord } from '../missions/progress';
 import { SURVIVAL_VARIANTS, currentDailyDay } from '../missions/special';
-import { DAILY_MEDAL_BONUS, dailyConfig, prevDay } from './daily';
+import { DAILY_MEDAL_BONUS, DAILY_PLACES, dailyConfig, prevDay, type DailyConfig, type DailyModifierInfo } from './daily';
 import {
-  ACHIEVEMENTS, ACH_BY_ID, BY_COUNTER, MAX_COUNTERS, TIER_NAMES, achievementDesc, achievementMetal, achievementRarity, achievementXp, isTiered, tierCount,
-  type AchievementDef,
+  ACHIEVEMENTS, ACH_BY_ID, BY_COUNTER, MAX_COUNTERS, achievementDesc, achievementMetal, achievementRarity, achievementTitle, achievementXp, isTiered, rarityName, tierCount,
+  tierName, type AchievementDef,
 } from './achievements';
 import { insigniaSvg, medalSvg, picto } from './art';
 import { MAX_RANK, RANKS, rankIndexFor, rankName, rankProgress } from './ranks';
 import { MAX_COMMENDATIONS, defaultStorage, loadProfile, saveProfile, type DiffKey, type FactionKey, type KV, type MatchRecord, type Profile } from './profile';
 import { showAchievementToast, showXpSummary, type ToastInfo, type XpSummary } from './toast';
 import {
-  CONTRACT_BY_ID, applyContractEvent, cadenceOf, contractDesc, contractProgressList, contractReward, refreshContracts, rerollContract, type Cadence, type ContractMode,
-  type ContractSlot,
+  CONTRACT_BY_ID, applyContractEvent, cadenceOf, contractDesc, contractProgressList, contractReward, contractTitle, refreshContracts, rerollContract, type Cadence,
+  type ContractMode, type ContractSlot,
 } from './contracts'; // contracts
-import { SLOT_LABEL, SLOT_PICTO, nextUnlock, unlockStatus, unannouncedUnlocks, COSMETIC_BY_ID, type UnlockCtx } from './unlocks'; // unlocks
+import { SLOT_LABEL, SLOT_PICTO, cosmeticDesc, cosmeticName, nextUnlock, unlockStatus, unannouncedUnlocks, COSMETIC_BY_ID, type UnlockCtx } from './unlocks'; // unlocks
 import { loadMeta as loadConquestMeta } from '../conquest/storage'; // Conquest renown gates some unlocks
 import { parseCoopId } from '../missions/special'; // co-op survival counts as survival for contracts
+import { dt, fmtInt, trSource, tx, type Params } from '../i18n/core';
+import { formatMessage } from '../i18n/format';
+import { typeName } from '../i18n/names';
+import tMeta, { RECORD_SRC } from '../i18n/en/meta';
 
 export * from './achievements';
 export * from './ranks';
@@ -102,6 +106,11 @@ export interface LiveSample {
 }
 
 const TANKS = new Set(['1tnk', '2tnk', '3tnk', '4tnk']);
+/** XP breakdown line ids (src/i18n/en/meta.ts xp.*). */
+type XpLine = 'combat' | 'victory' | 'victoryDiff' | 'victoryMany' | 'victoryDiffMany' | 'survival' | 'bosses' | 'personalBest' | 'mission' | 'firstCompletion'
+  | 'newStars' | 'daily' | 'streak' | 'dailyReplay' | 'dailyAttempt' | 'contracts' | 'medals' | 'kills';
+/** English filled in for text that is stored (match history titles): never the interface language. */
+const fillEn = (tpl: string, params: Params) => formatMessage(tpl, params, 'en');
 const DIFF_XP: Record<string, number> = { easy: 0.5, normal: 1, hard: 1.6, brutal: 2.5 };
 const DIFF_ORDER = ['easy', 'normal', 'hard', 'brutal'];
 const CLIMATES = ['temperate', 'winter', 'desert'];
@@ -127,7 +136,8 @@ interface Match {
   factLost: boolean;
   killXp: number;
   xp: number;
-  lines: Map<string, number>;
+  /** XP per breakdown line (keyed by line id + parameters; labels are translated when the summary is made). */
+  lines: Map<string, { xp: number; key: XpLine; params?: Params }>;
   medals: string[];
   kills: number;
   structures: number;
@@ -571,10 +581,12 @@ export class MetaTracker {
     st.spent += Math.round(r.stats.spent);
 
     // ---- XP: experience, victory, mission results
-    this.addXp(Math.min(160, Math.round((r.time / 60) * 4)), 'Combat experience');
+    this.addXp(Math.min(160, Math.round((r.time / 60) * 4)), 'combat');
     if (r.mode === 'skirmish' && won) {
       const opp = Math.max(1, info.opponents);
-      this.addXp(Math.round(400 * (DIFF_XP[diff ?? 'normal'] ?? 1) * (1 + 0.5 * (opp - 1))), `Victory${diff ? ' · ' + diff.charAt(0).toUpperCase() + diff.slice(1) : ''}${opp > 1 ? ` x${opp}` : ''}`);
+      const xp = Math.round(400 * (DIFF_XP[diff ?? 'normal'] ?? 1) * (1 + 0.5 * (opp - 1)));
+      if (diff) this.addXp(xp, opp > 1 ? 'victoryDiffMany' : 'victoryDiff', { diff, n: String(opp) });
+      else this.addXp(xp, opp > 1 ? 'victoryMany' : 'victory', { n: String(opp) });
     }
     let waves = 0, bosses = 0;
     if (survival) {
@@ -588,9 +600,9 @@ export class MetaTracker {
       const rec = p.survival[survival.id] ?? { bestScore: 0, bestWave: 0, runs: 0, at: 0 };
       const pb = score > rec.bestScore;
       p.survival[survival.id] = { bestScore: Math.max(rec.bestScore, score), bestWave: Math.max(rec.bestWave, waves), runs: rec.runs + 1, at: pb ? this.now() : rec.at };
-      this.addXp(25 * waves + 2 * waves * waves, `Survival · ${waves} wave${waves === 1 ? '' : 's'}`);
-      this.addXp(150 * bosses, 'Boss waves destroyed');
-      if (pb && rec.runs > 0) this.addXp(100, 'New personal best');
+      this.addXp(25 * waves + 2 * waves * waves, 'survival', { n: waves });
+      this.addXp(150 * bosses, 'bosses');
+      if (pb && rec.runs > 0) this.addXp(100, 'personalBest');
       this.setMax('bestWave', waves);
       this.setMax('bestSurvival', score);
       if (bosses) this.bump('bosses', bosses);
@@ -601,10 +613,10 @@ export class MetaTracker {
     } else if (campaign && won) {
       const stars = r.stars ?? 1;
       const prior = m.prior;
-      this.addXp(150 + 100 * stars, `Mission complete · ${stars} star${stars === 1 ? '' : 's'}`);
-      if (!prior?.completed) this.addXp(250, 'First completion');
+      this.addXp(150 + 100 * stars, 'mission', { n: stars });
+      if (!prior?.completed) this.addXp(250, 'firstCompletion');
       const better = stars - (prior?.stars ?? 0);
-      if (prior?.completed && better > 0) this.addXp(100 * better, 'New stars');
+      if (prior?.completed && better > 0) this.addXp(100 * better, 'newStars');
     }
 
     // ---- achievements
@@ -650,10 +662,10 @@ export class MetaTracker {
       if (won) { st.dailyWins++; this.bump('dailyWins'); }
       this.setMax('streak', d.streak);
       if (firstWinToday) {
-        this.addXp(600 + 100 * cfg.modifiers.length, 'Daily Challenge');
-        this.addXp(50 * Math.min(d.streak, 10), `Streak bonus · ${d.streak} day${d.streak === 1 ? '' : 's'}`);
-      } else if (won) this.addXp(150, 'Daily Challenge (replay)');
-      else if (firstPlayToday) this.addXp(100, 'Daily Challenge attempt');
+        this.addXp(600 + 100 * cfg.modifiers.length, 'daily');
+        this.addXp(50 * Math.min(d.streak, 10), 'streak', { n: d.streak });
+      } else if (won) this.addXp(150, 'dailyReplay');
+      else if (firstPlayToday) this.addXp(100, 'dailyAttempt');
       dailyScore = Math.round((r.score ?? world?.mission?.score ?? 0) + DAILY_MEDAL_BONUS * m.medals.length);
       d.best[day] = {
         score: Math.max(prev?.score ?? 0, dailyScore), won: won || !!prev?.won,
@@ -694,8 +706,8 @@ export class MetaTracker {
     const uctx = this.unlockCtx();
     const fresh = unannouncedUnlocks(uctx);
     for (const d of fresh) p.cosmetics.announced.push(d.id);
-    fresh.slice(0, fresh.length > 2 ? 1 : 2).forEach((d) => this.notify({ kind: 'unlock', id: d.id, title: d.name, desc: d.desc, xp: 0, icon: picto(SLOT_PICTO[d.slot]), tier: SLOT_LABEL[d.slot] }));
-    if (fresh.length > 2) this.notify({ kind: 'unlock', title: `${fresh.length - 1} more unlocks`, desc: 'Open the Locker to see everything you earned.', xp: 0, icon: picto('medal') });
+    fresh.slice(0, fresh.length > 2 ? 1 : 2).forEach((d) => this.notify({ kind: 'unlock', id: d.id, title: cosmeticName(d), desc: cosmeticDesc(d), xp: 0, icon: picto(SLOT_PICTO[d.slot]), tier: SLOT_LABEL[d.slot] }));
+    if (fresh.length > 2) this.notify({ kind: 'unlock', title: tMeta('toast.moreUnlocks', { n: fresh.length - 1 }), desc: tMeta('toast.moreUnlocksDesc'), xp: 0, icon: picto('medal') });
     const next = nextUnlock(uctx);
     const ts = m.teaserStart;
     const tsDef = ts ? COSMETIC_BY_ID[ts.id] : undefined;
@@ -711,14 +723,14 @@ export class MetaTracker {
     const after = rankProgress(p.xp, p.faction);
     const before = rankProgress(m.xpAtStart, p.faction);
     const summary: MatchSummary = {
-      xp: m.xp, lines: [...m.lines].map(([label, xp]) => ({ label, xp })).sort((a, b) => b.xp - a.xp), xpBefore: m.xpAtStart, xpAfter: p.xp,
+      xp: m.xp, lines: [...m.lines.values()].map((l) => ({ label: xpLineLabel(l.key, l.params), xp: l.xp })).sort((a, b) => b.xp - a.xp), xpBefore: m.xpAtStart, xpAfter: p.xp,
       rankBefore: before.index, rankAfter: after.index, rankName: after.name, nextName: after.next ? rankName(after.next.index, p.faction) : null,
       fracBefore: before.frac, fracAfter: after.frac, intoAfter: after.into, spanAfter: after.span, faction: p.faction, medals: m.medals.length, won,
       dailyScore, medalIds: [...m.medals], record,
       // contracts, Commendations, unlocks and the next unlock to chase
       contracts: contractProgressList(p.contracts, m.contractsBefore, m.contractsDone), commendations: m.cmd, commendationBalance: p.commendations,
-      unlocks: fresh.map((d) => ({ id: d.id, name: d.name, slot: SLOT_LABEL[d.slot] })),
-      unlockedTeaser: ts && tsDef && tsNow?.unlocked ? { id: ts.id, name: tsDef.name, slot: SLOT_LABEL[tsDef.slot] } : null,
+      unlocks: fresh.map((d) => ({ id: d.id, name: cosmeticName(d), slot: SLOT_LABEL[d.slot] })),
+      unlockedTeaser: ts && tsDef && tsNow?.unlocked ? { id: ts.id, name: cosmeticName(tsDef), slot: SLOT_LABEL[tsDef.slot] } : null,
       teaser: next ? { id: next.def.id, text: next.text, frac: next.status.frac, before: ts && ts.id === next.def.id ? ts.frac : next.status.frac } : null,
     };
     this.match = null;
@@ -749,10 +761,10 @@ export class MetaTracker {
     this.profile.commendations = Math.min(MAX_COMMENDATIONS, this.profile.commendations + cmd);
     if (this.match) { this.match.cmd += cmd; this.match.contractsDone.push(slot.id); }
     this.notify({
-      kind: 'contract', id: slot.id, title: def?.title ?? slot.id, desc: `${contractDesc(slot)} +${cmd} Commendation${cmd === 1 ? '' : 's'}.`, xp, icon: picto(def?.picto ?? 'medal'),
-      tier: cadence === 'weekly' ? 'Weekly' : 'Daily',
+      kind: 'contract', id: slot.id, title: def ? contractTitle(def) : slot.id, desc: tMeta('toast.contractDesc', { desc: contractDesc(slot), n: cmd }), xp, icon: picto(def?.picto ?? 'medal'),
+      tier: tMeta(cadence === 'weekly' ? 'cadence.weekly' : 'cadence.daily'),
     });
-    this.addXp(xp, 'Contracts');
+    this.addXp(xp, 'contracts');
     this.save();
   }
 
@@ -830,11 +842,11 @@ export class MetaTracker {
     this.match?.medals.push(a.id);
     const rarity = achievementRarity(a, t);
     this.notify({
-      id: a.id, kind: 'medal', title: a.title, desc: achievementDesc(a, t), xp, rarity,
-      tier: isTiered(a) ? TIER_NAMES[t] : rarity.charAt(0).toUpperCase() + rarity.slice(1),
+      id: a.id, kind: 'medal', title: achievementTitle(a), desc: achievementDesc(a, t), xp, rarity,
+      tier: isTiered(a) ? tierName(t) : rarityName(rarity),
       icon: medalSvg({ metal: achievementMetal(a, t), picto: a.picto, category: a.category }),
     });
-    this.addXp(xp, 'Medals');
+    this.addXp(xp, 'medals');
     this.save();
   }
   private killXp(v: number) {
@@ -848,16 +860,19 @@ export class MetaTracker {
     if (!m || m.killXp < 1) return;
     const whole = Math.floor(m.killXp);
     m.killXp -= whole;
-    this.addXp(whole, 'Enemies destroyed');
+    this.addXp(whole, 'kills');
   }
-  private addXp(xp: number, label: string) {
+  private addXp(xp: number, key: XpLine, params?: Params) {
     xp = Math.round(xp);
     if (xp <= 0) return;
     const before = rankIndexFor(this.profile.xp);
     this.profile.xp += xp;
     if (this.match) {
       this.match.xp += xp;
-      this.match.lines.set(label, (this.match.lines.get(label) ?? 0) + xp);
+      const id = params ? `${key}|${JSON.stringify(params)}` : key;
+      const line = this.match.lines.get(id);
+      if (line) line.xp += xp;
+      else this.match.lines.set(id, { xp, key, params });
     }
     const after = rankIndexFor(this.profile.xp);
     if (after > before) {
@@ -865,7 +880,7 @@ export class MetaTracker {
       const name = rankName(after, this.profile.faction);
       this.notify({
         kind: 'rank', title: name, xp: 0, icon: insigniaSvg(after, this.profile.faction),
-        desc: next ? `Promoted for valour. Next: ${rankName(next.index, this.profile.faction)} at ${next.xp.toLocaleString('en-US')} XP` : 'The highest rank a commander can hold.',
+        desc: next ? tMeta('toast.promoted', { rank: rankName(next.index, this.profile.faction), xp: fmtInt(next.xp) }) : tMeta('toast.topRank'),
       });
     }
   }
@@ -884,17 +899,42 @@ export class MetaTracker {
     if (all.length && all.every((d) => (prog[d.id]?.stars ?? 0) >= 3)) this.unlock('perfectionist');
   }
 
+  /** The history title, stored in English (translated where it is shown: recordTitle). */
   private titleFor(info: GameStartInfo): string {
     if (info.missionId) {
-      if (info.missionId === 'daily') return `Daily Challenge #${dailyConfig(this.match?.dailyDay ?? currentDailyDay()).number}`;
+      if (info.missionId === 'daily') return fillEn(RECORD_SRC.daily, { n: String(dailyConfig(this.match?.dailyDay ?? currentDailyDay()).number) });
       return getMission(info.missionId)?.title ?? info.missionId;
     }
-    return `Skirmish · ${info.opponents} AI${info.opponents === 1 ? '' : 's'}`;
+    return fillEn(info.opponents === 1 ? RECORD_SRC.skirmishOne : RECORD_SRC.skirmishMany, { n: String(info.opponents) });
   }
   private pushHistory(r: MatchRecord) {
     this.profile.history.unshift(r);
     if (this.profile.history.length > 20) this.profile.history.length = 20;
   }
+}
+
+// Daily Challenge display text (src/meta/daily.ts stays English and i18n-free: the server's verification imports it)
+/** A modifier's display name (the same name as the skirmish mutator: game data mutator.<id>.name). */
+export const dailyModName = (m: Pick<DailyModifierInfo, 'id' | 'name'>): string => dt('mutator', m.id, 'name', m.name);
+/** A modifier's daily-challenge description (game data dailyModifier.<id>.desc). */
+export const dailyModDesc = (m: Pick<DailyModifierInfo, 'id' | 'desc'>): string => dt('dailyModifier', m.id, 'desc', m.desc);
+/** The challenge's location in the active language (the config keeps the English, which the mission script uses). */
+export function dailyPlace(cfg: Pick<DailyConfig, 'climate' | 'location'>): string {
+  const i = DAILY_PLACES[cfg.climate]?.indexOf(cfg.location) ?? -1;
+  return i < 0 ? cfg.location : dt('dailyPlace', cfg.climate, String(i), cfg.location);
+}
+
+/** An XP breakdown line in the active language. */
+function xpLineLabel(key: XpLine, params?: Params): string {
+  const diff = typeof params?.diff === 'string' ? params.diff : '';
+  return tMeta(`xp.${key}`, diff ? { ...params, difficulty: tx(`common.difficulty.${diff}`, undefined, diff.charAt(0).toUpperCase() + diff.slice(1)) } : params);
+}
+
+/** A match history title in the active language (the record keeps the English). */
+export function recordTitle(rec: Pick<MatchRecord, 'title' | 'missionId'>): string {
+  const def = rec.missionId && rec.missionId !== 'daily' ? getMission(rec.missionId) : undefined;
+  if (def && def.title === rec.title) return dt('mission', def.id, 'title', def.title);
+  return trSource(rec.title);
 }
 
 // =============================================================================
@@ -959,7 +999,7 @@ export function medalTotals(p: Profile = loadProfile()): { earned: number; total
 export function favouriteUnit(p: Profile): { id: string; name: string; kills: number } | null {
   let best: string | null = null, bk = 0;
   for (const [id, k] of Object.entries(p.stats.killsByUnit)) if (UNITS[id] && k > bk) { bk = k; best = id; }
-  return best ? { id: best, name: UNITS[best].name, kills: bk } : null;
+  return best ? { id: best, name: typeName(UNITS[best]), kills: bk } : null;
 }
 
 // =============================================================================
@@ -997,9 +1037,10 @@ export function rankBadge(p: Profile = loadProfile()): string {
     document.head.appendChild(st);
   }
   const rp = rankProgress(p.xp, p.faction);
-  const name = p.name.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-  const nextTxt = rp.next ? `${p.xp.toLocaleString('en-US')} / ${rp.next.xp.toLocaleString('en-US')} XP` : `${p.xp.toLocaleString('en-US')} XP · max rank`;
-  return `<span class="rh-cmdr" title="Commander profile">${insigniaSvg(rp.index, p.faction)}<span class="rh-cmdr-t"><small>${rp.name}</small><b>${name}</b>`
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+  const name = esc(p.name);
+  const nextTxt = rp.next ? tMeta.html('badge.progress', { xp: fmtInt(p.xp), next: fmtInt(rp.next.xp) }) : tMeta.html('badge.max', { xp: fmtInt(p.xp) });
+  return `<span class="rh-cmdr" title="${tMeta.html('badge.title')}">${insigniaSvg(rp.index, p.faction)}<span class="rh-cmdr-t"><small>${esc(rp.name)}</small><b>${name}</b>`
     + `<span class="rh-cmdr-bar"><i style="width:${(rp.frac * 100).toFixed(1)}%"></i></span><span class="rh-cmdr-x">${nextTxt}</span></span></span>`;
 }
 

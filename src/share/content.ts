@@ -18,6 +18,8 @@ import { checkMods } from '../mods/engine';
 import type { ModFile } from '../mods/format';
 import type { ShareEnvelope, ShareKind } from './codec';
 import { ShareLinkError } from './codec';
+import tShare from '../i18n/en/share';
+import { replayMapName } from '../replay/store';
 
 /** A validated, ready-to-import share. `facts` are short display lines (already cleaned). */
 export type SharedItem =
@@ -30,7 +32,8 @@ export const MAX_SHARED_REPLAY_TICKS = 30 * 60 * TICK_HZ;
 /** Command cap for a shared replay (a busy 10-minute match issues a few thousand). */
 export const MAX_SHARED_REPLAY_CMDS = 20_000;
 
-export const KIND_LABEL: Record<ShareKind, string> = { map: 'Map', challenge: 'Challenge', replay: 'Replay' };
+/** What a kind is called (Map, Challenge, Replay), in the player's language. */
+export const kindLabel = (kind: ShareKind): string => tShare(`kind.${kind}`);
 
 const mmss = (ticks: number) => {
   const s = Math.max(0, Math.round(ticks / TICK_HZ));
@@ -54,17 +57,17 @@ export function replayShareData(r: ReplayData): unknown {
  */
 export function setupProblem(setup: unknown): string | null {
   const o = setup as Record<string, unknown> | null;
-  if (!o || typeof o !== 'object' || Array.isArray(o)) return 'it has no match setup';
-  if (o.mapSize !== undefined && !(typeof o.mapSize === 'number' && o.mapSize >= MAP_SIZE_MIN && o.mapSize <= MAP_SIZE_MAX)) return 'its map size is out of range';
-  if (o.opponents !== undefined && !(Array.isArray(o.opponents) && o.opponents.length <= 7)) return 'it has too many players';
-  if (o.allies !== undefined && !(Array.isArray(o.allies) && o.allies.length <= 3)) return 'it has too many allies';
-  if (o.mutators !== undefined && !(Array.isArray(o.mutators) && o.mutators.length <= 8)) return 'it has too many mutators';
-  if (o.credits !== undefined && !(typeof o.credits === 'number' && o.credits >= 0 && o.credits <= 1e6)) return 'its credits are out of range';
-  if (o.customMap !== undefined && !checkMapDef(o.customMap).def) return 'its map is not valid';
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return tShare('setup.none');
+  if (o.mapSize !== undefined && !(typeof o.mapSize === 'number' && o.mapSize >= MAP_SIZE_MIN && o.mapSize <= MAP_SIZE_MAX)) return tShare('setup.mapSize');
+  if (o.opponents !== undefined && !(Array.isArray(o.opponents) && o.opponents.length <= 7)) return tShare('setup.players');
+  if (o.allies !== undefined && !(Array.isArray(o.allies) && o.allies.length <= 3)) return tShare('setup.allies');
+  if (o.mutators !== undefined && !(Array.isArray(o.mutators) && o.mutators.length <= 8)) return tShare('setup.mutators');
+  if (o.credits !== undefined && !(typeof o.credits === 'number' && o.credits >= 0 && o.credits <= 1e6)) return tShare('setup.credits');
+  if (o.customMap !== undefined && !checkMapDef(o.customMap).def) return tShare('setup.map');
   const mods = (o.mods as { mods?: unknown } | undefined)?.mods;
   if (mods !== undefined) {
-    if (!Array.isArray(mods) || mods.length > 16) return 'its mods are not valid';
-    try { if (!checkMods(mods as ModFile[]).ok) return 'its mods are not valid'; } catch { return 'its mods are not valid'; }
+    if (!Array.isArray(mods) || mods.length > 16) return tShare('setup.mods');
+    try { if (!checkMods(mods as ModFile[]).ok) return tShare('setup.mods'); } catch { return tShare('setup.mods'); }
   }
   return null;
 }
@@ -74,43 +77,52 @@ export async function validateShared(env: ShareEnvelope): Promise<SharedItem> {
   switch (env.k) {
     case 'map': {
       const { doc, errors } = parseRhMap(JSON.stringify(env.d));
-      if (!doc) throw new ShareLinkError(`The shared map is not valid: ${errors.slice(0, 3).join(' ')}`);
+      if (!doc) throw new ShareLinkError(tShare('invalid.map', { errors: errors.slice(0, 3).join(' ') }));
       const m = doc.map;
-      const facts = [`${m.size}×${m.size}`, `${m.players} player${m.players === 1 ? '' : 's'}`, cap(m.climate)];
-      if (doc.mission) facts.push('with a mission');
-      return { kind: 'map', title: cleanText(m.name || 'Shared map', 60), facts, doc };
+      const facts = [`${m.size}×${m.size}`, tShare('facts.players', { n: m.players }), climateWord(m.climate)];
+      if (doc.mission) facts.push(tShare('facts.withMission'));
+      return { kind: 'map', title: cleanText(m.name || tShare('untitled.map'), 60), facts, doc };
     }
     case 'challenge': {
       let c: ChallengeDef;
       try {
         c = await decodeChallengeFile(JSON.stringify(env.d));
       } catch (e) {
-        throw new ShareLinkError(`The shared challenge is not valid: ${e instanceof Error ? e.message : 'unknown format'}.`);
+        throw new ShareLinkError(tShare('invalid.challenge', { error: e instanceof Error ? e.message : tShare('invalid.unknownFormat') }));
       }
       const bad = setupProblem(c.setup);
-      if (bad) throw new ShareLinkError(`The shared challenge cannot be played: ${bad}.`);
-      const facts = [goalWord(c.goal.kind), `${Math.round(c.timeLimit / 60)} min`];
+      if (bad) throw new ShareLinkError(tShare('invalid.challengeSetup', { problem: bad }));
+      const facts = [goalWord(c.goal.kind), tShare('facts.minutes', { n: Math.round(c.timeLimit / 60) })];
       if (c.source?.map) facts.push(cleanText(String(c.source.map), 40));
-      return { kind: 'challenge', title: cleanText(c.title || 'Shared challenge', 60), facts, challenge: c };
+      return { kind: 'challenge', title: cleanText(c.title || tShare('untitled.challenge'), 60), facts, challenge: c };
     }
     case 'replay': {
       const r = env.d;
-      if (!isReplayData(r)) throw new ShareLinkError('The shared replay is not valid, or from an unsupported version.');
-      if (!Number.isFinite(r.ticks) || r.ticks < 0 || r.ticks > MAX_SHARED_REPLAY_TICKS) throw new ShareLinkError('The shared replay is longer than a link can hold.');
-      if (r.cmds.length > MAX_SHARED_REPLAY_CMDS || r.hashes.length > MAX_SHARED_REPLAY_TICKS) throw new ShareLinkError('The shared replay holds more data than the game accepts.');
+      if (!isReplayData(r)) throw new ShareLinkError(tShare('invalid.replay'));
+      if (!Number.isFinite(r.ticks) || r.ticks < 0 || r.ticks > MAX_SHARED_REPLAY_TICKS) throw new ShareLinkError(tShare('invalid.replayLong'));
+      if (r.cmds.length > MAX_SHARED_REPLAY_CMDS || r.hashes.length > MAX_SHARED_REPLAY_TICKS) throw new ShareLinkError(tShare('invalid.replayData'));
       const bad = setupProblem(r.setup);
-      if (bad) throw new ShareLinkError(`The shared replay cannot be played: ${bad}.`);
+      if (bad) throw new ShareLinkError(tShare('invalid.replaySetup', { problem: bad }));
       const players = Array.isArray(r.players) ? r.players.filter((p) => p && typeof p === 'object').map((p) => cleanText(String(p.name ?? ''), 24)).filter(Boolean) : [];
-      const facts = [mmss(r.ticks), players.slice(0, 4).join(' vs ') || 'Skirmish'];
-      return { kind: 'replay', title: cleanText(r.mapName || 'Shared replay', 60), facts, replay: { ...r, storedAt: undefined } };
+      const shown = players.slice(0, 4);
+      const facts = [mmss(r.ticks), shown.length ? shown.reduce((a, b) => tShare('facts.vs', { a, b })) : tShare('facts.skirmish')];
+      return { kind: 'replay', title: cleanText(r.mapName ? replayMapName(r) : tShare('untitled.replay'), 60), facts, replay: { ...r, storedAt: undefined } };
     }
   }
 }
 
-function cap(s: string): string {
-  return s ? s[0].toUpperCase() + s.slice(1) : '';
+function climateWord(c: string): string {
+  if (c === 'temperate' || c === 'winter' || c === 'desert') return tShare(`facts.${c}`);
+  return c ? c[0].toUpperCase() + c.slice(1) : '';
 }
 
 function goalWord(k: string): string {
-  return ({ win: 'Win', survive: 'Survive', destroy: 'Destroy', protect: 'Protect', hold: 'Hold' } as Record<string, string>)[k] ?? 'Challenge';
+  switch (k) {
+    case 'win': return tShare('facts.goalWin');
+    case 'survive': return tShare('facts.goalSurvive');
+    case 'destroy': return tShare('facts.goalDestroy');
+    case 'protect': return tShare('facts.goalProtect');
+    case 'hold': return tShare('facts.goalHold');
+    default: return tShare('facts.goalOther');
+  }
 }

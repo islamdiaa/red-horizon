@@ -6,13 +6,18 @@
  *
  * Opened from the main menu (session card), the profile and the results screen; an overlay above them.
  */
+import { focusTrap } from './a11y';
 import type { AudioSystem } from '../audio';
 import { el, esc } from './dom';
 import {
   COSMETICS, COSMETIC_SLOTS, SLOT_LABEL, SLOT_PICTO, claimCosmetic, equipCosmetic, equippedId, insigniaSvg, loadProfile, markSeen, picto, rankProgress, saveProfile, syncTrackers,
-  unlockContext, unlockStatus, type CosmeticDef, type CosmeticSlot, type UnlockCtx,
+  cosmeticDesc, cosmeticName, unlockContext, unlockStatus, type CosmeticDef, type CosmeticSlot, type UnlockCtx,
 } from '../meta';
-import { applyHudTheme, bindCosmeticsAudio, commanderLook, paintPreviews, portraitSvg, previewFanfare, previewVoice, refreshVoice } from '../meta/cosmetics';
+import { fmtInt } from '../i18n/core';
+import tLocker from '../i18n/en/locker';
+import tCommon from '../i18n/en/common';
+import { applyHudTheme, bindCosmeticsAudio, commanderLook, portraitSvg, previewFanfare, previewVoice, refreshVoice } from '../meta/cosmetics';
+import { paintPreviews } from '../meta/paint'; // (needs the 3D models: the Locker loads on demand)
 
 const CSS = `
 .rh-locker { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: .9rem; padding: 3.2vh 3vw; font-family: var(--font, sans-serif); color: var(--text, #e9f0f7);
@@ -121,7 +126,7 @@ function previewHtml(def: CosmeticDef, ctx: UnlockCtx, paints: Map<string, strin
     case 'portrait':
       return portraitSvg(def, ctx.profile).replace('<svg ', '<svg class="por" ');
     case 'title':
-      return `<span class="ttl">${def.req.kind === 'default' ? '—' : esc(def.name)}</span>`;
+      return `<span class="ttl">${def.req.kind === 'default' ? '—' : esc(cosmeticName(def))}</span>`;
     case 'banner':
       return `<span style="position:absolute;inset:0;background:${def.banner}"></span>`;
     case 'voice':
@@ -138,11 +143,11 @@ export function showLocker(opts: { onBack(): void; audio?: AudioSystem; play?(k:
   document.querySelector('.rh-locker')?.remove();
   const root = el('div', 'rh-locker');
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-label', 'Locker');
+  root.setAttribute('aria-label', tLocker('title'));
   document.body.appendChild(root);
   let slot: CosmeticSlot = opts.slot ?? 'paint';
   let selected: string | null = null;
-  let note = '';
+  let note: '' | 'noSound' | 'claimed' = '';
   const seenAtOpen = new Set(loadProfile().cosmetics.seen);
   const visited = new Set<CosmeticSlot>();
   const play = (k: 'click' | 'tab' | 'hover') => { try { opts.play?.(k); } catch { /* no audio */ } };
@@ -182,44 +187,44 @@ export function showLocker(opts: { onBack(): void; audio?: AudioSystem; play?(k:
     const tabs = COSMETIC_SLOTS.map((sl) => {
       const all = COSMETICS.filter((c) => c.slot === sl);
       const have = all.filter((c) => unlockStatus(c, ctx).unlocked).length;
-      return `<button class="lk-tab${sl === slot ? ' on' : ''}" data-slot="${sl}">${picto(SLOT_PICTO[sl])}<span>${SLOT_LABEL[sl]}</span><span class="cnt">${have}/${all.length}</span>${all.some(isNew) && !visited.has(sl) ? '<i class="new"></i>' : ''}</button>`;
+      return `<button class="lk-tab${sl === slot ? ' on' : ''}" data-slot="${sl}">${picto(SLOT_PICTO[sl])}<span>${esc(SLOT_LABEL[sl])}</span><span class="cnt">${have}/${all.length}</span>${all.some(isNew) && !visited.has(sl) ? '<i class="new"></i>' : ''}</button>`;
     }).join('');
     const cards = items.map((d, i) => {
       const st = unlockStatus(d, ctx);
-      const status = d.id === eqId ? '<span class="lk-st eq">Equipped</span>'
-        : isNew(d) ? '<span class="lk-st new">New</span>'
-          : st.unlocked ? '<span class="lk-st own">Owned</span>'
+      const status = d.id === eqId ? `<span class="lk-st eq">${tLocker.html('status.equipped')}</span>`
+        : isNew(d) ? `<span class="lk-st new">${tLocker.html('status.new')}</span>`
+          : st.unlocked ? `<span class="lk-st own">${tLocker.html('status.owned')}</span>`
             : st.purchasable ? `<span class="lk-st buy">${st.target} ${picto('medal')}</span>` : `<span class="lk-st lock">${picto('lock')}</span>`;
       return `<button class="lk-card${st.unlocked ? '' : ' locked'}${d.id === selected ? ' sel' : ''}" data-id="${d.id}" style="--i:${i}">
         <span class="lk-pv">${previewHtml(d, ctx, paints)}</span>
-        <span class="lk-nm"><span>${esc(d.name)}</span>${status}</span>
-        ${st.unlocked ? `<span class="lk-how">${esc(d.desc)}</span>` : `<span class="lk-pr"><i style="width:${(st.frac * 100).toFixed(1)}%"></i></span><span class="lk-how">${esc(st.how)}</span>`}
+        <span class="lk-nm"><span>${esc(cosmeticName(d))}</span>${status}</span>
+        ${st.unlocked ? `<span class="lk-how">${esc(cosmeticDesc(d))}</span>` : `<span class="lk-pr"><i style="width:${(st.frac * 100).toFixed(1)}%"></i></span><span class="lk-how">${esc(st.how)}</span>`}
       </button>`;
     }).join('');
     const sel = items.find((c) => c.id === selected) ?? items[0];
     const ss = unlockStatus(sel, ctx);
     const audible = sel.slot === 'voice' || (sel.slot === 'fanfare' && !!sel.fanfare);
-    const action = sel.id === eqId ? `<button class="lk-btn" disabled>${picto('untouchable')}<span>Equipped</span></button>`
-      : ss.unlocked ? `<button class="lk-btn pri" data-act="equip">${picto('untouchable')}<span>Equip</span><kbd>Enter</kbd></button>`
-        : ss.purchasable ? `<button class="lk-btn pri" data-act="claim"${ss.affordable ? '' : ' disabled'}>${picto('medal')}<span>Claim · ${ss.target}</span></button>` : '';
+    const action = sel.id === eqId ? `<button class="lk-btn" disabled>${picto('untouchable')}<span>${tLocker.html('equipped')}</span></button>`
+      : ss.unlocked ? `<button class="lk-btn pri" data-act="equip">${picto('untouchable')}<span>${tLocker.html('equip')}</span><kbd>${tCommon.html('keys.enter')}</kbd></button>`
+        : ss.purchasable ? `<button class="lk-btn pri" data-act="claim"${ss.affordable ? '' : ' disabled'}>${picto('medal')}<span>${tLocker.html('claim', { n: String(ss.target) })}</span></button>` : '';
     root.innerHTML = `
       <div class="lk-head" style="--banner:${look.banner}">
         <div class="lk-por">${look.portrait}</div><div class="lk-ins">${insigniaSvg(rp.index, profile.faction)}</div>
-        <div class="lk-id"><small>Locker · ${esc(rp.name)}</small><b>${esc(profile.name)}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
-        <div class="lk-cmd"><b>${picto('medal')}${profile.commendations.toLocaleString('en-US')}</b><small>Commendations</small></div>
-        <button class="lk-btn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button>
+        <div class="lk-id"><small>${tLocker.html('kicker', { rank: rp.name })}</small><b>${esc(profile.name)}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
+        <div class="lk-cmd"><b>${picto('medal')}${fmtInt(profile.commendations)}</b><small>${tLocker.html('commendations')}</small></div>
+        <button class="lk-btn" data-act="back">${picto('back')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button>
       </div>
       <div class="lk-tabs">${tabs}</div>
       <div class="lk-body">
         <div class="lk-grid">${cards}</div>
         <div class="lk-side">
           <span class="lk-pv">${previewHtml(sel, ctx, paints)}</span>
-          <div><small class="k">${SLOT_LABEL[sel.slot]}</small><h3>${esc(sel.name)}</h3></div>
-          <p>${esc(sel.desc)}</p>
-          <div class="lk-req">${ss.unlocked ? `${picto('untouchable')} ${sel.req.kind === 'default' ? 'Standard issue.' : sel.req.kind === 'cmd' ? 'Claimed with Commendations.' : `Requirement met: ${esc(ss.how)}.`}` : `${picto('lock')} ${esc(ss.how)}${ss.need ? ` · <b>${esc(ss.need)}</b>` : ''}`}</div>
-          <div class="lk-acts">${action}${audible ? `<button class="lk-btn" data-act="listen">${picto('play')}<span>Listen</span></button>` : ''}</div>
-          ${note ? `<div class="lk-note">${esc(note)}</div>` : ''}
-          <div class="lk-note">Cosmetics never change the battle: paint applies to your own units' look only, and Commendations are earned from contracts, never bought.</div>
+          <div><small class="k">${esc(SLOT_LABEL[sel.slot])}</small><h3>${esc(cosmeticName(sel))}</h3></div>
+          <p>${esc(cosmeticDesc(sel))}</p>
+          <div class="lk-req">${ss.unlocked ? `${picto('untouchable')} ${sel.req.kind === 'default' ? tLocker.html('req.standard') : sel.req.kind === 'cmd' ? tLocker.html('req.claimed') : tLocker.html('req.met', { how: ss.how })}` : `${picto('lock')} ${esc(ss.how)}${ss.need ? ` · <b>${esc(ss.need)}</b>` : ''}`}</div>
+          <div class="lk-acts">${action}${audible ? `<button class="lk-btn" data-act="listen">${picto('play')}<span>${tLocker.html('listen')}</span></button>` : ''}</div>
+          ${note ? `<div class="lk-note">${tLocker.html(`note.${note}`)}</div>` : ''}
+          <div class="lk-note">${tLocker.html('note.fair')}</div>
         </div>
       </div>`;
     root.querySelectorAll<HTMLElement>('[data-slot]').forEach((b) => (b.onclick = () => { slot = b.dataset.slot as CosmeticSlot; selected = null; note = ''; play('tab'); render(); focusSel(); }));
@@ -235,7 +240,7 @@ export function showLocker(opts: { onBack(): void; audio?: AudioSystem; play?(k:
     const ls = root.querySelector('[data-act="listen"]') as HTMLElement | null;
     if (ls) ls.onclick = () => {
       const ok = sel.slot === 'voice' ? previewVoice(sel) : previewFanfare(sel);
-      if (!ok) { note = 'Sound is not available yet: click anywhere in the game first, or check the volume settings.'; render(); }
+      if (!ok) { note = 'noSound'; render(); }
     };
   };
   const focusSel = () => (root.querySelector('.lk-card.sel') as HTMLElement | null)?.focus({ preventScroll: false });
@@ -258,7 +263,7 @@ export function showLocker(opts: { onBack(): void; audio?: AudioSystem; play?(k:
   const claim = () => {
     const id = selected;
     if (!id) return;
-    if (commit((ctx) => claimCosmetic(ctx, id) && equipCosmetic(ctx, id))) { play('click'); note = 'Claimed and equipped.'; render(); focusSel(); }
+    if (commit((ctx) => claimCosmetic(ctx, id) && equipCosmetic(ctx, id))) { play('click'); note = 'claimed'; render(); focusSel(); }
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -275,7 +280,9 @@ export function showLocker(opts: { onBack(): void; audio?: AudioSystem; play?(k:
     }
   };
   document.addEventListener('keydown', onKey, true);
+  const untrap = focusTrap(root, { initial: false }); // Tab stays in the Locker; focus returns to the opener
   const close = () => {
+    untrap();
     document.removeEventListener('keydown', onKey, true);
     root.classList.add('leaving');
     setTimeout(() => root.remove(), 240);

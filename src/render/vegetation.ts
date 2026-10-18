@@ -6,7 +6,8 @@ import { flat } from './geomutil';
 import { shadowDepthMaterial } from './models/materials';
 import { ROAD_HALF, roadDistance, roadsFor } from './roads';
 import { applyNatureTextures, loadNature, natureMaterialParams, natureUrls, placeholderGeometry, type NatureTemplate } from './vegetation-hd';
-import { classicLook, prefetchOffline } from './terrain-materials';
+import { classicLook } from './terrain-materials';
+import { prefetchOffline } from '../platform/prefetch';
 import { hdModelsEnabled } from './models/hd';
 
 type HeightFn = (x: number, y: number) => number;
@@ -15,8 +16,11 @@ type HeightFn = (x: number, y: number) => number;
 const BLOCK = 8;
 /** Blocks further than this from the camera use the low-detail geometry (and thinned grass). */
 const LOD_DIST = 46;
-/** Blocks closer than this draw the HD trees and rocks (vegetation-hd.ts); the rest of the near ring stays procedural. */
-const HD_DIST = 25;
+/**
+ * Blocks closer than this draw the HD trees and rocks (vegetation-hd.ts); the rest of the near ring stays procedural.
+ * Medium (integrated GPUs) keeps a smaller ring: the HD trees cost several times the procedural ones per pixel.
+ */
+const HD_DIST = { medium: 19, high: 25 } as const;
 
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
@@ -38,7 +42,7 @@ class BlockGrid {
   /** Bumped whenever the needed set or its LOD split changes. */
   version = 0;
 
-  constructor(readonly x0: number, readonly y0: number, x1: number, y1: number) {
+  constructor(readonly x0: number, readonly y0: number, x1: number, y1: number, private hdDist: number = HD_DIST.high) {
     this.nx = Math.ceil((x1 - x0) / BLOCK);
     this.ny = Math.ceil((y1 - y0) / BLOCK);
     const n = this.nx * this.ny;
@@ -77,7 +81,7 @@ class BlockGrid {
         if (!_frustum.intersectsBox(_box)) { st[b] = 0; continue; }
         const cx = x0 + BLOCK / 2 - cp.x, cz = z0 + BLOCK / 2 - cp.z, cy = (this.lo[b] + this.hi[b]) / 2 - cp.y;
         const d2 = cx * cx + cy * cy + cz * cz;
-        st[b] = d2 > LOD_DIST * LOD_DIST ? 2 : d2 < HD_DIST * HD_DIST ? 3 : 1;
+        st[b] = d2 > LOD_DIST * LOD_DIST ? 2 : d2 < this.hdDist * this.hdDist ? 3 : 1;
       }
     }
     let changed = false;
@@ -626,13 +630,13 @@ export class Vegetation {
    * @param scenery tree spots on the landscape outside the playable area ([x, height, y]); they share the
    *   map trees' instanced meshes, so they cost no extra draw calls.
    */
-  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'high', readonly climate: 'temperate' | 'winter' | 'desert' = 'temperate', scenery: [number, number, number][] = []) {
+  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'medium' | 'high', readonly climate: 'temperate' | 'winter' | 'desert' = 'temperate', scenery: [number, number, number][] = []) {
     this.lastTreeVersion = map.treeVersion;
     this.treeState = map.tree.slice();
     this.group.name = 'vegetation';
     this.group.matrixAutoUpdate = false;
     const m = map;
-    this.grid = new BlockGrid(-MARGIN, -MARGIN, m.w + MARGIN, m.h + MARGIN);
+    this.grid = new BlockGrid(-MARGIN, -MARGIN, m.w + MARGIN, m.h + MARGIN, quality === 'medium' ? HD_DIST.medium : HD_DIST.high);
     const grid = this.grid;
     const dummy = new THREE.Object3D();
     const mat4 = () => { dummy.updateMatrix(); return dummy.matrix.clone(); };
@@ -819,7 +823,7 @@ export class Vegetation {
     }
 
     // ---- grass tufts ----------------------------------------------------------
-    const density = (quality === 'high' ? 2.2 : 0.9) * (climate === 'winter' ? 0.25 : climate === 'desert' ? 0.45 : 1);
+    const density = (quality === 'low' ? 0.9 : 2.2) * (climate === 'winter' ? 0.25 : climate === 'desert' ? 0.45 : 1);
     const grassTint = climate === 'winter' ? [1.6, 1.35, 1.6] : climate === 'desert' ? [2.0, 1.45, 0.75] : [1, 1, 1];
     const grassItems: Item[] = [];
     const gn = new Noise2D(m.seed + 77);

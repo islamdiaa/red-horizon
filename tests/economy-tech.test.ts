@@ -102,11 +102,12 @@ describe('economy: Classic rules are untouched', () => {
   });
 
   test('a Classic AI battle hashes exactly as before the Commander economy existed', () => {
-    // golden hashes from the pre-economy build (git archive HEAD), same seed and setup
+    // golden hashes from the pre-economy build (git archive HEAD), same seed and setup; the fourth moved deliberately
+    // with simulation version 2 (src/sim/version.ts): the Allied skirmish AI's build order changes from minute 3
     const w = skirmish({ seed: 2024, size: 64, ai: ['hard', 'brutal'], credits: 6000 });
     const out: string[] = [];
     for (let t = 1; t <= seconds(240); t++) { w.step(); w.events.length = 0; if (t % 1200 === 0) out.push(worldHash(w)); }
-    assert.deepEqual(out, ['bd509ac2f2075425', 'd705eee495ae1b29', '3038e8639dd5a618', '917aa89c3417b27c'], 'Classic hashes unchanged');
+    assert.deepEqual(out, ['bd509ac2f2075425', 'd705eee495ae1b29', '3038e8639dd5a618', '6266bdaea8675244'], 'Classic hashes unchanged');
   });
 
   test('econ: false keeps a Commander world without the economy', () => {
@@ -356,15 +357,15 @@ describe('economy: research', () => {
     const hit = (u: Unit) => { const h0 = u.hp; damageEntity(world, u, 100, null); const d = h0 - u.hp; u.hp = u.maxHp; return d; };
     assert.equal(hit(tank), 100);
     grant(world, p0, 'composite_armor', 1);
-    assert.ok(Math.abs(hit(tank) - 90) < 1e-6, 'L1 -10%');
+    assert.ok(Math.abs(hit(tank) - 92) < 1e-6, 'L1 -8%');
     grant(world, p0, 'composite_armor', 2);
-    assert.ok(Math.abs(hit(tank) - 80) < 1e-6, 'L2 -20%');
+    assert.ok(Math.abs(hit(tank) - 85) < 1e-6, 'L2 -15%');
     assert.equal(tank.weapons[0].def.range, WEAPONS['90mm'].range);
     grant(world, p0, 'precision_optics', 1);
-    assert.ok(Math.abs(tank.weapons[0].def.range - WEAPONS['90mm'].range * 1.1) < 1e-9, 'tank range +10%');
-    assert.ok(Math.abs(gun.weapons[0].def.range - WEAPONS.TurretGun.range * 1.1) < 1e-9, 'defence range +10%');
+    assert.ok(Math.abs(tank.weapons[0].def.range - WEAPONS['90mm'].range * 1.06) < 1e-9, 'tank range +6%');
+    assert.ok(Math.abs(gun.weapons[0].def.range - WEAPONS.TurretGun.range * 1.06) < 1e-9, 'defence range +6%');
     grant(world, p0, 'precision_optics', 2);
-    assert.ok(Math.abs(tank.weapons[0].def.range - WEAPONS['90mm'].range * 1.2) < 1e-9, 'L2 +20%');
+    assert.ok(Math.abs(tank.weapons[0].def.range - WEAPONS['90mm'].range * 1.12) < 1e-9, 'L2 +12%');
     building(world, 'tent', p0, 10, 3);
     const e1 = buildSeconds(world, p0, 'e1'), pw = buildSeconds(world, p0, 'apwr'), task = taskSeconds(p0, 40);
     grant(world, p0, 'rapid_deployment', 1);

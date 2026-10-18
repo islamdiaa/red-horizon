@@ -15,6 +15,12 @@ import { TICK_HZ } from '../sim/types';
 import type { ChallengeDef, ChallengeGoal, ChallengeResult } from './types';
 import { BUILTINS } from './builtins';
 import { hillUnit } from './koth';
+import { MODES_EN, fillEn as en } from './text';
+
+// Objective texts, radio lines and results run inside the simulation: always English (src/modes/text.ts), translated
+// by the screens that show them (trSource; keys modes.src.*). No i18n imports: the server bundles reach this file.
+const S = MODES_EN.challenge;
+const R = S.reason;
 
 interface ChState {
   t0: number;
@@ -30,23 +36,26 @@ interface ChState {
 
 const mmss = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
 
-/** Objective line for a goal. */
+/** Objective line for a goal (English: the simulation's objective text; shown through trSource). */
 export function goalText(goal: ChallengeGoal, timeLimit: number): string {
   switch (goal.kind) {
-    case 'win': return goal.label ?? `Defeat every enemy within ${mmss(timeLimit)}`;
-    case 'survive': return goal.label ?? `Survive for ${mmss(goal.seconds ?? timeLimit)}`;
-    case 'destroy': return goal.label ?? `Destroy the target within ${mmss(timeLimit)}`;
-    case 'protect': return goal.label ?? `Protect the target for ${mmss(timeLimit)}`;
-    case 'hold': return goal.label ?? `Hold the zone for ${mmss(goal.seconds ?? 60)} within ${mmss(timeLimit)}`;
+    case 'win': return goal.label ?? en(S.goal.win, { time: mmss(timeLimit) });
+    case 'survive': return goal.label ?? en(S.goal.survive, { time: mmss(goal.seconds ?? timeLimit) });
+    case 'destroy': return goal.label ?? en(S.goal.destroy, { time: mmss(timeLimit) });
+    case 'protect': return goal.label ?? en(S.goal.protect, { time: mmss(timeLimit) });
+    case 'hold': return goal.label ?? en(S.goal.hold, { hold: mmss(goal.seconds ?? 60), time: mmss(timeLimit) });
   }
 }
 
-/** Short goal tag for lists ("Win · 15:00"). */
+/** Short goal tag for lists ("Win · 15:00"), English (src/ui/challenge-list.ts shows a translated one). */
 export function goalTag(c: Pick<ChallengeDef, 'goal' | 'timeLimit'>): string {
   const k = c.goal.kind;
   const name = k === 'win' ? 'Win' : k === 'survive' ? 'Survive' : k === 'destroy' ? 'Destroy' : k === 'protect' ? 'Protect' : 'Hold';
   return k === 'hold' ? `${name} ${mmss(c.goal.seconds ?? 60)} · ${mmss(c.timeLimit)}` : `${name} · ${mmss(c.timeLimit)}`;
 }
+
+/** m:ss (challenge times). */
+export const challengeClock = mmss;
 
 /** Display name of an entity for objective texts ("Soviet Construction Yard"). */
 export function entityLabel(e: Entity): string {
@@ -71,13 +80,13 @@ export function challengeSetup(m: MissionRuntime, c: ChallengeDef) {
   m.flags.ch = ch;
   m.objective('goal', goalText(c.goal, c.timeLimit));
   if (c.goal.kind === 'hold') m.progress('goal', `0:00 / ${mmss(c.goal.seconds ?? 60)}`);
-  if (ch.limit > 0) m.startTimer('limit', c.timeLimit, c.goal.kind === 'survive' || c.goal.kind === 'protect' ? 'Hold out' : 'Time left');
+  if (ch.limit > 0) m.startTimer('limit', c.timeLimit, c.goal.kind === 'survive' || c.goal.kind === 'protect' ? S.timerHold : S.timerLeft);
   if (zone) { m.reveal(m.human, zone.x, zone.y, zone.r + 2); m.beacon(zone.x, zone.y); }
   for (const id of targets) {
     const e = w.getEntity(id);
     if (e) m.reveal(m.human, e.x, e.y, 3);
   }
-  m.say('Challenge', c.description || goalText(c.goal, c.timeLimit), 'commander');
+  m.say(MODES_EN.speaker.challenge, c.description || goalText(c.goal, c.timeLimit), 'commander');
 }
 
 /** Called every tick by the mode runtime (also once more when another rule ended the game). */
@@ -85,11 +94,11 @@ export function challengeUpdate(m: MissionRuntime, c: ChallengeDef) {
   const ch = m.flags.ch as ChState | undefined;
   if (!ch || ch.res) return;
   const w = m.world;
-  if (m.ended) { finalize(m, c, ch, m.won, m.endReason ?? (m.won ? 'Victory' : 'Defeat')); return; }
+  if (m.ended) { finalize(m, c, ch, m.won, m.endReason ?? (m.won ? R.victory : R.defeat)); return; }
   const b = c.builtin ? BUILTINS[c.builtin] : undefined;
   b?.update?.(m);
   const me = m.human;
-  if (me.defeated) return finish(m, c, ch, false, 'All forces lost');
+  if (me.defeated) return finish(m, c, ch, false, R.allLost);
   const el = w.tick - ch.t0;
   const timeUp = ch.limit > 0 && el >= ch.limit;
   const goal = c.goal;
@@ -97,25 +106,25 @@ export function challengeUpdate(m: MissionRuntime, c: ChallengeDef) {
     case 'win':
       if (w.tick % TICK_HZ === 0) {
         const foes = w.players.filter((p) => me.isEnemy(p));
-        if (foes.every((p) => p.defeated)) return finish(m, c, ch, true, 'All enemy forces destroyed');
+        if (foes.every((p) => p.defeated)) return finish(m, c, ch, true, R.enemiesDestroyed);
       }
-      if (timeUp) return finish(m, c, ch, false, 'Out of time');
+      if (timeUp) return finish(m, c, ch, false, R.outOfTime);
       break;
     case 'destroy': {
       const left = ch.targets.filter((id) => { const e = w.getEntity(id); return !!e && e.alive && me.isEnemy(e.owner); });
-      if (!left.length) return finish(m, c, ch, true, ch.targets.length > 1 ? 'Targets destroyed' : 'Target destroyed');
+      if (!left.length) return finish(m, c, ch, true, ch.targets.length > 1 ? R.targetsDestroyed : R.targetDestroyed);
       if (ch.targets.length > 1 && w.tick % TICK_HZ === 0) m.progress('goal', `${ch.targets.length - left.length} / ${ch.targets.length}`);
-      if (timeUp) return finish(m, c, ch, false, 'Out of time');
+      if (timeUp) return finish(m, c, ch, false, R.outOfTime);
       break;
     }
     case 'protect': {
       const lost = ch.targets.find((id) => { const e = w.getEntity(id); return !e || !e.alive || me.isEnemy(e.owner); });
-      if (lost !== undefined) return finish(m, c, ch, false, `${goal.label ? 'Protected target' : 'Target'} lost`);
-      if (timeUp) return finish(m, c, ch, true, 'You held out');
+      if (lost !== undefined) return finish(m, c, ch, false, goal.label ? R.protectedLost : R.targetLost);
+      if (timeUp) return finish(m, c, ch, true, R.heldOut);
       break;
     }
     case 'survive':
-      if (timeUp || (goal.seconds && el >= goal.seconds * TICK_HZ)) return finish(m, c, ch, true, 'You survived');
+      if (timeUp || (goal.seconds && el >= goal.seconds * TICK_HZ)) return finish(m, c, ch, true, R.survived);
       break;
     case 'hold': {
       const need = (goal.seconds ?? 60) * TICK_HZ;
@@ -126,11 +135,14 @@ export function challengeUpdate(m: MissionRuntime, c: ChallengeDef) {
           if (u.owner.team === me.team) mine = true; else if (me.isEnemy(u.owner)) foe = true;
         }
         if (mine && !foe) ch.held += 5;
-        if (w.tick % (TICK_HZ * 2) === 0) m.progress('goal', `${mmss(ch.held / TICK_HZ)} / ${mmss(need / TICK_HZ)}${foe && mine ? ' · contested' : ''}`);
+        if (w.tick % (TICK_HZ * 2) === 0) {
+          const held = mmss(ch.held / TICK_HZ), all = mmss(need / TICK_HZ);
+          m.progress('goal', foe && mine ? en(S.contested, { held, need: all }) : `${held} / ${all}`);
+        }
         if (w.tick % (TICK_HZ * 8) === 0) m.beacon(ch.zone.x, ch.zone.y);
       }
-      if (ch.held >= need) return finish(m, c, ch, true, 'Zone held');
-      if (timeUp) return finish(m, c, ch, false, 'Out of time');
+      if (ch.held >= need) return finish(m, c, ch, true, R.zoneHeld);
+      if (timeUp) return finish(m, c, ch, false, R.outOfTime);
       break;
     }
   }
@@ -170,7 +182,7 @@ function finalize(m: MissionRuntime, c: ChallengeDef, ch: ChState, won: boolean,
   const par = timed ? time <= (c.par?.time ?? c.timeLimit * 0.5) : losses <= (c.par?.losses ?? 8);
   const clean = structuresLost === 0 && kills + structuresKilled * 3 >= losses;
   const stars = won ? 1 + (par ? 1 : 0) + (clean ? 1 : 0) : 0;
-  ch.res = { won, time, score, stars, kills, structuresKilled, losses, structuresLost, bonus, bonusLabel: timed ? 'Time bonus' : kind === 'protect' ? 'Condition bonus' : 'Base intact', reason };
+  ch.res = { won, time, score, stars, kills, structuresKilled, losses, structuresLost, bonus, bonusLabel: timed ? S.bonus.time : kind === 'protect' ? S.bonus.condition : S.bonus.base, reason };
   m.score = score;
 }
 

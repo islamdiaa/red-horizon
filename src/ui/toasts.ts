@@ -2,6 +2,9 @@
 import { formatTime } from '../core/util';
 import { el, esc, type UiSound } from './dom';
 import { ICONS } from './icons';
+import { ARIA_TEXT } from './a11y-strings';
+import { trSource } from '../i18n/core';
+import tToasts from '../i18n/en/toasts';
 
 export type ToastKind = 'warn' | 'info' | 'success' | 'economy';
 
@@ -42,23 +45,37 @@ export class Toasts {
   constructor(parent: HTMLElement, bellParent: HTMLElement, private clock: () => number, private sound: UiSound) {
     this.stack = el('div');
     this.stack.id = 'toasts';
+    this.stack.setAttribute('role', 'log'); // new toasts are read out politely
+    this.stack.setAttribute('aria-live', 'polite');
+    this.stack.setAttribute('aria-relevant', 'additions');
+    this.stack.setAttribute('aria-label', ARIA_TEXT.toasts);
     parent.appendChild(this.stack);
 
     this.bell = el('button', 'tb-btn tb-bell', `${ICONS.bell}<span class="bell-badge"></span>`);
-    this.bell.dataset.tip = '<div class="tt-head"><b>Event log</b></div><p>Recent battlefield reports.</p>';
+    this.bell.setAttribute('aria-label', ARIA_TEXT.eventLog);
+    this.bell.setAttribute('aria-expanded', 'false');
+    this.bell.dataset.tip = `<div class="tt-head"><b>${tToasts.html('logTitle')}</b></div><p>${tToasts.html('logTip')}</p>`;
     this.bell.dataset.tipSide = 'bottom';
     this.badge = this.bell.querySelector('.bell-badge')!;
     this.bell.onclick = () => { this.sound.play('click'); this.toggle(); };
     bellParent.appendChild(this.bell);
 
-    this.panel = el('div', 'notif-log panel', `<div class="nl-head">${ICONS.history}<b>Event log</b><span class="nl-count"></span><button class="nl-clear" data-tip="Clear log" data-tip-side="bottom">${ICONS.trash}</button></div><div class="nl-list"></div>`);
+    this.panel = el('div', 'notif-log panel', `<div class="nl-head">${ICONS.history}<b>${tToasts.html('logTitle')}</b><span class="nl-count"></span><button class="nl-clear" data-tip="${esc(tToasts.html('clearLog'))}" data-tip-side="bottom">${ICONS.trash}</button></div><div class="nl-list"></div>`);
     this.list = this.panel.querySelector('.nl-list')!;
+    this.panel.setAttribute('role', 'dialog');
+    this.panel.setAttribute('aria-label', ARIA_TEXT.eventLog);
+    this.panel.querySelector('.nl-clear')?.setAttribute('aria-label', ARIA_TEXT.clearLog);
     (this.panel.querySelector('.nl-clear') as HTMLElement).onclick = () => { this.log = []; this.renderLog(); this.sound.play('click'); };
     bellParent.appendChild(this.panel);
     this.renderLog();
   }
 
-  push(text: string, kind: ToastKind) {
+  /**
+   * Show a toast and log it; `logOnly` just logs it (the line is on screen as a subtitle). English from a
+   * registered source (announcer lines, mission scripts: src/i18n/core.ts sourceStrings) is shown translated.
+   */
+  push(text: string, kind: ToastKind, logOnly = false) {
+    text = trSource(text);
     const key = keyOf(text);
     const now = performance.now();
     // history (merge with a recent identical entry)
@@ -75,6 +92,7 @@ export class Toasts {
     }
     this.renderLog();
     this.renderBadge();
+    if (logOnly) return;
 
     // live toast (dedupe)
     const ex = this.active.find((a) => a.key === key && !a.leaving);
@@ -126,6 +144,7 @@ export class Toasts {
   toggle(open = !this.panel.classList.contains('open')) {
     this.panel.classList.toggle('open', open);
     this.bell.classList.toggle('active', open);
+    this.bell.setAttribute('aria-expanded', String(open));
     this.stack.classList.toggle('hush', open);
     if (open) {
       this.unread = 0;
@@ -142,7 +161,7 @@ export class Toasts {
   private renderLog() {
     (this.panel.querySelector('.nl-count') as HTMLElement).textContent = this.log.length ? String(this.log.length) : '';
     if (!this.log.length) {
-      this.list.innerHTML = `<div class="nl-empty">No reports yet, Commander.</div>`;
+      this.list.innerHTML = `<div class="nl-empty">${tToasts.html('empty')}</div>`;
       return;
     }
     this.list.innerHTML = this.log.map((e) =>

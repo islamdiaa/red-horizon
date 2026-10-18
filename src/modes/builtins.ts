@@ -8,6 +8,12 @@ import type { Building, Unit } from '../sim/entities';
 import { TICK_HZ } from '../sim/types';
 import type { ChallengeDef } from './types';
 import { findHill } from './koth';
+import { MODES_EN } from './text';
+
+// Titles, descriptions, objectives and radio lines are English (stored in challenge files, run in the simulation);
+// the screens translate them with trSource().
+const B = MODES_EN.builtin;
+const INTEL = MODES_EN.speaker.intelligence;
 
 export interface BuiltinChallenge {
   def: ChallengeDef;
@@ -71,11 +77,11 @@ const def = (d: Omit<ChallengeDef, 'v' | 'createdAt' | 'gameVersion' | 'source'>
 // -----------------------------------------------------------------------------------------------
 const lastBastion: BuiltinChallenge = {
   def: def({
-    id: 'b-last-bastion', builtin: 'b-last-bastion', title: 'Last Bastion',
-    description: 'A Soviet tank army is rolling on the last Allied base in the pass. Keep the Construction Yard standing for five minutes.',
+    id: 'b-last-bastion', builtin: 'b-last-bastion', title: B.lastBastion.title,
+    description: B.lastBastion.description,
     setup: { faction: 'allies', color: BLUE, opponents: [{ faction: 'soviet', difficulty: 'hard' }], mapSize: 64, water: 0.15, trees: 0.4, ore: 0.5, credits: 3000,
       startUnits: 'mcv', fog: true, timeOfDay: 'dusk', seed: 40404, climate: 'winter', weather: 'snow', dayCycle: false },
-    side: 0, ai: 'hard', goal: { kind: 'protect', label: 'Keep your Construction Yard standing for 5:00' }, timeLimit: 300, par: { losses: 10 },
+    side: 0, ai: 'hard', goal: { kind: 'protect', label: B.lastBastion.goal }, timeLimit: 300, par: { losses: 10 },
   }),
   script(m) {
     clearStart(m);
@@ -103,7 +109,7 @@ const lastBastion: BuiltinChallenge = {
       const yard = m.buildings(m.humanId, 'fact')[0];
       const to = yard ? [yard.x, yard.y] : [s0.x, s0.y];
       m.reinforce(1, waves[n][1], m.toward(s1, s0, 8, n % 2 ? 5 : -5), [to[0], to[1]]);
-      m.say('Intelligence', `Soviet wave ${n + 2} of 4 is on its way!`, 'intel');
+      m.say(INTEL, B.lastBastion.wave.replace('{n}', String(n + 2)), 'intel');
     }
     if (m.world.tick % (TICK_HZ * 6) === 3) {
       const yard = m.buildings(m.humanId, 'fact')[0];
@@ -116,11 +122,11 @@ const lastBastion: BuiltinChallenge = {
 // -----------------------------------------------------------------------------------------------
 const armouredClash: BuiltinChallenge = {
   def: def({
-    id: 'b-armoured-clash', builtin: 'b-armoured-clash', title: 'Armoured Clash',
-    description: 'Two tank columns meet in the open desert. No base, no reinforcements: destroy the Soviet column within four minutes.',
+    id: 'b-armoured-clash', builtin: 'b-armoured-clash', title: B.armouredClash.title,
+    description: B.armouredClash.description,
     setup: { faction: 'allies', color: BLUE, opponents: [{ faction: 'soviet', difficulty: 'hard' }], mapSize: 64, water: 0, trees: 0.25, ore: 0.3, credits: 0,
       startUnits: 'mcv', fog: false, timeOfDay: 'day', seed: 77012, climate: 'desert', weather: 'clear', dayCycle: false },
-    side: 0, ai: 'hard', goal: { kind: 'win', label: 'Destroy the Soviet column within 4:00' }, timeLimit: 240, par: { time: 150 },
+    side: 0, ai: 'hard', goal: { kind: 'win', label: B.armouredClash.goal }, timeLimit: 240, par: { time: 150 },
   }),
   script(m) {
     clearStart(m);
@@ -144,11 +150,11 @@ const armouredClash: BuiltinChallenge = {
 // -----------------------------------------------------------------------------------------------
 const decapitation: BuiltinChallenge = {
   def: def({
-    id: 'b-decapitation', builtin: 'b-decapitation', title: 'Decapitation',
-    description: 'Tanya and a light strike group are behind the lines. Blow up the Soviet Construction Yard before the garrison regroups: six minutes.',
+    id: 'b-decapitation', builtin: 'b-decapitation', title: B.decapitation.title,
+    description: B.decapitation.description,
     setup: { faction: 'allies', color: BLUE, opponents: [{ faction: 'soviet', difficulty: 'normal' }], mapSize: 64, water: 0.3, trees: 0.55, ore: 0.5, credits: 0,
       startUnits: 'mcv', fog: true, timeOfDay: 'night', seed: 91919, climate: 'temperate', weather: 'clear', dayCycle: false },
-    side: 0, ai: 'normal', goal: { kind: 'destroy', label: 'Destroy the Soviet Construction Yard within 6:00' }, timeLimit: 360, par: { time: 200 },
+    side: 0, ai: 'normal', goal: { kind: 'destroy', label: B.decapitation.goal }, timeLimit: 360, par: { time: 200 },
   }),
   script(m) {
     clearStart(m);
@@ -165,11 +171,11 @@ const decapitation: BuiltinChallenge = {
 // -----------------------------------------------------------------------------------------------
 const crossroads: BuiltinChallenge = {
   def: def({
-    id: 'b-crossroads', builtin: 'b-crossroads', title: 'Crossroads',
-    description: 'The Soviets hold the crossroads. Take it and keep it clear of enemy units for two minutes; counter-attacks come every minute.',
+    id: 'b-crossroads', builtin: 'b-crossroads', title: B.crossroads.title,
+    description: B.crossroads.description,
     setup: { faction: 'allies', color: BLUE, opponents: [{ faction: 'soviet', difficulty: 'hard' }], mapSize: 64, water: 0.3, trees: 0.45, ore: 0.6, credits: 2000,
       startUnits: 'mcv', fog: true, timeOfDay: 'day', seed: 24680, climate: 'temperate', weather: 'clear', dayCycle: false },
-    side: 0, ai: 'hard', goal: { kind: 'hold', seconds: 120, label: 'Hold the crossroads for 2:00 within 6:00' }, timeLimit: 360, par: { time: 220 },
+    side: 0, ai: 'hard', goal: { kind: 'hold', seconds: 120, label: B.crossroads.goal }, timeLimit: 360, par: { time: 220 },
   }),
   script(m) {
     clearStart(m);
@@ -192,7 +198,7 @@ const crossroads: BuiltinChallenge = {
       if (!zone) return;
       const types = [...rep('3tnk', 2 + Math.floor(n / 2)), ...rep('e1', 4 + n), ...(n >= 2 ? ['v2rl'] : []), ...(n >= 4 ? ['4tnk'] : [])];
       m.reinforce(1, types, m.toward(m.start(1), zone, 6, n % 2 ? 4 : -4), [zone.x, zone.y]);
-      m.say('Intelligence', `Soviet counter-attack inbound to the crossroads!`, 'intel');
+      m.say(INTEL, B.crossroads.counter, 'intel');
     }
   },
 };

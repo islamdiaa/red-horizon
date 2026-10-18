@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GAME_SPEEDS } from './config';
+import { GAME_SPEEDS, TEAM_COLORS } from './config';
 import { BUILDINGS, UNITS, type Faction } from './data/rules';
 import { generateMap } from './sim/mapgen';
 import { World, type PlayerSetup } from './sim/world';
@@ -15,7 +15,8 @@ import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
 import { setModelDetail } from './render/models/builder';
-import { hdModelsEnabled, hdReleaseAll, hdReleaseUploaded, hdRestoreTextures, hdTextures, onHdReady, setHdModels } from './render/models/hd'; // baked HD models
+import { hdModelsEnabled, hdReleaseAll, hdReleaseUploaded, hdRestoreTextures, hdStatus, hdTextures, onHdReady, setHdModels } from './render/models/hd'; // baked HD models
+import { registerDiagnostics } from './ui/a11y-diagnostics'; // battle status for bug reports
 import { hdModelsWanted, loadSettings } from './ui/settings';
 import { releaseGpuResources } from './render/gpuregistry';
 import { ShipWakes, type WakeShip } from './render/wakes';
@@ -45,6 +46,7 @@ import { MissionRuntime, type MissionDef } from './sim/mission';
 import { recordResult } from './missions/progress';
 import { MissionHud } from './ui/missionhud';
 import { SAVE_VERSION, deserializeWorld, serializeWorld, writeSave, type SaveData } from './sim/save';
+import { SIM_VERSION } from './sim/version';
 import { recalcPlayerEconomy } from './sim/production';
 import { ceasefireForSetup } from './sim/ceasefire';
 import { guardFrame } from './platform/errors';
@@ -52,7 +54,8 @@ import { watchContextLoss, type ContextWatch } from './platform/webgl';
 import { MetaTracker, showAchievementToast, showXpSummary } from './meta';
 import type { MatchSummary } from './meta';
 import { BattleReport } from './meta/report'; // battle report sampler (not sim state)
-import { applyMatchCosmetics, clearMatchCosmetics, playVictoryFanfare } from './meta/cosmetics'; // paint scheme, HUD theme, announcer, fanfare (presentation only)
+import { applyMatchCosmetics, playVictoryFanfare } from './meta/cosmetics'; // HUD theme, announcer, fanfare (presentation only)
+import { applyMatchPaint, clearMatchCosmetics } from './meta/paint'; // paint scheme
 import { loadCuratedMap } from './maps'; // curated skirmish maps
 import { ReplayRecorder } from './replay/recorder'; // replays
 import { buildMap, type MapDef } from './maps'; // custom maps from the editor
@@ -65,12 +68,14 @@ import type { PlaybackOptions } from './replay/format';
 import type { Personality } from './sim/ai-personality';
 import type { RivalRef } from './meta/rivals';
 import { attachRivals } from './ui/rivals'; // rivals radio
+import { clearSubtitles, showSubtitle } from './ui/a11y-subtitles'; // announcer captions
 import { attachCommanderPanel, commanderVisual } from './ui/commander'; // commander powers panel + visuals
 import { applyRoster, attachModeRuntime, isWhatIf, prepareModeSetup, startModes } from './modes/runtime';
 import type { AllySetup, BranchInfo, ChallengeDef } from './modes/types';
 import { conquestMission, type ConquestSetup } from './conquest/battle'; // conquest battles
 import { applyNetRoster, type NetSetup } from './net/roster'; // multiplayer roster
 import { hookRecordedDrops } from './net/takeover';
+import tHud, { trSource } from './i18n/en/hud'; // interface strings
 import type { NetLink } from './net/types';
 const _viewProbe = new THREE.Vector3(); // scratch for Game.inView
 
@@ -183,7 +188,7 @@ export interface GameCallbacks {
   onProgress?(frac: number, label: string): void;
 }
 
-export const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d, 0xe07b2a, 0x8e4fd0, 0x2aa8a8, 0x9aa0aa];
+export { TEAM_COLORS }; // (defined in config.ts: the menu uses it without loading the engine)
 
 const AI_NAMES = ['Gen. Volkov', 'Marshal Krukov', 'Col. Nadia', 'Gen. Stavros', 'Cdr. Bennett', 'Maj. Kane'];
 
@@ -269,7 +274,7 @@ export class Game {
   private canvas: HTMLCanvasElement;
 
   constructor(readonly setup: GameSetup, readonly audio: AudioSystem, private cb: GameCallbacks) {
-    cb.onProgress?.(0.05, 'Generating battlefield');
+    cb.onProgress?.(0.05, tHud('loading.battlefield'));
     setup = (this as { setup: GameSetup }).setup = withEconFlag(mutateSetup(prepareModeSetup(setup))); // branch / challenge moment as the load · co-op allies · mutators' conditions · the Commander economy flag (recorded with the match)
     applyModSet(withMutatorMods(setup.mods, setup.mutators)); // the match's mods (none: base rules), before anything reads the rules, plus the mutators' rule changes
     const def = setup.conquest ? conquestMission(setup.conquest) : setup.mission ? (setup.customMission && setup.customMap ? customMissionDef(setup.customMission, setup.customMap) : getMission(setup.mission)) ?? null : null; // custom missions
@@ -341,10 +346,11 @@ export class Game {
       for (const p of this.world.players) { this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
     }
 
-    applyMatchCosmetics({ teamColor: this.local.color, commanded: !setup.demo && !setup.replay, audio: this.audio }); // before the first model / portrait
-    cb.onProgress?.(0.2, 'Assembling armies');
+    applyMatchPaint(this.local.color, !setup.demo && !setup.replay); // before the first model / portrait
+    applyMatchCosmetics({ teamColor: this.local.color, commanded: !setup.demo && !setup.replay, audio: this.audio });
+    cb.onProgress?.(0.2, tHud('loading.armies'));
     prewarmModels();
-    cb.onProgress?.(0.3, 'Rendering terrain');
+    cb.onProgress?.(0.3, tHud('loading.terrain'));
     const old = document.getElementById('game-canvas');
     old?.remove();
     this.canvas = document.createElement('canvas');
@@ -391,6 +397,16 @@ export class Game {
     });
     this.gfx.scene.add(this.props.group);
     this.attachments.push(this.props);
+    this.attachments.push(registerDiagnostics('Battle', () => { // "Copy diagnostics" (ui/a11y-diagnostics.ts)
+      const hd = hdStatus();
+      const t = this.gfx.terrain?.textureStatus();
+      return {
+        quality: this.setup.quality, rules: this.setup.rules ?? 'commander', mode: this.setup.replay ? 'replay' : this.net ? 'multiplayer' : this.setup.mission ? 'mission' : 'skirmish',
+        map: `${this.world.map.w}x${this.world.map.h}`, players: this.world.players.length, tick: this.world.tick, units: this.world.units.length,
+        hd: hd.enabled ? `${hd.tier} ${hd.loaded.length} loaded / ${hd.pending.length} pending / ${hd.failed.length} failed, ${hd.textureMB} MB` : 'off',
+        terrain: t ? `${t.state} (${t.climate}, ${Math.round(t.bytes / 1048576)} MB)` : '?',
+      };
+    }));
     this.walls = new WallRenderer(this.world, this.gfx.fog, this.local);
     this.gfx.scene.add(this.walls.group);
     this.reticle = new TargetReticle(map);
@@ -428,7 +444,7 @@ export class Game {
     this.gfx.fog.snap(this.local);
 
     if (!setup.demo) {
-      cb.onProgress?.(0.55, 'Preparing armoury');
+      cb.onProgress?.(0.55, tHud('loading.armoury'));
       const ids = [...Object.keys(BUILDINGS), ...Object.keys(UNITS)].filter((id) => {
         const t = BUILDINGS[id] ?? UNITS[id];
         return t.owner.includes(this.local.faction);
@@ -441,7 +457,7 @@ export class Game {
         for (const [id, url] of renderThumbnails([type], this.local.color, undefined, undefined, this.local.faction)) this.thumbs.set(id, url);
       });
       this.attachments.push({ dispose: off });
-      cb.onProgress?.(0.9, 'Establishing battle control');
+      cb.onProgress?.(0.9, tHud('loading.control'));
       this.overlay = new Overlay(document.body);
       document.body.classList.toggle('faction-soviet', this.local.faction === 'soviet');
       this.hud = new Hud({
@@ -482,10 +498,13 @@ export class Game {
           if (this.net) return; // multiplayer: one pace for everybody
           const i = GAME_SPEEDS.findIndex((s) => Math.abs(s - this.speed) < 0.01);
           const next = GAME_SPEEDS[Math.max(0, Math.min(GAME_SPEEDS.length - 1, (i < 0 ? 0 : i) + dir))];
-          if (next !== this.speed) { this.speed = next; this.hud?.message(`Game speed ×${next}`); }
+          if (next !== this.speed) { this.speed = next; this.hud?.message(tHud('speed.changed', { n: next })); }
         },
       });
-      this.audio.onAnnounce = (text, key) => this.hud?.message(text, key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost' || key === 'ceasefire_warning' || key === 'ceasefire_over');
+      this.audio.onAnnounce = (text, key) => {
+        const warn = key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost' || key === 'ceasefire_warning' || key === 'ceasefire_over';
+        this.hud?.message(text, warn, undefined, !!this.hud && showSubtitle(text, { warn })); // captioned: the event log keeps it, no toast
+      };
       if (!this.world.mission) this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
       if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // rival radio + habit tracking (not in replay branches / challenges)
       if (this.world.commander) this.attachments.push(attachCommanderPanel(this)); // commander powers panel (Commander rules)
@@ -518,10 +537,10 @@ export class Game {
     if (!setup.demo && !setup.replay) this.report = new BattleReport(this.world, () => this.local, (s) => meta.onSample(s));
     if (!setup.demo) {
       // (the menu backdrop doesn't need it, and skipping it keeps "return to menu" quick)
-      cb.onProgress?.(0.95, 'Compiling shaders');
+      cb.onProgress?.(0.95, tHud('loading.shaders'));
       this.precompileShaders();
     }
-    cb.onProgress?.(1, 'Ready');
+    cb.onProgress?.(1, tHud('loading.ready'));
   }
 
   issue(cmd: Command) {
@@ -772,9 +791,13 @@ export class Game {
     if (!this.paused) this.tracks.update(this.alpha, this.time);
     this.life.update(fdt, this.time, this.gfx.night, this.gfx.cam.x, this.gfx.cam.y);
     this.props.update(world.buildings, this.gfx.night, dt);
-    if (this.timedEmitters.length) {
-      for (const t of this.timedEmitters) if (this.time > t.until) t.h.dispose();
-      this.timedEmitters = this.timedEmitters.filter((t) => this.time <= t.until);
+    if (this.timedEmitters.length) { // (compacted in place: no per-frame array)
+      let n = 0;
+      for (const t of this.timedEmitters) {
+        if (this.time > t.until) t.h.dispose();
+        else this.timedEmitters[n++] = t;
+      }
+      this.timedEmitters.length = n;
     }
     for (const p of this.gfx.vegetation.syncTrees()) {
       if (this.gfx.fog.visibilityAt(p.x, p.z) > 0.2) this.effects.explosion(p.clone().setY(p.y + 0.4), 'fire', 0.8);
@@ -920,7 +943,7 @@ export class Game {
           break;
         case 'infiltrate':
           if (!demo && this.overlay && (ev.player === this.local.id || ev.victim === this.local.id)) {
-            const text = ev.kind === 'thief' ? (ev.victim === this.local.id ? `-$${ev.amount}` : `+$${ev.amount}`) : ev.player === this.local.id ? 'INFILTRATED' : 'SPY!';
+            const text = ev.kind === 'thief' ? (ev.victim === this.local.id ? `-$${ev.amount}` : `+$${ev.amount}`) : tHud(ev.player === this.local.id ? 'float.infiltrated' : 'float.spy');
             this.overlay.addFloat(ev.x, world.map.heightAt(ev.x, ev.y) + 1.8, ev.y, text, ev.victim === this.local.id ? '#ff6a4a' : '#7fe0ff');
           }
           break;
@@ -968,7 +991,7 @@ export class Game {
             const p3 = new THREE.Vector3(b.x, world.map.heightAt(b.x, b.y) + 0.2, b.y);
             this.effects.chronoFlash(p3);
             this.effects.constructionBurst(p3, Math.max(b.w, b.h));
-            if (!demo && this.overlay && (ev.to === this.local.id || ev.from === this.local.id)) this.overlay.addFloat(b.x, p3.y + 1.2, b.y, ev.to === this.local.id ? 'CAPTURED' : 'STRUCTURE LOST', ev.to === this.local.id ? '#8dffb0' : '#ff6a5a');
+            if (!demo && this.overlay && (ev.to === this.local.id || ev.from === this.local.id)) this.overlay.addFloat(b.x, p3.y + 1.2, b.y, tHud(ev.to === this.local.id ? 'float.captured' : 'float.structureLost'), ev.to === this.local.id ? '#8dffb0' : '#ff6a5a');
           }
           break;
         }
@@ -979,7 +1002,7 @@ export class Game {
             this.effects.oreSparkle(p3, false);
             this.effects.healPulse(p3);
             if (!demo && u.owner === this.local && this.overlay) {
-              this.overlay.addFloat(u.x, p3.y + 0.5, u.y, ev.rank >= 2 ? '★ ELITE' : '▲ VETERAN', '#ffe27a');
+              this.overlay.addFloat(u.x, p3.y + 0.5, u.y, ev.rank >= 2 ? `★ ${tHud('float.elite')}` : `▲ ${tHud('float.veteran')}`, '#ffe27a');
               this.audio.stinger('promotion');
             }
           }
@@ -993,7 +1016,7 @@ export class Game {
             this.effects.healPulse(p3);
           }
           if (!demo && ev.player === this.local.id && this.overlay) {
-            const label = ev.reward === 'money' ? `+$${ev.amount}` : ev.reward === 'unit' ? 'Reinforcements!' : ev.reward === 'heal' ? 'Field repair' : 'Area revealed';
+            const label = ev.reward === 'money' ? `+$${ev.amount}` : tHud(ev.reward === 'unit' ? 'float.reinforcements' : ev.reward === 'heal' ? 'float.fieldRepair' : 'float.revealed');
             this.overlay.addFloat(ev.x, p3.y + 0.8, ev.y, label, ev.reward === 'money' ? '#ffd34d' : '#8dffb0');
           }
           break;
@@ -1001,7 +1024,7 @@ export class Game {
         case 'eliminated':
           if (!demo) {
             const p = world.players[ev.player];
-            this.hud?.message(p === this.local ? 'You have been defeated' : `${p.name} has been eliminated`, p === this.local);
+            this.hud?.message(p === this.local ? tHud('msg.defeated') : tHud('msg.eliminated', { name: p.name }), p === this.local, p === this.local ? undefined : 'success');
           }
           break;
         case 'gameover':
@@ -1017,7 +1040,8 @@ export class Game {
             this.audio.announce(won ? 'mission_accomplished' : 'mission_failed');
             if (!(won && playVictoryFanfare())) this.audio.stinger(won ? 'victory' : 'defeat'); // equipped victory fanfare
             this.endTimer = 4.5;
-            const sub = this.missionDef ? `Operation ${this.missionDef.codename}` : world.mission?.endReason ?? (won ? 'All enemy forces destroyed' : 'Your forces have been overrun'); // KOTH / challenge reason
+            const reason = world.mission?.endReason; // KOTH / challenge reason (the mode's English: translated here)
+            const sub = this.missionDef ? tHud('end.operation', { name: this.missionDef.codename }) : reason != null ? trSource(reason) : tHud(won ? 'end.won' : 'end.lost');
             this.endCine = endingCinematic(won, sub, this.gfx); // lens
             // slow-motion sweep to the final explosion
             this.speed = 0.35;
@@ -1062,7 +1086,7 @@ export class Game {
     const { load: _ignore, ...setup } = this.setup;
     const label = this.missionDef ? `Operation ${this.missionDef.codename}` : `Skirmish · ${this.local.faction === 'allies' ? 'Allies' : 'Soviets'} vs ${this.world.players.length - 1}`;
     const data: SaveData = {
-      version: SAVE_VERSION, savedAt: Date.now(), world: serializeWorld(this.world),
+      version: SAVE_VERSION, sim: SIM_VERSION, savedAt: Date.now(), world: serializeWorld(this.world),
       game: {
         setup, label, hours: this.hours, wxIdx: this.wxIdx, wxTimer: this.wxTimer, time: this.world.time,
         cam: { x: cam.x, y: cam.y, dist: cam.targetDist, yaw: cam.targetYaw },
@@ -1167,6 +1191,7 @@ export class Game {
     for (const a of this.attachments) a.dispose();
     if (!this.setup.demo && meta.active) meta.abandon(); // quit / restart mid-battle
     clearMatchCosmetics(); // factory colours again
+    if (Rubble.current === this.rubble) Rubble.current = null; // (the static pointer would keep this whole match alive)
     this.contextWatch?.dispose(); // first: forceContextLoss below must not trigger the lost-context overlay
     this.contextWatch = null;
     this.running = false;
@@ -1194,6 +1219,7 @@ export class Game {
     if (ui) ui.innerHTML = '';
     this.canvas.remove();
     this.audio.onAnnounce = undefined;
+    clearSubtitles();
     document.body.classList.remove('faction-soviet');
   }
 }

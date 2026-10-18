@@ -21,6 +21,15 @@ import {
 import { LAND_D, SEA_D, VIEW, borderEdges, buildMesh, outlineLoops, partition, polyPath, type Pt } from '../conquest/geo';
 import type { World } from '../sim/world';
 import type { Faction } from '../data/rules';
+import type { PerkDef } from '../conquest/data';
+import { fmtDateTime, fmtInt, fmtMoney } from '../i18n/core';
+import { typeName } from '../i18n/names';
+import tCq from '../i18n/en/conquest';
+import tCommon from '../i18n/en/common';
+import {
+  doctrineDesc, doctrineName, kindDesc, kindName, monthYear, perkDesc, perkName, personalityDesc, personalityName, researchDesc, researchName,
+  resourceDesc, resourceName, titleDesc, titleName, trLog, trRun,
+} from '../conquest/i18n';
 
 export interface ConquestUiOptions {
   play(k: 'click' | 'tab'): void;
@@ -251,17 +260,17 @@ function injectCss() {
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+const money = (n: number) => fmtMoney(Math.round(n));
 const fmtT = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const unitName = (t: string) => UNITS[t]?.name ?? t;
+const unitName = (t: string) => (UNITS[t] ? typeName(UNITS[t]) : t);
 const SIDE_RGB: Record<Faction | 'neutral', string> = { allies: '61,123,224', soviet: '210,58,44', neutral: '201,166,64' };
-const sideName = (f: Faction) => (f === 'allies' ? 'Allied' : 'Soviet');
-const TERRAIN_INFO: Record<string, { name: string; icon: string }> = {
-  plains: { name: 'Plains', icon: 'sun' }, forest: { name: 'Forest', icon: 'tree' }, mountain: { name: 'Mountains', icon: 'chevrons' }, lakes: { name: 'Lake country', icon: 'wave' },
-  river: { name: 'River valley', icon: 'bridge' }, coast: { name: 'Coast', icon: 'anchor' }, urban: { name: 'Industrial city', icon: 'building' }, steppe: { name: 'Steppe', icon: 'dust' },
-  islands: { name: 'Islands', icon: 'anchor' },
-};
+const TERRAIN_ICON: Record<string, string> = { plains: 'sun', forest: 'tree', mountain: 'chevrons', lakes: 'wave', river: 'bridge', coast: 'anchor', urban: 'building', steppe: 'dust', islands: 'anchor' };
 const CLIMATE_ICON: Record<string, string> = { temperate: 'sun', winter: 'snow', desert: 'dust' };
+type CqKey = Parameters<typeof tCq>[0];
+const terrainName = (t: string) => tCq(`terrain.${t}` as CqKey);
+const climateName = (c: string) => tCq(`climate.${c}` as CqKey);
+const difficultyName = (d: string) => tCq(`difficulty.${d}` as CqKey);
+const perkTag = (p: PerkDef) => tCq(`tag.${p.tag.toLowerCase()}` as CqKey);
 
 // =====================================================================================================
 // Map geometry (cached per run)
@@ -453,10 +462,10 @@ export function showConquestAfterBattle(world: World, setup: ConquestSetup, opts
   if (ok && run?.report) {
     run.reportSeen = true;
     saveRun(run);
-    host.innerHTML = `<div class="cq-panel cq-dlg">${reportHtml(run, run.report, 'Continue')}</div>`;
+    host.innerHTML = `<div class="cq-panel cq-dlg">${reportHtml(run, run.report, tCommon('continue'))}</div>`;
   } else {
-    host.innerHTML = `<div class="cq-panel cq-dlg narrow cq-big ${outcome.won ? '' : 'lose'}"><div class="cq-kick">Conquest</div><h1>${outcome.won ? 'Victory' : 'Defeat'}</h1>
-      <p class="cq-p">This battle no longer belongs to an active campaign, so its result was not recorded.</p><div class="cq-actions"><button class="cq-btn pri" data-act="go">Main menu</button></div></div>`;
+    host.innerHTML = `<div class="cq-panel cq-dlg narrow cq-big ${outcome.won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('report.conquest'))}</div><h1>${esc(tCommon(outcome.won ? 'victory' : 'defeat'))}</h1>
+      <p class="cq-p">${esc(tCq('report.orphan'))}</p><div class="cq-actions"><button class="cq-btn pri" data-act="go">${esc(tCq('report.mainMenu'))}</button></div></div>`;
   }
   animateRows(host);
   (host.querySelector('[data-act="go"]') as HTMLElement).onclick = () => { opts.play('click'); close(); ok ? opts.onContinue() : opts.onMenu(); };
@@ -486,27 +495,28 @@ function animateRows(root: HTMLElement) {
 }
 
 function reportHtml(run: ConquestRun, rep: NonNullable<ConquestRun['report']>, goLabel: string): string {
-  const title = rep.won ? (rep.action === 'defend' ? 'Line held' : 'Victory') : rep.action === 'defend' ? 'Territory lost' : 'Repulsed';
-  const sub = rep.won ? (rep.captured ? `${rep.name} captured` : `${rep.name} defended`) : rep.lost ? `${rep.name} has fallen to the enemy` : `The attack on ${rep.name} failed`;
+  const title = tCq(rep.won ? (rep.action === 'defend' ? 'report.lineHeld' : 'report.victory') : rep.action === 'defend' ? 'report.territoryLost' : 'report.repulsed');
+  const territory = rep.name;
+  const sub = tCq(rep.won ? (rep.captured ? 'report.captured' : 'report.defended') : rep.lost ? 'report.fallen' : 'report.failed', { territory });
   const rows: [string, string][] = [];
-  rows.push(['Battle time', `${fmtT(rep.time)} (par ${fmtT(rep.par)})`]);
-  rows.push(['Funds committed', money(rep.committed)]);
-  rows.push(['Credits returned to the war chest', money(rep.returned)]);
-  if (rep.loot) rows.push([rep.captured ? 'Spoils of war' : 'Defence bounty', money(rep.loot)]);
-  for (const b of rep.bonus) rows.push([b.label, [b.credits ? money(b.credits) : '', b.rp ? `+${b.rp} RP` : ''].filter(Boolean).join(' · ')]);
-  if (rep.rp) rows.push(['Research points', `+${rep.rp}`]);
-  if (rep.morale) rows.push(['Morale', rep.morale > 0 ? '+1' : '-1']);
-  rows.push(['Enemy units & structures destroyed', String(rep.kills)]);
-  rows.push(['Units lost', String(rep.losses)]);
-  const vets = rep.veterans.map((v) => `<span class="cq-vet ${v.fate}" title="${esc(unitName(v.type))}">${rankBadge(v.rank)}${esc(v.name)} <small>${esc(unitName(v.type))} · ${({ survived: 'survived', promoted: 'promoted', lost: 'killed in action', recovered: 'recovered', recruit: 'joins the core' } as Record<string, string>)[v.fate]}</small></span>`).join('');
-  const objs = rep.objectives.map((o) => `<div class="cq-le ${o.state === 'done' ? 'win' : o.state === 'failed' ? 'loss' : ''}"><i>${o.state === 'done' ? '✔' : o.state === 'failed' ? '✖' : '·'}</i>${esc(o.text)}${o.primary ? '' : ' <small style="color:#7c8b9b">(optional)</small>'}</div>`).join('');
+  rows.push([tCq('report.time'), tCq('report.timePar', { time: fmtT(rep.time), par: fmtT(rep.par) })]);
+  rows.push([tCq('report.committed'), money(rep.committed)]);
+  rows.push([tCq('report.returned'), money(rep.returned)]);
+  if (rep.loot) rows.push([tCq(rep.captured ? 'report.spoils' : 'report.bounty'), money(rep.loot)]);
+  for (const b of rep.bonus) rows.push([trRun(b.label), [b.credits ? money(b.credits) : '', b.rp ? tCq('report.rpPlus', { n: b.rp }) : ''].filter(Boolean).join(' · ')]);
+  if (rep.rp) rows.push([tCq('report.researchPoints'), tCq('report.plus', { n: rep.rp })]);
+  if (rep.morale) rows.push([tCq('report.morale'), rep.morale > 0 ? '+1' : '-1']);
+  rows.push([tCq('report.kills'), fmtInt(rep.kills)]);
+  rows.push([tCq('report.losses'), fmtInt(rep.losses)]);
+  const vets = rep.veterans.map((v) => `<span class="cq-vet ${v.fate}" title="${esc(unitName(v.type))}">${rankBadge(v.rank)}${esc(v.name)} <small>${esc(unitName(v.type))} · ${esc(tCq(`fate.${v.fate}`))}</small></span>`).join('');
+  const objs = rep.objectives.map((o) => `<div class="cq-le ${o.state === 'done' ? 'win' : o.state === 'failed' ? 'loss' : ''}"><i>${o.state === 'done' ? '✔' : o.state === 'failed' ? '✖' : '·'}</i>${esc(trRun(o.text))}${o.primary ? '' : ` <small style="color:#7c8b9b">${esc(tCq('report.optional'))}</small>`}</div>`).join('');
   return `
-    <div class="cq-big ${rep.won ? '' : 'lose'}"><div class="cq-kick">Battle report · ${esc(KIND_INFO[rep.kind].name)} · ${esc(run.name)}</div><h1>${title}</h1><h3>${esc(sub)}</h3></div>
+    <div class="cq-big ${rep.won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('report.kick', { kind: kindName(rep.kind), operation: run.name }))}</div><h1>${esc(title)}</h1><h3>${esc(sub)}</h3></div>
     <div class="cq-cols">
-      <div class="cq-sec"><div class="cq-h4">Rewards</div><div class="cq-rows">${rows.map(([l, v]) => `<div class="cq-row"><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</div></div>
-      <div class="cq-sec"><div class="cq-h4">Objectives</div>${objs || '<div class="cq-p">No objective record.</div>'}
-        <div class="cq-h4" style="margin-top:14px">Core army</div><div class="cq-vets">${vets || '<span class="cq-p">No veterans deployed.</span>'}</div>
-        ${rep.perkOffered ? '<p class="cq-p" style="color:#ffe08a">High Command offers a new doctrine.</p>' : ''}</div>
+      <div class="cq-sec"><div class="cq-h4">${esc(tCq('report.rewards'))}</div><div class="cq-rows">${rows.map(([l, v]) => `<div class="cq-row"><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</div></div>
+      <div class="cq-sec"><div class="cq-h4">${esc(tCq('report.objectives'))}</div>${objs || `<div class="cq-p">${esc(tCq('report.noObjectives'))}</div>`}
+        <div class="cq-h4" style="margin-top:14px">${esc(tCq('report.coreArmy'))}</div><div class="cq-vets">${vets || `<span class="cq-p">${esc(tCq('report.noVeterans'))}</span>`}</div>
+        ${rep.perkOffered ? `<p class="cq-p" style="color:#ffe08a">${esc(tCq('report.perkOffered'))}</p>` : ''}</div>
     </div>
     <div class="cq-actions"><button class="cq-btn pri" data-act="go">${esc(goLabel)}</button></div>`;
 }
@@ -596,42 +606,43 @@ class ConquestScreen {
       const nextDoc = DOCTRINES.filter((d) => d.renown > meta.renown).sort((a, b) => a.renown - b.renown)[0];
       const prevDoc = DOCTRINES.filter((d) => d.renown <= meta.renown).sort((a, b) => b.renown - a.renown)[0];
       const frac = nextDoc ? (meta.renown - (prevDoc?.renown ?? 0)) / Math.max(1, nextDoc.renown - (prevDoc?.renown ?? 0)) : 1;
-      const title = meta.title ? TITLES.find((t) => t.id === meta.title)?.name : null;
+      const titleDef = meta.title ? TITLES.find((t) => t.id === meta.title) : undefined;
+      const title = titleDef ? titleName(titleDef) : null;
       root.innerHTML = `<div class="cq-new-in">
         <div class="cq-panel">
-          <div class="cq-kick">Conquest · Europe 1953</div>
-          <h1 style="margin:4px 0 2px;font-size:38px;letter-spacing:.16em">NEW CAMPAIGN</h1>
-          <p class="cq-p">Conquer a Europe drawn fresh for every campaign. Choose a side and a doctrine, then fight your way territory by territory to the enemy capital. Your veterans, war chest, research and doctrines carry from battle to battle. Lose your capital, or your army's morale, and the campaign is over.</p>
-          <div class="cq-h4" style="margin-top:14px">Side</div>
+          <div class="cq-kick">${esc(tCq('new.kick'))}</div>
+          <h1 style="margin:4px 0 2px;font-size:38px;letter-spacing:.16em">${esc(tCq('new.title'))}</h1>
+          <p class="cq-p">${esc(tCq('new.intro'))}</p>
+          <div class="cq-h4" style="margin-top:14px">${esc(tCq('new.side'))}</div>
           <div class="cq-facs">
-            <button class="cq-fac allies ${faction === 'allies' ? 'on' : ''}" data-fac="allies"><span class="emb">${alliedEmblem()}</span><div><b>ALLIES</b><span>Strike east from London or Paris and take Moscow.</span></div></button>
-            <button class="cq-fac soviet ${faction === 'soviet' ? 'on' : ''}" data-fac="soviet"><span class="emb">${sovietEmblem()}</span><div><b>SOVIETS</b><span>Roll west from Moscow and raise the red flag over the Allied capital.</span></div></button>
+            <button class="cq-fac allies ${faction === 'allies' ? 'on' : ''}" data-fac="allies"><span class="emb">${alliedEmblem()}</span><div><b>${esc(tCq('new.allies'))}</b><span>${esc(tCq('new.alliesBlurb'))}</span></div></button>
+            <button class="cq-fac soviet ${faction === 'soviet' ? 'on' : ''}" data-fac="soviet"><span class="emb">${sovietEmblem()}</span><div><b>${esc(tCq('new.soviet'))}</b><span>${esc(tCq('new.sovietBlurb'))}</span></div></button>
           </div>
           <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end">
-            <div><div class="cq-h4">Difficulty</div><div class="cq-seg">${(['easy', 'normal', 'hard'] as Difficulty[]).map((d) => `<button data-diff="${d}" class="${d === difficulty ? 'on' : ''}">${d === 'easy' ? 'Recruit' : d === 'normal' ? 'Regular' : 'Veteran'}</button>`).join('')}</div></div>
-            <div><div class="cq-h4">Campaign seed</div><div class="cq-seed"><input data-seed value="${seed}" inputmode="numeric"><button class="cq-btn" data-act="dice" title="New seed">${picto('crate')}</button></div></div>
+            <div><div class="cq-h4">${esc(tCq('new.difficulty'))}</div><div class="cq-seg">${(['easy', 'normal', 'hard'] as Difficulty[]).map((d) => `<button data-diff="${d}" class="${d === difficulty ? 'on' : ''}">${esc(difficultyName(d))}</button>`).join('')}</div></div>
+            <div><div class="cq-h4">${esc(tCq('new.seed'))}</div><div class="cq-seed"><input data-seed value="${seed}" inputmode="numeric" aria-label="${esc(tCq('new.seed'))}"><button class="cq-btn" data-act="dice" title="${esc(tCq('new.newSeed'))}" aria-label="${esc(tCq('new.newSeed'))}">${picto('crate')}</button></div></div>
           </div>
-          <div class="cq-h4" style="margin-top:18px">Doctrine</div>
+          <div class="cq-h4" style="margin-top:18px">${esc(tCq('new.doctrine'))}</div>
           <div class="cq-docs">${DOCTRINES.map((d) => {
             const ok = unlockedDoc(d);
-            return `<button class="cq-card ${d.id === doctrine ? 'on' : ''} ${ok ? '' : 'locked'}" data-doc="${d.id}"><div class="ic">${picto(d.icon)}</div><b>${esc(d.name)}</b><span>${esc(d.desc)}</span>${ok ? '' : `<div class="lk">${picto('lock')} ${d.renown} renown</div>`}</button>`;
+            return `<button class="cq-card ${d.id === doctrine ? 'on' : ''} ${ok ? '' : 'locked'}" data-doc="${d.id}"><div class="ic">${picto(d.icon)}</div><b>${esc(doctrineName(d))}</b><span>${esc(doctrineDesc(d))}</span>${ok ? '' : `<div class="lk">${picto('lock')} ${esc(tCq('new.renownNeeded', { n: d.renown }))}</div>`}</button>`;
           }).join('')}</div>
-          <div class="cq-actions"><button class="cq-btn" data-act="back">Back</button><button class="cq-btn pri" data-act="begin">${picto('flag')}Begin campaign</button></div>
+          <div class="cq-actions"><button class="cq-btn" data-act="back">${esc(tCommon('back'))}</button><button class="cq-btn pri" data-act="begin">${picto('flag')}${esc(tCq('new.begin'))}</button></div>
         </div>
         <div class="cq-panel cq-metab">
-          <div class="cq-kick">Conquest record</div>
+          <div class="cq-kick">${esc(tCq('new.record'))}</div>
           ${title ? `<div class="cq-chip gold">${picto('laurel')}${esc(title)}</div>` : ''}
-          <div><div class="cq-renown">${meta.renown.toLocaleString('en-US')}</div><small style="letter-spacing:.24em;color:#8a99aa">RENOWN</small></div>
+          <div><div class="cq-renown">${fmtInt(meta.renown)}</div><small style="letter-spacing:.24em;color:#8a99aa">${esc(tCq('new.renown'))}</small></div>
           <div class="cq-bar2"><i style="width:${Math.round(frac * 100)}%"></i></div>
-          <div style="font-size:12.5px;color:#a9b8c8">${nextDoc ? `Next unlock: <b style="color:#ffe08a">${esc(nextDoc.name)}</b> at ${nextDoc.renown} renown` : 'Every doctrine unlocked.'}</div>
+          <div style="font-size:12.5px;color:#a9b8c8">${nextDoc ? tCq.html('new.nextUnlock', { name: doctrineName(nextDoc), n: nextDoc.renown }).replace('<b>', '<b style="color:#ffe08a">') : esc(tCq('new.allUnlocked'))}</div>
           <div class="cq-grid">
-            <div class="cq-cell"><small>Campaigns</small><b>${meta.runs}</b></div><div class="cq-cell"><small>Victories</small><b>${meta.victories}</b></div>
-            <div class="cq-cell"><small>Best score</small><b>${meta.bestScore.toLocaleString('en-US')}</b></div><div class="cq-cell"><small>Fastest win</small><b>${meta.bestTurns ? `${meta.bestTurns} turns` : '—'}</b></div>
+            <div class="cq-cell"><small>${esc(tCq('new.campaigns'))}</small><b>${fmtInt(meta.runs)}</b></div><div class="cq-cell"><small>${esc(tCq('new.victories'))}</small><b>${fmtInt(meta.victories)}</b></div>
+            <div class="cq-cell"><small>${esc(tCq('new.bestScore'))}</small><b>${fmtInt(meta.bestScore)}</b></div><div class="cq-cell"><small>${esc(tCq('new.fastestWin'))}</small><b>${meta.bestTurns ? esc(tCq('new.turns', { n: meta.bestTurns })) : '—'}</b></div>
           </div>
-          <div class="cq-h4">Titles</div>
-          <div class="cq-chips">${TITLES.map((t) => `<span class="cq-chip ${meta.titles.includes(t.id) ? 'gold' : ''}" title="${esc(t.desc)}" style="${meta.titles.includes(t.id) ? 'cursor:pointer' : 'opacity:.45'}" data-title="${t.id}">${meta.titles.includes(t.id) ? picto('laurel') : picto('lock')}${esc(t.name)}</span>`).join('')}</div>
-          <div class="cq-h4">Recent campaigns</div>
-          <div class="cq-hist">${meta.history.length ? meta.history.slice(0, 6).map((h) => `<div><span class="${h.status === 'won' ? 'w' : 'l'}">${h.status === 'won' ? 'Victory' : 'Defeat'} · ${h.faction === 'allies' ? 'Allies' : 'Soviets'}</span><span>${h.turns} turns · ${h.score.toLocaleString('en-US')}</span></div>`).join('') : '<div>No campaigns yet.</div>'}</div>
+          <div class="cq-h4">${esc(tCq('new.titles'))}</div>
+          <div class="cq-chips">${TITLES.map((t) => `<span class="cq-chip ${meta.titles.includes(t.id) ? 'gold' : ''}" title="${esc(titleDesc(t))}" style="${meta.titles.includes(t.id) ? 'cursor:pointer' : 'opacity:.45'}" data-title="${t.id}">${meta.titles.includes(t.id) ? picto('laurel') : picto('lock')}${esc(titleName(t))}</span>`).join('')}</div>
+          <div class="cq-h4">${esc(tCq('new.recent'))}</div>
+          <div class="cq-hist">${meta.history.length ? meta.history.slice(0, 6).map((h) => `<div><span class="${h.status === 'won' ? 'w' : 'l'}">${esc(tCommon(h.status === 'won' ? 'victory' : 'defeat'))} · ${esc(tCommon(h.faction === 'allies' ? 'faction.allies' : 'faction.soviet'))}</span><span>${esc(tCq('new.turnsScore', { n: h.turns, score: fmtInt(h.score) }))}</span></div>`).join('') : `<div>${esc(tCq('new.noCampaigns'))}</div>`}</div>
         </div>
       </div>`;
       root.querySelectorAll<HTMLElement>('[data-fac]').forEach((b) => (b.onclick = () => { faction = b.dataset.fac as Faction; this.opts.play('tab'); draw(); }));
@@ -673,22 +684,22 @@ class ConquestScreen {
     document.body.classList.toggle('faction-soviet', run.faction === 'soviet');
     const root = document.createElement('div');
     root.className = 'cq';
-    const date = dateOf(run.turn);
+    const date = monthYear(run.turn);
     const inc = income(run);
-    const hint = run.status !== 'active' ? (run.status === 'won' ? 'The war is won' : 'The campaign is over')
-      : run.pending ? `Battle of ${run.pending.spec.name} in progress`
-      : run.threat ? `${territory(run, run.threat.target).name} is under attack! Defend it or lose it`
-      : 'Choose a territory to attack';
+    const hint = run.status !== 'active' ? tCq(run.status === 'won' ? 'map.hintWon' : 'map.hintOver')
+      : run.pending ? tCq('map.hintBattle', { territory: run.pending.spec.name })
+      : run.threat ? tCq('map.hintThreat', { territory: territory(run, run.threat.target).name })
+      : tCq('map.hintChoose');
     root.innerHTML = `
       <div class="cq-panel cq-top">
         <div class="cq-emb">${run.faction === 'allies' ? alliedEmblem() : sovietEmblem()}</div>
-        <div class="cq-ttl"><div class="cq-kick">Conquest · ${sideName(run.faction)} High Command · ${({ easy: 'Recruit', normal: 'Regular', hard: 'Veteran' } as Record<string, string>)[run.difficulty]}</div><h1>${esc(run.name)}</h1></div>
+        <div class="cq-ttl"><div class="cq-kick">${esc(tCq(run.faction === 'allies' ? 'map.kickAllies' : 'map.kickSoviet', { difficulty: difficultyName(run.difficulty) }))}</div><h1>${esc(run.name)}</h1></div>
         <div class="cq-stats">
-          <div class="cq-stat">${picto('calendar')}<div><small>Turn ${run.turn}</small><b>${esc(date.label)}</b></div></div>
-          <div class="cq-stat gold" title="Income next turn: ${money(inc.credits)}">${picto('coin')}<div><small>War chest</small><b>${money(run.warChest)}</b></div></div>
-          <div class="cq-stat">${picto('chart')}<div><small>Research</small><b>${run.rp} RP</b></div></div>
-          <div class="cq-stat ${run.morale <= 1 ? 'warn' : ''}" title="Lose a battle: -1. At zero the campaign is lost.">${picto('ironwill')}<div><small>Morale</small><b class="cq-hearts">${Array.from({ length: run.moraleMax }, (_, k) => `<i class="${k < run.morale ? 'on' : ''}"></i>`).join('')}</b></div></div>
-          <div class="cq-stat">${picto('chevrons')}<div><small>Core army</small><b>${run.core.length} / ${coreCapacity(run)}</b></div></div>
+          <div class="cq-stat">${picto('calendar')}<div><small>${esc(tCq('map.turn', { n: run.turn }))}</small><b>${esc(date)}</b></div></div>
+          <div class="cq-stat gold" title="${esc(tCq('map.incomeTip', { money: money(inc.credits) }))}">${picto('coin')}<div><small>${esc(tCq('map.warChest'))}</small><b>${money(run.warChest)}</b></div></div>
+          <div class="cq-stat">${picto('chart')}<div><small>${esc(tCq('map.research'))}</small><b>${esc(tCq('map.rp', { n: run.rp }))}</b></div></div>
+          <div class="cq-stat ${run.morale <= 1 ? 'warn' : ''}" title="${esc(tCq('map.moraleTip'))}">${picto('ironwill')}<div><small>${esc(tCq('map.morale'))}</small><b class="cq-hearts" role="img" aria-label="${run.morale} / ${run.moraleMax}">${Array.from({ length: run.moraleMax }, (_, k) => `<i class="${k < run.morale ? 'on' : ''}"></i>`).join('')}</b></div></div>
+          <div class="cq-stat">${picto('chevrons')}<div><small>${esc(tCq('map.coreArmy'))}</small><b>${esc(tCq('map.slots', { n: run.core.length, max: coreCapacity(run) }))}</b></div></div>
         </div>
       </div>
       <div class="cq-main">
@@ -696,26 +707,26 @@ class ConquestScreen {
           <div class="cq-sweep"></div>
           ${mapSvg(run, this.selected)}
           <div class="cq-legend">
-            <span><i style="background:rgba(${SIDE_RGB[run.faction]},0.75)"></i>${run.faction === 'allies' ? 'ALLIED' : 'SOVIET'} (YOU)</span>
-            <span><i style="background:repeating-linear-gradient(35deg,rgba(${SIDE_RGB[run.enemy]},0.8) 0 2px,rgba(${SIDE_RGB[run.enemy]},0.35) 2px 5px)"></i>${run.enemy === 'allies' ? 'ALLIED' : 'SOVIET'}</span>
-            <span><i style="background:rgba(${SIDE_RGB.neutral},0.6)"></i>NEUTRAL</span>
-            <span><i style="background:#ffb347;height:3px;vertical-align:3px"></i>FRONT LINE</span>
-            <span><i style="background:transparent;border-top:2px dashed rgba(120,200,255,0.8);height:0;vertical-align:3px"></i>SEA LANE</span>
+            <span><i style="background:rgba(${SIDE_RGB[run.faction]},0.75)"></i>${esc(tCq(run.faction === 'allies' ? 'map.alliesYou' : 'map.sovietYou'))}</span>
+            <span><i style="background:repeating-linear-gradient(35deg,rgba(${SIDE_RGB[run.enemy]},0.8) 0 2px,rgba(${SIDE_RGB[run.enemy]},0.35) 2px 5px)"></i>${esc(tCq(run.enemy === 'allies' ? 'map.allied' : 'map.soviet'))}</span>
+            <span><i style="background:rgba(${SIDE_RGB.neutral},0.6)"></i>${esc(tCq('map.neutral'))}</span>
+            <span><i style="background:#ffb347;height:3px;vertical-align:3px"></i>${esc(tCq('map.frontLine'))}</span>
+            <span><i style="background:transparent;border-top:2px dashed rgba(120,200,255,0.8);height:0;vertical-align:3px"></i>${esc(tCq('map.seaLane'))}</span>
           </div>
-          <div class="cq-coords">THEATRE: EUROPE · ${esc(date.label.toUpperCase())}<br>${owned(run).length} / ${run.territories.length} TERRITORIES HELD</div>
+          <div class="cq-coords">${esc(tCq('map.theatre', { date: date.toUpperCase() }))}<br>${esc(tCq('map.held', { n: owned(run).length, total: run.territories.length }))}</div>
           <div class="cq-hint ${run.threat && !run.pending ? 'warn' : ''}">${esc(hint)}</div>
           <div class="cq-bar">
-            <button class="cq-btn" data-act="research">${picto('chart')}Research${run.rp && researchFor(run).some((r) => researchState(run, r) === 'available') ? `<em>${run.rp}</em>` : ''}</button>
-            <button class="cq-btn" data-act="army">${picto('chevrons')}Core army</button>
-            <button class="cq-btn" data-act="perks">${picto('medal')}Doctrines</button>
+            <button class="cq-btn" data-act="research">${picto('chart')}${esc(tCq('map.research'))}${run.rp && researchFor(run).some((r) => researchState(run, r) === 'available') ? `<em>${run.rp}</em>` : ''}</button>
+            <button class="cq-btn" data-act="army">${picto('chevrons')}${esc(tCq('map.coreArmy'))}</button>
+            <button class="cq-btn" data-act="perks">${picto('medal')}${esc(tCq('map.doctrines'))}</button>
             <div class="grow"></div>
-            <button class="cq-btn" data-act="regroup" ${run.status !== 'active' || run.pending ? 'disabled' : ''} title="Skip the battle this turn: +$1,500 and +1 RP">${picto('clock')}Regroup</button>
-            <button class="cq-btn" data-act="menu">${picto('back')}Menu</button>
+            <button class="cq-btn" data-act="regroup" ${run.status !== 'active' || run.pending ? 'disabled' : ''} title="${esc(tCq('map.regroupTip'))}">${picto('clock')}${esc(tCq('map.regroup'))}</button>
+            <button class="cq-btn" data-act="menu">${picto('back')}${esc(tCommon('menu'))}</button>
           </div>
         </div>
         <div class="cq-side">
           <div class="cq-panel cq-info">${this.infoHtml()}</div>
-          <div class="cq-panel cq-log"><h4>War diary</h4>${[...run.log].reverse().slice(0, 40).map((l) => `<div class="cq-le ${l.kind}"><i>T${l.turn}</i><span>${esc(l.text)}</span></div>`).join('')}</div>
+          <div class="cq-panel cq-log"><h4>${esc(tCq('map.diary'))}</h4>${[...run.log].reverse().slice(0, 40).map((l) => `<div class="cq-le ${l.kind}"><i>${esc(tCq('map.diaryTurn', { n: l.turn }))}</i><span>${esc(trLog(l))}</span></div>`).join('')}</div>
         </div>
       </div>`;
     this.setRoot(root);
@@ -736,7 +747,7 @@ class ConquestScreen {
     on('army', () => this.armyModal());
     on('perks', () => this.perksModal());
     on('menu', () => this.menuModal());
-    on('regroup', () => this.confirm('Regroup this turn?', `The army rests and refits instead of fighting: +$1,500 and +1 research point.${this.threatWarning()} The enemy gets a turn to prepare.`, 'Regroup', () => {
+    on('regroup', () => this.confirm(tCq('confirm.regroupTitle'), [tCq('confirm.regroup'), this.threatWarning(), tCq('confirm.regroupEnd')].filter(Boolean).join(' '), tCq('confirm.regroupYes'), () => {
       regroup(this.run!);
       this.after();
     }));
@@ -744,7 +755,7 @@ class ConquestScreen {
     on('defend', () => this.run!.threat && this.previewModal(this.run!.threat.target));
     on('resume', () => { const s = battleSave(this.run); if (s) { this.close(); this.opts.onResume(s); } });
     on('restart', () => this.deploy());
-    on('withdraw', () => this.confirm('Withdraw from the battle?', 'The battle counts as lost: morale drops, and a defended territory falls. Half of the committed funds are recovered.', 'Withdraw', () => {
+    on('withdraw', () => this.confirm(tCq('confirm.withdrawTitle'), tCq('confirm.withdraw'), tCq('confirm.withdrawYes'), () => {
       withdraw(this.run!);
       this.after();
     }, true));
@@ -758,7 +769,7 @@ class ConquestScreen {
     const run = this.run!;
     if (!run.threat) return '';
     const t = territory(run, run.threat.target);
-    return t.capital === 'player' ? ` ${t.name} is under attack: if our capital falls, the campaign is lost!` : ` ${t.name} will face the enemy counterattack alone and will probably fall.`;
+    return tCq(t.capital === 'player' ? 'confirm.threatCapital' : 'confirm.threat', { territory: t.name });
   }
 
   /** After a state change: save, then walk through the pending screens (report, perks, event, summary). */
@@ -774,7 +785,7 @@ class ConquestScreen {
     const run = this.run!;
     const b = document.createElement('div');
     b.className = 'cq-banner';
-    b.innerHTML = `<small>TURN ${run.turn}</small><b>${esc(dateOf(run.turn).label.toUpperCase())}</b>`;
+    b.innerHTML = `<small>${esc(tCq('map.banner', { n: run.turn }))}</small><b>${esc(monthYear(run.turn).toUpperCase())}</b>`;
     document.body.appendChild(b);
     window.setTimeout(() => b.remove(), 2500);
   }
@@ -796,7 +807,7 @@ class ConquestScreen {
     this.meta = loadMeta();
     if (s && s.rankAfter > s.rankBefore) {
       const faction = loadProfile().faction;
-      showAchievementToast({ kind: 'rank', title: s.rankName, xp: 0, icon: insigniaSvg(s.rankAfter, faction), desc: `Promoted for ${run.name}.` });
+      showAchievementToast({ kind: 'rank', title: s.rankName, xp: 0, icon: insigniaSvg(s.rankAfter, faction), desc: tCq('map.promoted', { name: run.name }) });
     }
   }
 
@@ -806,67 +817,68 @@ class ConquestScreen {
   private infoHtml(): string {
     const run = this.run!;
     if (run.status !== 'active') {
-      return `<div class="cq-own" style="color:${run.status === 'won' ? '#8dffb0' : '#ff8a7a'}">${run.status === 'won' ? 'Victory' : 'Defeat'}</div><h2>${run.status === 'won' ? 'The war is won' : 'Campaign over'}</h2>
-        <p class="cq-p">${esc(run.ending ?? '')}</p><div class="cq-actions"><button class="cq-btn pri" data-act="summary">${picto('trophy')}Summary</button><button class="cq-btn" data-act="newrun">New campaign</button></div>`;
+      return `<div class="cq-own" style="color:${run.status === 'won' ? '#8dffb0' : '#ff8a7a'}">${esc(tCommon(run.status === 'won' ? 'victory' : 'defeat'))}</div><h2>${esc(tCq(run.status === 'won' ? 'info.wonTitle' : 'info.overTitle'))}</h2>
+        <p class="cq-p">${esc(trRun(run.ending ?? ''))}</p><div class="cq-actions"><button class="cq-btn pri" data-act="summary">${picto('trophy')}${esc(tCq('info.summary'))}</button><button class="cq-btn" data-act="newrun">${esc(tCq('info.newCampaign'))}</button></div>`;
     }
     if (run.pending) {
       const S = run.pending.spec;
       const save = battleSave(run);
-      return `<div class="cq-own" style="color:#ffcf8a">Battle in progress</div><h2>Battle of ${esc(S.name)}</h2>
-        <div class="cq-chips"><span class="cq-chip">${picto(KIND_INFO[S.kind].icon)}${esc(KIND_INFO[S.kind].name)}</span><span class="cq-chip">${picto('globe')}${esc(S.mapLabel)}</span><span class="cq-chip gold">${picto('coin')}${money(S.credits)}</span></div>
-        <p class="cq-p">${save ? `Saved ${new Date(save.savedAt).toLocaleString()}, at ${fmtT(save.game?.time ?? 0)} into the battle.` : 'No save of this battle was found: it can be fought again from the start.'}</p>
-        <div class="cq-actions">${save ? `<button class="cq-btn pri" data-act="resume">${picto('play')}Resume battle</button>` : ''}<button class="cq-btn ${save ? '' : 'pri'}" data-act="restart">${picto('flag')}${save ? 'Restart' : 'Deploy'}</button><button class="cq-btn danger" data-act="withdraw">Withdraw</button></div>`;
+      return `<div class="cq-own" style="color:#ffcf8a">${esc(tCq('info.inProgress'))}</div><h2>${esc(tCq('info.battleOf', { territory: S.name }))}</h2>
+        <div class="cq-chips"><span class="cq-chip">${picto(KIND_INFO[S.kind].icon)}${esc(kindName(S.kind))}</span><span class="cq-chip">${picto('globe')}${esc(trRun(S.mapLabel))}</span><span class="cq-chip gold">${picto('coin')}${money(S.credits)}</span></div>
+        <p class="cq-p">${esc(save ? tCq('info.saved', { when: fmtDateTime(save.savedAt), time: fmtT(save.game?.time ?? 0) }) : tCq('info.noSave'))}</p>
+        <div class="cq-actions">${save ? `<button class="cq-btn pri" data-act="resume">${picto('play')}${esc(tCq('info.resume'))}</button>` : ''}<button class="cq-btn ${save ? '' : 'pri'}" data-act="restart">${picto('flag')}${esc(tCq(save ? 'info.restart' : 'info.deploy'))}</button><button class="cq-btn danger" data-act="withdraw">${esc(tCq('info.withdraw'))}</button></div>`;
     }
     const t = findTerritory(run, this.selected);
     if (!t) {
       const inc = income(run);
       const opts = availableBattles(run).filter((b) => b.action === 'attack').length;
-      return `<div class="cq-own" style="color:rgb(var(--accent-rgb))">Your move, Commander</div><h2>${esc(dateOf(run.turn).label)}</h2>
-        ${run.threat ? `<div class="cq-cell wide" style="border-color:rgba(255,90,70,0.6);background:rgba(80,10,5,0.35)"><small style="color:#ffb0a0">Counterattack</small><b>${esc(territory(run, run.threat.from).name)} → ${esc(territory(run, run.threat.target).name)}</b>
-          <p class="cq-p" style="margin:6px 0 8px">Defend it this turn, or it falls to the enemy.</p><button class="cq-btn danger pri" data-act="defend">${picto('shield')}Defend ${esc(territory(run, run.threat.target).name)}</button></div>` : ''}
-        <p class="cq-p">Select a highlighted territory on the map to plan an attack (${opts} available). The enemy capital is <b>${esc(run.territories.find((x) => x.capital === 'enemy')!.name)}</b>.</p>
+      const threatT = run.threat ? territory(run, run.threat.target).name : '';
+      return `<div class="cq-own" style="color:rgb(var(--accent-rgb))">${esc(tCq('info.yourMove'))}</div><h2>${esc(monthYear(run.turn))}</h2>
+        ${run.threat ? `<div class="cq-cell wide" style="border-color:rgba(255,90,70,0.6);background:rgba(80,10,5,0.35)"><small style="color:#ffb0a0">${esc(tCq('info.counterattack'))}</small><b>${esc(tCq('info.route', { from: territory(run, run.threat.from).name, territory: threatT }))}</b>
+          <p class="cq-p" style="margin:6px 0 8px">${esc(tCq('info.defendIt'))}</p><button class="cq-btn danger pri" data-act="defend">${picto('shield')}${esc(tCq('info.defendTerritory', { territory: threatT }))}</button></div>` : ''}
+        <p class="cq-p">${tCq.html('info.plan', { n: opts, capital: run.territories.find((x) => x.capital === 'enemy')!.name })}</p>
         <div class="cq-grid">
-          <div class="cq-cell"><small>Income per turn</small><b>${money(inc.credits)}${inc.rp ? ` · ${inc.rp} RP` : ''}</b></div>
-          <div class="cq-cell"><small>Territories</small><b>${owned(run).length} / ${run.territories.length}</b></div>
-          <div class="cq-cell"><small>Battles won</small><b>${run.stats.battlesWon}</b></div>
-          <div class="cq-cell"><small>Doctrines</small><b>${run.perks.length}</b></div>
-          ${run.superThreat ? `<div class="cq-cell wide" style="border-color:rgba(255,211,77,0.5)"><small style="color:#ffe08a">Superweapon threat</small><b>${esc(territory(run, run.superThreat.territory).name)} · strikes in ${run.superThreat.turns} turn${run.superThreat.turns === 1 ? '' : 's'}</b></div>` : ''}
+          <div class="cq-cell"><small>${esc(tCq('info.incomePerTurn'))}</small><b>${esc(inc.rp ? tCq('info.incomeRp', { money: money(inc.credits), rp: inc.rp }) : money(inc.credits))}</b></div>
+          <div class="cq-cell"><small>${esc(tCq('info.territories'))}</small><b>${esc(tCq('info.ofTotal', { n: owned(run).length, total: run.territories.length }))}</b></div>
+          <div class="cq-cell"><small>${esc(tCq('info.battlesWon'))}</small><b>${fmtInt(run.stats.battlesWon)}</b></div>
+          <div class="cq-cell"><small>${esc(tCq('info.doctrines'))}</small><b>${fmtInt(run.perks.length)}</b></div>
+          ${run.superThreat ? `<div class="cq-cell wide" style="border-color:rgba(255,211,77,0.5)"><small style="color:#ffe08a">${esc(tCq('info.superThreat'))}</small><b>${esc(tCq('info.strikesIn', { territory: territory(run, run.superThreat.territory).name, n: run.superThreat.turns }))}</b></div>` : ''}
         </div>`;
     }
-    const owner = t.owner === 'player' ? `${sideName(run.faction)} territory` : t.owner === 'enemy' ? `${sideName(run.enemy)} territory` : 'Neutral territory';
+    const owner = tCq(t.owner === 'player' ? (run.faction === 'allies' ? 'info.alliedTerritory' : 'info.sovietTerritory') : t.owner === 'enemy' ? (run.enemy === 'allies' ? 'info.alliedTerritory' : 'info.sovietTerritory') : 'info.neutralTerritory');
     const ownColor = `rgb(${ownerRgb(run, t)})`;
     const climate = this.climateFor(t);
     const chips = [
-      `<span class="cq-chip">${picto(TERRAIN_INFO[t.terrain].icon)}${TERRAIN_INFO[t.terrain].name}</span>`,
-      `<span class="cq-chip cap">${picto(CLIMATE_ICON[climate])}${climate}</span>`,
-      t.coastal ? `<span class="cq-chip">${picto('anchor')}Coastal</span>` : '',
-      `<span class="cq-chip gold">${'★'.repeat(t.value)} value</span>`,
-      t.res ? `<span class="cq-chip gold" title="${esc(RESOURCES[t.res].desc)}">${picto(RESOURCES[t.res].icon)}${RESOURCES[t.res].name}</span>` : '',
-      t.capital ? `<span class="cq-chip ${t.capital === 'enemy' ? 'red' : 'gold'}">${picto('flag')}Capital</span>` : '',
-      t.partisans && t.owner !== 'player' ? `<span class="cq-chip" style="color:#8dffb0">${picto('flag')}Partisans</span>` : '',
+      `<span class="cq-chip">${picto(TERRAIN_ICON[t.terrain])}${esc(terrainName(t.terrain))}</span>`,
+      `<span class="cq-chip cap">${picto(CLIMATE_ICON[climate])}${esc(climateName(climate))}</span>`,
+      t.coastal ? `<span class="cq-chip">${picto('anchor')}${esc(tCq('info.coastal'))}</span>` : '',
+      `<span class="cq-chip gold">${esc(tCq('info.value', { stars: '★'.repeat(t.value) }))}</span>`,
+      t.res ? `<span class="cq-chip gold" title="${esc(resourceDesc(t.res))}">${picto(RESOURCES[t.res].icon)}${esc(resourceName(t.res))}</span>` : '',
+      t.capital ? `<span class="cq-chip ${t.capital === 'enemy' ? 'red' : 'gold'}">${picto('flag')}${esc(tCq('info.capital'))}</span>` : '',
+      t.partisans && t.owner !== 'player' ? `<span class="cq-chip" style="color:#8dffb0">${picto('flag')}${esc(tCq('info.partisans'))}</span>` : '',
     ].join('');
     const opt = availableBattles(run).find((b) => b.target === t.id);
     let body = '';
     if (t.owner === 'player') {
-      body = `<div class="cq-grid"><div class="cq-cell"><small>Income</small><b>${money(t.income)} / turn</b></div><div class="cq-cell"><small>Fortifications</small><b>${t.fort ? '▮'.repeat(t.fort) + ` level ${t.fort}` : 'None'}</b></div>
-        ${t.res ? `<div class="cq-cell wide"><small>${esc(RESOURCES[t.res].name)}</small><b style="font-size:13px">${esc(RESOURCES[t.res].desc)}</b></div>` : ''}
-        <div class="cq-cell wide"><small>Held since</small><b>${t.captured ? `Turn ${t.captured}` : 'The start of the campaign'}</b></div></div>`;
-      if (opt?.action === 'defend') body += `<div class="cq-actions"><button class="cq-btn danger pri" data-act="defend">${picto('shield')}Defend</button></div>`;
+      body = `<div class="cq-grid"><div class="cq-cell"><small>${esc(tCq('info.income'))}</small><b>${esc(tCq('info.perTurn', { money: money(t.income) }))}</b></div><div class="cq-cell"><small>${esc(tCq('info.fortifications'))}</small><b>${t.fort ? '▮'.repeat(t.fort) + ' ' + esc(tCq('info.fortLevel', { n: t.fort })) : esc(tCommon('none'))}</b></div>
+        ${t.res ? `<div class="cq-cell wide"><small>${esc(resourceName(t.res))}</small><b style="font-size:13px">${esc(resourceDesc(t.res))}</b></div>` : ''}
+        <div class="cq-cell wide"><small>${esc(tCq('info.heldSince'))}</small><b>${esc(t.captured ? tCq('info.turnN', { n: t.captured }) : tCq('info.sinceStart'))}</b></div></div>`;
+      if (opt?.action === 'defend') body += `<div class="cq-actions"><button class="cq-btn danger pri" data-act="defend">${picto('shield')}${esc(tCq('info.defend'))}</button></div>`;
     } else {
       const pers = t.owner === 'enemy' ? (t.capital === 'enemy' ? run.boss : run.fronts[t.front]) : null;
       const P = pers ? PERSONALITIES[pers.personality] : null;
       const kind = opt ? planBattle(run, t.id, 0).kind : t.capital === 'enemy' ? 'boss' : t.objective;
       body = `<div class="cq-grid">
-          <div class="cq-cell"><small>Garrison</small><b><span class="cq-pips">${Array.from({ length: 6 }, (_, k) => `<i class="${k < t.strength ? 'on' : ''}"></i>`).join('')}</span></b></div>
-          <div class="cq-cell"><small>Income if taken</small><b>${money(t.income)} / turn</b></div>
-          <div class="cq-cell wide"><small>Battle</small><b>${picto(KIND_INFO[kind].icon, 'mx-ic')} ${esc(KIND_INFO[kind].name)}</b><div style="font-size:12.5px;color:#a9b8c8;margin-top:2px">${esc(KIND_INFO[kind].desc)}</div></div>
+          <div class="cq-cell"><small>${esc(tCq('info.garrison'))}</small><b><span class="cq-pips" role="img" aria-label="${t.strength} / 6">${Array.from({ length: 6 }, (_, k) => `<i class="${k < t.strength ? 'on' : ''}"></i>`).join('')}</span></b></div>
+          <div class="cq-cell"><small>${esc(tCq('info.incomeIfTaken'))}</small><b>${esc(tCq('info.perTurn', { money: money(t.income) }))}</b></div>
+          <div class="cq-cell wide"><small>${esc(tCq('info.battle'))}</small><b>${picto(KIND_INFO[kind].icon, 'mx-ic')} ${esc(kindName(kind))}</b><div style="font-size:12.5px;color:#a9b8c8;margin-top:2px">${esc(kindDesc(kind))}</div></div>
         </div>
-        ${pers && P ? `<div class="cq-cmdr"><div class="cq-pt">${castPortrait(pers.commander, run.enemy === 'soviet' ? 'enemy' : 'commander')}</div><div><b>${esc(pers.commander)}</b><span class="pers">${picto(P.icon, 'mx-ic')} ${esc(P.name)}</span><span>${esc(P.desc)}</span></div></div>` : t.owner === 'neutral' ? '<p class="cq-p">A neutral power. Its militia will defend its borders but never attacks.</p>' : ''}
-        <div class="cq-actions">${opt ? `<button class="cq-btn pri" data-act="attack">${picto('crosshair')}Plan attack</button>`
-          : t.capital === 'enemy' && attackTargets(run).some((a) => a.target === t.id) ? `<span class="cq-p" style="color:#ffcf8a">High Command will authorise the assault on ${esc(t.name)} once we hold ${capitalGate(run)} territories (we hold ${owned(run).length}).</span>`
-          : '<span class="cq-p" style="color:#8a99aa">Not on the front line: capture a neighbouring territory first.</span>'}</div>`;
+        ${pers && P ? `<div class="cq-cmdr"><div class="cq-pt">${castPortrait(pers.commander, run.enemy === 'soviet' ? 'enemy' : 'commander')}</div><div><b>${esc(trRun(pers.commander))}</b><span class="pers">${picto(P.icon, 'mx-ic')} ${esc(personalityName(pers.personality))}</span><span>${esc(personalityDesc(pers.personality))}</span></div></div>` : t.owner === 'neutral' ? `<p class="cq-p">${esc(tCq('info.neutralPower'))}</p>` : ''}
+        <div class="cq-actions">${opt ? `<button class="cq-btn pri" data-act="attack">${picto('crosshair')}${esc(tCq('info.planAttack'))}</button>`
+          : t.capital === 'enemy' && attackTargets(run).some((a) => a.target === t.id) ? `<span class="cq-p" style="color:#ffcf8a">${esc(tCq('info.capitalGate', { territory: t.name, n: capitalGate(run), held: owned(run).length }))}</span>`
+          : `<span class="cq-p" style="color:#8a99aa">${esc(tCq('info.notFront'))}</span>`}</div>`;
     }
-    return `<div class="cq-own" style="color:${ownColor}">${owner}</div><h2>${esc(t.name)}</h2><div class="cq-chips">${chips}</div>${body}`;
+    return `<div class="cq-own" style="color:${ownColor}">${esc(owner)}</div><h2>${esc(t.name)}</h2><div class="cq-chips">${chips}</div>${body}`;
   }
 
   private climateFor(t: Territory): string {
@@ -880,7 +892,7 @@ class ConquestScreen {
     this.modalEl?.remove();
     const m = document.createElement('div');
     m.className = 'cq-modal';
-    m.innerHTML = `<div class="cq-panel cq-dlg ${cls}">${onClose ? '<button class="cq-x" data-close title="Close">✕</button>' : ''}${html}</div>`;
+    m.innerHTML = `<div class="cq-panel cq-dlg ${cls}">${onClose ? `<button class="cq-x" data-close title="${esc(tCommon('close'))}" aria-label="${esc(tCommon('close'))}">✕</button>` : ''}${html}</div>`;
     document.body.appendChild(m);
     this.modalEl = m;
     const x = m.querySelector<HTMLElement>('[data-close]');
@@ -895,21 +907,21 @@ class ConquestScreen {
   }
 
   private confirm(title: string, text: string, yes: string, fn: () => void, danger = false) {
-    const m = this.modal(`<div class="cq-kick">Confirm</div><h1 style="font-size:28px">${esc(title)}</h1><p class="cq-p">${esc(text)}</p>
-      <div class="cq-actions"><button class="cq-btn" data-act="no">Cancel</button><button class="cq-btn pri ${danger ? 'danger' : ''}" data-act="yes">${esc(yes)}</button></div>`, 'narrow', () => {});
+    const m = this.modal(`<div class="cq-kick">${esc(tCommon('confirm'))}</div><h1 style="font-size:28px">${esc(title)}</h1><p class="cq-p">${esc(text)}</p>
+      <div class="cq-actions"><button class="cq-btn" data-act="no">${esc(tCommon('cancel'))}</button><button class="cq-btn pri ${danger ? 'danger' : ''}" data-act="yes">${esc(yes)}</button></div>`, 'narrow', () => {});
     (m.querySelector('[data-act="no"]') as HTMLElement).onclick = () => { this.opts.play('click'); this.closeModal(); };
     (m.querySelector('[data-act="yes"]') as HTMLElement).onclick = () => { this.opts.play('click'); this.closeModal(); fn(); };
   }
 
   private menuModal() {
     const run = this.run!;
-    const m = this.modal(`<div class="cq-kick">${esc(run.name)}</div><h1 style="font-size:28px">Campaign menu</h1>
-      <p class="cq-p">The campaign is saved after every turn. You can leave and pick it up from the main menu at any time.</p>
-      <div class="cq-actions" style="justify-content:space-between"><button class="cq-btn danger" data-act="abandon">${picto('skull')}Abandon campaign</button><button class="cq-btn pri" data-act="leave">${picto('back')}Main menu</button></div>`, 'narrow', () => {});
+    const m = this.modal(`<div class="cq-kick">${esc(run.name)}</div><h1 style="font-size:28px">${esc(tCq('menu.title'))}</h1>
+      <p class="cq-p">${esc(tCq('menu.text'))}</p>
+      <div class="cq-actions" style="justify-content:space-between"><button class="cq-btn danger" data-act="abandon">${picto('skull')}${esc(tCq('menu.abandon'))}</button><button class="cq-btn pri" data-act="leave">${picto('back')}${esc(tCq('menu.mainMenu'))}</button></div>`, 'narrow', () => {});
     (m.querySelector('[data-act="leave"]') as HTMLElement).onclick = () => { this.closeModal(); this.back(); };
     (m.querySelector('[data-act="abandon"]') as HTMLElement).onclick = () => {
       this.opts.play('click');
-      this.confirm('Abandon the campaign?', 'The campaign ends in defeat and is scored as it stands. This cannot be undone.', 'Abandon', () => {
+      this.confirm(tCq('menu.abandonTitle'), tCq('menu.abandonText'), tCq('menu.abandonYes'), () => {
         abandonRun(this.run!);
         this.after();
       }, true);
@@ -924,56 +936,56 @@ class ConquestScreen {
     const t = territory(run, targetId);
     const P = PERSONALITIES[S.personality];
     const mods: string[] = [];
-    if (S.mods.tanks) mods.push(`+${S.mods.tanks} tanks`);
-    if (S.mods.drops.length) mods.push(`${S.mods.drops.length} paratrooper drop${S.mods.drops.length > 1 ? 's' : ''}`);
-    if (S.mods.income > 1) mods.push(`+${Math.round((S.mods.income - 1) * 100)}% ore income`);
-    if (S.mods.buildSpeed > 1) mods.push(`+${Math.round((S.mods.buildSpeed - 1) * 100)}% production`);
-    if (S.mods.outpost) mods.push(run.faction === 'soviet' ? 'Tesla outpost' : 'Fortified bridgehead');
-    if (S.mods.commandos) mods.push('commandos');
-    if (S.mods.engineers) mods.push(`${S.mods.engineers} engineers`);
-    if (S.mods.recon) mods.push('recon photos');
-    if (S.mods.escorts) mods.push(`${S.mods.escorts} warships`);
-    if (S.mods.drill) mods.push('veteran infantry');
-    if (S.mods.tankAces) mods.push('veteran tanks');
-    if (S.mods.bounty) mods.push('salvage bounty');
+    if (S.mods.tanks) mods.push(tCq('preview.mods.tanks', { n: S.mods.tanks }));
+    if (S.mods.drops.length) mods.push(tCq('preview.mods.drops', { n: S.mods.drops.length }));
+    if (S.mods.income > 1) mods.push(tCq('preview.mods.ore', { n: Math.round((S.mods.income - 1) * 100) }));
+    if (S.mods.buildSpeed > 1) mods.push(tCq('preview.mods.production', { n: Math.round((S.mods.buildSpeed - 1) * 100) }));
+    if (S.mods.outpost) mods.push(tCq(run.faction === 'soviet' ? 'preview.mods.teslaOutpost' : 'preview.mods.bridgehead'));
+    if (S.mods.commandos) mods.push(tCq('preview.mods.commandos'));
+    if (S.mods.engineers) mods.push(tCq('preview.mods.engineers', { n: S.mods.engineers }));
+    if (S.mods.recon) mods.push(tCq('preview.mods.recon'));
+    if (S.mods.escorts) mods.push(tCq('preview.mods.warships', { n: S.mods.escorts }));
+    if (S.mods.drill) mods.push(tCq('preview.mods.infantry'));
+    if (S.mods.tankAces) mods.push(tCq('preview.mods.vetTanks'));
+    if (S.mods.bounty) mods.push(tCq('preview.mods.bounty'));
     const lootPreview = S.kind === 'defend' ? 800 + 300 * t.value : Math.round((600 + 700 * t.value) * (run.perks.includes('plunder') ? 1.5 : 1));
     const m = this.modal(`
-      <div class="cq-kick">${S.kind === 'defend' ? 'Defence' : `Attack${S.from ? ` · striking from ${esc(S.from)}` : ''}`} · ${esc(S.date)}</div>
-      <h1>Battle of ${esc(S.name)}</h1>
-      <h3>${esc(KIND_INFO[S.kind].name)} · ${esc(KIND_INFO[S.kind].desc)}</h3>
+      <div class="cq-kick">${esc(S.kind === 'defend' ? tCq('preview.defence') : S.from ? tCq('preview.attackFrom', { from: S.from }) : tCq('preview.attack'))} · ${esc(monthYear(S.turn))}</div>
+      <h1>${esc(tCq('info.battleOf', { territory: S.name }))}</h1>
+      <h3>${esc(kindName(S.kind))} · ${esc(kindDesc(S.kind))}</h3>
       <div class="cq-cols">
         <div>
           <div class="cq-grid">
-            <div class="cq-cell"><small>Battlefield</small><b>${esc(S.mapLabel)}</b></div>
-            <div class="cq-cell"><small>Climate · time</small><b style="text-transform:capitalize">${picto(CLIMATE_ICON[S.climate], 'mx-ic')} ${esc(S.climate)} · ${String(Math.floor(S.map.hour ?? 12)).padStart(2, '0')}:00</b></div>
-            <div class="cq-cell"><small>Garrison strength</small><b><span class="cq-pips">${Array.from({ length: 6 }, (_, k) => `<i class="${k < S.strength ? 'on' : ''}"></i>`).join('')}</span></b></div>
-            <div class="cq-cell"><small>Enemy AI</small><b style="text-transform:capitalize">${esc(S.ai)}</b></div>
-            <div class="cq-cell"><small>Par time</small><b>${fmtT(S.parTime)}</b></div>
-            <div class="cq-cell"><small>Map size</small><b>${S.map.size} × ${S.map.size}</b></div>
+            <div class="cq-cell"><small>${esc(tCq('preview.battlefield'))}</small><b>${esc(trRun(S.mapLabel))}</b></div>
+            <div class="cq-cell"><small>${esc(tCq('preview.climateTime'))}</small><b style="text-transform:capitalize">${picto(CLIMATE_ICON[S.climate], 'mx-ic')} ${esc(climateName(S.climate))} · ${String(Math.floor(S.map.hour ?? 12)).padStart(2, '0')}:00</b></div>
+            <div class="cq-cell"><small>${esc(tCq('preview.strength'))}</small><b><span class="cq-pips" role="img" aria-label="${S.strength} / 6">${Array.from({ length: 6 }, (_, k) => `<i class="${k < S.strength ? 'on' : ''}"></i>`).join('')}</span></b></div>
+            <div class="cq-cell"><small>${esc(tCq('preview.enemyAi'))}</small><b style="text-transform:capitalize">${esc(tCommon(`difficulty.${S.ai}`))}</b></div>
+            <div class="cq-cell"><small>${esc(tCq('preview.par'))}</small><b>${fmtT(S.parTime)}</b></div>
+            <div class="cq-cell"><small>${esc(tCq('preview.mapSize'))}</small><b>${S.map.size} × ${S.map.size}</b></div>
           </div>
-          <div class="cq-cmdr"><div class="cq-pt">${castPortrait(S.commander, S.enemy === 'soviet' ? 'enemy' : 'commander')}</div><div><b>${esc(S.commander)}</b><span class="pers">${picto(P.icon, 'mx-ic')} ${esc(S.neutral ? 'Neutral militia' : P.name)}</span><span>${esc(S.neutral ? 'Defends its borders, never attacks.' : P.desc)}</span></div></div>
-          ${S.superweapon && S.kind !== 'boss' ? `<p class="cq-p" style="color:#ffe08a">${picto('nuke', 'mx-ic')} A superweapon is being readied here. Destroying it ends the threat.</p>` : ''}
-          ${S.partisans ? `<p class="cq-p" style="color:#8dffb0">${picto('flag', 'mx-ic')} Partisans will fight beside you.</p>` : ''}
-          ${run.threat && S.kind !== 'defend' ? `<p class="cq-p" style="color:#ffb0a0">${picto('shield', 'mx-ic')}${esc(this.threatWarning())}</p>` : ''}
+          <div class="cq-cmdr"><div class="cq-pt">${castPortrait(S.commander, S.enemy === 'soviet' ? 'enemy' : 'commander')}</div><div><b>${esc(trRun(S.commander))}</b><span class="pers">${picto(P.icon, 'mx-ic')} ${esc(S.neutral ? tCq('preview.neutralMilitia') : personalityName(S.personality))}</span><span>${esc(S.neutral ? tCq('preview.neutralDesc') : personalityDesc(S.personality))}</span></div></div>
+          ${S.superweapon && S.kind !== 'boss' ? `<p class="cq-p" style="color:#ffe08a">${picto('nuke', 'mx-ic')} ${esc(tCq('preview.superweapon'))}</p>` : ''}
+          ${S.partisans ? `<p class="cq-p" style="color:#8dffb0">${picto('flag', 'mx-ic')} ${esc(tCq('preview.partisans'))}</p>` : ''}
+          ${run.threat && S.kind !== 'defend' ? `<p class="cq-p" style="color:#ffb0a0">${picto('shield', 'mx-ic')} ${esc(this.threatWarning())}</p>` : ''}
         </div>
         <div>
-          <div class="cq-sec"><div class="cq-h4">Your forces</div>
-            <div class="cq-vets">${S.core.length ? S.core.map((c) => `<span class="cq-vet">${rankBadge(c.rank)}${esc(c.name)} <small>${esc(unitName(c.type))}</small></span>`).join('') : '<span class="cq-p">No veterans in the core army yet.</span>'}</div>
-            ${run.core.length > S.core.length ? `<p class="cq-p" style="font-size:12px;color:#8a99aa">${run.core.length - S.core.length} naval veteran(s) stay in port (no sea here).</p>` : ''}
-            <p class="cq-p" style="font-size:13px">${S.kind === 'defend' ? 'Your standing base and garrison' : 'MCV and landing party'}${mods.length ? ` · ${esc(mods.join(' · '))}` : ''}</p>
+          <div class="cq-sec"><div class="cq-h4">${esc(tCq('preview.forces'))}</div>
+            <div class="cq-vets">${S.core.length ? S.core.map((c) => `<span class="cq-vet">${rankBadge(c.rank)}${esc(c.name)} <small>${esc(unitName(c.type))}</small></span>`).join('') : `<span class="cq-p">${esc(tCq('preview.noVeterans'))}</span>`}</div>
+            ${run.core.length > S.core.length ? `<p class="cq-p" style="font-size:12px;color:#8a99aa">${esc(tCq('preview.inPort', { n: run.core.length - S.core.length }))}</p>` : ''}
+            <p class="cq-p" style="font-size:13px">${esc(tCq(S.kind === 'defend' ? 'preview.standingBase' : 'preview.landing'))}${mods.length ? ` · ${esc(mods.join(' · '))}` : ''}</p>
           </div>
-          <div class="cq-sec" style="margin-top:10px"><div class="cq-h4">Battle funds</div>
-            <input class="cq-slider" type="range" min="0" max="${run.warChest}" step="250" value="${commit}" data-commit>
-            <div class="cq-funds"><span>Commit <b data-commitv>${money(commit)}</b> of ${money(run.warChest)}</span><span>Battle funds <b data-funds>${money(S.credits)}</b></span></div>
-            <p class="cq-p" style="font-size:12px;color:#8a99aa;margin-bottom:0">Every battle gets ${money(ALLOTMENT)} from High Command${run.perks.includes('war_bonds') ? ' (+$1,500 War Bonds)' : ''}. Credits left at the end return to the war chest (up to ${money(RETURN_CAP)}).</p>
+          <div class="cq-sec" style="margin-top:10px"><div class="cq-h4">${esc(tCq('preview.funds'))}</div>
+            <input class="cq-slider" type="range" min="0" max="${run.warChest}" step="250" value="${commit}" data-commit aria-label="${esc(tCq('preview.funds'))}">
+            <div class="cq-funds"><span>${tCq.html('preview.commit', { money: money(commit), total: money(run.warChest) }).replace('<b>', '<b data-commitv>')}</span><span>${tCq.html('preview.fundsTotal', { money: money(S.credits) }).replace('<b>', '<b data-funds>')}</span></div>
+            <p class="cq-p" style="font-size:12px;color:#8a99aa;margin-bottom:0">${esc(tCq(run.perks.includes('war_bonds') ? 'preview.allotmentBonds' : 'preview.allotment', { money: money(ALLOTMENT), cap: money(RETURN_CAP) }))}</p>
           </div>
-          <div class="cq-sec" style="margin-top:10px"><div class="cq-h4">If victorious</div>
-            <div class="cq-chips" style="margin:0">${S.kind === 'defend' ? `<span class="cq-chip gold">${picto('coin')}${money(lootPreview)}</span><span class="cq-chip">+1 RP</span><span class="cq-chip">${picto('tower')}Fortify</span>` : `<span class="cq-chip gold">${picto('coin')}${money(lootPreview)} spoils</span><span class="cq-chip">+${t.value + (t.res === 'science' ? 1 : 0)} RP</span><span class="cq-chip">${money(t.income)} / turn</span>${t.value >= 2 ? `<span class="cq-chip gold">${picto('medal')}Doctrine pick</span>` : ''}${t.capital === 'enemy' ? `<span class="cq-chip gold">${picto('trophy')}Win the war</span>` : ''}`}</div>
-            <p class="cq-p" style="font-size:12px;color:#ffb0a0;margin-bottom:0">Defeat costs 1 morale${S.kind === 'defend' ? ' and the territory' : ''}. Fallen veterans are lost for good.</p>
+          <div class="cq-sec" style="margin-top:10px"><div class="cq-h4">${esc(tCq('preview.ifWon'))}</div>
+            <div class="cq-chips" style="margin:0">${S.kind === 'defend' ? `<span class="cq-chip gold">${picto('coin')}${money(lootPreview)}</span><span class="cq-chip">${esc(tCq('preview.rp', { n: 1 }))}</span><span class="cq-chip">${picto('tower')}${esc(tCq('preview.fortify'))}</span>` : `<span class="cq-chip gold">${picto('coin')}${esc(tCq('preview.spoils', { money: money(lootPreview) }))}</span><span class="cq-chip">${esc(tCq('preview.rp', { n: t.value + (t.res === 'science' ? 1 : 0) }))}</span><span class="cq-chip">${esc(tCq('info.perTurn', { money: money(t.income) }))}</span>${t.value >= 2 ? `<span class="cq-chip gold">${picto('medal')}${esc(tCq('preview.doctrinePick'))}</span>` : ''}${t.capital === 'enemy' ? `<span class="cq-chip gold">${picto('trophy')}${esc(tCq('preview.winWar'))}</span>` : ''}`}</div>
+            <p class="cq-p" style="font-size:12px;color:#ffb0a0;margin-bottom:0">${esc(tCq(S.kind === 'defend' ? 'preview.defeatCostDefence' : 'preview.defeatCost'))}</p>
           </div>
         </div>
       </div>
-      <div class="cq-actions"><button class="cq-btn" data-act="cancel">Cancel</button><button class="cq-btn pri" data-act="deploy">${picto('flag')}Deploy</button></div>`, 'wide', () => {});
+      <div class="cq-actions"><button class="cq-btn" data-act="cancel">${esc(tCommon('cancel'))}</button><button class="cq-btn pri" data-act="deploy">${picto('flag')}${esc(tCq('preview.deploy'))}</button></div>`, 'wide', () => {});
     const slider = m.querySelector<HTMLInputElement>('[data-commit]')!;
     slider.oninput = () => {
       commit = +slider.value;
@@ -1001,14 +1013,14 @@ class ConquestScreen {
     const run = this.run!;
     const draw = () => {
       const list = researchFor(run);
-      const m = this.modal(`<div class="cq-kick">Research · ${run.rp} research point${run.rp === 1 ? '' : 's'} available</div><h1>Research</h1>
-        <h3>Unlock equipment and upgrades for every battle that follows</h3>
+      const m = this.modal(`<div class="cq-kick">${esc(tCq('research.kick', { n: run.rp }))}</div><h1>${esc(tCq('research.title'))}</h1>
+        <h3>${esc(tCq('research.sub'))}</h3>
         <div class="cq-res">${list.map((r) => {
           const st = researchState(run, r);
-          const needs = (r.needs ?? []).filter((n) => !run.research.includes(n)).map((n) => list.find((x) => x.id === n)?.name ?? n);
+          const needs = (r.needs ?? []).filter((n) => !run.research.includes(n)).map((n) => { const d = list.find((x) => x.id === n); return d ? researchName(d) : n; });
           const units = (r.unlocks ?? []).filter((u) => UNITS[u] && UNITS[u].owner.includes(run.faction)).map(unitName);
-          return `<div class="cq-rs ${st}"><div class="ic">${picto(r.icon)}</div><div style="flex:1;min-width:0"><b>${esc(r.name)}</b><span>${esc(r.desc)}${units.length ? `<br><small style="color:#7fa7cf">${esc(units.join(', '))}</small>` : ''}</span>
-            ${st === 'done' ? '<span style="color:#8dffb0;font-size:11px;letter-spacing:.2em">RESEARCHED</span>' : st === 'locked' ? `<span style="color:#ffcf8a;font-size:11px">Needs ${esc(needs.join(', '))}</span>` : `<button class="cq-btn ${st === 'available' ? 'pri' : ''}" data-buy="${r.id}" ${st === 'available' ? '' : 'disabled'} style="height:32px;font-size:11px;padding:0 12px">Research · ${r.cost} RP</button>`}</div></div>`;
+          return `<div class="cq-rs ${st}"><div class="ic">${picto(r.icon)}</div><div style="flex:1;min-width:0"><b>${esc(researchName(r))}</b><span>${esc(researchDesc(r))}${units.length ? `<br><small style="color:#7fa7cf">${esc(units.join(', '))}</small>` : ''}</span>
+            ${st === 'done' ? `<span style="color:#8dffb0;font-size:11px;letter-spacing:.2em">${esc(tCq('research.done'))}</span>` : st === 'locked' ? `<span style="color:#ffcf8a;font-size:11px">${esc(tCq('research.needs', { list: needs.join(', ') }))}</span>` : `<button class="cq-btn ${st === 'available' ? 'pri' : ''}" data-buy="${r.id}" ${st === 'available' ? '' : 'disabled'} style="height:32px;font-size:11px;padding:0 12px">${esc(tCq('research.buy', { n: r.cost }))}</button>`}</div></div>`;
         }).join('')}</div>`, 'wide', () => this.render());
       m.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) => (b.onclick = () => {
         if (buyResearch(run, b.dataset.buy!)) { this.opts.play('click'); this.save(); draw(); }
@@ -1019,28 +1031,28 @@ class ConquestScreen {
 
   private armyModal() {
     const run = this.run!;
-    const rows = run.core.map((v) => `<tr><td>${rankBadge(v.rank)} ${v.rank >= 2 ? 'Elite' : 'Veteran'}</td><td><b>${esc(v.name)}</b></td><td>${esc(unitName(v.type))}</td><td>${v.battles}</td><td>${v.xp}</td><td>Turn ${v.joined}</td></tr>`).join('');
-    this.modal(`<div class="cq-kick">Core army · ${run.core.length} of ${coreCapacity(run)} slots</div><h1>Core army</h1>
-      <h3>Veterans that survive a battle march into the next one with their rank. The fallen are gone for good.</h3>
-      ${run.core.length ? `<table class="cq-tbl"><thead><tr><th>Rank</th><th>Call sign</th><th>Unit</th><th>Battles</th><th>XP</th><th>Joined</th></tr></thead><tbody>${rows}</tbody></table>`
-        : '<p class="cq-p">No veterans yet. Units promoted in battle (veteran or elite) join the core army if they survive.</p>'}
-      <p class="cq-p" style="font-size:12.5px;color:#8a99aa">Capacity: 6, +3 Hardened Core, +3 Officer Academy, +1 per manpower territory (max 3). Naval veterans only deploy where there is sea.</p>`, '', () => {});
+    const rows = run.core.map((v) => `<tr><td>${rankBadge(v.rank)} ${esc(tCq(v.rank >= 2 ? 'army.elite' : 'army.veteran'))}</td><td><b>${esc(v.name)}</b></td><td>${esc(unitName(v.type))}</td><td>${fmtInt(v.battles)}</td><td>${fmtInt(v.xp)}</td><td>${esc(tCq('army.joinedTurn', { n: v.joined }))}</td></tr>`).join('');
+    this.modal(`<div class="cq-kick">${esc(tCq('army.kick', { n: run.core.length, max: coreCapacity(run) }))}</div><h1>${esc(tCq('army.title'))}</h1>
+      <h3>${esc(tCq('army.sub'))}</h3>
+      ${run.core.length ? `<table class="cq-tbl"><thead><tr><th>${esc(tCq('army.rank'))}</th><th>${esc(tCq('army.callSign'))}</th><th>${esc(tCq('army.unit'))}</th><th>${esc(tCq('army.battles'))}</th><th>${esc(tCq('army.xp'))}</th><th>${esc(tCq('army.joined'))}</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="cq-p">${esc(tCq('army.empty'))}</p>`}
+      <p class="cq-p" style="font-size:12.5px;color:#8a99aa">${esc(tCq('army.capacity'))}</p>`, '', () => {});
   }
 
   private perksModal() {
     const run = this.run!;
     const doc = DOCTRINES.find((d) => d.id === run.doctrine);
-    this.modal(`<div class="cq-kick">Doctrine: ${esc(doc?.name ?? run.doctrine)}</div><h1>Doctrines</h1>
-      <h3>Advantages adopted in this campaign. Capture valuable territories to earn more.</h3>
-      <div class="cq-res">${run.perks.map((id) => { const p = perkDef(id, run.faction); return p ? `<div class="cq-rs done"><div class="ic">${picto(p.icon)}</div><div><b>${esc(p.name)}</b><span>${esc(p.desc)}</span><span style="font-size:10px;letter-spacing:.2em;color:#8a99aa">${esc(p.tag.toUpperCase())}</span></div></div>` : ''; }).join('') || '<p class="cq-p">None yet.</p>'}</div>
-      ${run.research.length ? `<div class="cq-h4" style="margin-top:16px">Research</div><div class="cq-chips">${run.research.map((r) => `<span class="cq-chip">${esc(researchFor(run).find((x) => x.id === r)?.name ?? r)}</span>`).join('')}</div>` : ''}`, 'wide', () => {});
+    this.modal(`<div class="cq-kick">${esc(tCq('perks.kick', { name: doc ? doctrineName(doc) : run.doctrine }))}</div><h1>${esc(tCq('perks.title'))}</h1>
+      <h3>${esc(tCq('perks.sub'))}</h3>
+      <div class="cq-res">${run.perks.map((id) => { const p = perkDef(id, run.faction); return p ? `<div class="cq-rs done"><div class="ic">${picto(p.icon)}</div><div><b>${esc(perkName(p))}</b><span>${esc(perkDesc(p))}</span><span style="font-size:10px;letter-spacing:.2em;color:#8a99aa">${esc(perkTag(p).toUpperCase())}</span></div></div>` : ''; }).join('') || `<p class="cq-p">${esc(tCq('perks.none'))}</p>`}</div>
+      ${run.research.length ? `<div class="cq-h4" style="margin-top:16px">${esc(tCq('perks.research'))}</div><div class="cq-chips">${run.research.map((r) => { const d = researchFor(run).find((x) => x.id === r); return `<span class="cq-chip">${esc(d ? researchName(d) : r)}</span>`; }).join('')}</div>` : ''}`, 'wide', () => {});
   }
 
   private perkPickModal() {
     const run = this.run!;
     const ids = run.perkChoice ?? [];
-    const m = this.modal(`<div class="cq-kick">High Command</div><h1>Choose a doctrine</h1><h3>Your victory earned a new advantage for the rest of the campaign</h3>
-      <div class="cq-cards">${ids.map((id) => { const p = perkDef(id, run.faction)!; return `<button class="cq-card" data-perk="${id}"><span class="tag">${esc(p.tag)}</span><div class="ic">${picto(p.icon)}</div><b>${esc(p.name)}</b><span>${esc(p.desc)}</span></button>`; }).join('')}</div>`, 'wide');
+    const m = this.modal(`<div class="cq-kick">${esc(tCq('pick.kick'))}</div><h1>${esc(tCq('pick.title'))}</h1><h3>${esc(tCq('pick.sub'))}</h3>
+      <div class="cq-cards">${ids.map((id) => { const p = perkDef(id, run.faction)!; return `<button class="cq-card" data-perk="${id}"><span class="tag">${esc(perkTag(p))}</span><div class="ic">${picto(p.icon)}</div><b>${esc(perkName(p))}</b><span>${esc(perkDesc(p))}</span></button>`; }).join('')}</div>`, 'wide');
     m.querySelectorAll<HTMLElement>('[data-perk]').forEach((b) => (b.onclick = () => {
       this.opts.play('click');
       pickPerk(run, b.dataset.perk!);
@@ -1056,22 +1068,22 @@ class ConquestScreen {
     const def = EVENT_BY_ID[ev.id];
     if (!def) { run.event = null; this.save(); return; }
     const choices = def.choices(run, ev);
-    const m = this.modal(`<div class="cq-kick">${esc(dateOf(run.turn).label)} · Situation report</div>
-      <div class="cq-event" style="margin-top:8px"><div class="ic">${picto(def.icon)}</div><div style="flex:1"><h1 style="font-size:30px">${esc(def.title)}</h1><p class="cq-p" style="font-size:15.5px">${esc(def.text(run, ev))}</p></div></div>
-      <div class="cq-choices">${choices.map((c, k) => `<button class="cq-choice" data-choice="${k}" ${c.cost && run.warChest < c.cost ? 'disabled' : ''}><b>${esc(c.label)}</b><span>${esc(c.hint)}</span></button>`).join('')}</div>`, 'narrow');
+    const m = this.modal(`<div class="cq-kick">${esc(tCq('event.kick', { date: monthYear(run.turn) }))}</div>
+      <div class="cq-event" style="margin-top:8px"><div class="ic">${picto(def.icon)}</div><div style="flex:1"><h1 style="font-size:30px">${esc(trRun(def.title))}</h1><p class="cq-p" style="font-size:15.5px">${esc(trRun(def.text(run, ev)))}</p></div></div>
+      <div class="cq-choices">${choices.map((c, k) => `<button class="cq-choice" data-choice="${k}" ${c.cost && run.warChest < c.cost ? 'disabled' : ''}><b>${esc(trRun(c.label))}</b><span>${esc(trRun(c.hint))}</span></button>`).join('')}</div>`, 'narrow');
     m.querySelectorAll<HTMLElement>('[data-choice]').forEach((b) => (b.onclick = () => {
       this.opts.play('click');
       const text = chooseEvent(run, +b.dataset.choice!);
       this.save();
-      const r = this.modal(`<div class="cq-kick">${esc(def.title)}</div><div class="cq-event" style="margin-top:8px"><div class="ic">${picto(def.icon)}</div><div><h1 style="font-size:26px">Outcome</h1><p class="cq-p" style="font-size:15.5px">${esc(text)}</p></div></div>
-        <div class="cq-actions"><button class="cq-btn pri" data-act="ok">Continue</button></div>`, 'narrow');
+      const r = this.modal(`<div class="cq-kick">${esc(trRun(def.title))}</div><div class="cq-event" style="margin-top:8px"><div class="ic">${picto(def.icon)}</div><div><h1 style="font-size:26px">${esc(tCq('event.outcome'))}</h1><p class="cq-p" style="font-size:15.5px">${esc(trRun(text))}</p></div></div>
+        <div class="cq-actions"><button class="cq-btn pri" data-act="ok">${esc(tCommon('continue'))}</button></div>`, 'narrow');
       (r.querySelector('[data-act="ok"]') as HTMLElement).onclick = () => { this.opts.play('click'); this.closeModal(); this.render(true); };
     }));
   }
 
   private reportModal() {
     const run = this.run!;
-    const m = this.modal(reportHtml(run, run.report!, 'Continue'), '');
+    const m = this.modal(reportHtml(run, run.report!, tCommon('continue')), '');
     (m.querySelector('[data-act="go"]') as HTMLElement).onclick = () => {
       this.opts.play('click');
       run.reportSeen = true;
@@ -1085,20 +1097,20 @@ class ConquestScreen {
     const run = this.run!;
     const sc = run.score;
     const won = run.status === 'won';
-    const m = this.modal(`<div class="cq-big ${won ? '' : 'lose'}"><div class="cq-kick">${esc(run.name)} · ${run.turn} turns</div><h1>${won ? 'Victory' : 'Defeat'}</h1><h3>${esc(run.ending ?? '')}</h3></div>
+    const m = this.modal(`<div class="cq-big ${won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('summary.kick', { name: run.name, n: run.turn }))}</div><h1>${esc(tCommon(won ? 'victory' : 'defeat'))}</h1><h3>${esc(trRun(run.ending ?? ''))}</h3></div>
       <div class="cq-cols">
-        <div class="cq-sec"><div class="cq-h4">Score</div><div class="cq-rows">
-          ${(sc?.lines ?? []).map((l) => `<div class="cq-row"><span>${esc(l.label)}</span><b>${l.value.toLocaleString('en-US')}</b></div>`).join('')}
-          ${sc && sc.multiplier !== 1 ? `<div class="cq-row"><span>Difficulty</span><b>×${sc.multiplier}</b></div>` : ''}
-          <div class="cq-row total"><span>Total</span><b>${(sc?.total ?? 0).toLocaleString('en-US')}</b></div></div></div>
-        <div class="cq-sec"><div class="cq-h4">Rewards</div><div class="cq-rows">
-          <div class="cq-row"><span>Renown</span><b>+${sc?.renown ?? 0}</b></div><div class="cq-row"><span>Commander XP</span><b>+${(sc?.xp ?? 0).toLocaleString('en-US')}</b></div>
-          <div class="cq-row"><span>Battles won / lost</span><b>${run.stats.battlesWon} / ${run.stats.battlesLost}</b></div><div class="cq-row"><span>Territories captured</span><b>${run.stats.captured}</b></div>
-          <div class="cq-row"><span>Veterans lost</span><b>${run.stats.veteransLost}</b></div></div>
-          ${run.unlocks?.length ? `<div class="cq-h4" style="margin-top:14px">Unlocked</div><div class="cq-chips">${run.unlocks.map((u) => `<span class="cq-chip gold">${picto('laurel')}${esc(u)}</span>`).join('')}</div>` : ''}
+        <div class="cq-sec"><div class="cq-h4">${esc(tCq('summary.score'))}</div><div class="cq-rows">
+          ${(sc?.lines ?? []).map((l) => `<div class="cq-row"><span>${esc(trRun(l.label))}</span><b>${fmtInt(l.value)}</b></div>`).join('')}
+          ${sc && sc.multiplier !== 1 ? `<div class="cq-row"><span>${esc(tCq('summary.difficulty'))}</span><b>×${sc.multiplier}</b></div>` : ''}
+          <div class="cq-row total"><span>${esc(tCq('summary.total'))}</span><b>${fmtInt(sc?.total ?? 0)}</b></div></div></div>
+        <div class="cq-sec"><div class="cq-h4">${esc(tCq('summary.rewards'))}</div><div class="cq-rows">
+          <div class="cq-row"><span>${esc(tCq('summary.renown'))}</span><b>+${fmtInt(sc?.renown ?? 0)}</b></div><div class="cq-row"><span>${esc(tCq('summary.xp'))}</span><b>+${fmtInt(sc?.xp ?? 0)}</b></div>
+          <div class="cq-row"><span>${esc(tCq('summary.battles'))}</span><b>${run.stats.battlesWon} / ${run.stats.battlesLost}</b></div><div class="cq-row"><span>${esc(tCq('summary.captured'))}</span><b>${fmtInt(run.stats.captured)}</b></div>
+          <div class="cq-row"><span>${esc(tCq('summary.veteransLost'))}</span><b>${fmtInt(run.stats.veteransLost)}</b></div></div>
+          ${run.unlocks?.length ? `<div class="cq-h4" style="margin-top:14px">${esc(tCq('summary.unlocked'))}</div><div class="cq-chips">${run.unlocks.map((u) => `<span class="cq-chip gold">${picto('laurel')}${esc(trRun(u))}</span>`).join('')}</div>` : ''}
         </div>
       </div>
-      <div class="cq-actions"><button class="cq-btn" data-act="map">View map</button><button class="cq-btn" data-act="menu">Main menu</button><button class="cq-btn pri" data-act="new">${picto('flag')}New campaign</button></div>`, 'wide');
+      <div class="cq-actions"><button class="cq-btn" data-act="map">${esc(tCq('summary.viewMap'))}</button><button class="cq-btn" data-act="menu">${esc(tCq('summary.mainMenu'))}</button><button class="cq-btn pri" data-act="new">${picto('flag')}${esc(tCq('summary.newCampaign'))}</button></div>`, 'wide');
     (m.querySelector('[data-act="map"]') as HTMLElement).onclick = () => { this.opts.play('click'); this.closeModal(); };
     (m.querySelector('[data-act="menu"]') as HTMLElement).onclick = () => { localStorage.setItem('rh.conquest.seen', run.id); this.closeModal(); this.back(); };
     (m.querySelector('[data-act="new"]') as HTMLElement).onclick = () => { this.opts.play('click'); localStorage.setItem('rh.conquest.seen', run.id); this.closeModal(); this.newRunScreen(); };
@@ -1109,6 +1121,6 @@ class ConquestScreen {
 export function conquestInfo(): { label: string } | null {
   const run = loadRun();
   if (!run || run.status !== 'active') return null;
-  return { label: `${run.name} · ${dateOf(run.turn).label}` };
+  return { label: `${run.name} · ${monthYear(run.turn)}` };
 }
 

@@ -17,6 +17,9 @@ import { el, esc } from './dom';
 import { actionFocus, Director, ease, lerp, type Shot } from '../share/director';
 import { CanvasRecorder, canRecordVideo, canShareFile, downloadBlob, paintOverlay, videoFileName } from '../share/recorder';
 import { openModal, SHARE_ICONS } from '../share/dialog';
+import tShare from '../i18n/en/share';
+import tCommon from '../i18n/en/common';
+import { replayMapName } from '../replay/store';
 
 /** What the clip recorder needs from the replay player (structural: ReplayPlayback satisfies it). */
 export interface ClipPlayback {
@@ -34,16 +37,19 @@ export const CLIP_SECONDS = 18;
 /** Seconds of lead-in before a highlight's moment. */
 export const CLIP_LEAD = 5;
 
-interface PendingClip { replayId: string; atTick: number; label: string }
+interface PendingClip { replayId: string; atTick: number; label: string; fileLabel?: string }
 let pending: PendingClip | null = null;
 
 export function canRecordClips(): boolean {
   return canRecordVideo();
 }
 
-/** Remember a highlight to record when its replay opens (results screen → replay viewer). */
-export function requestClip(replayId: string, atTick: number, label: string): void {
-  pending = { replayId, atTick, label };
+/**
+ * Remember a highlight to record when its replay opens (results screen → replay viewer). `label` is shown;
+ * `fileLabel` (optional, English) names the video file (default: `label`).
+ */
+export function requestClip(replayId: string, atTick: number, label: string, fileLabel?: string): void {
+  pending = { replayId, atTick, label, fileLabel };
 }
 
 /** The tick a highlight's replay should open at (a few seconds before the moment). */
@@ -61,7 +67,7 @@ export function startPendingClip(game: Game, pb: ClipPlayback): void {
   const wait = () => {
     if (!game.world || performance.now() - t0 > 120_000) return;
     if (pb.isSeeking || game.world.tick < clipStartTick(p.atTick) - 2) { setTimeout(wait, 120); return; }
-    void recordClip(game, pb, { label: p.label, atTick: p.atTick });
+    void recordClip(game, pb, { label: p.label, fileLabel: p.fileLabel, atTick: p.atTick });
   };
   setTimeout(wait, 200);
 }
@@ -98,7 +104,7 @@ export function clipProgram(label: string, sub: string, seconds: number, near: (
   const a = seconds * 0.3, b = seconds * 0.45, c = seconds - a - b;
   return [
     {
-      name: 'clip-open', dur: a, card: { kicker: 'Red Horizon · highlight', title: label, sub, at: 'lower' },
+      name: 'clip-open', dur: a, card: { kicker: tShare('clip.cardKicker'), title: label, sub, at: 'lower' },
       begin: (d) => { const f = focus(d); d.follow.jump(f.x, f.y); d.state.yaw = (Math.random() - 0.5) * 0.9; return true; },
       pose: (d, t) => { const f = focus(d); d.follow.to(f.x, f.y, d.dt * 0.8); return { x: d.follow.x, y: d.follow.y, dist: lerp(36, 24, ease(t)), yaw: (d.state.yaw as number) + 0.15 * t, blur: 0.15 }; },
     },
@@ -109,7 +115,7 @@ export function clipProgram(label: string, sub: string, seconds: number, near: (
       speed: (_d, t) => (t > 0.35 && t < 0.65 ? 0.45 : 1),
     },
     {
-      name: 'clip-close', dur: c, continuous: true, card: { title: 'Red Horizon', sub: 'Free in your browser', at: 'center' },
+      name: 'clip-close', dur: c, continuous: true, card: { title: 'Red Horizon', sub: tShare('clip.free'), at: 'center' },
       pose: (d, t) => { const f = focus(d); d.follow.to(f.x, f.y, d.dt * 0.6); return { x: d.follow.x, y: d.follow.y, dist: lerp(15, 34, ease(t)), yaw: (d.state.yaw as number) + 0.65 + 0.2 * t, dof: 0.2, blur: 0.2 }; },
     },
   ];
@@ -119,16 +125,16 @@ let active = false;
 
 /**
  * Record a clip of the replay from where it is now. `atTick` (optional) is the highlight's moment, for the
- * caption; `label` the highlight text.
+ * caption; `label` the highlight text (shown), `fileLabel` the English for the file name (default: `label`).
  */
-export async function recordClip(game: Game, pb: ClipPlayback, o: { label: string; atTick?: number; seconds?: number }): Promise<void> {
+export async function recordClip(game: Game, pb: ClipPlayback, o: { label: string; fileLabel?: string; atTick?: number; seconds?: number }): Promise<void> {
   if (active) return;
-  if (!canRecordClips()) { showClipError('This browser cannot record video (MediaRecorder is missing).'); return; }
+  if (!canRecordClips()) { showClipError(tShare('clip.noRecorder')); return; }
   active = true;
   ensureCss();
   const seconds = Math.max(6, Math.min(30, o.seconds ?? CLIP_SECONDS));
   const at = o.atTick ?? game.world.tick;
-  const sub = `${pb.data.mapName} · ${formatTime(at * DT)}`;
+  const sub = `${replayMapName(pb.data)} · ${formatTime(at * DT)}`;
   // observer view (no fog: the camera roams), normal speed, playing
   const view = pb.view;
   pb.setView(-1);
@@ -156,12 +162,12 @@ export async function recordClip(game: Game, pb: ClipPlayback, o: { label: strin
     });
   } catch (e) {
     cleanup();
-    showClipError(e instanceof Error ? e.message : 'Recording failed.');
+    showClipError(e instanceof Error ? e.message : tShare('record.failed'));
     return;
   }
   // progress overlay (blocks input; Esc or Cancel stops)
   const block = el('div', 'clip-block');
-  const hud = el('div', 'clip-hud', `<span class="dot"></span><b>REC</b><span class="bar"><i></i></span><span class="t">0:00 / ${formatTime(seconds)}</span><button data-a="stop">Cancel</button>`);
+  const hud = el('div', 'clip-hud', `<span class="dot"></span><b>${tShare.html('clip.rec')}</b><span class="bar"><i></i></span><span class="t">0:00 / ${formatTime(seconds)}</span><button data-a="stop">${tCommon.html('cancel')}</button>`);
   document.body.append(block, hud);
   let cancelled = false;
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelled = true; } else e.stopPropagation(); };
@@ -187,8 +193,8 @@ export async function recordClip(game: Game, pb: ClipPlayback, o: { label: strin
   hud.remove();
   cleanup();
   pb.setPaused(true);
-  if (blob && blob.size > 0) showClipResult(blob, rec.format.ext, o.label, rec.width, rec.height, () => void recordClip(game, pb, o));
-  else if (!cancelled) showClipError('The browser produced an empty recording.');
+  if (blob && blob.size > 0) showClipResult(blob, rec.format.ext, o.label, rec.width, rec.height, () => void recordClip(game, pb, o), o.fileLabel);
+  else if (!cancelled) showClipError(tShare('clip.empty'));
 
   function cleanup() {
     dir.dispose();
@@ -202,29 +208,29 @@ export async function recordClip(game: Game, pb: ClipPlayback, o: { label: strin
 }
 
 function showClipError(msg: string) {
-  const m = openModal(SHARE_ICONS.record, 'Highlight clip', 'Cannot record');
+  const m = openModal(SHARE_ICONS.record, tShare('clip.kicker'), tShare('clip.cannotRecord'));
   (m.panel.querySelector('.sh-body') as HTMLElement).innerHTML = `<div class="mx-note bad">${esc(msg)}</div>
-    <div class="mx-actions"><button class="btn-primary" data-a="ok">${ICONS.check}<span>OK</span></button></div>`;
+    <div class="mx-actions"><button class="btn-primary" data-a="ok">${ICONS.check}<span>${tCommon.html('ok')}</span></button></div>`;
   (m.panel.querySelector('[data-a="ok"]') as HTMLElement).onclick = () => m.close();
   m.focus();
 }
 
-/** The finished clip: preview, download, share. */
-export function showClipResult(blob: Blob, ext: string, label: string, w: number, h: number, again?: () => void) {
-  const name = videoFileName(label, ext);
+/** The finished clip: preview, download, share. `fileLabel`: the English for the file name (default: `label`). */
+export function showClipResult(blob: Blob, ext: string, label: string, w: number, h: number, again?: () => void, fileLabel = label) {
+  const name = videoFileName(fileLabel, ext);
   const file = new File([blob], name, { type: blob.type });
   const url = URL.createObjectURL(blob);
-  const m = openModal(SHARE_ICONS.record, 'Highlight clip', label, { cls: 'clip-panel' });
+  const m = openModal(SHARE_ICONS.record, tShare('clip.kicker'), label, { cls: 'clip-panel' });
   const body = m.panel.querySelector('.sh-body') as HTMLElement;
   const mb = (blob.size / 1048576).toFixed(1);
   body.innerHTML = `<video class="clip-video" src="${esc(url)}" controls autoplay muted loop playsinline></video>
-    <div class="mx-note" style="margin-top:.6rem">${w}×${h} · ${esc(ext.toUpperCase())} · ${mb} MB. Recorded on this device; nothing was uploaded.</div>
+    <div class="mx-note" style="margin-top:.6rem">${tShare.html('clip.info', { w: String(w), h: String(h), format: ext.toUpperCase(), mb })}</div>
     <div class="sh-status" role="status" aria-live="polite"></div>
-    <div class="mx-actions"><button class="btn-primary" data-a="dl">${ICONS.download}<span>Download</span></button>
-      ${canShareFile(file) ? `<button class="btn" data-a="share">${SHARE_ICONS.share}<span>Share…</span></button>` : ''}
-      ${again ? `<button class="btn" data-a="again">${SHARE_ICONS.record}<span>Record again</span></button>` : ''}</div>`;
+    <div class="mx-actions"><button class="btn-primary" data-a="dl">${ICONS.download}<span>${tCommon.html('download')}</span></button>
+      ${canShareFile(file) ? `<button class="btn" data-a="share">${SHARE_ICONS.share}<span>${tShare.html('dialog.shareSheet')}</span></button>` : ''}
+      ${again ? `<button class="btn" data-a="again">${SHARE_ICONS.record}<span>${tShare.html('clip.again')}</span></button>` : ''}</div>`;
   const status = body.querySelector('.sh-status') as HTMLElement;
-  (body.querySelector('[data-a="dl"]') as HTMLElement).onclick = () => { downloadBlob(blob, name); status.textContent = `Saved as ${name}`; };
+  (body.querySelector('[data-a="dl"]') as HTMLElement).onclick = () => { downloadBlob(blob, name); status.textContent = tShare('clip.savedAs', { name }); };
   const sh = body.querySelector<HTMLElement>('[data-a="share"]');
   if (sh) sh.onclick = () => { void navigator.share({ files: [file], title: 'Red Horizon', text: label }).catch(() => {}); };
   const ag = body.querySelector<HTMLElement>('[data-a="again"]');
@@ -237,8 +243,8 @@ export function showClipResult(blob: Blob, ext: string, label: string, w: number
 export function clipButton(onClick: () => void): HTMLElement | null {
   if (!canRecordClips()) return null;
   const b = el('button', 'rp-btn rp-clip', SHARE_ICONS.record);
-  b.title = `Record a ${CLIP_SECONDS} s highlight clip from here (WebM video with sound)`;
-  b.setAttribute('aria-label', 'Record clip');
+  b.title = tShare('clip.buttonTip', { s: CLIP_SECONDS });
+  b.setAttribute('aria-label', tShare('clip.button'));
   b.onclick = onClick;
   b.addEventListener('mousedown', (e) => e.preventDefault());
   return b;

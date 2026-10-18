@@ -5,6 +5,9 @@
  * guess of where each enemy base is (the last known structures, otherwise the unexplored start positions a
  * commander can read off the map).
  *
+ * A spy in an enemy Radar Dome shares that player's radar view (sim/infiltration.ts, RA RadarSpied): while the dome
+ * stands, the AI knows where that player's units and structures are, as a human sees them on the minimap.
+ *
  * Scripted missions and fog-free games keep the classic omniscient AI: mission AIs are balanced around knowing
  * where the player is, and without fog everybody sees everything anyway.
  *
@@ -104,12 +107,20 @@ export class AIIntel {
     return false;
   }
 
+  /** On the shared radar of a spied Radar Dome (not submerged submarines, not disguised spies). */
+  private onRadar(e: Entity): boolean {
+    const r = this.p.intel.radar;
+    if (!r.length || !r.includes(e.owner.id)) return false;
+    return !(e instanceof Unit && ((e.kind === 'naval' && e.cloaked) || (e.ut.spy && e.disguise >= 0)));
+  }
+
   /** Refresh from what is visible now (cheap: one pass over units and structures). */
   update() {
     const w = this.world, p = this.p, tick = w.tick;
+    const radar = !this.omniscient && p.intel.radar.length > 0;
     for (const b of w.buildings) {
       if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || b.bt.mine || b.buildAnim < 0.05) continue;
-      if (!this.sees(b)) continue;
+      if (!this.sees(b) && !(radar && this.onRadar(b))) continue;
       const t = apparentType(b, p);
       const wd = b.weapons[0]?.def;
       let s = this.structures.get(b.id);
@@ -126,13 +137,13 @@ export class AIIntel {
       if (s.seen === tick) continue;
       const e = w.entities.get(id);
       const alive = !!e && e.alive && p.isEnemy(e.owner);
-      if (this.omniscient) { if (!alive) this.structures.delete(id); continue; }
+      if (this.omniscient || (radar && p.intel.radar.includes(s.owner))) { if (!alive) this.structures.delete(id); continue; }
       // looked at the spot and it isn't there (destroyed, sold, captured, or hidden by a gap generator: forget)
       if (this.viewing(s.cx, s.cy, s.w, s.h) && (!alive || !this.sees(e!))) this.structures.delete(id);
     }
     for (const u of w.units) {
       if (!u.alive || !p.isEnemy(u.owner) || u.ut.supportPlane) continue;
-      if (!this.sees(u)) continue;
+      if (!this.sees(u) && !(radar && this.onRadar(u))) continue;
       let s = this.units.get(u.id);
       if (!s) {
         s = { id: u.id, type: u.ut.id, owner: u.owner.id, x: u.x, y: u.y, cost: u.ut.cost, cls: unitClass(u), seen: tick };

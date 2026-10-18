@@ -1,8 +1,15 @@
-Fonts in this directory (latin subsets, WOFF2, as served by Google Fonts):
+Fonts in this directory (WOFF2; Rajdhani and Share Tech Mono are the latin subsets served by Google Fonts):
   rajdhani-500.woff2, rajdhani-600.woff2, rajdhani-700.woff2 - Rajdhani
       Copyright (c) 2014, Indian Type Foundry (info@indiantypefoundry.com).
   share-tech-mono-400.woff2 - Share Tech Mono
       Copyright (c) 2012, Carrois Type Design, Ralph du Carrois (post@carrois.com www.carrois.com), with Reserved Font Name 'Share'
+
+Fallbacks for the translated interface (subsets built by tools/fonts/subset.py from google/fonts at a pinned commit,
+renamed as Modified Versions):
+  tektur-cyrillic.woff2 - "RH Cyrillic", Cyrillic subset of Tektur (width 85, weights 400-700)
+      Copyright 2023 The Tektur Project Authors (https://www.github.com/hyvyys/Tektur)
+  noto-sans-sc-subset.woff2 - "RH CJK", subset of Noto Sans SC Medium (the characters of the Chinese interface)
+      Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

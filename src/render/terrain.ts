@@ -199,9 +199,11 @@ const ROAD_LOW: Record<Climate, number[]> = { temperate: [0.3, 0.3, 0.3], winter
 
 /**
  * Fragment shader parts of the textured terrain (medium / high): per-pixel layer weights from the terrain types,
- * slope, shoreline, base dressing, roads and craters; the three strongest layers sampled from the texture arrays
+ * slope, shoreline, base dressing, roads and craters; the strongest layers sampled from the texture arrays
  * (top-down, or triplanar on steep ground) and height-blended; then ore, burn, snow, ruts and wetness on top.
- * `high` adds the anti-tiling (two offset copies of every layer blended by a low-frequency noise).
+ * `high` samples the three strongest layers and adds the anti-tiling (two offset copies of the dominant layer
+ * blended by a low-frequency noise); medium (integrated GPUs) samples the two strongest: the dominant one in full,
+ * the second one's colour only, from above, where it shows.
  */
 function texturedGlsl(climate: Climate, high: boolean) {
   const winter = climate === 'winter', desert = climate === 'desert';
@@ -352,7 +354,7 @@ function texturedGlsl(climate: Climate, high: boolean) {
     for (int i = 0; i < ${LAYER_COUNT}; i++) W[i] *= (1.0 - cliff) * (1.0 - concK);
     W[${SLOT.Rock}] += cliff * 1.5;
     W[${SLOT.Concrete}] += concK * 3.0;
-    // ---- the three strongest layers
+    // ---- the strongest layers (three on high, two on medium)
     int i0 = 0, i1 = 1, i2 = 2;
     float w0 = -1.0, w1 = -1.0, w2 = -1.0;
     for (int i = 0; i < ${LAYER_COUNT}; i++) {
@@ -362,7 +364,7 @@ function texturedGlsl(climate: Climate, high: boolean) {
       else if (w > w2) { w2 = w; i2 = i; }
     }
     w1 = max(w1, 0.0);
-    w2 = max(w2, 0.0);
+    w2 = ${high ? 'max(w2, 0.0)' : '0.0'};
     float ws = max(1e-4, w0 + w1 + w2);
     w0 /= ws; w1 /= ws; w2 /= ws;
     vec3 dpx = dFdx(vWPos), dpy = dFdy(vWPos);
@@ -376,9 +378,14 @@ function texturedGlsl(climate: Climate, high: boolean) {
     vec3 al0, al1, al2, pe0, pe1, pe2;
     float h0, h1, h2, r0, r1, r2;
     terLayer(i0, vWPos, tdx, tdy, dpx, dpy, bw, tri, tk, true, al0, h0, r0, pe0);
-    terLayer(i1, vWPos, tdx, tdy, dpx, dpy, bw, tri, tk, false, al1, h1, r1, pe1);
+    ${high ? `terLayer(i1, vWPos, tdx, tdy, dpx, dpy, bw, tri, tk, false, al1, h1, r1, pe1);
     if (w2 > 0.08) terLayer(i2, vWPos, tdx, tdy, dpx, dpy, bw, tri, tk, false, al2, h2, r2, pe2);
-    else { al2 = al1; h2 = 0.0; r2 = r1; pe2 = vec3(0.0); w2 = 0.0; }
+    else { al2 = al1; h2 = 0.0; r2 = r1; pe2 = vec3(0.0); w2 = 0.0; }` : `// medium: the second layer is its colour only, projected from above, where it shows (one texture fetch instead of
+    // two, or six on cliffs); it settles in the dominant layer's low spots and takes its roughness and relief
+    al1 = al0; h1 = 1.0 - h0; r1 = r0; pe1 = pe0;
+    if (w1 > 0.03) al1 = textureGrad(tTerA, vec3(vWPos.xz * uLayT[i1].w, float(i1)), tdx * uLayT[i1].w, tdy * uLayT[i1].w).rgb * uLayT[i1].rgb;
+    else w1 = 0.0;
+    al2 = al1; h2 = 0.0; r2 = r1; pe2 = vec3(0.0);`}
     // height blend: where weights are close, the material whose texel stands higher (stones, tufts) wins
     // (a layer's height only counts in proportion to its weight: no speckles from faint layers)
     float a0 = w0 + h0 * uLayP[i0].x * min(1.0, w0 * 3.0);

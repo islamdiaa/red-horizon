@@ -6,6 +6,7 @@
  *
  * The radio only reads the simulation (never issues commands), so matches stay deterministic.
  */
+import { srAnnounce } from './a11y';
 import type { Faction } from '../data/rules';
 import type { AIDifficulty } from '../sim/ai';
 import { PERSONALITIES, type Personality } from '../sim/ai-personality';
@@ -13,10 +14,14 @@ import { UNITS, BUILDINGS } from '../data/rules';
 import type { World } from '../sim/world';
 import type { Player } from '../sim/player';
 import {
-  callSign, counterPlan, ensureRoster, favouriteUnit, habitsFor, loadRivals, prepareRivalOpponent, rankName, recordHabits, recordRivalBattle,
-  rivalDifficulty, rivalName, rosterOrder, saveRivals, taunt, type MatchHabits, type PortraitSpec, type Rival, type RivalRef, type RivalStore, type TauntEvent,
+  counterPlan, ensureRoster, favouriteUnit, habitsFor, loadRivals, prepareRivalOpponent, recordHabits, recordRivalBattle,
+  rivalCallSign, rivalDifficulty, rivalDisplayName, rivalRankLabel, rivalRefName, rivalText, rosterOrder, saveRivals, taunt, RIVAL_RANKS,
+  type MatchHabits, type PortraitSpec, type Rival, type RivalRef, type RivalStore, type TauntEvent,
 } from '../meta/rivals';
 import { loadProfile } from '../meta';
+import { currentLang, fmtNum, fmtPct } from '../i18n/core';
+import { personalityBlurb, personalityName, typeName } from '../i18n/names';
+import tRivals from '../i18n/en/rivals';
 
 const CSS = `
 .rv { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: 1rem; padding: 4vh 4vw; overflow: hidden;
@@ -161,7 +166,11 @@ function rivalSvg(r: Rival): string {
 // ---------------------------------------------------------------------------
 // Rivals board
 // ---------------------------------------------------------------------------
-const pct = (x: number) => `${Math.round(Math.max(0, Math.min(1, x)) * 100)}%`;
+const pct = (x: number) => fmtPct(Math.round(Math.max(0, Math.min(1, x)) * 100) / 100);
+/** One decimal, always shown ("9.0"). */
+const fixed1 = (v: number) => {
+  try { return new Intl.NumberFormat(currentLang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v); } catch { return v.toFixed(1); }
+};
 
 /** Full-screen rivals board. `onChallenge` adds a "Challenge" button per active rival (skirmish setup). */
 export function showRivals(opts: { onBack(): void; play?(k: 'click' | 'tab' | 'hover'): void; onChallenge?(id: string): void; current?: string }): () => void {
@@ -177,28 +186,35 @@ export function showRivals(opts: { onBack(): void; play?(k: 'click' | 'tab' | 'h
   const cards = rosterOrder(store).map((r, i) => {
     const pers = PERSONALITIES[r.personality];
     const plan = r.status === 'active' ? counterPlan(r, habitsFor(store, r)).notes[0] : '';
-    const hist = r.history.slice(-8).map((b) => `<b class="${b.rivalWon ? 'w' : 'l'}" title="${esc(b.note)} · ${b.minutes} min">${b.rivalWon ? 'W' : 'L'}</b>`).join('');
-    const tags = [...r.titles.map((t) => `<i class="t">${esc(t)}</i>`), ...r.traits.map((t) => `<i>${esc(t)}</i>`), r.status === 'dead' ? '<i class="k">Killed in action</i>' : ''].join('');
-    const act = r.status === 'active' ? `<div class="rv-act">${opts.onChallenge ? `<button class="rv-btn" data-ch="${r.id}">${opts.current === r.id ? 'Selected' : 'Challenge'}</button>` : ''}</div>` : '';
+    const hist = r.history.slice(-8).map((b) => `<b class="${b.rivalWon ? 'w' : 'l'}" title="${esc(tRivals('board.historyTip', { note: rivalText(b.note), min: fmtNum(b.minutes, 1) }))}">${tRivals.html(b.rivalWon ? 'board.win' : 'board.loss')}</b>`).join('');
+    const tags = [...r.titles.map((t) => `<i class="t">${esc(rivalText(t))}</i>`), ...r.traits.map((t) => `<i>${esc(rivalText(t))}</i>`), r.status === 'dead' ? `<i class="k">${tRivals.html('board.killed')}</i>` : ''].join('');
+    const act = r.status === 'active' ? `<div class="rv-act">${opts.onChallenge ? `<button class="rv-btn" data-ch="${r.id}">${tRivals.html(opts.current === r.id ? 'board.selected' : 'board.challenge')}</button>` : ''}</div>` : '';
+    // (first and last names are proper names: only the nickname translates)
     return `<div class="rv-card ${r.faction}${r.status === 'dead' ? ' dead' : ''}${r.id === store.nemesis ? ' nemesis' : ''}" style="--i:${i}">
       <div class="rv-pt">${rivalSvg(r)}</div>
-      <div class="rv-info"><div class="rv-rank">${esc(rankName(r))} · ${r.faction === 'soviet' ? 'Soviet' : 'Allied'}${r.id === store.nemesis ? ' · Nemesis' : ''}</div>
-        <div class="rv-name">${esc(r.first)} <em>'${esc(r.nick)}'</em> ${esc(r.last)}</div>
-        <div class="rv-pers"><b>${esc(pers?.name ?? r.personality)}</b> — ${esc(pers?.blurb ?? '')}</div>
-        <div class="rv-stats"><span><em>vs you</em>${r.wins}–${r.losses}</span><span><em>AI</em>${rivalDifficulty(r)}</span>${r.returns ? `<span><em>returned</em>${r.returns}×</span>` : ''}</div>
+      <div class="rv-info"><div class="rv-rank">${esc(rivalRankLabel(r))} · ${tRivals.html(r.faction === 'soviet' ? 'board.soviet' : 'board.allied')}${r.id === store.nemesis ? ` · ${tRivals.html('board.nemesis')}` : ''}</div>
+        <div class="rv-name">${esc(r.first)} <em>'${esc(rivalText(r.nick))}'</em> ${esc(r.last)}</div>
+        <div class="rv-pers"><b>${esc(pers ? personalityName(pers) : r.personality)}</b> — ${esc(pers ? personalityBlurb(pers) : '')}</div>
+        <div class="rv-stats"><span><em>${tRivals.html('board.vsYou')}</em>${r.wins}–${r.losses}</span><span><em>${tRivals.html('board.ai')}</em>${tRivals.html(`board.difficulty.${rivalDifficulty(r)}`)}</span>${r.returns ? `<span><em>${tRivals.html('board.returned')}</em>${tRivals.html('board.returnedTimes', { n: r.returns })}</span>` : ''}</div>
         ${tags ? `<div class="rv-tags">${tags}</div>` : ''}${hist ? `<div class="rv-hist">${hist}</div>` : ''}
-        ${plan ? `<div class="rv-plan">“${esc(plan)}”</div>` : ''}${act}
+        ${plan ? `<div class="rv-plan">“${esc(rivalText(plan))}”</div>` : ''}${act}
       </div></div>`;
   }).join('');
-  const bars = ([['Infantry', h.infantry], ['Armour', h.armour], ['Artillery', h.artillery], ['Air', h.air], ['Naval', h.naval], ['Defences', h.defence]] as [string, number][])
-    .map(([k, v]) => `<div class="rv-bar"><span>${k}</span><span class="tr"><i style="width:${pct(v)}"></i></span><b>${pct(v)}</b></div>`).join('');
+  const bars = ([['infantry', h.infantry], ['armour', h.armour], ['artillery', h.artillery], ['air', h.air], ['naval', h.naval], ['defences', h.defence]] as const)
+    .map(([k, v]) => `<div class="rv-bar"><span>${tRivals.html(`board.bar.${k}`)}</span><span class="tr"><i style="width:${(Math.max(0, Math.min(1, v)) * 100).toFixed(1)}%"></i></span><b>${pct(v)}</b></div>`).join('');
+  const note = [
+    tRivals.html('board.firstStrike', { min: fixed1(h.rushMinute) }),
+    fav ? tRivals.html('board.favourite', { unit: UNITS[fav] ? typeName(UNITS[fav]) : fav }) : '',
+    h.superweapons >= 0.3 ? tRivals.html('board.superweapons') : '',
+    tRivals.html('board.studied', { n: h.games }),
+  ].filter(Boolean).join(' ');
   root.innerHTML = `
-    <div class="rv-head"><div><small>Persistent enemy commanders</small><h2>Rivals</h2></div><span class="sp"></span><button class="rv-btn ghost" data-act="back">Back · Esc</button></div>
+    <div class="rv-head"><div><small>${tRivals.html('board.kicker')}</small><h2>${tRivals.html('board.title')}</h2></div><span class="sp"></span><button class="rv-btn ghost" data-act="back">${tRivals.html('board.back')}</button></div>
     <div class="rv-body"><div class="rv-list">${cards}</div>
-      <div class="rv-file"><h4>Their file on ${esc(player)}</h4>
-        ${h.games ? `${bars}<div class="rv-note">First strike at about <b>${h.rushMinute.toFixed(1)} min</b>. ${fav ? `Favourite: <b>${esc(UNITS[fav]?.name ?? fav)}</b>. ` : ''}${h.superweapons >= 0.3 ? 'Uses superweapons. ' : ''}Studied over ${h.games} battle${h.games === 1 ? '' : 's'}.</div>`
-          : '<div class="rv-note">No battles on file yet. Every skirmish you fight, they watch: how you build, how early you strike, what you love to field.</div>'}
-        <div class="rv-note">Pick <b>Rival</b> as an opponent's difficulty in the skirmish setup to face one. Win and they fall back, lose and they climb the ranks; the beaten may return, scarred and vengeful.</div>
+      <div class="rv-file"><h4>${tRivals.html('board.fileOn', { player })}</h4>
+        ${h.games ? `${bars}<div class="rv-note">${note}</div>`
+          : `<div class="rv-note">${tRivals.html('board.noFile')}</div>`}
+        <div class="rv-note">${tRivals.html('board.howTo')}</div>
       </div></div>`;
   document.body.appendChild(root);
   const close = () => {
@@ -248,8 +264,9 @@ export function rivalChip(o: RivalOpponentPrefs, rerender: () => void, play?: (k
   if (!r) { r = store.rivals.find((x) => x.id === store.nemesis) ?? store.rivals.find((x) => x.status === 'active'); o.rivalId = r?.id; }
   const b = document.createElement('button');
   b.className = `rv-chip ${r?.faction ?? ''}`;
-  b.title = 'Choose your rival';
-  b.innerHTML = r ? `<span class="rv-mini">${rivalSvg(r)}</span><span><b>${esc(callSign(r))}</b><small>${esc(PERSONALITIES[r.personality]?.name ?? '')} · ${r.wins}–${r.losses}</small></span>` : '<span><b>No rival</b></span>';
+  b.title = tRivals('chip.choose');
+  const pers = r ? PERSONALITIES[r.personality] : undefined;
+  b.innerHTML = r ? `<span class="rv-mini">${rivalSvg(r)}</span><span><b>${esc(rivalCallSign(r))}</b><small>${esc(pers ? personalityName(pers) : '')} · ${r.wins}–${r.losses}</small></span>` : `<span><b>${tRivals.html('chip.none')}</b></span>`;
   b.onclick = () => {
     play?.('click');
     showRivals({ onBack: () => {}, onChallenge: (id) => { o.rivalId = id; rerender(); }, current: o.rivalId });
@@ -312,11 +329,13 @@ export function attachRivals(game: GameLike): { dispose(): void } {
     injectCss();
     tx = document.createElement('div');
     tx.className = 'rv-tx';
+    tx.setAttribute('aria-hidden', 'true');
     (document.getElementById('ui') ?? document.body).appendChild(tx);
   }
-  const svgOf = (ref: RivalRef) => rivalPortraitSvg(ref.portrait, ref.faction, Math.max(0, ['Lieutenant', 'Captain', 'Major', 'Colonel', 'General', 'Marshal', 'Field Marshal'].indexOf(ref.rank)), ref.returns > 0);
+  const svgOf = (ref: RivalRef) => rivalPortraitSvg(ref.portrait, ref.faction, Math.max(0, RIVAL_RANKS[ref.faction === 'allies' ? 'allies' : 'soviet'].indexOf(ref.rank)), ref.returns > 0);
+  // (lines are queued already translated: the queue lives for a few seconds)
   const say = (ref: RivalRef, text: string, sys = false) => {
-    queue.push({ who: sys ? 'Battle control' : ref.name, svg: svgOf(ref), text, sys });
+    queue.push({ who: sys ? tRivals('radio.battleControl') : rivalRefName(ref), svg: svgOf(ref), text, sys });
   };
   const sayEvent = (r: { ref: RivalRef }, ev: TauntEvent, gap = 35) => {
     const k = `${r.ref.id}:${ev}`;
@@ -417,7 +436,7 @@ export function attachRivals(game: GameLike): { dispose(): void } {
     if (!rivals.length || !tx) return;
     if (!done && fresh && w.time > 2.5 && !said.has('intro')) {
       said.set('intro', 1);
-      for (const r of rivals) say(r.ref, r.ref.intro);
+      for (const r of rivals) say(r.ref, rivalText(r.ref.intro));
     }
     if (!done && !w.gameOver) radio();
     // show queued lines one at a time
@@ -428,6 +447,7 @@ export function attachRivals(game: GameLike): { dispose(): void } {
       const m = queue.shift()!;
       tx.innerHTML = `<div class="pt">${m.svg}</div><div style="flex:1"><div class="sp">${esc(m.who.toUpperCase())}</div><div class="tt${m.sys ? ' sys' : ''}">${esc(m.text)}</div></div>`;
       tx.classList.add('on');
+      srAnnounce(tRivals('radio.announce', { who: m.who, text: m.text })); // screen readers (the panel itself is decorative)
       showing = 3.2 + m.text.length * 0.045;
     }
   }, 250);
@@ -441,9 +461,13 @@ export function attachRivals(game: GameLike): { dispose(): void } {
       const out = recordRivalBattle(store, r.ref.id, { rivalWon: !won, minutes: w.time / 60, playerFaction: me.faction, plan: r.ref.plan, habits: hab });
       if (!out) return;
       sayEvent(r, won ? 'lost' : 'won', 0);
-      const name = callSign(out.rival);
-      say(r.ref, out.killed ? `${r.ref.name} is confirmed killed in action.` : out.promoted ? `${name} has been promoted to ${rankName(out.rival)}${out.newTitle ? `, now called "${out.newTitle}"` : ''}.` : out.demoted ? `${r.ref.name} has been demoted to ${rankName(out.rival)}.` : `${name} holds the line.`, true);
-      for (const n of out.risen) if (n.id !== r.ref.id) say(r.ref, `A new rival rises: ${rivalName(n)}.`, true);
+      const name = rivalCallSign(out.rival);
+      const full = rivalRefName(r.ref);
+      const rank = rivalRankLabel(out.rival);
+      say(r.ref, out.killed ? tRivals('radio.killed', { name: full })
+        : out.promoted ? (out.newTitle ? tRivals('radio.promotedTitle', { name, rank, title: rivalText(out.newTitle) }) : tRivals('radio.promoted', { name, rank }))
+          : out.demoted ? tRivals('radio.demoted', { name: full, rank }) : tRivals('radio.held', { name }), true);
+      for (const n of out.risen) if (n.id !== r.ref.id) say(r.ref, tRivals('radio.risen', { name: rivalDisplayName(n) }), true);
     });
     saveRivals(store);
   };

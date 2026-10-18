@@ -13,6 +13,8 @@
  */
 import { Rng } from '../core/rng';
 import { dayKey } from './daily';
+import { currentLang, dt, fmtInt, fmtMoney } from '../i18n/core';
+import tMeta from '../i18n/en/meta';
 
 export type ContractMode = 'skirmish' | 'campaign' | 'conquest' | 'daily' | 'survival' | 'challenge' | 'other';
 export type Cadence = 'daily' | 'weekly';
@@ -280,17 +282,31 @@ export function contractReward(id: string, cadence: Cadence): { xp: number; cmd:
     : { xp: Math.round((300 * e) / 50) * 50, cmd: Math.round(3 * e) };
 }
 
-export function fmtContractValue(def: ContractDef | undefined, v: number): string {
-  const n = Math.floor(v);
-  if (def?.money) return n >= 10000 ? `$${Math.round(n / 1000)}k` : `$${n.toLocaleString('en-US')}`;
-  return n.toLocaleString('en-US');
+/** Short money: "$12k" (`frac` decimals: "$12.5k"), in the active language. */
+export function moneyShort(n: number, frac = 0): string {
+  let v: string;
+  try { v = new Intl.NumberFormat(currentLang(), { minimumFractionDigits: frac, maximumFractionDigits: frac }).format(n / 1000); } catch { v = (n / 1000).toFixed(frac); }
+  return tMeta('moneyK', { n: v });
 }
 
+export function fmtContractValue(def: ContractDef | undefined, v: number): string {
+  const n = Math.floor(v);
+  if (def?.money) return n >= 10000 ? moneyShort(Math.round(n / 1000) * 1000) : fmtMoney(n);
+  return fmtInt(n);
+}
+
+/** A contract's display title (game data contract.<id>.title). */
+export const contractTitle = (def: Pick<ContractDef, 'id' | 'title'>): string => dt('contract', def.id, 'title', def.title);
+
+/**
+ * The description with the target filled in (translated: contract.<id>.desc). In the English data "(s)" / "(es)"
+ * marks a plural ending; translations use {n, plural, ...} instead.
+ */
 export function contractDesc(slot: ContractSlot): string {
   const def = CONTRACT_BY_ID[slot.id];
   if (!def) return '';
-  const n = def.money ? '$' + slot.n.toLocaleString('en-US') : String(slot.n);
-  return def.desc.replace('{n}', n).replace(/\((e?s)\)/g, (_, s: string) => (slot.n === 1 ? '' : s));
+  const en = def.desc.replace(/\((e?s)\)/g, (_, s: string) => (slot.n === 1 ? '' : s));
+  return dt('contract', def.id, 'desc', en, { n: def.money ? fmtMoney(slot.n) : slot.n });
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +380,7 @@ export function contractProgressList(st: ContractsState, before?: Map<string, nu
       if (!def) continue;
       const r = contractReward(slot.id, cadence);
       out.push({
-        id: slot.id, title: def.title, desc: contractDesc(slot), picto: def.picto, cadence, before: Math.min(slot.p, before?.get(slot.id) ?? slot.p), after: slot.p,
+        id: slot.id, title: contractTitle(def), desc: contractDesc(slot), picto: def.picto, cadence, before: Math.min(slot.p, before?.get(slot.id) ?? slot.p), after: slot.p,
         target: slot.n, done: slot.done, justDone: doneNow.includes(slot.id), xp: r.xp, cmd: r.cmd, money: !!def.money,
       });
     }

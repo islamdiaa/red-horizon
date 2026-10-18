@@ -9,10 +9,15 @@ import { picto } from '../meta';
 import { loadProfile } from '../meta/profile';
 import { callSign, ensureRoster, loadRivals, rivalDifficulty, saveRivals } from '../meta/rivals';
 import { MUTATORS, MUTATOR_BY_ID, mutatorEligible, normaliseMutators, surpriseMutators, toggleMutator, type MutatorContext } from '../modes/mutators';
-import { quickLines, quickSkill, rollQuickBattle, type QuickInfo } from '../modes/quickbattle';
+import { quickSkill, rollQuickBattle, type QuickInfo } from '../modes/quickbattle';
+import { PERSONALITIES } from '../sim/ai-personality';
 import { el as h, esc } from './dom';
 import { ICONS } from './icons';
 import { resolveRivalOpponent } from './rivals';
+import tVar from '../i18n/en/variety';
+import tCommon from '../i18n/en/common';
+import { trSource } from '../i18n/core';
+import { mutatorDesc, mutatorName, personalityName } from '../i18n/names';
 
 /** The skirmish preferences this module reads and writes (a slice of menu.ts SkirmishPrefs). */
 export interface RulesPrefs {
@@ -145,9 +150,9 @@ export function ensureVarietyCss() {
 /** Short label of the rules for the tab ("Commander · 2 mutators"). */
 export function rulesSummary(p: RulesPrefs): string {
   const n = normaliseMutators(p.mutators).length;
-  const parts = [p.rules === 'classic' ? 'Classic' : 'Commander'];
-  if (n) parts.push(`${n} mutator${n === 1 ? '' : 's'}`);
-  if (p.dynamicDifficulty) parts.push('dynamic');
+  const parts = [tCommon(p.rules === 'classic' ? 'rules.classic' : 'rules.commander')];
+  if (n) parts.push(tVar('summary.mutators', { n }));
+  if (p.dynamicDifficulty) parts.push(tVar('summary.dynamic'));
   return parts.join(' · ');
 }
 
@@ -170,8 +175,8 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
   prefs.events ??= true;
   prefs.mutators = normaliseMutators(prefs.mutators);
   const tabs = h('div', 'vr-tabs');
-  const tBf = h('button', 'vr-tab on', `${ICONS.map}<span>Battlefield</span>`);
-  const tRules = h('button', 'vr-tab', `${picto('chevrons', 'ic')}<span>Rules</span><em></em>`);
+  const tBf = h('button', 'vr-tab on', `${ICONS.map}<span>${tVar.html('tab.battlefield')}</span>`);
+  const tRules = h('button', 'vr-tab', `${picto('chevrons', 'ic')}<span>${tVar.html('tab.rules')}</span><em></em>`);
   tabs.append(tBf, tRules);
   const rules = h('div', 'mp-grid vr-rules vr-hidden');
   ctx.grid.classList.add('vr-tabbed');
@@ -197,12 +202,12 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
     renderDoctrine();
     renderMutators();
   };
-  const rulesField = ctl.field('Rules', picto('chevrons', 'ic'), ctl.seg<'commander' | 'classic'>([['commander', 'Commander', picto('chevrons', 'ic')], ['classic', 'Classic', ICONS.target]], prefs.rules, (v) => { prefs.rules = v; refresh(); }, 'with-ic'));
-  rulesField.title = 'Commander: doctrines, commander powers, battlefield events and neutral tech structures. Classic: pure Red Alert rules.';
+  const rulesField = ctl.field(tVar.html('rules.field'), picto('chevrons', 'ic'), ctl.seg<'commander' | 'classic'>([['commander', esc(tCommon('rules.commander')), picto('chevrons', 'ic')], ['classic', esc(tCommon('rules.classic')), ICONS.target]], prefs.rules, (v) => { prefs.rules = v; refresh(); }, 'with-ic'));
+  rulesField.title = tVar('rules.tip');
   left.appendChild(rulesField);
   // doctrine picker slot
   const docHost = h('div', 'vr-doctrine');
-  const docField = ctl.field('Doctrine', ICONS.flag, docHost);
+  const docField = ctl.field(tVar.html('rules.doctrine'), ICONS.flag, docHost);
   commanderOnly.push(docField);
   left.appendChild(docField);
   const renderDoctrine = () => {
@@ -210,7 +215,7 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
     if (doctrineSlot) {
       doctrineSlot(docHost, { faction: ctx.faction(), value: prefs.doctrine ?? null, onChange: (id) => { prefs.doctrine = id; }, enabled: prefs.rules !== 'classic' });
     } else {
-      docHost.appendChild(h('div', 'vr-note', `${ICONS.info}<span>${prefs.rules === 'classic' ? 'Commander rules only' : 'Doctrines arrive with Commander rules'}</span>`));
+      docHost.appendChild(h('div', 'vr-note', `${ICONS.info}<span>${tVar.html(prefs.rules === 'classic' ? 'rules.commanderOnly' : 'rules.doctrinesArrive')}</span>`));
     }
   };
   left.append(ctx.mode, ctx.buildup);
@@ -223,9 +228,9 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
     toggles.appendChild(t);
     return t;
   };
-  const evT = tp(picto('flag', 'ic'), 'Battlefield events', 'Every few minutes something happens: supply convoys, airdrops, downed pilots, storms, mercenaries, ore surges. Commander rules only.', prefs.events !== false, (v) => { prefs.events = v; refresh(); });
+  const evT = tp(picto('flag', 'ic'), tVar.html('rules.events'), tVar('rules.eventsTip'), prefs.events !== false, (v) => { prefs.events = v; refresh(); });
   commanderOnly.push(evT);
-  tp(picto('chart', 'ic'), 'Dynamic difficulty', 'The AI economy and aggression flex within a band to keep the match close (shown in the HUD).', !!prefs.dynamicDifficulty, (v) => { prefs.dynamicDifficulty = v; refresh(); });
+  tp(picto('chart', 'ic'), tVar.html('rules.dynamic'), tVar('rules.dynamicTip'), !!prefs.dynamicDifficulty, (v) => { prefs.dynamicDifficulty = v; refresh(); });
   right.appendChild(toggles);
   // mutators
   const mut = h('div', 'vr-mut');
@@ -233,22 +238,22 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
   const renderMutators = () => {
     const ids = normaliseMutators(prefs.mutators);
     prefs.mutators = ids;
-    mut.innerHTML = `<div class="vr-mut-head">${picto('gear', 'ic')}<span>Mutators</span><b>${ids.length ? `${ids.length} active` : 'off'}</b></div>`;
+    mut.innerHTML = `<div class="vr-mut-head">${picto('gear', 'ic')}<span>${tVar.html('mutators.title')}</span><b>${ids.length ? tVar.html('mutators.active', { n: ids.length }) : tVar.html('mutators.off')}</b></div>`;
     const chips = h('div', 'vr-chips');
-    if (!ids.length) chips.appendChild(h('div', 'vr-none', `None: pick from ${MUTATORS.length} battle conditions, or let fate decide.`));
+    if (!ids.length) chips.appendChild(h('div', 'vr-none', tVar.html('mutators.none', { n: MUTATORS.length })));
     for (const id of ids) {
       const m = MUTATOR_BY_ID[id];
-      const c = h('button', 'vr-chip', `${picto(m.icon, 'ic')}<span>${esc(m.name)}</span>`);
-      c.title = `${m.desc} (click to remove)`;
+      const c = h('button', 'vr-chip', `${picto(m.icon, 'ic')}<span>${esc(mutatorName(m))}</span>`);
+      c.title = tVar('mutators.chipTip', { desc: mutatorDesc(m) });
       c.onclick = () => { prefs.mutators = toggleMutator(ids, id); ctl.play('click'); refresh(); };
       chips.appendChild(c);
     }
     mut.appendChild(chips);
     const btns = h('div', 'vr-mut-btns');
-    const pick = h('button', 'vr-btn', `${ICONS.plus}<span>Choose</span>`);
+    const pick = h('button', 'vr-btn', `${ICONS.plus}<span>${tVar.html('mutators.choose')}</span>`);
     pick.onclick = () => openMutatorPicker(prefs, ctl, ctx, refresh);
-    const dice = h('button', 'vr-btn', `${ICONS.dice}<span>Surprise me</span>`);
-    dice.title = 'Two or three compatible mutators at random';
+    const dice = h('button', 'vr-btn', `${ICONS.dice}<span>${tVar.html('mutators.surprise')}</span>`);
+    dice.title = tVar('mutators.surpriseTip');
     dice.onclick = () => { prefs.mutators = surpriseMutators(Math.floor(Math.random() * 1e9), ctx.mutatorContext()); ctl.play('click'); refresh(); };
     btns.append(pick, dice);
     mut.appendChild(btns);
@@ -264,7 +269,7 @@ export function openMutatorPicker(prefs: RulesPrefs, ctl: Controls, ctx: { mutat
   ensureVarietyCss();
   const ov = h('div', 'vr-picker');
   const pnl = h('div', 'menu-panel panel vr-ppanel');
-  pnl.appendChild(h('div', 'mp-head', `<span class="mp-ic">${picto('gear', 'ic')}</span><div><small>Battle conditions</small><h2>Mutators</h2></div>`));
+  pnl.appendChild(h('div', 'mp-head', `<span class="mp-ic">${picto('gear', 'ic')}</span><div><small>${tVar.html('mutators.kicker')}</small><h2>${tVar.html('mutators.title')}</h2></div>`));
   const grid = h('div', 'vr-pgrid');
   const close = () => {
     ov.classList.add('leaving');
@@ -278,23 +283,23 @@ export function openMutatorPicker(prefs: RulesPrefs, ctl: Controls, ctx: { mutat
     const on = normaliseMutators(prefs.mutators);
     for (const m of MUTATORS) {
       const ok = mutatorEligible(m, c);
-      const b = h('button', 'vr-card' + (on.includes(m.id) ? ' on' : ''), `<span class="vr-ic">${picto(m.icon, 'ic')}</span><b>${esc(m.name)}</b><p>${esc(m.desc)}</p>${m.daily ? '<i>Daily</i>' : '<i>New</i>'}`) as HTMLButtonElement;
+      const b = h('button', 'vr-card' + (on.includes(m.id) ? ' on' : ''), `<span class="vr-ic">${picto(m.icon, 'ic')}</span><b>${esc(mutatorName(m))}</b><p>${esc(mutatorDesc(m))}</p><i>${m.daily ? tVar.html('mutators.daily') : esc(tCommon('new'))}</i>`) as HTMLButtonElement;
       if (!ok) {
         b.disabled = true;
-        b.title = m.id === 'blizzard' ? 'Winter battlefields only' : m.id === 'sandstorm' ? 'Desert battlefields only' : m.id === 'storm-front' ? 'Temperate battlefields only' : m.id === 'tesla-only' ? 'Soviet commanders only' : m.id === 'pillbox-line' ? 'Allied commanders only' : 'Not available here';
+        b.title = tVar(m.id === 'blizzard' ? 'mutators.onlyWinter' : m.id === 'sandstorm' ? 'mutators.onlyDesert' : m.id === 'storm-front' ? 'mutators.onlyTemperate' : m.id === 'tesla-only' ? 'mutators.onlySoviet' : m.id === 'pillbox-line' ? 'mutators.onlyAllied' : 'mutators.unavailable');
       }
       b.onclick = () => { prefs.mutators = toggleMutator(on, m.id); ctl.play('click'); render(); };
       grid.appendChild(b);
     }
-    count.textContent = on.length ? `${on.length} active · conflicting ones replace each other` : 'Pick any. Two weathers, two ore values or two production speeds replace each other.';
+    count.textContent = on.length ? tVar('mutators.count', { n: on.length }) : tVar('mutators.hint');
   };
   const foot = h('div', 'vr-pfoot');
   const count = h('small', '');
-  const dice = h('button', 'vr-btn', `${ICONS.dice}<span>Surprise me</span>`);
+  const dice = h('button', 'vr-btn', `${ICONS.dice}<span>${tVar.html('mutators.surprise')}</span>`);
   dice.onclick = () => { prefs.mutators = surpriseMutators(Math.floor(Math.random() * 1e9), ctx.mutatorContext()); ctl.play('click'); render(); };
-  const clear = h('button', 'vr-btn', `${ICONS.close}<span>Clear</span>`);
+  const clear = h('button', 'vr-btn', `${ICONS.close}<span>${tVar.html('mutators.clear')}</span>`);
   clear.onclick = () => { prefs.mutators = []; ctl.play('click'); render(); };
-  const ok = h('button', 'vr-btn primary', `${ICONS.check}<span>Done</span>`);
+  const ok = h('button', 'vr-btn primary', `${ICONS.check}<span>${tVar.html('mutators.done')}</span>`);
   ok.onclick = close;
   foot.append(count, dice, clear, ok);
   pnl.append(grid, foot);
@@ -331,13 +336,26 @@ export function quickBattleSetup(o: { faction: Faction; color: number; quality: 
   return rollQuickBattle(seed, { ...o, skill, rival });
 }
 
+/** The loading card's lines for a roll (modes/quickbattle.ts quickLines, in the active language). */
+function quickCardLines(q: QuickInfo): { label: string; value: string }[] {
+  const pers = !q.rival && q.personality ? PERSONALITIES[q.personality] : undefined;
+  const opponent = pers ? personalityName(pers) : !q.rival && q.opponent === 'AI commander' ? tVar('quick.aiCommander') : q.opponent;
+  const mutators = normaliseMutators(q.mutators).map((id) => mutatorName(MUTATOR_BY_ID[id]));
+  return [
+    { label: tVar('quick.battlefield'), value: [trSource(q.map), tVar(`quick.climate.${q.climate}`), tVar(`quick.time.${q.time}`)].join(' · ') },
+    { label: tVar('quick.opponent'), value: [opponent, tCommon(`difficulty.${q.difficulty}`), ...(q.rival ? [tVar('quick.rival')] : [])].join(' · ') },
+    { label: tVar('quick.rules'), value: tVar('quick.rulesValue') },
+    { label: tVar('quick.mutators'), value: mutators.join(' · ') || tCommon('none') },
+  ];
+}
+
 /** Show what a Quick Battle rolled on the loading screen (removed when the loading screen hides). */
 export function showQuickCard(q: QuickInfo) {
   ensureVarietyCss();
   const root = document.getElementById('loading');
   if (!root) return;
   root.querySelector('.qb-card')?.remove();
-  const card = h('div', 'qb-card', `<small>Quick Battle</small><h3>Rolled for you</h3>${quickLines(q).map((l, i) => `<div class="qb-row" style="animation-delay:${(0.15 + i * 0.12).toFixed(2)}s"><span>${esc(l.label)}</span><b>${esc(l.value)}</b></div>`).join('')}`);
+  const card = h('div', 'qb-card', `<small>${tVar.html('quick.kicker')}</small><h3>${tVar.html('quick.title')}</h3>${quickCardLines(q).map((l, i) => `<div class="qb-row" style="animation-delay:${(0.15 + i * 0.12).toFixed(2)}s"><span>${esc(l.label)}</span><b>${esc(l.value)}</b></div>`).join('')}`);
   root.appendChild(card);
   const obs = new MutationObserver(() => {
     if (root.style.display === 'none') { card.remove(); obs.disconnect(); }

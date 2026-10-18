@@ -18,6 +18,7 @@ import {
   ACCENT_RGB, DANGER_RGB, FONT, MONO, Z_TOP, backdrop, button, buttonRow, codeBox, emblem, fadeIn, fadeOutAndRemove, glassPanel,
   h, paragraph, spinner, title,
 } from './ui';
+import tErrors from '../i18n/en/errors';
 
 export type UnsupportedReason = 'no-webgl' | 'webgl1-only' | 'context-failed' | 'missing-feature';
 
@@ -68,12 +69,12 @@ export function checkSupport(): SupportResult {
       const c1 = document.createElement('canvas');
       const has1 = !!(c1.getContext('webgl') || c1.getContext('experimental-webgl'));
       return has1
-        ? { ok: false, reason: 'webgl1-only', message: 'Your browser only supports WebGL 1, but Red Horizon needs WebGL 2.', detail: 'WebGL2RenderingContext is not defined.', warnings }
-        : { ok: false, reason: 'no-webgl', message: "Your browser doesn't support WebGL, which Red Horizon needs for its 3D graphics.", detail: 'No WebGL implementation.', warnings };
+        ? { ok: false, reason: 'webgl1-only', message: tErrors('unsupported.webgl1', { game: GAME_TITLE }), detail: 'WebGL2RenderingContext is not defined.', warnings }
+        : { ok: false, reason: 'no-webgl', message: tErrors('unsupported.noWebgl', { game: GAME_TITLE }), detail: 'No WebGL implementation.', warnings };
     }
     return {
       ok: false, reason: 'context-failed',
-      message: 'Your browser supports WebGL 2, but could not start it. Hardware acceleration may be turned off, or the graphics driver is blocklisted.',
+      message: tErrors('unsupported.contextFailed'),
       detail: creationError || 'getContext("webgl2") returned null.', warnings,
     };
   }
@@ -95,29 +96,17 @@ export function checkSupport(): SupportResult {
 
   const detail = `${renderer || 'unknown GPU'}; max texture ${maxTex}, renderbuffer ${maxRb}, texture units ${units}`;
   if (missing.length) {
-    return { ok: false, reason: 'missing-feature', message: 'Your graphics hardware is missing features Red Horizon needs.', detail: `${missing.join('; ')} (${detail})`, warnings, renderer };
+    return { ok: false, reason: 'missing-feature', message: tErrors('unsupported.missingFeature', { game: GAME_TITLE }), detail: `${missing.join('; ')} (${detail})`, warnings, renderer };
   }
   return { ok: true, message: 'WebGL 2 available', detail, warnings, renderer };
 }
 
-const ADVICE: Record<UnsupportedReason, string[]> = {
-  'no-webgl': [
-    'Use a current version of Chrome, Edge, Firefox or Safari (15 or newer).',
-    'If you are on a remote desktop or virtual machine, try a regular desktop session.',
-  ],
-  'webgl1-only': [
-    'Update your browser: every current Chrome, Edge, Firefox and Safari (15+) supports WebGL 2.',
-    'On Safari 14 and older, enable "WebGL 2.0" under Develop › Experimental Features, or update macOS / iOS.',
-  ],
-  'context-failed': [
-    'Turn on hardware acceleration (Chrome / Edge: Settings › System › "Use graphics acceleration when available"; Firefox: Settings › Performance).',
-    'Update your graphics driver, then restart the browser.',
-    'Close other tabs or apps using the GPU heavily, then try again; a crashed GPU process is reset by restarting the browser.',
-  ],
-  'missing-feature': [
-    'Try another browser on this device (Chrome and Firefox use different graphics back-ends).',
-    'Update your graphics driver, or play on a device with a more capable GPU.',
-  ],
+/** What to try, per reason (catalogue keys: looked up when the screen is shown). */
+const ADVICE: Record<UnsupportedReason, Parameters<typeof tErrors>[0][]> = {
+  'no-webgl': ['unsupported.noWebglAdvice1', 'unsupported.noWebglAdvice2'],
+  'webgl1-only': ['unsupported.webgl1Advice1', 'unsupported.webgl1Advice2'],
+  'context-failed': ['unsupported.contextAdvice1', 'unsupported.contextAdvice2', 'unsupported.contextAdvice3'],
+  'missing-feature': ['unsupported.featureAdvice1', 'unsupported.featureAdvice2'],
 };
 
 /**
@@ -126,7 +115,7 @@ const ADVICE: Record<UnsupportedReason, string[]> = {
  */
 export function renderUnsupported(reason: SupportResult | UnsupportedReason, parent: HTMLElement = document.body): HTMLElement {
   const res: SupportResult = typeof reason === 'string'
-    ? { ok: false, reason, message: "This browser can't run Red Horizon.", detail: '', warnings: [] }
+    ? { ok: false, reason, message: tErrors('unsupported.generic', { game: GAME_TITLE }), detail: '', warnings: [] }
     : reason;
   const why = res.reason ?? 'no-webgl';
   const loading = document.getElementById('loading');
@@ -139,24 +128,24 @@ export function renderUnsupported(reason: SupportResult | UnsupportedReason, par
     emblem('3.4rem'),
     h('div', {}, [
       h('div', { fontSize: '1.05rem', fontWeight: '700', letterSpacing: '0.32em', color: '#ff6a46' }, [GAME_TITLE]),
-      title("Can't start on this browser", DANGER_RGB),
+      title(tErrors('unsupported.title'), DANGER_RGB),
     ]),
   ]));
   panel.append(paragraph(res.message));
   const list = h('ul', { margin: '0 0 1.1rem', paddingLeft: '1.2rem', color: '#d5e1ee', fontSize: '0.98rem', lineHeight: '1.45', fontWeight: '500' });
-  for (const a of ADVICE[why]) list.append(h('li', { marginBottom: '0.35rem' }, [a]));
+  for (const a of ADVICE[why]) list.append(h('li', { marginBottom: '0.35rem' }, [tErrors(a)]));
   panel.append(list);
   if (res.detail || res.warnings.length) {
     const det = h('details', { margin: '0 0 1rem', color: '#7d8c9d', fontFamily: MONO, fontSize: '0.75rem' });
-    det.append(h('summary', { cursor: 'pointer', marginBottom: '0.5rem' }, ['Technical details']));
+    det.append(h('summary', { cursor: 'pointer', marginBottom: '0.5rem' }, [tErrors('unsupported.details')]));
     det.append(codeBox([res.detail, ...res.warnings, typeof navigator !== 'undefined' ? navigator.userAgent : ''].filter(Boolean).join('\n'), '7rem'));
     panel.append(det);
   }
   const learn = h('a', {
     font: `700 0.95rem/1 ${FONT}`, letterSpacing: '0.14em', textTransform: 'uppercase', color: `rgb(${ACCENT_RGB})`, textDecoration: 'none',
     padding: '0.72rem 0.4rem 0.66rem', alignSelf: 'center',
-  }, ['Check WebGL 2 ↗'], { href: 'https://get.webgl.org/webgl2/', target: '_blank', rel: 'noopener noreferrer' });
-  panel.append(buttonRow([button('Try again', () => location.reload(), 'primary'), learn]));
+  }, [tErrors('unsupported.checkWebgl')], { href: 'https://get.webgl.org/webgl2/', target: '_blank', rel: 'noopener noreferrer' });
+  panel.append(buttonRow([button(tErrors('unsupported.tryAgain'), () => location.reload(), 'primary'), learn]));
   root.append(panel);
   parent.append(root);
   fadeIn(panel, 300);
@@ -197,11 +186,11 @@ export function watchContextLoss(canvas: HTMLCanvasElement, handlers: ContextLos
     root.setAttribute('role', 'status');
     root.setAttribute('aria-live', 'assertive');
     const panel = glassPanel(ACCENT_RGB, '31rem');
-    const msg = paragraph('Your graphics driver reset the GPU. Hold on while we bring the battlefield back — the game is paused and nothing is lost.');
+    const msg = paragraph(tErrors('gpuReset.body'));
     msg.style.margin = '0';
-    const row = h('div', { display: 'flex', alignItems: 'center', gap: '1rem' }, [spinner(), h('div', {}, [title('Graphics device reset'), h('div', {
+    const row = h('div', { display: 'flex', alignItems: 'center', gap: '1rem' }, [spinner(), h('div', {}, [title(tErrors('gpuReset.title')), h('div', {
       fontFamily: MONO, fontSize: '0.78rem', letterSpacing: '0.1em', color: `rgb(${ACCENT_RGB})`, textTransform: 'uppercase', marginBottom: '0.6rem',
-    }, ['Restoring…'], { 'data-state': '' }), msg])]);
+    }, [tErrors('gpuReset.restoring')], { 'data-state': '' }), msg])]);
     panel.append(row);
     root.append(panel);
     document.body.append(root);
@@ -212,9 +201,9 @@ export function watchContextLoss(canvas: HTMLCanvasElement, handlers: ContextLos
   const showTimeout = () => {
     if (!overlay) return;
     const state = overlay.querySelector('[data-state]') as HTMLElement | null;
-    if (state) { state.textContent = 'Still waiting for the GPU'; state.style.color = `rgb(${DANGER_RGB})`; }
+    if (state) { state.textContent = tErrors('gpuReset.stillWaiting'); state.style.color = `rgb(${DANGER_RGB})`; }
     const panel = overlay.firstElementChild as HTMLElement;
-    panel.append(h('div', { marginTop: '1rem' }, [buttonRow([button('Reload game', () => location.reload(), 'primary')])]));
+    panel.append(h('div', { marginTop: '1rem' }, [buttonRow([button(tErrors('gpuReset.reload'), () => location.reload(), 'primary')])]));
   };
 
   const onLost = (e: Event) => {

@@ -26,7 +26,12 @@ import { challengeGameSetup } from '../modes/author';
 import type { AIDifficulty } from '../sim/ai';
 import { picto } from '../meta';
 import { clipButton, recordClip, startPendingClip } from '../ui/clips';
+import { SIM_VERSION, otherSimVersion, simVersionOf } from '../sim/version';
 import { ensureModesCss } from '../ui/modes-css'; // the bar's Take command / challenge buttons are styled there // highlight clips
+import tReplay from '../i18n/en/replay';
+import tShare from '../i18n/en/share';
+import { fmtInt } from '../i18n/core';
+import { replayMapName } from './store';
 
 export interface PlaybackHost {
   /** Start a new game from this setup (seeking backwards, watching again). */
@@ -70,6 +75,8 @@ export class ReplayPlayback {
   readonly startTick: number;
   private closeMoment: (() => void) | null = null;
   private tookCommand = false;
+  /** The first state-hash mismatch has been announced (once per playback). */
+  private desyncWarned = false;
 
   constructor(private game: Game, private host: PlaybackHost) {
     this.opts = game.setup.replay!;
@@ -163,7 +170,7 @@ export class ReplayPlayback {
     this.game.speed = 0;
     this.endBox?.remove();
     this.endBox = null;
-    const box = el('div', 'rp-seek panel', `<b>Seeking</b><span class="rp-seek-t"></span><span class="rp-seek-bar"><i></i></span>`);
+    const box = el('div', 'rp-seek panel', `<b>${tReplay.html('bar.seeking')}</b><span class="rp-seek-t"></span><span class="rp-seek-bar"><i></i></span>`);
     document.body.appendChild(box);
     this.seekBox = box;
     const from = world.tick;
@@ -251,18 +258,20 @@ export class ReplayPlayback {
     if (this.disposed || this.endBox) return;
     const d = this.data;
     const winner = d.players.find((p) => p.team === d.winnerTeam);
-    const title = d.result === 'abandoned' ? 'End of recording' : winner ? `${esc(winner.name)} wins` : 'Match over';
-    const sub = d.result === 'abandoned' ? `The match was left at ${formatTime(d.ticks * DT)}` : `${d.result === 'victory' ? 'Victory' : 'Defeat'} for ${esc(d.players[d.local]?.name ?? 'the commander')} · ${formatTime(d.ticks * DT)}`;
-    const box = el('div', 'rp-end panel', `<div class="rp-end-ic">${ICONS.replay}</div><div class="rp-end-txt"><small>Replay complete</small><b>${title}</b><span>${sub}</span></div>`);
+    const time = formatTime(d.ticks * DT);
+    const title = d.result === 'abandoned' ? tReplay.html('end.abandoned') : winner ? tReplay.html('end.wins', { name: winner.name }) : tReplay.html('end.over');
+    const sub = d.result === 'abandoned' ? tReplay.html('end.leftAt', { time })
+      : tReplay.html(d.result === 'victory' ? 'end.victoryFor' : 'end.defeatFor', { name: d.players[d.local]?.name ?? tReplay('end.commander'), time });
+    const box = el('div', 'rp-end panel', `<div class="rp-end-ic">${ICONS.replay}</div><div class="rp-end-txt"><small>${tReplay.html('end.kicker')}</small><b>${title}</b><span>${sub}</span></div>`);
     const btns = el('div', 'rp-end-btns');
     const mk = (label: string, icon: string, fn: () => void, cls = 'btn') => {
-      const b = el('button', cls, `${icon}<span>${label}</span>`);
+      const b = el('button', cls, `${icon}<span>${esc(label)}</span>`);
       b.onclick = fn;
       btns.appendChild(b);
     };
-    mk('Watch again', ICONS.restart, () => this.seek(0), 'btn-primary');
-    mk('Replays', ICONS.history, () => this.host.exit(true));
-    mk('Main menu', ICONS.exit, () => this.host.exit(false));
+    mk(tReplay('end.again'), ICONS.restart, () => this.seek(0), 'btn-primary');
+    mk(tReplay('end.replays'), ICONS.history, () => this.host.exit(true));
+    mk(tReplay('end.mainMenu'), ICONS.exit, () => this.host.exit(false));
     box.appendChild(btns);
     document.body.appendChild(box);
     this.endBox = box;
@@ -352,16 +361,16 @@ export class ReplayPlayback {
     };
     const left = el('div', 'rp-ctl');
     left.append(
-      btn('rp-restart', ICONS.skipBack, 'Restart (Home)', () => this.seek(0)),
-      btn('rp-back', ICONS.rewind, 'Back 30 s', () => this.seek(this.game.world.tick - SKIP)),
-      btn('rp-play', ICONS.pause, 'Pause / play (Space)', () => this.setPaused(!this.paused)),
-      btn('rp-fwd', ICONS.forward, 'Skip 30 s', () => this.seek(this.game.world.tick + SKIP)),
+      btn('rp-restart', ICONS.skipBack, tReplay('bar.restart'), () => this.seek(0)),
+      btn('rp-back', ICONS.rewind, tReplay('bar.back'), () => this.seek(this.game.world.tick - SKIP)),
+      btn('rp-play', ICONS.pause, tReplay('bar.play'), () => this.setPaused(!this.paused)),
+      btn('rp-fwd', ICONS.forward, tReplay('bar.skip'), () => this.seek(this.game.world.tick + SKIP)),
     );
     const speeds = el('div', 'rp-speeds');
     for (const s of SPEEDS) {
       const b = el('button', 'rp-speed', `${s}×`);
       b.dataset.speed = String(s);
-      b.title = `${s}× speed ([ / ])`;
+      b.title = tReplay('bar.speed', { s });
       b.onclick = () => this.setSpeed(s);
       b.addEventListener('mousedown', (e) => e.preventDefault());
       speeds.appendChild(b);
@@ -372,7 +381,7 @@ export class ReplayPlayback {
       // the part before the branch point belongs to the parent recording
       const pre = el('i', 'rp-pre');
       pre.style.width = `${((this.startTick / Math.max(1, d.ticks)) * 100).toFixed(2)}%`;
-      pre.title = `Branched from the parent replay at ${formatTime(this.startTick * DT)}`;
+      pre.title = tReplay('bar.branchedAt', { time: formatTime(this.startTick * DT) });
       track.prepend(pre);
     }
     const fracAt = (e: PointerEvent) => {
@@ -398,16 +407,18 @@ export class ReplayPlayback {
       this.seek(f * d.ticks);
     });
     const right = el('div', 'rp-side');
-    const fog = btn('rp-fog', ICONS.eye, 'Observer view: no fog of war (V cycles views)', () => this.setView(this.view < 0 ? this.hudPlayer : -1));
+    const fog = btn('rp-fog', ICONS.eye, tReplay('bar.observer'), () => this.setView(this.view < 0 ? this.hudPlayer : -1));
     const sync = el('span', 'rp-sync');
-    const exit = btn('rp-exit', ICONS.close, 'Leave the replay', () => this.host.exit(true));
+    const exit = btn('rp-exit', ICONS.close, tReplay('bar.leave'), () => this.host.exit(true));
     // rewind & take command · challenge from this moment
-    const take = btn('rp-take', `${ICONS.flag}<span>Take command</span>`, 'Take command from this moment (T)', () => this.openMoment('take'));
-    const chal = btn('rp-chal', picto('trophy', 'ic'), 'Make a challenge from this moment (C)', () => this.openMoment('challenge'));
-    const clip = clipButton(() => void recordClip(this.game, this, { label: `${d.mapName} highlight` })); // highlight clips
+    const take = btn('rp-take', `${ICONS.flag}<span>${tReplay.html('bar.take')}</span>`, tReplay('bar.takeTip'), () => this.openMoment('take'));
+    const chal = btn('rp-chal', picto('trophy', 'ic'), tReplay('bar.challengeTip'), () => this.openMoment('challenge'));
+    // highlight clips (the file name keeps the English label)
+    const clip = clipButton(() => void recordClip(this.game, this, { label: tShare('clip.mapHighlight', { map: replayMapName(d) }), fileLabel: `${d.mapName} highlight` }));
     right.append(take, chal, ...(clip ? [clip] : []), fog, sync, exit);
     const br = d.setup.branch;
-    const tag = el('div', 'rp-tag', `${ICONS.replay}<span><b${br ? ' class="rp-branchtag"' : ''}>${br ? 'Branch' : 'Replay'}</b><small>${esc(d.mapName)}${br ? ` · from ${formatTime(br.tick * DT)}` : ''}</small></span>`);
+    const map = replayMapName(d);
+    const tag = el('div', 'rp-tag', `${ICONS.replay}<span><b${br ? ' class="rp-branchtag"' : ''}>${tReplay.html(br ? 'bar.branch' : 'bar.replay')}</b><small>${br ? tReplay.html('bar.branchFrom', { map, time: formatTime(br.tick * DT) }) : esc(map)}</small></span>`);
     this.bar.append(tag, left, speeds, tl, right);
   }
 
@@ -421,15 +432,23 @@ export class ReplayPlayback {
     (this.bar.querySelector('.rp-time') as HTMLElement).textContent = formatTime((this.dragFrac >= 0 ? frac * d.ticks : Math.min(w.tick, d.ticks)) * DT);
     const sync = this.bar.querySelector('.rp-sync') as HTMLElement;
     const ds = this.feeder.desyncTick;
+    if (ds >= 0 && !this.desyncWarned) {
+      // (a recording from another simulation version, src/sim/version.ts, is expected to drift: say so once)
+      this.desyncWarned = true;
+      const time = formatTime(ds * DT);
+      g.hud?.message(otherSimVersion(d)
+        ? tReplay(simVersionOf(d) < SIM_VERSION ? 'sync.olderVersion' : 'sync.newerVersion', { time })
+        : tReplay('sync.drifts', { time }), true);
+    }
     const html = ds >= 0
-      ? `${ICONS.warn}<span>Desync at ${formatTime(ds * DT)}</span>`
-      : `${ICONS.check}<span>${this.feeder.checked ? 'In sync' : 'Verifying'}</span>`;
+      ? `${ICONS.warn}<span>${tReplay.html('sync.desyncAt', { time: formatTime(ds * DT) })}</span>`
+      : `${ICONS.check}<span>${tReplay.html(this.feeder.checked ? 'sync.inSync' : 'sync.verifying')}</span>`;
     if (sync.innerHTML !== html) {
       sync.innerHTML = html;
       sync.className = 'rp-sync ' + (ds >= 0 ? 'bad' : 'ok');
       sync.title = ds >= 0
-        ? `The simulation no longer matches the recording from ${formatTime(ds * DT)} (recorded with build ${d.gameVersion}). What follows may differ from the original match.`
-        : `Simulation verified against ${this.feeder.checked} of ${d.hashes.length} recorded checkpoints.`;
+        ? tReplay('sync.desyncTip', { time: formatTime(ds * DT), build: String(d.gameVersion), sim: String(simVersionOf(d)), mine: String(SIM_VERSION) })
+        : tReplay('sync.verifiedTip', { n: this.feeder.checked, total: d.hashes.length });
       const mark = this.bar.querySelector('.rp-desync') as HTMLElement;
       mark.style.display = ds >= 0 ? 'block' : 'none';
       if (ds >= 0) mark.style.left = `${((ds / Math.max(1, d.ticks)) * 100).toFixed(2)}%`;
@@ -444,18 +463,18 @@ export class ReplayPlayback {
     const key = `${this.view}|${this.hudPlayer}`;
     if (force || key !== this.panelKey || !this.panel.childElementCount) {
       this.panelKey = key;
-      this.panel.innerHTML = `<div class="rp-ph"><span>${ICONS.people}<b>Players</b></span><small>V · switch view</small></div>`;
+      this.panel.innerHTML = `<div class="rp-ph"><span>${ICONS.people}<b>${tReplay.html('players.title')}</b></span><small>${tReplay.html('players.switchHint')}</small></div>`;
       w.players.forEach((p, i) => {
         const row = el('button', 'rp-pl' + (i === this.view ? ' on' : '') + (i === this.hudPlayer && this.view < 0 ? ' hud' : ''));
         row.style.setProperty('--c', hexColor(p.color));
-        row.innerHTML = `<span class="rp-em">${factionEmblem(p.faction)}</span><span class="rp-nm"><b>${esc(p.name)}</b><small>${esc(this.data.players[i]?.ai ? `AI · ${this.data.players[i].ai}` : 'Commander')}</small></span>
+        row.innerHTML = `<span class="rp-em">${factionEmblem(p.faction)}</span><span class="rp-nm"><b>${esc(p.name)}</b><small>${esc(this.data.players[i]?.ai ? tReplay('players.ai', { level: this.data.players[i].ai }) : tReplay('players.commander'))}</small></span>
           <span class="rp-st" data-k="cr"></span><span class="rp-st" data-k="pw"></span><span class="rp-st" data-k="army"></span>`;
-        row.title = `View the battle as ${p.name}`;
+        row.title = tReplay('players.viewAs', { name: p.name });
         row.onclick = () => this.setView(i);
         row.addEventListener('mousedown', (e) => e.preventDefault());
         this.panel.appendChild(row);
       });
-      const obs = el('button', 'rp-pl rp-obs' + (this.view < 0 ? ' on' : ''), `<span class="rp-em">${ICONS.eye}</span><span class="rp-nm"><b>Observer</b><small>No fog of war</small></span>`);
+      const obs = el('button', 'rp-pl rp-obs' + (this.view < 0 ? ' on' : ''), `<span class="rp-em">${ICONS.eye}</span><span class="rp-nm"><b>${tReplay.html('players.observer')}</b><small>${tReplay.html('players.noFog')}</small></span>`);
       obs.onclick = () => this.setView(-1);
       obs.addEventListener('mousedown', (e) => e.preventDefault());
       this.panel.appendChild(obs);
@@ -473,7 +492,7 @@ export class ReplayPlayback {
         const e = row.querySelector(`[data-k="${k}"]`) as HTMLElement;
         if (e.innerHTML !== html) e.innerHTML = html;
       };
-      set('cr', `${ICONS.coin}<b>${p.credits.toLocaleString('en-US')}</b>`);
+      set('cr', `${ICONS.coin}<b>${fmtInt(p.credits)}</b>`);
       set('pw', `${ICONS.bolt}<b class="${p.lowPower ? 'low' : ''}">${p.powerOut}/${p.powerUse}</b>`);
       set('army', `${ICONS.target}<b>${army}</b><small>· ${blds}</small>`);
     });

@@ -8,6 +8,7 @@
 import { BUILTINS, BUILTIN_LIST } from './builtins';
 import type { ChallengeDef, ChallengeResult } from './types';
 import { gunzipBounded, parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
+import tModes from '../i18n/en/modes';
 
 const DB = 'rh-challenges';
 const STORE = 'challenges';
@@ -176,19 +177,19 @@ export async function encodeChallengeFile(c: ChallengeDef, compress = true): Pro
 export async function decodeChallengeFile(text: string): Promise<ChallengeDef> {
   let doc: { rhchallenge?: number; encoding?: string; data?: string; challenge?: unknown };
   try { doc = parseUntrustedJson(text, { maxChars: 30 << 20, maxString: 30 << 20 }) as typeof doc; } catch (e) {
-    throw new Error(e instanceof UntrustedInputError ? e.message : 'Not a challenge file (invalid JSON)');
+    throw new Error(e instanceof UntrustedInputError ? e.message : tModes('file.invalidJson'));
   }
   let c: unknown = doc;
   if (doc && doc.rhchallenge === 1) {
     if (doc.encoding === 'gzip+base64' && typeof doc.data === 'string') {
-      if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot read compressed challenge files');
+      if (typeof DecompressionStream === 'undefined') throw new Error(tModes('file.noDecompress'));
       try { c = parseUntrustedJson(await gunzipBounded(fromBase64(doc.data), 64 << 20), { maxChars: 64 << 20, maxString: 64 << 20 }); } catch (e) {
-        throw new Error(e instanceof UntrustedInputError ? e.message : 'The challenge file is damaged');
+        throw new Error(e instanceof UntrustedInputError ? e.message : tModes('file.damaged'));
       }
     } else c = doc.challenge;
   }
-  if (!isChallengeDef(c)) throw new Error('Not a Red Horizon challenge, or from an unsupported version');
-  if (c.builtin && !BUILTINS[c.builtin]) throw new Error('This challenge needs a newer version of the game');
+  if (!isChallengeDef(c)) throw new Error(tModes('file.notChallenge'));
+  if (c.builtin && !BUILTINS[c.builtin]) throw new Error(tModes('file.newer'));
   return c;
 }
 
@@ -212,7 +213,7 @@ export async function exportChallenge(c: ChallengeDef) {
 
 /** Import a .rhchallenge.json file and store it (an id that exists is replaced). */
 export async function importChallengeFile(file: File): Promise<ChallengeDef> {
-  if (file.size > 30 * 1024 * 1024) throw new Error('File too large for a challenge');
+  if (file.size > 30 * 1024 * 1024) throw new Error(tModes('file.tooLarge'));
   const c = await decodeChallengeFile(await file.text());
   const stored: ChallengeDef = BUILTINS[c.id] ? c : { ...c, source: { ...(c.source ?? { kind: 'import' }), kind: c.source?.kind ?? 'import' } };
   await saveChallenge(stored);

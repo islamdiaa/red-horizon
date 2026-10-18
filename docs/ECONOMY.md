@@ -53,8 +53,8 @@ already have. Every line has two levels, and Level II needs Tier 3.
 
 | Faction | Research | Level I | Level II |
 |---|---|---|---|
-| Allies | **Composite Armour** | Vehicles take 10% less damage ($1,500) | 20% less ($2,500) |
-| Allies | **Precision Optics** | Vehicle and defence weapons reach 10% further ($1,500) | 20% further ($2,500) |
+| Allies | **Composite Armour** | Vehicles take 8% less damage ($1,500) | 15% less ($2,500) |
+| Allies | **Precision Optics** | Vehicle and defence weapons reach 6% further ($1,500) | 12% further ($2,500) |
 | Allies | **Rapid Deployment** | Units build 15% faster ($1,200) | Structures, upgrades and research also build 25% faster ($2,000) |
 | Allies | **Chrono Logistics** | Full Ore Trucks more than 10 cells from a refinery chronoshift next to it, each once every 45 s ($1,500) | The Chronosphere and Chrono Tanks recharge 30% faster ($2,000) |
 | Soviet | **Reactive Armour** | Heavy, Mammoth, Tesla and M.A.D. Tanks +15% health ($1,500) | +30% ($2,500) |
@@ -87,7 +87,7 @@ power-hungry coils love Amplifiers II.
 | **Mining Outpost** | 1 | $800 | −10 | A small refinery with one dock and storage for $500. It needs a refinery first. You can place it next to any ore field you can see right now (within 4 cells of the ore), however far from your base, but not within 8 cells of an enemy structure. Ore Trucks unload at the nearest dock. Only defences can be built next to an outpost. |
 | **Bunker** | 1 | $600 | 0 | Concrete, 900 health. Up to 4 armed infantry go inside: select them and right-click the bunker. They fire from its walls (about a cell further than in the open) and can't be hurt. Select the bunker and press **Evacuate** (D) to bring them out. They also come out if the bunker is sold, captured or destroyed, and lose 30% of their health if it is destroyed. |
 | **Research Lab** | 2 | $1,200 | −60 | Researches the upgrades above. |
-| **Ore Purifier** (Allies) / **Ore Smelter** (Soviet) | 2 | $1,500 | −75 | All ore you deliver is worth 25% more. One is enough. It does nothing while your power is low. |
+| **Ore Purifier** (Allies) / **Ore Smelter** (Soviet) | 2 | $1,500 | −75 | All ore you deliver is worth 25% more (Purifier) or 40% more (Smelter: the Soviet haul makes up for the Allied late game). One is enough. It does nothing while your power is low. |
 | **Logistics Centre** | 2 | $1,500 | −40 | All units cost 10% less. It repairs your vehicles (2% per second) and structures (0.5% per second) within 6 cells for free. One is enough for the discount. |
 | **Fortress Gate** | 2 | $200 | 0 | A 1-cell gate placed like a wall: in or near a wall line. It opens for your team's units, and stays shut while an enemy is next to it. Your units plan their routes through it; enemies have to break it down. |
 

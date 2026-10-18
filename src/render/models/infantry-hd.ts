@@ -19,6 +19,7 @@
  */
 import * as THREE from 'three';
 import { assetUrl } from '../../platform/paths';
+import { prefetchOffline } from '../../platform/prefetch';
 import type { ModelAnimState, ModelInstance, RagdollRig } from './types';
 import { lodDistance, type ModelFaction } from './builder';
 import { BODY_SHARED_UNIFORMS, BodyVariant, getDamageTexture, getDetailTexture, registerLitMaterial, teamGlossUniform, teamUniform } from './materials';
@@ -181,10 +182,17 @@ function loadManifest(): Promise<boolean> {
             buf: null, tpl: null, p: null, failed: false, refs: 0, lastUsed: 0, bytes: 0,
           });
         }
+        if (m?.models) prefetchOffline(infantryHdUrls); // offline play: the other infantry and clip sets (connection permitting)
         return !!m?.models;
       });
   }
   return manifestP;
+}
+
+/** Every HD infantry file (models and clip sets) plus the manifest (offline prefetch). */
+export async function infantryHdUrls(): Promise<string[]> {
+  if (!(await loadManifest())) return [];
+  return [url('manifest.json'), ...[...entries.values()].map((en) => url(en.file, en.hash))];
 }
 
 /** The entry a (type, owner faction) renders with: the faction's dressing, else any faction's (captured barracks). */
@@ -361,7 +369,7 @@ async function buildTemplate(en: Entry, buf: ArrayBuffer, rig: Rig, t: HdTier): 
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.magFilter = THREE.LinearFilter;
     tex.minFilter = THREE.LinearMipmapLinearFilter;
-    tex.anisotropy = im.name === 'mask' ? 1 : t === 'high' ? 8 : 4;
+    tex.anisotropy = im.name === 'mask' ? 1 : t === 'high' ? 8 : 2; // (Medium: integrated GPUs)
     tex.colorSpace = im.name === 'base' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     tex.name = `inf-${en.key}-${im.name}`;
     tex.needsUpdate = true;

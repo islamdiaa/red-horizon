@@ -21,6 +21,9 @@ import { TIER_NAMES, UPGRADES, RESEARCH, SYNERGY, harvestCapacity, oreValueMul, 
 import { taskSeconds, upgradeCost, upgradeIssue, type EconIssue } from '../sim/economy';
 import { ICONS } from './icons';
 import { el, esc, tipHtml, type Tooltip } from './dom';
+import tEcon from '../i18n/en/economy';
+import { currentLang, dt, fmtList, fmtMoney, fmtPct } from '../i18n/core';
+import { researchName, typeName, upgradeBlurb, upgradeEffect, upgradeName } from '../i18n/names';
 
 // =====================================================================================================
 // Module icons (the upgrade previewed on its button)
@@ -42,18 +45,32 @@ export const MODULE_ICONS: Record<string, string> = {
   dome_uplink: svg('<path d="M5 20h14"/><path d="M12 20v-5"/><path d="M5.5 12.5a7 7 0 0 0 9.9-9.9z"/><path d="M10.5 7.5l3-3"/><path d="M16 4a5 5 0 0 1 4 4M16 1.5a7.5 7.5 0 0 1 6.5 6.5"/>'),
 };
 
-const ISSUE_TEXT: Partial<Record<EconIssue, string>> = {
-  tier: 'Requires a higher tier',
-  after: 'Requires Tier 2 first',
-  prereq: 'Missing a required structure',
-  unique: 'One per commander: already on another structure',
-  busy: 'This structure is busy with another project',
-  owned: 'Installed',
-  inactive: 'Structure not ready',
+/** Why an upgrade can't start (reasonText; 'tier' and 'prereq' name the tier / the missing structures). */
+const ISSUE_TEXT: Partial<Record<EconIssue, Parameters<typeof tEcon>[0]>> = {
+  after: 'reason.after',
+  prereq: 'reason.missing',
+  unique: 'reason.unique',
+  busy: 'reason.busy',
+  owned: 'reason.owned',
+  inactive: 'reason.inactive',
 };
 
-const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
-const kmoney = (n: number) => (n >= 10000 ? `$${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : money(n));
+const money = (n: number) => fmtMoney(Math.round(n));
+/** A number with exactly `d` decimals in the active language ("12.5", "12,5", "20.0"). */
+let fixedFmt: { lang: string; f: Intl.NumberFormat[] } | null = null;
+function fixed(n: number, d: 0 | 1): string {
+  const l = currentLang();
+  if (!fixedFmt || fixedFmt.lang !== l) {
+    try { fixedFmt = { lang: l, f: [0, 1].map((x) => new Intl.NumberFormat(l, { minimumFractionDigits: x, maximumFractionDigits: x })) }; } catch { return n.toFixed(d); }
+  }
+  return fixedFmt.f[d].format(n);
+}
+const kmoney = (n: number) => (n >= 10000 ? tEcon('kmoney', { n: fixed(n / 1000, n >= 100000 ? 0 : 1) }) : money(n));
+
+/** A tech tier's name (sim/economy-data.ts TIER_NAMES, game data table techTier). */
+export const tierName = (t: number): string => dt('techTier', String(t), 'name', TIER_NAMES[t] ?? '');
+/** A translated .html() message with raw HTML put at its {slot} parameter (parameters are escaped otherwise). */
+const SLOT = '\u0001';
 
 /** Ore left (credits) within `r` cells of the player's docks, and how many full loads that is. */
 export function oreNearDocks(world: World, p: Player, r = 12, only?: Building): { value: number; loads: number; cells: number } {
@@ -102,8 +119,8 @@ export class EconomyReadout {
   constructor(private world: World, private local: Player, onTier?: () => void, private toast?: (text: string) => void, private tooltip?: Tooltip) {
     injectCss();
     const e = el('div', 'econ-ro');
-    e.innerHTML = `<button type="button" class="ero-tier" aria-label="Tech tier"><small>Tier</small><b></b></button>
-      <span class="ero-i ero-inc"><span class="ero-ic">${ICONS.coin}</span><b></b><small>/min</small></span>
+    e.innerHTML = `<button type="button" class="ero-tier"><small></small><b></b></button>
+      <span class="ero-i ero-inc"><span class="ero-ic">${ICONS.coin}</span><b></b><small></small></span>
       <span class="ero-i ero-ore"><span class="ero-ic">${ICONS.ore}</span><b></b></span>
       <span class="ero-i ero-harv"><span class="ero-ic">${TRUCK}</span><b></b></span>`;
     this.el = e;
@@ -129,9 +146,9 @@ export class EconomyReadout {
     const [t0, l0, u0] = first ? [e.tier, lv, ups] : this.seen.split('|').map(Number);
     this.seen = key;
     if (first || !this.toast) { this.levels = { ...e.levels }; return; }
-    if (e.tier > t0) this.toast(`Tier ${e.tier} reached: ${TIER_NAMES[e.tier]}. New structures and upgrades available`);
-    if (lv > l0) for (const id in e.levels) if ((this.levels[id] ?? 0) < e.levels[id]) this.toast(`Research complete: ${RESEARCH[id]?.name ?? id} ${e.levels[id] === 2 ? 'II' : 'I'}`);
-    if (ups > u0 && e.tier === t0) this.toast('Upgrade installed');
+    if (e.tier > t0) this.toast(tEcon('news.tier', { n: e.tier, name: tierName(e.tier) }));
+    if (lv > l0) for (const id in e.levels) if ((this.levels[id] ?? 0) < e.levels[id]) this.toast(tEcon('news.research', { name: RESEARCH[id] ? researchName(RESEARCH[id]) : id, level: e.levels[id] === 2 ? 'II' : 'I' }));
+    if (ups > u0 && e.tier === t0) this.toast(tEcon('news.upgrade'));
     this.levels = { ...e.levels };
   }
   private levels: Record<string, number> = {};
@@ -164,10 +181,14 @@ export class EconomyReadout {
     const tier = p.econ?.tier ?? 1;
     this.news(p);
     const inc = this.incomePerMinute();
-    const key = `${tier}|${Math.round(inc / 10)}|${Math.round(this.ore.value / 100)}|${harv}|${idle}|${p.powerOut}|${p.powerUse}`;
+    const key = `${tier}|${Math.round(inc / 10)}|${Math.round(this.ore.value / 100)}|${harv}|${idle}|${p.powerOut}|${p.powerUse}|${currentLang()}`;
     if (key === this.key) return;
     this.key = key;
-    this.tierEl.textContent = `T${tier}`;
+    const tb = this.tierEl.parentElement!;
+    tb.setAttribute('aria-label', tEcon('readout.tierAria'));
+    tb.querySelector('small')!.textContent = tEcon('readout.tier');
+    this.incEl.parentElement!.querySelector('small')!.textContent = tEcon('readout.perMin');
+    this.tierEl.textContent = tEcon('tierShort', { n: tier });
     this.el.dataset.tier = String(tier);
     this.incEl.textContent = kmoney(inc);
     this.oreEl.textContent = kmoney(this.ore.value);
@@ -175,11 +196,12 @@ export class EconomyReadout {
     this.harvEl.textContent = idle ? `${harv - idle}/${harv}` : String(harv);
     this.harvEl.parentElement!.classList.toggle('idle', idle > 0);
     const surplus = p.powerOut - p.powerUse;
-    const tip = tipHtml('Economy', `Tech tier <b>T${tier} ${esc(TIER_NAMES[tier] ?? '')}</b>${tier < 3 ? ' · upgrade it at your Construction Yard' : ''}<br>` +
-      `Ore income <b>${money(inc)}</b> per minute (last minute)<br>` +
-      `Ore near your docks <b>${money(this.ore.value)}</b> · about <b>${Math.floor(this.ore.loads)}</b> truck loads in ${this.ore.cells} cells${this.ore.loads < 3 && harv ? ' <span class="tt-bad">running out: expand</span>' : ''}<br>` +
-      `Ore Trucks <b>${harv}</b>${idle ? ` · <span class="tt-bad">${idle} idle</span>` : ''}<br>` +
-      `Power <b>${p.powerOut}</b> / drain <b>${p.powerUse}</b> (${surplus >= 0 ? `surplus ${surplus}` : `<span class="tt-bad">short ${-surplus}</span>`})`, [['Click', 'research tree']]);
+    const bal = surplus >= 0 ? tEcon.html('tip.surplus', { n: surplus }) : `<span class="tt-bad">${tEcon.html('tip.short', { n: -surplus })}</span>`;
+    const tip = tipHtml(esc(tEcon('tip.title')), `${tEcon.html('tip.tier', { n: tier, name: tierName(tier) })}${tier < 3 ? ` · ${tEcon.html('tip.tierUpgrade')}` : ''}<br>` +
+      `${tEcon.html('tip.income', { money: money(inc) })}<br>` +
+      `${tEcon.html('tip.ore', { money: money(this.ore.value), loads: Math.floor(this.ore.loads), cells: this.ore.cells })}${this.ore.loads < 3 && harv ? ` <span class="tt-bad">${tEcon.html('tip.runningOut')}</span>` : ''}<br>` +
+      `${tEcon.html('tip.trucks', { n: harv })}${idle ? ` · <span class="tt-bad">${tEcon.html('tip.idle', { n: idle })}</span>` : ''}<br>` +
+      tEcon.html('tip.power', { out: p.powerOut, use: p.powerUse, balance: SLOT }).replace(SLOT, bal), [[esc(tEcon('tip.click')), esc(tEcon('tip.clickResearch'))]]);
     this.el.dataset.tip = tip;
     this.tooltip?.refresh(this.el, tip); // (live while hovered)
   }
@@ -203,7 +225,7 @@ export interface EconSelHost {
 }
 
 /** Structures whose effect is always on: the line the selection panel shows for them. */
-const PASSIVE: Record<string, string> = { purf: 'Ore +25%', smlt: 'Ore +25%', lgst: 'Units -10%, repairs' };
+const PASSIVE: Record<string, 'passive.ore' | 'passive.logistics'> = { purf: 'passive.ore', smlt: 'passive.ore', lgst: 'passive.logistics' };
 
 interface UpBtn { id: string; el: HTMLButtonElement; arc: SVGCircleElement; state: string }
 
@@ -227,14 +249,14 @@ export class EconSelection {
     this.el = box;
     if (ups.length) {
       const row = el('div', 'esel-ups');
-      row.appendChild(el('span', 'esel-l', 'Upgrades'));
+      row.appendChild(el('span', 'esel-l', tEcon.html('sel.upgrades')));
       for (const u of ups) {
         const btn = el('button', 'esel-up', `<span class="esu-ic">${MODULE_ICONS[u.id] ?? ICONS.plus}</span>
           <svg class="esu-ring" viewBox="0 0 100 100"><circle class="arc" cx="50" cy="50" r="44" pathLength="100"/></svg>
           <span class="esu-cost"></span><span class="esu-st"></span>`);
         btn.type = 'button';
         btn.dataset.up = u.id;
-        btn.setAttribute('aria-label', `Upgrade: ${u.name}`);
+        btn.setAttribute('aria-label', tEcon('sel.upgradeAria', { name: upgradeName(u) }));
         btn.onclick = () => this.click(u.id);
         btn.oncontextmenu = (e) => { e.preventDefault(); this.cancel(u.id); };
         row.appendChild(btn);
@@ -243,9 +265,9 @@ export class EconSelection {
       box.appendChild(row);
     }
     if (b.bt.id === 'rlab') {
-      const rb = el('button', 'esel-rs', `${ICONS.flag}<span>Research tree</span>`);
+      const rb = el('button', 'esel-rs', `${ICONS.flag}<span>${tEcon.html('sel.researchTree')}</span>`);
       rb.type = 'button';
-      rb.dataset.tip = tipHtml('Research tree', 'Open the research tree: global upgrades for your whole army, two levels each (Level II needs Tier 3).');
+      rb.dataset.tip = tipHtml(tEcon.html('sel.researchTree'), tEcon.html('sel.researchTreeTip'));
       rb.onclick = () => { this.host.sound('click'); this.host.openResearch(this.b); };
       box.appendChild(rb);
     }
@@ -261,7 +283,7 @@ export class EconSelection {
     const issue = upgradeIssue(world, local, b, id);
     if (issue) {
       this.host.sound('error');
-      if (issue !== 'owned') this.host.message(`${UPGRADES[id].name}: ${reasonText(local, id, issue)}`, true);
+      if (issue !== 'owned') this.host.message(tEcon('sel.cannot', { name: upgradeName(UPGRADES[id]), reason: reasonText(local, id, issue) }), true);
       return;
     }
     this.host.sound('click');
@@ -291,16 +313,17 @@ export class EconSelection {
       btn.state = key;
       btn.el.dataset.state = st;
       btn.arc.style.strokeDashoffset = String(100 - pct);
-      (btn.el.querySelector('.esu-cost') as HTMLElement).textContent = st === 'done' ? '' : st === 'build' ? `${pct}%` : money(cost);
+      (btn.el.querySelector('.esu-cost') as HTMLElement).textContent = st === 'done' ? '' : st === 'build' ? fmtPct(pct / 100) : money(cost);
       const stEl = btn.el.querySelector('.esu-st') as HTMLElement;
       stEl.innerHTML = st === 'done' ? ICONS.check : st === 'locked' ? ICONS.lock : '';
       const secs = Math.ceil(taskSeconds(local, u.time));
       const syn = SYNERGY[local.cmd?.doctrine ?? ''] === btn.id;
-      const status = st === 'done' ? '<span class="tt-ok">Installed</span>'
-        : st === 'build' ? `Installing: <b>${pct}%</b> · right-click or click to cancel (refunds ${money(t!.paid)})`
+      const status = st === 'done' ? `<span class="tt-ok">${tEcon.html('up.installed')}</span>`
+        : st === 'build' ? tEcon.html('up.installing', { pct: fmtPct(pct / 100), money: money(t!.paid) })
         : st === 'locked' ? `<span class="tt-bad">${esc(reasonText(local, btn.id, issue!))}</span>`
-        : st === 'poor' ? `<span class="tt-bad">Need ${money(cost - local.credits)} more</span> (paid while it installs)` : 'Click to install (paid while it installs)';
-      const tip = tipHtml(esc(u.name), `${esc(u.effect)}<br><i>${esc(u.blurb)}</i><br>${money(cost)}${syn ? ' <span class="tt-ok">(doctrine: 25% off)</span>' : ''} · ${secs} s · Tier ${u.tier}${u.unique ? ' · one per commander' : ''}<br>${status}`);
+        : st === 'poor' ? tEcon.html('up.poor', { need: SLOT }).replace(SLOT, `<span class="tt-bad">${tEcon.html('up.needMore', { money: money(cost - local.credits) })}</span>`) : tEcon.html('up.ready');
+      const meta = `${money(cost)}${syn ? ` <span class="tt-ok">${tEcon.html('up.doctrineOff')}</span>` : ''} · ${tEcon.html('up.seconds', { s: secs })} · ${tEcon.html('up.tier', { n: u.tier })}${u.unique ? ` · ${tEcon.html('up.unique')}` : ''}`;
+      const tip = tipHtml(esc(upgradeName(u)), `${esc(upgradeEffect(u))}<br><i>${esc(upgradeBlurb(u))}</i><br>${meta}<br>${status}`);
       btn.el.dataset.tip = tip;
       this.host.tip?.refresh(btn.el, tip);
     }
@@ -313,26 +336,26 @@ export class EconSelection {
     let s = '';
     if (b.task?.kind === 'research') {
       const r = RESEARCH[b.task.id];
-      s += xbar(ICONS.flag, 'Research', b.task.progress, `${esc(r.name)} ${b.task.level === 2 ? 'II' : 'I'} · ${Math.floor(b.task.progress * 100)}%`);
+      s += xbar(ICONS.flag, tEcon.html('info.research'), b.task.progress, tEcon.html('info.researching', { name: researchName(r), level: b.task.level === 2 ? 'II' : 'I', pct: fmtPct(Math.floor(b.task.progress * 100) / 100) }));
     } else if (b.bt.id === 'rlab') {
-      s += xbar(ICONS.flag, 'Research', 0, 'Idle: open the tree', 'idle');
+      s += xbar(ICONS.flag, tEcon.html('info.research'), 0, tEcon.html('info.idle'), 'idle');
     }
     if (b.bt.garrison) {
       const n = b.garrison?.length ?? 0;
       let pips = '';
       for (let i = 0; i < b.bt.garrison; i++) pips += `<i class="${i < n ? 'on' : ''}"></i>`;
-      s += `<div class="xbar pipsrow"><span class="xb-l">${ICONS.people}Garrison</span><span class="pips">${pips}</span><span class="xb-v">${n ? 'D to evacuate' : 'Right-click with infantry'}</span></div>`;
+      s += `<div class="xbar pipsrow"><span class="xb-l">${ICONS.people}${tEcon.html('info.garrison')}</span><span class="pips">${pips}</span><span class="xb-v">${tEcon.html(n ? 'info.evacuate' : 'info.garrisonHint')}</span></div>`;
     }
     if (b.bt.dock) {
       const o = oreNearDocks(this.host.world, p, 10, b);
-      s += xbar(ICONS.ore, 'Ore nearby', Math.min(1, o.loads / 20), `${money(o.value)} · ${Math.floor(o.loads)} loads`, o.loads < 3 ? 'hold' : 'ore');
+      s += xbar(ICONS.ore, tEcon.html('info.oreNearby'), Math.min(1, o.loads / 20), tEcon.html('info.ore', { money: money(o.value), loads: Math.floor(o.loads) }), o.loads < 3 ? 'hold' : 'ore');
     }
     if (PASSIVE[b.bt.id]) {
       const on = b.bt.id === 'lgst' || !p.lowPower;
-      s += `<div class="xbar ${on ? 'ready' : 'hold'}"><span class="xb-l">${b.bt.id === 'lgst' ? ICONS.wrench : ICONS.coin}${PASSIVE[b.bt.id]}</span><span class="xb-track"><i style="width:${on ? 100 : 0}%"></i></span><span class="xb-v">${on ? 'Active' : 'Offline: low power'}</span></div>`;
+      s += `<div class="xbar ${on ? 'ready' : 'hold'}"><span class="xb-l">${b.bt.id === 'lgst' ? ICONS.wrench : ICONS.coin}${tEcon.html(PASSIVE[b.bt.id])}</span><span class="xb-track"><i style="width:${on ? 100 : 0}%"></i></span><span class="xb-v">${tEcon.html(on ? 'info.active' : 'info.offline')}</span></div>`;
     }
     if (b.bt.id === 'fact' && p.econ) {
-      s += `<div class="esel-tier">${[1, 2, 3].map((t) => `<span class="${t <= p.econ!.tier ? 'on' : ''}">T${t}<small>${esc(TIER_NAMES[t])}</small></span>`).join('<i></i>')}</div>`;
+      s += `<div class="esel-tier">${[1, 2, 3].map((t) => `<span class="${t <= p.econ!.tier ? 'on' : ''}">${tEcon.html('tierShort', { n: t })}<small>${esc(tierName(t))}</small></span>`).join('<i></i>')}</div>`;
     }
     return s;
   }
@@ -345,12 +368,13 @@ function xbar(icon: string, label: string, frac: number, value: string, cls = ''
 /** Player-facing reason an upgrade can't start. */
 export function reasonText(p: Player, id: string, issue: EconIssue): string {
   const u = UPGRADES[id];
-  if (issue === 'tier') return `Requires Tier ${u.tier}`;
+  if (issue === 'tier') return tEcon('reason.tier', { n: u.tier });
   if (issue === 'prereq' && u.prereq) {
-    const miss = u.prereq.filter((r) => !r.split('|').some((a) => p.has(a))).map((r) => r.split('|').map((a) => BUILDINGS[a]?.name ?? a).filter((n, i, arr) => arr.indexOf(n) === i).join(' or '));
-    return `Requires ${miss.join(', ')}`;
+    const miss = u.prereq.filter((r) => !r.split('|').some((a) => p.has(a))).map((r) => fmtList(r.split('|').map((a) => (BUILDINGS[a] ? typeName(BUILDINGS[a]) : a)).filter((n, i, arr) => arr.indexOf(n) === i), 'disjunction'));
+    return tEcon('reason.prereq', { list: miss.join(', ') });
   }
-  return ISSUE_TEXT[issue] ?? 'Not available';
+  const k = ISSUE_TEXT[issue];
+  return k ? tEcon(k) : tEcon('reason.unavailable');
 }
 
 /** "Requires T2" label for a build card locked only by its tier (null = not tier-locked). */

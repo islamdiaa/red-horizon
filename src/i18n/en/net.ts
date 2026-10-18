@@ -1,0 +1,102 @@
+/**
+ * Multiplayer and leaderboard texts: the in-match network UI (src/net/game-link.ts), the leaderboard submit card
+ * (src/net/leaderboard.ts), connection end reasons, and the English the relay and the leaderboard server send
+ * (src/net/reasons.ts, matched with trSource() where it is shown).
+ */
+import { sourceStrings, strings } from '../core';
+import { RELAY_ERRORS, START_PROBLEMS, SUBMISSION_ERRORS, VERIFY_REASONS } from '../../net/reasons';
+
+/** Why a room cannot start (net.start.<id>; the lobby reads them with tx(), the relay's copy is matched). */
+export const START_TEXT = sourceStrings('net.start', START_PROBLEMS);
+/** Relay error messages. */
+export const RELAY_TEXT = sourceStrings('net.relay', RELAY_ERRORS);
+/** Leaderboard verification rejections. */
+export const VERIFY_TEXT = sourceStrings('net.verify', VERIFY_REASONS);
+/** Leaderboard submission / route errors. */
+export const SUBMISSION_TEXT = sourceStrings('net.submit', SUBMISSION_ERRORS);
+
+export default strings('net', {
+  chip: {
+    // latency chip in a match: the numbers are in bold
+    latency: '[b]{ms}[/b] ms · delay [b]{delay}[/b] ms',
+    offline: 'offline',
+    chat: 'Chat',
+    mute: 'Mute chat',
+    unmute: 'Unmute chat',
+  },
+  banner: {
+    lostKicker: 'Connection lost',
+    reconnecting: 'Reconnecting to the match…',
+    goneKicker: 'Disconnected',
+    gone: 'The connection to the match ended.',
+    // {reason}: why it ended (see reason.*)
+    goneReason: 'The connection to the match ended ({reason}).',
+    leave: 'Leave',
+    rejoinKicker: 'Rejoining',
+    catchingUp: 'Catching up with the match… {pct}%',
+    pausedKicker: 'Match paused · {s} s',
+    stallLoading: 'Waiting for [b]{name}[/b], who is still loading.',
+    stallGone: 'Waiting for [b]{name}[/b], who lost the connection.',
+    stallSlow: 'Waiting for [b]{name}[/b], who is not responding.',
+    drop: 'Drop · AI takes over',
+  },
+  chat: {
+    placeholder: 'Message to everyone · Enter to send',
+    left: '{name} left the match. The AI takes over.',
+    watching: 'You are watching: the AI commands your forces.',
+  },
+  player: {
+    // a player whose name is not known
+    someone: 'A player',
+    seat: 'Seat {n}',
+    you: '{name} (you)',
+  },
+  desync: {
+    kicker: 'Match stopped',
+    title: 'Desync detected',
+    body: 'The players\' simulations no longer agree, so the match cannot go on. This is a bug (or a modified game): saving the replay helps find it.',
+    first: 'First difference',
+    // simulation tick number (shown as code)
+    tick: 'tick {tick}',
+    yourHash: 'Your hash at that tick',
+    unknown: 'not known',
+    save: 'Save replay',
+    download: 'Download replay',
+    leave: 'Leave match',
+    saved: 'Saved to Replays',
+    saveFailed: 'Could not save',
+  },
+  // Why a connection ended, shown in brackets after "Disconnected" (the relay and the client send these words)
+  reason: {
+    kicked: 'kicked',
+    empty: 'empty',
+    idle: 'idle',
+    over: 'over',
+    shutdown: 'server shutting down',
+    desync: 'desync',
+    everyoneLeft: 'everyone left',
+    timeLimit: 'time limit',
+    finished: 'finished',
+    lost: 'connection lost',
+    closed: 'closed',
+  },
+  board: {
+    daily: 'Daily Challenge',
+    survival: 'Survival · {front}',
+    // a co-op survival board: {level} is the allies' AI difficulty (easy, normal, hard, brutal)
+    coop: 'Survival · {front} · co-op ({n, plural, one {# {level, select, easy {easy} normal {normal} hard {hard} brutal {brutal} other {{level}}} ally} other {# {level, select, easy {easy} normal {normal} hard {hard} brutal {brutal} other {{level}}} allies}})',
+  },
+  submit: {
+    kicker: 'Global leaderboard · {board}',
+    score: 'Score {score}',
+    ask: 'Submit this run? The server replays it to verify the score. Your callsign is shown on the board.',
+    submit: 'Submit',
+    notNow: 'Not now',
+    verifying: 'Verifying the run on the server…',
+    ranked: 'Verified. Rank #{rank} today.',
+    unranked: 'Verified, but not in today\'s top.',
+    unavailable: 'The leaderboard server is not available ({status}).',
+    unreachable: 'The leaderboard server could not be reached.',
+    cannot: 'This run cannot be submitted.',
+  },
+});

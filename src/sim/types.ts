@@ -93,7 +93,8 @@ export type Stance = 'aggressive' | 'guard' | 'hold' | 'passive';
 
 /** Events emitted by the simulation for renderer / audio / UI. Drained every frame. */
 export type GameEvent =
-  | { e: 'fire'; shooter: number; weapon: WeaponDef; muzzle: number; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; target?: number }
+  /** `via`: the structure the shot leaves from (a bunker's garrison: `muzzle` is then its firing slit, sim/economy.ts). */
+  | { e: 'fire'; shooter: number; weapon: WeaponDef; muzzle: number; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; target?: number; via?: number }
   | { e: 'projectile'; id: number }
   | { e: 'impact'; x: number; y: number; z: number; kind: ExplosionKind; scale: number; owner: number }
   | { e: 'death'; id: number; x: number; y: number; how: 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold' }

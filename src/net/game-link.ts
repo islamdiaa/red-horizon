@@ -12,6 +12,20 @@ import type { NetClient } from './client';
 import type { MatchStart } from './protocol';
 import { MatchSession } from './session';
 import type { NetLink } from './types';
+import tNet from '../i18n/en/net';
+import { trSource } from '../i18n/core';
+
+const REASON_KEYS: Record<string, Parameters<typeof tNet>[0]> = {
+  kicked: 'reason.kicked', empty: 'reason.empty', idle: 'reason.idle', over: 'reason.over', 'server shutting down': 'reason.shutdown',
+  desync: 'reason.desync', 'everyone left': 'reason.everyoneLeft', 'time limit': 'reason.timeLimit', finished: 'reason.finished',
+  'connection lost': 'reason.lost', closed: 'reason.closed',
+};
+
+/** Why a connection ended, for players: the relay's and the client's reason words, translated (else as sent). */
+export function reasonText(reason: string): string {
+  const k = Object.prototype.hasOwnProperty.call(REASON_KEYS, reason) ? REASON_KEYS[reason] : undefined;
+  return k ? tNet(k) : trSource(reason);
+}
 
 export interface NetMatchHost {
   /** Leave the match (and the room): back to the main menu. */
@@ -93,15 +107,15 @@ export class GameLink implements NetLink {
   constructor(private game: Game, readonly client: NetClient, readonly start: MatchStart, private host: NetMatchHost) {
     ensureCss();
     document.body.classList.add('rh-net');
-    for (const s of start.room.slots) if (s.kind === 'human' && s.seat !== undefined) this.names.set(s.seat, s.name ?? 'Commander');
+    for (const s of start.room.slots) if (s.kind === 'human' && s.seat !== undefined) this.names.set(s.seat, s.name ?? 'Commander'); // (as the roster names them)
     this.session = new MatchSession({
       client, world: game.world, start, localSeat: client.seat,
       onExecute: (cmd: Command) => game.recorder?.record(cmd), // every player's orders, at the tick they run: the match replay
       onDrop: (_tick, player) => {
         const net = game.setup.net!;
         (net.drops ??= []).push([_tick, player]);
-        const name = game.world.players[player]?.name ?? 'A player';
-        this.line(`${name} left the match. The AI takes over.`, true);
+        const name = game.world.players[player]?.name ?? tNet('player.someone');
+        this.line(tNet('chat.left', { name }), true);
         if (player === game.local.id) this.spectate();
       },
       onChange: () => this.render(),
@@ -113,7 +127,7 @@ export class GameLink implements NetLink {
     this.offs.push(client.on((m) => {
       if (m.t === 'chat') this.chatLine(m.seat, m.name, m.text);
       else if (m.t === 'lat' || m.t === 'stall' || m.t === 'room') this.render();
-      else if (m.t === 'error' && m.code === 'chat-rate') this.line(m.msg, true);
+      else if (m.t === 'error' && m.code === 'chat-rate') this.line(trSource(m.msg), true);
     }));
     this.offs.push(client.onState(() => this.render()));
     // a hidden tab has no frames: keep committing (we issue nothing then) so the others play on
@@ -152,7 +166,7 @@ export class GameLink implements NetLink {
 
   private spectate() {
     if (this.game.input) this.game.input.spectator = true;
-    this.line('You are watching: the AI commands your forces.', true);
+    this.line(tNet('chat.watching'), true);
   }
 
   // ---------------------------------------------------------------------------------------------------------
@@ -168,25 +182,25 @@ export class GameLink implements NetLink {
     const key = `${cls}|${Math.round(myRtt / 5)}|${ls.delay}|${this.muted}|${c.state}`;
     if (this.chip.dataset.k !== key) {
       this.chip.dataset.k = key;
-      this.chip.innerHTML = `<i class="${cls}"></i><span>${c.state === 'open' ? `<b>${Math.round(myRtt)}</b> ms · delay <b>${ls.delay * 50}</b> ms` : 'offline'}</span>
-        <button data-a="chat" title="Chat">${ICONS.people}</button><button data-a="mute" class="${this.muted ? 'on' : ''}" title="${this.muted ? 'Unmute chat' : 'Mute chat'}">${this.muted ? ICONS.eyeOff : ICONS.eye}</button>`;
+      this.chip.innerHTML = `<i class="${cls}"></i><span>${c.state === 'open' ? tNet.html('chip.latency', { ms: Math.round(myRtt), delay: ls.delay * 50 }) : tNet.html('chip.offline')}</span>
+        <button data-a="chat" title="${esc(tNet('chip.chat'))}">${ICONS.people}</button><button data-a="mute" class="${this.muted ? 'on' : ''}" title="${esc(tNet(this.muted ? 'chip.unmute' : 'chip.mute'))}">${this.muted ? ICONS.eyeOff : ICONS.eye}</button>`;
       (this.chip.querySelector('[data-a="chat"]') as HTMLElement).onclick = () => this.openChatInput();
       (this.chip.querySelector('[data-a="mute"]') as HTMLElement).onclick = () => { this.muted = !this.muted; this.host.play('click'); this.render(); };
     }
     // one banner at a time, most important first
     let bk = '', html = '', btn: { label: string; fn: () => void } | null = null;
     if (ls.status === 'desync') { bk = ''; }
-    else if (c.state === 'reconnecting') { bk = 'rc'; html = `<span class="spin"></span><div class="sp"><small>Connection lost</small>Reconnecting to the match…</div>`; }
-    else if (c.state === 'closed' && ls.status === 'live') { bk = 'gone'; html = `<div class="sp"><small>Disconnected</small>The connection to the match ended${c.endReason ? ` (${esc(c.endReason)})` : ''}.</div>`; btn = { label: 'Leave', fn: () => this.host.quit() }; }
+    else if (c.state === 'reconnecting') { bk = 'rc'; html = `<span class="spin"></span><div class="sp"><small>${tNet.html('banner.lostKicker')}</small>${tNet.html('banner.reconnecting')}</div>`; }
+    else if (c.state === 'closed' && ls.status === 'live') { bk = 'gone'; html = `<div class="sp"><small>${tNet.html('banner.goneKicker')}</small>${c.endReason ? tNet.html('banner.goneReason', { reason: reasonText(c.endReason) }) : tNet.html('banner.gone')}</div>`; btn = { label: tNet('banner.leave'), fn: () => this.host.quit() }; }
     else if (s.catchingUp) {
       const pct = Math.min(99, Math.round((100 * this.game.world.tick) / Math.max(1, ls.confirmed)));
-      bk = `cu${pct}`; html = `<span class="spin"></span><div class="sp"><small>Rejoining</small>Catching up with the match… ${pct}%<div class="bar"><i style="width:${pct}%"></i></div></div>`;
+      bk = `cu${pct}`; html = `<span class="spin"></span><div class="sp"><small>${tNet.html('banner.rejoinKicker')}</small>${tNet.html('banner.catchingUp', { pct })}<div class="bar"><i style="width:${pct}%"></i></div></div>`;
     } else if (s.stall && s.stall.seat !== c.seat && ls.status === 'live') {
       const st = s.stall, secs = Math.floor(st.ms / 1000);
-      const why = st.loading ? 'is still loading' : st.gone ? 'lost the connection' : 'is not responding';
+      const why = st.loading ? 'banner.stallLoading' : st.gone ? 'banner.stallGone' : 'banner.stallSlow';
       bk = `st${st.seat}|${secs}|${st.canDrop}`;
-      html = `<span class="spin"></span><div class="sp"><small>Match paused · ${secs} s</small>Waiting for <b>${esc(st.name)}</b>, who ${why}.</div>`;
-      if (st.canDrop) btn = { label: 'Drop · AI takes over', fn: () => { this.host.play('click'); s.dropStalled(); } };
+      html = `<span class="spin"></span><div class="sp"><small>${tNet.html('banner.pausedKicker', { s: secs })}</small>${tNet.html(why, { name: st.name })}</div>`;
+      if (st.canDrop) btn = { label: tNet('banner.drop'), fn: () => { this.host.play('click'); s.dropStalled(); } };
     }
     if (bk !== this.bannerKey) {
       this.bannerKey = bk;
@@ -226,7 +240,7 @@ export class GameLink implements NetLink {
     const f = el('form');
     const inp = el('input');
     inp.maxLength = 160;
-    inp.placeholder = 'Message to everyone · Enter to send';
+    inp.placeholder = tNet('chat.placeholder');
     inp.autocomplete = 'off';
     f.appendChild(inp);
     const close = () => f.remove();
@@ -252,14 +266,14 @@ export class GameLink implements NetLink {
     g.paused = true; // the simulations disagree: nothing to gain from running on
     g.input?.setMode('normal');
     this.host.play('error');
-    const rows = (d?.hashes ?? []).map(([seat, h]) => `<tr><td>${esc(this.names.get(seat) ?? `Seat ${seat}`)}${seat === this.client.seat ? ' (you)' : ''}</td><td><code>${esc(h)}</code></td></tr>`).join('');
+    const rows = (d?.hashes ?? []).map(([seat, h]) => { const name = this.names.get(seat) ?? tNet('player.seat', { n: String(seat) }); return `<tr><td>${esc(seat === this.client.seat ? tNet('player.you', { name }) : name)}</td><td><code>${esc(h)}</code></td></tr>`; }).join('');
     const s = el('div', 'screen sub-screen dim net-dialog');
     s.innerHTML = `<div class="menu-panel panel">
-      <div class="mp-head"><span class="mp-ic">${ICONS.warn}</span><div><small>Match stopped</small><h2>Desync detected</h2></div></div>
-      <p>The players' simulations no longer agree, so the match cannot go on. This is a bug (or a modified game): saving the replay helps find it.</p>
-      <table><tr><td>First difference</td><td><code>tick ${d?.tick ?? '?'}</code> · ${mmss(d?.tick ?? 0)}</td></tr>${rows}<tr><td>Your hash at that tick</td><td><code>${esc(d?.mine ?? 'not known')}</code></td></tr></table>
-      <div class="row"><button class="btn" data-a="save">${ICONS.history}<span>Save replay</span></button><button class="btn" data-a="dl">${ICONS.download}<span>Download replay</span></button></div>
-      <div class="row"><button class="btn" data-a="leave">${ICONS.exit}<span>Leave match</span></button></div>
+      <div class="mp-head"><span class="mp-ic">${ICONS.warn}</span><div><small>${tNet.html('desync.kicker')}</small><h2>${tNet.html('desync.title')}</h2></div></div>
+      <p>${tNet.html('desync.body')}</p>
+      <table><tr><td>${tNet.html('desync.first')}</td><td><code>${tNet.html('desync.tick', { tick: String(d?.tick ?? '?') })}</code> · ${mmss(d?.tick ?? 0)}</td></tr>${rows}<tr><td>${tNet.html('desync.yourHash')}</td><td><code>${esc(d?.mine ?? tNet('desync.unknown'))}</code></td></tr></table>
+      <div class="row"><button class="btn" data-a="save">${ICONS.history}<span>${tNet.html('desync.save')}</span></button><button class="btn" data-a="dl">${ICONS.download}<span>${tNet.html('desync.download')}</span></button></div>
+      <div class="row"><button class="btn" data-a="leave">${ICONS.exit}<span>${tNet.html('desync.leave')}</span></button></div>
     </div>`;
     const data = () => {
       const r = g.recorder?.toData();
@@ -271,7 +285,7 @@ export class GameLink implements NetLink {
       const r = data();
       if (!r) return;
       b.disabled = true;
-      saveReplay(r).then(() => { b.innerHTML = `${ICONS.check}<span class="ok">Saved to Replays</span>`; }).catch(() => { b.textContent = 'Could not save'; });
+      saveReplay(r).then(() => { b.innerHTML = `${ICONS.check}<span class="ok">${tNet.html('desync.saved')}</span>`; }).catch(() => { b.textContent = tNet('desync.saveFailed'); });
     };
     (s.querySelector('[data-a="dl"]') as HTMLButtonElement).onclick = () => {
       const r = data();

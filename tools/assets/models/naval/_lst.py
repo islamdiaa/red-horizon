@@ -20,7 +20,7 @@ def build_lst(m, fac):
     m.set_meta(height=0.45, radius=0.72, snow=0.2)
     m.ground = False
     m.look(edge_light=0.08, ao_distance=0.2)
-    P = NavPal(fac, hull=0x7b838a if fac == 'allies' else 0x6d767c)
+    P = NavPal(fac, hull=0x99a1a8 if fac == 'allies' else 0x8a939a)
     hl = m.part('hull')
     H = Hull(stations(1.4, 0.48, 0.09, 0.03, 0.06, 0.55, 0.88, 0.0, flare=1.0, n=14))
     H.add(hl, P)

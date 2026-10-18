@@ -38,6 +38,10 @@
       @font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/rajdhani-600.woff2') format('woff2'); }
       @font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/rajdhani-700.woff2') format('woff2'); }
       @font-face { font-family: 'Share Tech Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/share-tech-mono-400.woff2') format('woff2'); }
+      /* translated interface: Cyrillic and Chinese fallbacks, downloaded only when a page shows those characters
+         (unicode-range); the CJK subset only where no system Chinese font comes first in the stack (tools/fonts) */
+      @font-face { font-family: 'RH Cyrillic'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('/fonts/tektur-cyrillic.woff2') format('woff2'); unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+      @font-face { font-family: 'RH CJK'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('/fonts/noto-sans-sc-subset.woff2') format('woff2'); unicode-range: U+2E80-2FDF, U+3000-30FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF; }
     </style>
   </head>
   <body>

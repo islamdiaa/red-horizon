@@ -3,10 +3,11 @@
  * cards, tooltips, an in-match badge, the skirmish panel) and the Mods screen (src/mods/ui.ts).
  * The rules engine itself (src/mods/engine.ts) has no DOM and is shared with the tests.
  */
-import { setModelAlias } from '../render/models';
+import { setModelAlias } from '../render/models/alias'; // three-free: the 3D models load later
 import { appliedModSet, onTypesChanged, typeModInfo } from './engine';
 import { activeModSet } from './store';
 import type { ModSet } from './format';
+import tMods from '../i18n/en/mods';
 
 export { showMods } from './ui';
 export { activeModSet } from './store';
@@ -48,7 +49,7 @@ export function modCardTag(typeId: string): string {
   const info = typeModInfo(typeId);
   if (!info) return '';
   injectCss();
-  return `<span class="bi-mod" title="Modded by ${esc(info.mods.join(', '))}">${info.variant ? 'NEW' : 'MOD'}</span>`;
+  return `<span class="bi-mod" title="${esc(tMods('marker.moddedBy', { mods: info.mods.join(', ') }))}">${tMods.html(info.variant ? 'marker.newTag' : 'marker.modTag')}</span>`;
 }
 
 /** Tooltip section listing what the active mods changed on a type ('' when unmodded). */
@@ -56,8 +57,8 @@ export function modTipHtml(typeId: string): string {
   const info = typeModInfo(typeId);
   if (!info) return '';
   injectCss();
-  const head = info.variant ? `Mod variant · ${esc(info.mods.join(', '))}` : `Modded · ${esc(info.mods.join(', '))}`;
-  return `<div class="tt-mod"><b>${head.toUpperCase()}</b>${info.lines.slice(0, 8).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
+  const head = tMods(info.variant ? 'marker.variantHead' : 'marker.moddedHead', { mods: info.mods.join(', ') });
+  return `<div class="tt-mod"><b>${esc(head.toUpperCase())}</b>${info.lines.slice(0, 8).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
 }
 
 /** In-match "MODDED" badge (removed when `set` is empty or the next match starts). */
@@ -68,8 +69,8 @@ export function showModBadge(set: ModSet | null | undefined) {
   const b = document.createElement('div');
   b.id = 'rh-modbadge';
   b.className = 'rh-modbadge';
-  b.innerHTML = `Modded<span>${esc(set.mods.map((m) => m.name).join(' + '))}</span>`;
-  b.title = `Rules changed by mods (set ${set.hash.slice(0, 8)}); saves and replays of this match keep these rules.`;
+  b.innerHTML = `${tMods.html('marker.badge')}<span>${esc(set.mods.map((m) => m.name).join(' + '))}</span>`;
+  b.title = tMods('marker.badgeTip', { hash: set.hash.slice(0, 8) });
   document.body.appendChild(b);
 }
 
@@ -80,8 +81,8 @@ export function activeModsChip(onClick: () => void): HTMLElement | null {
   injectCss();
   const c = document.createElement('div');
   c.className = 'mods-chip';
-  c.innerHTML = `<b>MODDED</b><span>${esc(set.mods.map((m) => m.name).join(' + '))}</span>`;
-  c.title = 'These mods change the rules of the next match. Click to manage mods.';
+  c.innerHTML = `<b>${tMods.html('marker.chip')}</b><span>${esc(set.mods.map((m) => m.name).join(' + '))}</span>`;
+  c.title = tMods('marker.chipTip');
   c.onclick = onClick;
   return c;
 }

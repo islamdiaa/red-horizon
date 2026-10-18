@@ -1,21 +1,24 @@
-import { GAME_SUBTITLE, GAME_TITLE, VERSION } from '../config';
+import { GAME_TITLE, TEAM_COLORS, VERSION } from '../config';
 import type { Faction } from '../data/rules';
 import type { AIDifficulty } from '../sim/ai';
 import type { Quality, TimeOfDay } from '../render/renderer';
 import { formatTime } from '../core/util';
-import { TEAM_COLORS, type Game, type GameSetup } from '../game';
+import type { Game, GameSetup } from '../game'; // (types only: the engine loads after the menu)
 import type { AudioSystem } from '../audio';
 import { ICONS, alliedEmblem, medalSvg, rankBadge, sovietEmblem, type MedalTier } from './icons';
 import { UiSound, bindTilt, countUp, el as h, esc, hexColor, replay as replayAnim } from './dom';
 import { Embers } from './embers';
 import { initLoadingScreen } from './loading';
 import { applyUiSettings, loadSettings, modelDetailOf, saveSettings, type ModelDetail, type Settings } from './settings'; // model detail
+import { clampUiScale, focusTrap, subtitleSizeOf, type SubtitleSize, type TeamPalette } from './a11y'; // accessibility settings
+import { groupModLabel, groupMods, keysLabel, type ActionId } from './keymap';
+import { buildKeysPanel } from './a11y-controls';
+import { copyDiagnostics } from './a11y-diagnostics';
+import { ACTION_TEXT, ARIA_TEXT, CONTROLS_TEXT, GROUP_TEXT, SETTINGS_TEXT } from './a11y-strings';
+import { offlineContentRows } from './offline-setting';
 import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
-import { showProfile } from './profile';
-import { showResults } from './results'; // post-match results screen
 import { mountSessionCard } from './session-card'; // session goals on the main menu
 import { resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // rivals
-import { showChallenges } from './challenges';
 import { CURATED_MAPS, getMapDef, loadCuratedMap } from '../maps';
 import { decodeMapCode, encodeMapCode, generatorOptions, mapCodeForSetup, normaliseParams, type GenParams } from '../maps/code';
 import { mapPreviewUrl } from '../maps/preview';
@@ -23,17 +26,19 @@ import { generateMap } from '../sim/mapgen';
 import type { GameMap } from '../sim/map';
 import { fitOpponents, playbackSetup } from '../replay/launch';
 import { MAX_REPLAYS, type ReplayData } from '../replay/format';
-import { deleteReplay, exportReplay, importReplayFile, listReplays } from '../replay/store';
-import { canRecordClips, clipStartTick, requestClip } from './clips'; // highlight clips
-import { renderReplayTree } from './replay-tree'; // replay trees
+import { deleteReplay, exportReplay, importReplayFile, listReplays, replayMapName } from '../replay/store';
 import { KOTH_MINUTES } from '../modes/koth';
-import { CEASEFIRE_CHOICES, ceasefireLabel } from '../sim/ceasefire';
+import { CEASEFIRE_CHOICES } from '../sim/ceasefire';
 import { loadProgress } from '../missions/progress';
 import { customMaps, isCustomMapId } from '../maps/custom'; // editor maps in the picker
 import { enabledModIds } from '../mods/store';
 import { activeModsChip } from '../mods';
 import { quickBattleSetup, rulesTabs } from './variety'; // rules tab, mutators, Quick Battle
 import { DOCTRINES, doctrinesFor, doctrineUnlocked } from '../sim/doctrine'; // Quick Battle doctrine
+import { LANGS, LANG_NAMES, dt, fmtDateTime, fmtMoney, fmtPct, languagePref, resolvePref, setLanguage, trSource, type LangPref } from '../i18n/core'; // interface language
+import tCommon from '../i18n/en/common';
+import tMenu from '../i18n/en/menu';
+import tSettings from '../i18n/en/settings';
 
 export { loadSettings, saveSettings, type Settings };
 
@@ -99,7 +104,17 @@ function loadPrefs(): SkirmishPrefs {
 }
 
 const randomSeed = () => Math.floor(Math.random() * 1e9);
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** A climate's display name. */
+const climateName = (c: string): string => tMenu(c === 'winter' ? 'skirmish.climateWinter' : c === 'desert' ? 'skirmish.climateDesert' : 'skirmish.climateTemperate');
+/** A map's name, description and tags in the interface language (curated maps; editor maps keep their author's text). */
+const mapName = (m: { id: string; name: string }): string => (isCustomMapId(m.id) ? m.name : dt('map', m.id, 'name', m.name));
+const mapDesc = (m: { id: string; desc: string }): string => (isCustomMapId(m.id) ? m.desc : dt('map', m.id, 'desc', m.desc));
+const mapTags = (m: { id: string; tags?: readonly string[] }): string[] => (m.tags ?? []).map((t, i) => (isCustomMapId(m.id) ? t : dt('map', m.id, `tags.${i}`, t)));
+/** "64×64 · 2 players · Winter". */
+const mapMeta = (size: number, players: number, climate: string): string => tMenu('skirmish.mapMeta', { size, players, climate: climateName(climate) });
+/** The Back button of the sub-screens. */
+const backButton = (): HTMLElement => h('button', 'btn btn-back', `${ICONS.chevL}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd>`);
 
 /** Start-marker colours for previews: the player's colour first, then the AI colours in game order. */
 function startColors(own: number, players: number): string[] {
@@ -129,15 +144,14 @@ function bootCampDone(): boolean {
   try { return !!loadProgress()['bootcamp']?.completed; } catch { return false; }
 }
 
-const RESULT_LABEL: Record<ReplayData['result'], string> = { victory: 'Victory', defeat: 'Defeat', abandoned: 'Left' };
-
 // ---------------------------------------------------------------------------
 // Controls
 // ---------------------------------------------------------------------------
-type Opt<T> = [T, string, string?]; // value, label, icon
+type Opt<T> = [T, string, string?]; // value, label (HTML: escape translations, e.g. tX.html()), icon
 
 function seg<T extends string | number | boolean>(options: Opt<T>[], value: T, onChange: (v: T) => void, cls = ''): HTMLElement {
   const box = h('div', 'seg ' + cls);
+  box.setAttribute('role', 'group');
   box.style.setProperty('--n', String(options.length));
   const thumb = h('span', 'seg-thumb');
   box.appendChild(thumb);
@@ -145,9 +159,11 @@ function seg<T extends string | number | boolean>(options: Opt<T>[], value: T, o
   options.forEach(([v, label, icon], i) => {
     const b = h('button', v === value ? 'on' : '', `${icon ?? ''}<span>${label}</span>`);
     b.dataset.v = String(v);
+    b.setAttribute('aria-pressed', String(v === value));
     b.onclick = () => {
-      for (const c of box.querySelectorAll('button')) c.classList.remove('on');
+      for (const c of box.querySelectorAll('button')) { c.classList.remove('on'); c.setAttribute('aria-pressed', 'false'); }
       b.classList.add('on');
+      b.setAttribute('aria-pressed', 'true');
       place(i);
       onChange(v);
     };
@@ -162,6 +178,8 @@ function stepper<T extends string>(options: Opt<T>[], value: T, onChange: (v: T)
   let i = Math.max(0, options.findIndex(([v]) => v === value));
   const prev = h('button', 'st-arrow', ICONS.chevL);
   const next = h('button', 'st-arrow', ICONS.chevR);
+  prev.setAttribute('aria-label', ARIA_TEXT.previous);
+  next.setAttribute('aria-label', ARIA_TEXT.next);
   const mid = h('div', 'st-mid');
   const dots = h('div', 'st-dots', options.map(() => '<i></i>').join(''));
   const render = (dir: number) => {
@@ -191,29 +209,46 @@ function toggle(value: boolean, onChange: (v: boolean) => void): HTMLButtonEleme
   return b;
 }
 
-function slider(value: number, onChange: (v: number) => void): HTMLElement {
+/** A 0–1 slider shown in percent; `range` makes it min–max (the fill still spans the track) and `onCommit` waits for release. */
+function slider(value: number, onChange: (v: number) => void, range?: { min: number; max: number; step: number; onCommit?: boolean }): HTMLElement {
   const wrap = h('div', 'slider-wrap');
   const s = h('input', 'slider') as HTMLInputElement;
   s.type = 'range';
-  s.min = '0'; s.max = '1'; s.step = '0.01';
+  const lo = range?.min ?? 0, hi = range?.max ?? 1;
+  s.min = String(lo); s.max = String(hi); s.step = String(range?.step ?? 0.01);
   s.value = String(value);
   const out = h('span', 'sv');
-  const sync = () => { const p = Math.round(+s.value * 100); s.style.setProperty('--p', `${p}%`); out.textContent = `${p}%`; };
-  s.oninput = () => { sync(); onChange(+s.value); };
+  out.setAttribute('aria-hidden', 'true');
+  const sync = () => {
+    s.style.setProperty('--p', `${Math.round(((+s.value - lo) / (hi - lo)) * 100)}%`);
+    out.textContent = fmtPct(Math.round(+s.value * 100) / 100);
+    s.setAttribute('aria-valuetext', out.textContent);
+  };
+  if (range?.onCommit) { s.oninput = sync; s.onchange = () => { sync(); onChange(+s.value); }; } // (resizing the UI under the pointer mid-drag)
+  else s.oninput = () => { sync(); onChange(+s.value); };
   sync();
   wrap.append(s, out);
   return wrap;
 }
 
+/** A labelled control (`label` is HTML). */
 function field(label: string, icon: string, control: HTMLElement, cls = ''): HTMLElement {
   const f = h('div', 'field ' + cls);
   f.append(h('label', '', `${icon}<span>${label}</span>`), control);
   return f;
 }
 
+let rowIds = 0;
+/** A settings row (`title` and `sub` are HTML). */
 function settingRow(icon: string, title: string, sub: string, control: HTMLElement): HTMLElement {
   const r = h('div', 'set-row');
-  r.append(h('span', 'set-l', `<span class="set-ic">${icon}</span><span><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span>`), control);
+  const id = `set-${++rowIds}`;
+  r.append(h('span', 'set-l', `<span class="set-ic">${icon}</span><span><b id="${id}">${title}</b>${sub ? `<small id="${id}-d">${sub}</small>` : ''}</span>`), control);
+  // the control (or each control inside it) is named by the row title for screen readers
+  const target = control.matches('button, input, select') ? control : control.querySelector<HTMLElement>('input, select') ?? control;
+  const named = target.matches('button') && !!target.textContent?.trim(); // "Customise", "Copy": keep their own name
+  target.setAttribute(named ? 'aria-describedby' : 'aria-labelledby', named ? `${id} ${sub ? `${id}-d` : ''}`.trim() : id);
+  if (sub && !named) target.setAttribute('aria-describedby', `${id}-d`);
   return r;
 }
 
@@ -253,9 +288,23 @@ export interface MenuCallbacks {
   backToLobby?(): void;
 }
 
+/** How the Settings screen was opened (see Menus.showSettings). */
+interface SettingsOpts { inBattle?: boolean; rerender?: boolean }
+
 export class Menus {
   private screen: HTMLElement | null = null;
+  /** The Settings screen while it is up (rebuilt in place after a language switch). */
+  private settingsScreen: HTMLElement | null = null;
+  /** Language switches run one after another, so the last pick is the one in effect. */
+  private langSwitch: Promise<unknown> = Promise.resolve();
+  private langTicket = 0;
+  /** Switches in flight, and a pick still waiting for the stepper to settle. */
+  private langBusy = 0;
+  private langPick: (() => void) | null = null;
+  private langTimer = 0;
   private escAction: (() => void) | null = null;
+  /** Keeps Tab inside the current screen (released when it goes). */
+  private untrap: (() => void) | null = null;
   private sound: UiSound;
   settings = loadSettings();
 
@@ -275,6 +324,8 @@ export class Menus {
     const old = this.screen;
     this.screen = null;
     this.escAction = null;
+    this.untrap?.();
+    this.untrap = null;
     if (old) this.retire(old);
   }
 
@@ -291,6 +342,8 @@ export class Menus {
     const s = h('div', `screen ${cls}${dim ? ' dim' : ''}`);
     document.body.appendChild(s);
     this.screen = s;
+    this.untrap?.();
+    this.untrap = focusTrap(s, { initial: false, restore: false }); // Tab stays in the screen (the game HUD underneath is out of reach)
     this.sound.bind(s, 'button:not(:disabled), .faction-card, .sw');
     s.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest('button, .faction-card, .sw');
@@ -325,34 +378,36 @@ export class Menus {
     const words = GAME_TITLE.split(' ');
     const left = h('div', 'mm-left');
     left.innerHTML = `
-      <div class="mm-kicker"><i></i><span>${esc(GAME_SUBTITLE)}</span></div>
+      <div class="mm-kicker"><i></i><span>${tCommon.html('gameSubtitle')}</span></div>
       <h1 class="game-title">${words.map((w, i) => `<span class="gt-line" style="--d:${i}" data-text="${esc(w)}"><span class="gt-fill">${esc(w)}</span></span>`).join('')}</h1>
       <div class="mm-horizon"><i></i></div>
-      <p class="mm-tag">Build a base, harvest ore and crush the enemy.<br>Allied technology versus Soviet steel — reimagined for the web.</p>`;
+      <p class="mm-tag">${tMenu.html('main.tagline')}</p>`;
     const nav = h('nav', 'mm-nav');
-    const navItem = (n: string, label: string, icon: string, fn: () => void, active = false) => {
+    const pill = (text: string, cls = '') => `<em class="rh-daily-pill${cls}">${esc(text)}</em>`;
+    const navItem = (n: string, label: string, icon: string, fn: () => void, active = false) => { // (label: HTML)
       const b = h('button', 'mm-nav-btn' + (active ? ' on' : ''), `<span class="nb-idx">${n}</span><span class="nb-ic">${icon}</span><span class="nb-label">${label}</span><span class="nb-arrow">${ICONS.arrowR}</span>`);
       b.onclick = fn;
       nav.appendChild(b);
     };
     const cont = this.cb.continueInfo?.();
     const bootDone = bootCampDone();
-    if (cont) navItem('▶', `Continue · ${cont.label}`, ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
-    if (this.cb.openBootCamp && !bootDone) navItem('00', `Boot Camp<em class="rh-daily-pill rh-new-pill">Start here</em>`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
-    navItem('»', 'Quick Battle<em class="rh-daily-pill">1 click</em>', ICONS.dice, () => this.quickBattle()); // one click into a rolled skirmish
-    if (this.cb.openCampaign) navItem('01', 'Campaign', ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
-    if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `Conquest${ci ? `<em class="rh-daily-pill">${esc(ci)}</em>` : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); }
-    navItem('02', 'Skirmish', ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
-    if (this.cb.openMultiplayer) navItem('MP', 'Multiplayer<em class="rh-daily-pill">Online</em>', ICONS.people, () => { this.hide(); this.cb.openMultiplayer!(); });
-    navItem('03', `Challenges${dailyPending() ? '<em class="rh-daily-pill">Daily</em>' : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
-    navItem('04', 'Replays', ICONS.replay, () => this.showReplays());
-    navItem('05', 'Commander', picto('chevrons', 'ic'), () => this.openProfile());
-    if (this.cb.openBootCamp && bootDone) navItem('06', 'Boot Camp', ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
-    navItem(bootDone && this.cb.openBootCamp ? '07' : '06', 'Settings', ICONS.gear, () => this.showSettings(() => this.showMain()));
-    navItem(bootDone && this.cb.openBootCamp ? '08' : '07', 'Controls', ICONS.keyboard, () => this.showHelp(() => this.showMain()));
+    const T = (k: Parameters<typeof tMenu>[0]) => tMenu.html(k);
+    if (cont) navItem('▶', esc(tMenu('main.continue', { label: trSource(cont.label) })), ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
+    if (this.cb.openBootCamp && !bootDone) navItem('00', `${T('main.nav.bootCamp')}${pill(tMenu('main.nav.startHere'), ' rh-new-pill')}`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
+    navItem('»', `${T('main.nav.quickBattle')}${pill(tMenu('main.nav.oneClick'))}`, ICONS.dice, () => this.quickBattle()); // one click into a rolled skirmish
+    if (this.cb.openCampaign) navItem('01', T('main.nav.campaign'), ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
+    if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `${T('main.nav.conquest')}${ci ? pill(ci) : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); }
+    navItem('02', T('main.nav.skirmish'), ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
+    if (this.cb.openMultiplayer) navItem('MP', `${T('main.nav.multiplayer')}${pill(tMenu('main.nav.online'))}`, ICONS.people, () => { this.hide(); this.cb.openMultiplayer!(); });
+    navItem('03', `${T('main.nav.challenges')}${dailyPending() ? pill(tMenu('main.nav.daily')) : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
+    navItem('04', T('main.nav.replays'), ICONS.replay, () => this.showReplays());
+    navItem('05', T('main.nav.commander'), picto('chevrons', 'ic'), () => this.openProfile());
+    if (this.cb.openBootCamp && bootDone) navItem('06', T('main.nav.bootCamp'), ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
+    navItem(bootDone && this.cb.openBootCamp ? '07' : '06', tCommon.html('settings'), ICONS.gear, () => this.showSettings(() => this.showMain()));
+    navItem(bootDone && this.cb.openBootCamp ? '08' : '07', T('main.nav.controls'), ICONS.keyboard, () => this.showHelp(() => this.showMain()));
     // map editor and mods
-    if (this.cb.openEditor) navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), 'Map Editor', ICONS.map, () => { this.hide(); this.cb.openEditor!(); });
-    if (this.cb.openMods) { const n = enabledModIds().length; navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), `Mods${n ? `<em class="rh-daily-pill">${n} on</em>` : ''}`, ICONS.gear, () => { this.hide(); this.cb.openMods!(); }); }
+    if (this.cb.openEditor) navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), T('main.nav.mapEditor'), ICONS.map, () => { this.hide(); this.cb.openEditor!(); });
+    if (this.cb.openMods) { const n = enabledModIds().length; navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), `${T('main.nav.mods')}${n ? pill(tMenu('main.nav.modsOn', { n })) : ''}`, ICONS.gear, () => { this.hide(); this.cb.openMods!(); }); }
     nav.classList.toggle('dense', nav.childElementCount > 7);
     nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
     left.appendChild(nav);
@@ -362,12 +417,12 @@ export class Menus {
     cmdr.style.cssText = 'margin-bottom:1.3rem;animation:fadeUp .8s .05s var(--ease) both';
     cmdr.onclick = () => { this.sound.play('click'); this.openProfile(); };
     left.prepend(cmdr);
-    left.appendChild(h('div', 'mm-foot', `<span class="live"><i></i>Live battlefield feed</span><span>v${VERSION}</span>`));
+    left.appendChild(h('div', 'mm-foot', `<span class="live"><i></i>${tMenu.html('main.liveFeed')}</span><span>v${VERSION}</span>`));
 
     // ---- right column: skirmish setup
     let vr: ReturnType<typeof rulesTabs> | null = null;
     const panel = h('div', 'menu-panel panel mm-panel');
-    panel.appendChild(this.header('Operation setup', 'Skirmish'));
+    panel.appendChild(this.header(tMenu.html('skirmish.kicker'), tMenu.html('main.nav.skirmish')));
 
     // factions
     const fac = h('div', 'factions');
@@ -389,8 +444,8 @@ export class Menus {
       bindTilt(c, 6);
       fac.appendChild(c);
     };
-    mkFaction('allies', 'Allies', 'Speed, precision &amp; technology', ['Chronosphere', 'Air power', 'Artillery'], alliedEmblem());
-    mkFaction('soviet', 'Soviets', 'Armour, firepower &amp; Tesla tech', ['Tesla Coils', 'Mammoth Tanks', 'Iron Curtain'], sovietEmblem());
+    mkFaction('allies', tCommon.html('faction.allies'), tMenu.html('skirmish.allies.desc'), [tMenu.html('skirmish.allies.trait1'), tMenu.html('skirmish.allies.trait2'), tMenu.html('skirmish.allies.trait3')], alliedEmblem());
+    mkFaction('soviet', tCommon.html('faction.soviet'), tMenu.html('skirmish.soviets.desc'), [tMenu.html('skirmish.soviets.trait1'), tMenu.html('skirmish.soviets.trait2'), tMenu.html('skirmish.soviets.trait3')], sovietEmblem());
     panel.appendChild(fac);
 
     // colour
@@ -422,29 +477,29 @@ export class Menus {
         used.add(color);
         const r = h('div', 'opponent');
         r.style.setProperty('--i', String(i));
-        r.appendChild(h('span', 'op-id', `<i style="--c:${hexColor(color)}"></i>${ICONS.cpu}<b>AI ${i + 1}</b>`));
+        r.appendChild(h('span', 'op-id', `<i style="--c:${hexColor(color)}"></i>${ICONS.cpu}<b>${tMenu.html('skirmish.aiName', { n: i + 1 })}</b>`));
         // a rival replaces the faction choice with its chip; "Rival" sits next to the difficulties
-        r.appendChild(o.rivalId ? rivalChip(o, renderOpps, (k) => this.sound.play(k)) : seg<Faction | 'random'>([['allies', 'Allies'], ['soviet', 'Soviet'], ['random', 'Random']], o.faction, (v) => { o.faction = v; }, 'op-fac'));
-        r.appendChild(seg<AIDifficulty | 'rival'>([['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['brutal', 'Brutal'], ['rival', 'Rival']], o.rivalId ? 'rival' : o.difficulty, (v) => { const was = !!o.rivalId; setOpponentKind(o, v); r.dataset.diff = v; if (was !== !!o.rivalId) renderOpps(); }, 'op-diff'));
+        r.appendChild(o.rivalId ? rivalChip(o, renderOpps, (k) => this.sound.play(k)) : seg<Faction | 'random'>([['allies', tCommon.html('faction.allies')], ['soviet', tMenu.html('skirmish.oppSoviet')], ['random', tCommon.html('random')]], o.faction, (v) => { o.faction = v; }, 'op-fac'));
+        r.appendChild(seg<AIDifficulty | 'rival'>([['easy', tCommon.html('difficulty.easy')], ['normal', tCommon.html('difficulty.normal')], ['hard', tCommon.html('difficulty.hard')], ['brutal', tCommon.html('difficulty.brutal')], ['rival', tMenu.html('skirmish.rival')]], o.rivalId ? 'rival' : o.difficulty, (v) => { const was = !!o.rivalId; setOpponentKind(o, v); r.dataset.diff = v; if (was !== !!o.rivalId) renderOpps(); }, 'op-diff'));
         r.dataset.diff = o.rivalId ? 'rival' : o.difficulty;
         const x = h('button', 'op-x', ICONS.close);
-        x.title = def ? `${def.name} is a ${def.players}-player map` : 'Remove opponent';
+        x.title = def ? tMenu('skirmish.mapFixesPlayers', { map: mapName(def), n: def.players }) : tMenu('skirmish.removeOpponent');
         x.disabled = prefs.opponents.length <= 1 || !!def;
         x.onclick = () => { prefs.opponents.splice(i, 1); renderOpps(); renderMap(); };
         r.appendChild(x);
         oppBox.appendChild(r);
       });
       if (prefs.opponents.length < 3 && !def) {
-        const add = h('button', 'op-add', `${ICONS.plus}<span>Add opponent</span>`);
+        const add = h('button', 'op-add', `${ICONS.plus}<span>${tMenu.html('skirmish.addOpponent')}</span>`);
         add.onclick = () => { prefs.opponents.push({ faction: 'random', difficulty: 'normal' }); renderOpps(); renderMap(); };
         oppBox.appendChild(add);
       }
-      oppCount.textContent = def ? `${prefs.opponents.length} · fixed by map` : `${prefs.opponents.length} / 3`;
+      oppCount.textContent = def ? tMenu('skirmish.oppCountFixed', { n: prefs.opponents.length }) : `${prefs.opponents.length} / 3`;
     };
     const forces = h('div', 'mp-section');
-    const secHead = h('div', 'sec-title', `<span>Opponents</span>`);
+    const secHead = h('div', 'sec-title', `<span>${tMenu.html('skirmish.opponents')}</span>`);
     secHead.appendChild(oppCount);
-    const colorRow = h('div', 'color-row', `<span class="cr-label">${ICONS.flag}<span>Team colour</span></span>`);
+    const colorRow = h('div', 'color-row', `<span class="cr-label">${ICONS.flag}<span>${tMenu.html('skirmish.teamColour')}</span></span>`);
     colorRow.appendChild(colors);
     forces.append(colorRow, secHead, oppBox);
     panel.appendChild(forces);
@@ -460,10 +515,10 @@ export class Menus {
       const colorsFor = startColors(prefs.color, def ? def.players : p.players);
       mapRow.className = 'map-row' + (def ? ' curated' : '');
       mapRow.innerHTML = `<div class="mr-thumb"><img alt=""><span class="mr-load"></span></div>
-        <div class="mr-info"><small>Battlefield</small><b>${esc(def ? def.name : 'Random battlefield')}</b>
-        <span class="mr-meta">${def ? `${def.size}×${def.size} · ${def.players} players · ${cap(def.climate)}${def.tags?.length ? ' · ' + def.tags.slice(0, 2).map(esc).join(' · ') : ''}` : `${p.size}×${p.size} · ${p.players} players · ${cap(p.climate)} · new every match`}</span>
-        ${def ? '' : `<span class="mr-code"><span class="mr-code-lbl">Map code</span><code>${code}</code><button class="mr-ib mr-copy" title="Copy the map code">${ICONS.copy}</button><button class="mr-ib mr-lock${prefs.lockSeed ? ' on' : ''}" title="${prefs.lockSeed ? 'This exact map is kept for the next match — click for a new one each time' : 'Keep this exact map for the next match'}">${ICONS.lock}</button><button class="mr-ib mr-dice" title="Roll a different map">${ICONS.dice}</button></span>`}</div>
-        <button class="btn mr-change">${ICONS.map}<span>Maps</span></button>`;
+        <div class="mr-info"><small>${tMenu.html('skirmish.battlefield')}</small><b>${esc(def ? mapName(def) : tMenu('skirmish.randomBattlefield'))}</b>
+        <span class="mr-meta">${def ? `${esc(mapMeta(def.size, def.players, def.climate))}${def.tags?.length ? ' · ' + mapTags(def).slice(0, 2).map(esc).join(' · ') : ''}` : esc(tMenu('skirmish.mapMetaGenerated', { size: p.size, players: p.players, climate: climateName(p.climate) }))}</span>
+        ${def ? '' : `<span class="mr-code"><span class="mr-code-lbl">${tMenu.html('skirmish.mapCode')}</span><code>${code}</code><button class="mr-ib mr-copy" title="${esc(tMenu('skirmish.copyMapCode'))}">${ICONS.copy}</button><button class="mr-ib mr-lock${prefs.lockSeed ? ' on' : ''}" title="${esc(tMenu(prefs.lockSeed ? 'skirmish.lockOn' : 'skirmish.lockOff'))}">${ICONS.lock}</button><button class="mr-ib mr-dice" title="${esc(tMenu('skirmish.rollMap'))}">${ICONS.dice}</button></span>`}</div>
+        <button class="btn mr-change">${ICONS.map}<span>${tMenu.html('skirmish.maps')}</span></button>`;
       const img = mapRow.querySelector('img') as HTMLImageElement;
       window.clearTimeout(thumbTimer);
       const draw = () => {
@@ -477,7 +532,7 @@ export class Menus {
       (mapRow.querySelector('.mr-change') as HTMLElement).onclick = () => this.mapPicker(prefs, () => { renderOpps(); renderBf(); renderMap(); });
       (mapRow.querySelector('.mr-thumb') as HTMLElement).onclick = () => this.mapPicker(prefs, () => { renderOpps(); renderBf(); renderMap(); });
       const copy = mapRow.querySelector('.mr-copy') as HTMLElement | null;
-      if (copy) copy.onclick = () => { copyText(code); this.flashTip(copy, 'Copied'); };
+      if (copy) copy.onclick = () => { copyText(code); this.flashTip(copy, tCommon('copied')); };
       const lock = mapRow.querySelector('.mr-lock') as HTMLElement | null;
       if (lock) lock.onclick = () => { prefs.lockSeed = !prefs.lockSeed; renderMap(); };
       const dice = mapRow.querySelector('.mr-dice') as HTMLElement | null;
@@ -491,37 +546,39 @@ export class Menus {
     const renderBf = () => {
       bf.innerHTML = '';
       const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
-      bf.appendChild(h('div', 'sec-title', '<span>Battlefield</span>'));
+      const T = (k: Parameters<typeof tMenu>[0]) => tMenu.html(k);
+      bf.appendChild(h('div', 'sec-title', `<span>${T('skirmish.battlefield')}</span>`));
       if (def) {
-        const info = (icon: string, label: string, value: string) => bf.appendChild(field(label, icon, h('div', 'fixed-val', `<b>${value}</b><small>set by the map</small>`)));
-        info(ICONS.map, 'Map size', `${def.size}×${def.size}`);
-        info(ICONS.water, 'Terrain', esc(def.tags?.find((t) => /naval|river|lake|island|canyon|ridge/i.test(t)) ?? 'Hand-made'));
-        info(def.climate === 'winter' ? ICONS.snow : def.climate === 'desert' ? ICONS.desert : ICONS.tree, 'Climate', cap(def.climate));
+        const info = (icon: string, label: string, value: string) => bf.appendChild(field(label, icon, h('div', 'fixed-val', `<b>${value}</b><small>${T('skirmish.setByMap')}</small>`)));
+        info(ICONS.map, T('skirmish.mapSize'), `${def.size}×${def.size}`);
+        const tags = def.tags ?? [], ti = tags.findIndex((t) => /naval|river|lake|island|canyon|ridge/i.test(t));
+        info(ICONS.water, T('skirmish.terrain'), esc(ti >= 0 ? mapTags(def)[ti] : tMenu('skirmish.handMade')));
+        info(def.climate === 'winter' ? ICONS.snow : def.climate === 'desert' ? ICONS.desert : ICONS.tree, T('skirmish.climate'), esc(climateName(def.climate)));
       } else {
-        bf.appendChild(field('Map size', ICONS.map, seg<number>([[64, 'Small'], [96, 'Medium'], [128, 'Large']], prefs.mapSize, (v) => { prefs.mapSize = v; renderMap(); })));
-        bf.appendChild(field('Terrain', ICONS.water, seg<number>([[0, 'Dry'], [0.5, 'Lakes'], [1, 'Sea']], prefs.water, (v) => { prefs.water = v; renderMap(); })));
-        bf.appendChild(field('Climate', ICONS.tree, seg<Climate>([['temperate', 'Temperate', ICONS.tree], ['winter', 'Winter', ICONS.snow], ['desert', 'Desert', ICONS.desert]], prefs.climate, (v) => { prefs.climate = v; renderMap(); }, 'with-ic')));
+        bf.appendChild(field(T('skirmish.mapSize'), ICONS.map, seg<number>([[64, T('skirmish.sizeSmall')], [96, T('skirmish.sizeMedium')], [128, T('skirmish.sizeLarge')]], prefs.mapSize, (v) => { prefs.mapSize = v; renderMap(); })));
+        bf.appendChild(field(T('skirmish.terrain'), ICONS.water, seg<number>([[0, T('skirmish.terrainDry')], [0.5, T('skirmish.terrainLakes')], [1, T('skirmish.terrainSea')]], prefs.water, (v) => { prefs.water = v; renderMap(); })));
+        bf.appendChild(field(T('skirmish.climate'), ICONS.tree, seg<Climate>([['temperate', T('skirmish.climateTemperate'), ICONS.tree], ['winter', T('skirmish.climateWinter'), ICONS.snow], ['desert', T('skirmish.climateDesert'), ICONS.desert]], prefs.climate, (v) => { prefs.climate = v; renderMap(); }, 'with-ic')));
       }
-      bf.appendChild(field('Weather', ICONS.rain, stepper<Weather>([
-        ['auto', 'Auto', ICONS.auto], ['clear', 'Clear', ICONS.clear], ['rain', 'Rain', ICONS.rain], ['storm', 'Storm', ICONS.storm],
-        ['snow', 'Snow', ICONS.snow], ['fog', 'Fog', ICONS.fog], ['dust', 'Dust', ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
+      bf.appendChild(field(T('skirmish.weather'), ICONS.rain, stepper<Weather>([
+        ['auto', tCommon.html('auto'), ICONS.auto], ['clear', T('skirmish.weatherClear'), ICONS.clear], ['rain', T('skirmish.weatherRain'), ICONS.rain], ['storm', T('skirmish.weatherStorm'), ICONS.storm],
+        ['snow', T('skirmish.weatherSnow'), ICONS.snow], ['fog', T('skirmish.weatherFog'), ICONS.fog], ['dust', T('skirmish.weatherDust'), ICONS.dust]], prefs.weather, (v) => { prefs.weather = v; })));
       // build-up time and the game mode live in the Rules tab
     };
     const cond = h('div', 'mp-col');
-    cond.appendChild(h('div', 'sec-title', '<span>Conditions</span>'));
-    cond.appendChild(field('Time of day', ICONS.sun, seg<TimeOfDay>([['day', 'Day', ICONS.sun], ['dusk', 'Dusk', ICONS.dusk], ['night', 'Night', ICONS.moon]], prefs.timeOfDay, (v) => { prefs.timeOfDay = v; }, 'with-ic')));
-    cond.appendChild(field('Credits', ICONS.coin, seg<number>([[5000, '$5k'], [10000, '$10k'], [20000, '$20k']], prefs.credits, (v) => { prefs.credits = v; })));
-    cond.appendChild(field('Start units', ICONS.vehicle, seg<'mcv' | 'light' | 'heavy'>([['mcv', 'MCV only'], ['light', 'Squad'], ['heavy', 'Company']], prefs.startUnits, (v) => { prefs.startUnits = v; })));
+    cond.appendChild(h('div', 'sec-title', `<span>${T('skirmish.conditions')}</span>`));
+    cond.appendChild(field(T('skirmish.timeOfDay'), ICONS.sun, seg<TimeOfDay>([['day', T('skirmish.day'), ICONS.sun], ['dusk', T('skirmish.dusk'), ICONS.dusk], ['night', T('skirmish.night'), ICONS.moon]], prefs.timeOfDay, (v) => { prefs.timeOfDay = v; }, 'with-ic')));
+    cond.appendChild(field(T('skirmish.credits'), ICONS.coin, seg<number>([5, 10, 20].map((k): Opt<number> => [k * 1000, tMenu.html('skirmish.creditsShort', { n: k })]), prefs.credits, (v) => { prefs.credits = v; })));
+    cond.appendChild(field(T('skirmish.startUnits'), ICONS.vehicle, seg<'mcv' | 'light' | 'heavy'>([['mcv', T('skirmish.unitsMcv')], ['light', T('skirmish.unitsSquad')], ['heavy', T('skirmish.unitsCompany')]], prefs.startUnits, (v) => { prefs.startUnits = v; })));
     // game mode: classic, or King of the Hill (hold the centre for N minutes)
-    const modeField = field('Mode', ICONS.flag, stepper<string>([['0', 'Annihilation', ICONS.target], ...KOTH_MINUTES.map((m): Opt<string> => [String(m), `King of the Hill · ${m} min`, ICONS.flag])],
+    const modeField = field(T('skirmish.mode'), ICONS.flag, stepper<string>([['0', T('skirmish.annihilation'), ICONS.target], ...KOTH_MINUTES.map((m): Opt<string> => [String(m), tMenu.html('skirmish.koth', { n: m }), ICONS.flag])],
       String(prefs.koth ?? 0), (v) => { prefs.koth = +v || undefined; syncBuildup(); })); // placed in the Rules tab
     // build-up time: a ceasefire at the start (the AI builds and only defends until it runs out)
-    const buildup = field('Build-up time', ICONS.shield, stepper<string>(CEASEFIRE_CHOICES.map((m): Opt<string> => [String(m), m ? ceasefireLabel(m) : 'Off', m < 0 ? ICONS.shield : m ? ICONS.clock : ICONS.target]),
+    const buildupLabel = (m: number) => (!m ? tCommon.html('off') : m < 0 ? T('skirmish.buildupUnlimited') : tMenu.html('skirmish.buildupMinutes', { n: m })); // (sim/ceasefire.ts ceasefireLabel, translated)
+    const buildup = field(T('skirmish.buildup'), ICONS.shield, stepper<string>(CEASEFIRE_CHOICES.map((m): Opt<string> => [String(m), buildupLabel(m), m < 0 ? ICONS.shield : m ? ICONS.clock : ICONS.target]),
       String(prefs.ceasefire ?? 0), (v) => { prefs.ceasefire = +v || undefined; }), 'f-buildup');
     function syncBuildup() {
       buildup.classList.toggle('disabled', !!prefs.koth);
-      buildup.title = prefs.koth ? 'Not available in King of the Hill'
-        : 'A ceasefire at the start: the enemy builds up its army and only defends until the timer runs out. Unlimited: it never strikes first.';
+      buildup.title = tMenu(prefs.koth ? 'skirmish.buildupNoKoth' : 'skirmish.buildupTip');
     }
     syncBuildup();
     const toggles = h('div', 'toggle-pair');
@@ -530,8 +587,8 @@ export class Menus {
       t.appendChild(toggle(v, fn));
       toggles.appendChild(t);
     };
-    tp(ICONS.cycle, 'Day / night cycle', prefs.dayCycle, (v) => { prefs.dayCycle = v; });
-    tp(ICONS.eyeOff, 'Fog of war', prefs.fog, (v) => { prefs.fog = v; });
+    tp(ICONS.cycle, T('skirmish.dayCycle'), prefs.dayCycle, (v) => { prefs.dayCycle = v; });
+    tp(ICONS.eyeOff, T('skirmish.fogOfWar'), prefs.fog, (v) => { prefs.fog = v; });
     cond.appendChild(toggles);
     grid.append(bf, cond);
     // "Battlefield | Rules" tabs: rules, doctrine, mode, build-up, events, dynamic difficulty, mutators
@@ -547,7 +604,7 @@ export class Menus {
 
     const modsChip = activeModsChip(() => { this.hide(); this.cb.openMods?.(); }); // "Modded" marker
     if (modsChip) (panel.querySelector('.mp-head') ?? panel).appendChild(modsChip);
-    const go = h('button', 'btn-primary deploy', `<span>Deploy</span>${ICONS.arrowR}<i class="shine"></i>`);
+    const go = h('button', 'btn-primary deploy', `<span>${T('skirmish.deploy')}</span>${ICONS.arrowR}<i class="shine"></i>`);
     go.onclick = () => {
       this.audio.unlock().catch(() => {});
       const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
@@ -608,7 +665,7 @@ export class Menus {
     if (!host) return;
     const ov = h('div', 'map-picker');
     const pnl = h('div', 'menu-panel panel mpk-panel');
-    pnl.appendChild(this.header('Choose your ground', 'Battlefield', ICONS.map));
+    pnl.appendChild(this.header(tMenu.html('picker.kicker'), tMenu.html('skirmish.battlefield'), ICONS.map));
     const close = () => {
       ov.classList.add('leaving');
       setTimeout(() => ov.remove(), 300);
@@ -616,7 +673,7 @@ export class Menus {
       done();
     };
     const x = h('button', 'mpk-x', ICONS.close);
-    x.title = 'Close (Esc)';
+    x.title = tMenu('picker.close');
     x.onclick = close;
     pnl.appendChild(x);
     const gridEl = h('div', 'mpk-grid');
@@ -635,31 +692,31 @@ export class Menus {
       gridEl.appendChild(c);
     };
     const queue: (() => void)[] = [];
-    card(null, 'Random battlefield', `${p.size}×${p.size} · 2–4 players · any climate`, 'A new procedurally generated, symmetric battlefield every match. Size, terrain and climate are set in the skirmish panel; paste a map code below to replay a map.',
-      ['Generated', 'Map codes'], () => mapPreviewUrl(`g:${encodeMapCode(p)}:${prefs.color}`, () => previewGenerated(p), { size: 160, colors: startColors(prefs.color, p.players), highlight: 0 }));
+    card(null, tMenu('skirmish.randomBattlefield'), tMenu('picker.randomMeta', { size: p.size }), tMenu('picker.randomDesc'),
+      [tMenu('picker.tagGenerated'), tMenu('picker.tagMapCodes')], () => mapPreviewUrl(`g:${encodeMapCode(p)}:${prefs.color}`, () => previewGenerated(p), { size: 160, colors: startColors(prefs.color, p.players), highlight: 0 }));
     for (const m of CURATED_MAPS) {
-      card(m.id, m.name, `${m.size}×${m.size} · ${m.players} players · ${cap(m.climate)}`, m.desc, m.tags ?? [],
+      card(m.id, mapName(m), mapMeta(m.size, m.players, m.climate), mapDesc(m), mapTags(m),
         () => mapPreviewUrl(`c:${m.id}:${startColors(prefs.color, m.players).join(',')}`, () => loadCuratedMap(m.id)!, { size: 160, colors: startColors(prefs.color, m.players) }));
     }
     // maps made in the editor (saved with 2+ starts)
     for (const m of customMaps()) {
-      card(m.id, m.name, `${m.size}×${m.size} · ${m.players} players · ${cap(m.climate)}`, m.desc || `Custom map${m.author ? ' by ' + m.author : ''}, made in the editor.`, ['Custom', ...(m.tags ?? []).slice(0, 2)],
+      card(m.id, m.name, mapMeta(m.size, m.players, m.climate), m.desc || (m.author ? tMenu('picker.customDescBy', { author: m.author }) : tMenu('picker.customDesc')), [tMenu('picker.tagCustom'), ...(m.tags ?? []).slice(0, 2)],
         () => mapPreviewUrl(`x:${m.id}:${JSON.stringify(m).length}:${startColors(prefs.color, m.players).join(',')}`, () => loadCuratedMap(m.id)!, { size: 160, colors: startColors(prefs.color, m.players) }));
     }
     pnl.appendChild(gridEl);
     // map code box (generated maps)
-    const codeBox = h('div', 'mpk-code', `<span class="sec-title"><span>Map code</span></span>
-      <div class="mpk-code-row"><input type="text" spellcheck="false" maxlength="24" placeholder="e.g. ${encodeMapCode(p)}" value="${encodeMapCode(p)}"><button class="btn mpk-apply">${ICONS.check}<span>Use code</span></button><button class="btn mpk-copy">${ICONS.copy}<span>Copy</span></button></div>
-      <small class="mpk-msg">Every random battlefield has a code. Share it, or paste one to fight on the exact same map (a curated map's name works too).</small>`);
+    const codeBox = h('div', 'mpk-code', `<span class="sec-title"><span>${tMenu.html('skirmish.mapCode')}</span></span>
+      <div class="mpk-code-row"><input type="text" spellcheck="false" maxlength="24" placeholder="${esc(tMenu('picker.codePlaceholder', { code: encodeMapCode(p) }))}" value="${encodeMapCode(p)}" aria-label="${esc(tMenu('skirmish.mapCode'))}"><button class="btn mpk-apply">${ICONS.check}<span>${tMenu.html('picker.useCode')}</span></button><button class="btn mpk-copy">${ICONS.copy}<span>${tCommon.html('copy')}</span></button></div>
+      <small class="mpk-msg">${tMenu.html('picker.codeHelp')}</small>`);
     const input = codeBox.querySelector('input') as HTMLInputElement;
     const msg = codeBox.querySelector('.mpk-msg') as HTMLElement;
     const apply = () => {
       const raw = input.value.trim();
-      const cur = CURATED_MAPS.find((m) => m.id === raw.toLowerCase() || m.name.toLowerCase() === raw.toLowerCase());
+      const cur = CURATED_MAPS.find((m) => m.id === raw.toLowerCase() || m.name.toLowerCase() === raw.toLowerCase() || mapName(m).toLowerCase() === raw.toLowerCase()); // (the English or the translated name)
       if (cur) { prefs.mapId = cur.id; close(); return; }
       const dec = decodeMapCode(raw);
       if (!dec) {
-        msg.textContent = 'That is not a valid map code — check for typos.';
+        msg.textContent = tMenu('picker.codeInvalid');
         msg.classList.add('bad');
         replayAnim(codeBox, 'shake', 450);
         this.sound.play('error');
@@ -673,7 +730,7 @@ export class Menus {
     };
     (codeBox.querySelector('.mpk-apply') as HTMLElement).onclick = apply;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); e.stopPropagation(); });
-    (codeBox.querySelector('.mpk-copy') as HTMLElement).onclick = (e) => { copyText(encodeMapCode(p)); this.flashTip(e.currentTarget as HTMLElement, 'Copied'); };
+    (codeBox.querySelector('.mpk-copy') as HTMLElement).onclick = (e) => { copyText(encodeMapCode(p)); this.flashTip(e.currentTarget as HTMLElement, tCommon('copied')); };
     pnl.appendChild(codeBox);
     ov.appendChild(pnl);
     ov.addEventListener('pointerdown', (e) => { if (e.target === ov) close(); });
@@ -693,7 +750,7 @@ export class Menus {
   openChallenges() {
     this.hide();
     if (this.cb.openChallenges) { this.cb.openChallenges(); return; }
-    showChallenges({
+    void import('./challenges').then(({ showChallenges }) => showChallenges({
       play: (k) => this.sound.play(k),
       onBack: () => this.showMain(),
       onProfile: () => this.openProfile(),
@@ -701,14 +758,14 @@ export class Menus {
         faction: 'allies', color: TEAM_COLORS[0], opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
         startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: this.settings.quality, seed: 0, mission: id, intro: true,
       }),
-    });
+    }));
   }
 
   /** Commander profile; built-in fallback when main.ts does not provide openProfile. */
   openProfile() {
     this.hide();
     if (this.cb.openProfile) { this.cb.openProfile(); return; }
-    showProfile({ play: (k) => this.sound.play(k), onBack: () => this.showMain() });
+    void import('./profile').then(({ showProfile }) => showProfile({ play: (k) => this.sound.play(k), onBack: () => this.showMain() }));
   }
 
   // ---------------------------------------------------------------------------
@@ -716,16 +773,16 @@ export class Menus {
   showReplays(back: () => void = () => this.showMain()) {
     const s = this.open('sub-screen');
     const panel = h('div', 'menu-panel panel replays-panel');
-    panel.appendChild(this.header('Archive', 'Replays', ICONS.replay));
-    const list = h('div', 'rpl-list', `<div class="rpl-empty"><span class="rpl-spin"></span>Loading replays…</div>`);
+    panel.appendChild(this.header(tMenu.html('replays.kicker'), tMenu.html('main.nav.replays'), ICONS.replay));
+    const list = h('div', 'rpl-list', `<div class="rpl-empty"><span class="rpl-spin"></span>${tMenu.html('replays.loading')}</div>`);
     panel.appendChild(list);
     const foot = h('div', 'rpl-foot');
-    const note = h('small', 'rpl-note', `Every skirmish is recorded automatically (campaign missions are not). Pause a replay and press Take command to play on from any moment: the branch is listed under it. The last ${MAX_REPLAYS} are kept on this device.`);
+    const note = h('small', 'rpl-note', tMenu.html('replays.note', { n: MAX_REPLAYS }));
     const file = h('input') as HTMLInputElement;
     file.type = 'file';
     file.accept = '.json,application/json';
     file.style.display = 'none';
-    const imp = h('button', 'btn', `${ICONS.upload}<span>Import file</span>`);
+    const imp = h('button', 'btn', `${ICONS.upload}<span>${tMenu.html('replays.importFile')}</span>`);
     imp.onclick = () => file.click();
     file.onchange = async () => {
       const f = file.files?.[0];
@@ -733,7 +790,7 @@ export class Menus {
       if (!f) return;
       try {
         const r = await importReplayFile(f);
-        note.textContent = `Imported: ${r.mapName}, ${new Date(r.createdAt).toLocaleString()}`;
+        note.textContent = tMenu('replays.imported', { map: replayMapName(r), date: fmtDateTime(r.createdAt) });
         note.classList.remove('bad');
         void render();
       } catch (e) {
@@ -744,7 +801,7 @@ export class Menus {
     };
     foot.append(note, file, imp);
     panel.appendChild(foot);
-    const b = h('button', 'btn btn-back', `${ICONS.chevL}<span>Back</span><kbd>Esc</kbd>`);
+    const b = backButton();
     b.onclick = back;
     panel.appendChild(b);
     s.appendChild(panel);
@@ -756,10 +813,12 @@ export class Menus {
       if (!panel.isConnected) return;
       list.innerHTML = '';
       if (!replays.length) {
-        list.appendChild(h('div', 'rpl-empty', `${ICONS.replay}<b>No replays yet</b><span>Play a skirmish: the whole match is recorded so you can rewatch it from any player's view.</span>`));
+        list.appendChild(h('div', 'rpl-empty', `${ICONS.replay}<b>${tMenu.html('replays.empty')}</b><span>${tMenu.html('replays.emptySub')}</span>`));
         return;
       }
       // trees: originals with their branches (rewind & take command); continue = take command at the end
+      const { renderReplayTree } = await import('./replay-tree');
+      if (!panel.isConnected) return;
       renderReplayTree(list, replays, {
         watch: (r) => { this.hide(); this.cb.start(playbackSetup(r, this.settings.quality)); },
         cont: (r) => {
@@ -775,106 +834,235 @@ export class Menus {
   }
 
   // ---------------------------------------------------------------------------
-  showSettings(back: () => void) {
-    const s = this.open('sub-screen');
+  /**
+   * The Settings screen. `o.inBattle`: opened from the pause menu (the battle's interface was built in the current
+   * language, so the language row is locked there). `o.rerender`: rebuild in place (after a language switch).
+   */
+  showSettings(back: () => void, o: SettingsOpts = {}) {
+    const again = o.rerender && this.screen && this.screen === this.settingsScreen ? this.screen : null;
+    const oldPanel = again?.querySelector<HTMLElement>('.settings-panel') ?? null;
+    const s = again ?? this.open('sub-screen');
+    this.settingsScreen = s;
+    const opts: SettingsOpts = { inBattle: o.inBattle };
     const panel = h('div', 'menu-panel panel settings-panel');
-    panel.appendChild(this.header('Options', 'Settings', ICONS.gear));
+    const tS = (k: Parameters<typeof tSettings>[0]) => tSettings.html(k);
+    panel.appendChild(this.header(tS('kicker'), tCommon.html('settings'), ICONS.gear));
     const apply = () => { saveSettings(this.settings); this.cb.settingsChanged(this.settings); };
     const sec = (icon: string, title: string) => {
       const x = h('section', 'set-sec', `<div class="sec-title">${icon}<span>${title}</span></div>`);
       return x;
     };
-    const gfx = sec(ICONS.monitor, 'Graphics');
-    gfx.appendChild(settingRow(ICONS.monitor, 'Quality', 'Applies to the next battle', seg<Quality>([['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], this.settings.quality, (v) => { this.settings.quality = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.monitor, 'Model detail', 'HD: baked high-detail buildings and vehicles (more memory) · Standard: lighter models', seg<ModelDetail>([['hd', 'HD'], ['standard', 'Standard']], modelDetailOf(this.settings), (v) => { this.settings.modelDetail = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.gauge, 'Performance overlay', 'FPS and renderer stats in the top bar', toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.motion, 'Reduce motion', 'Calmer UI animations', toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.map, 'Interface layout', 'Modern: build bar at the bottom, panels in the corners · Classic: the sidebar on the right', seg<'modern' | 'classic'>([['modern', 'Modern'], ['classic', 'Classic']], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); })));
-    const aud = sec(ICONS.volume, 'Audio');
+    const gfx = sec(ICONS.monitor, tS('graphics'));
+    gfx.appendChild(settingRow(ICONS.monitor, tS('quality'), tS('qualitySub'), seg<Quality>([['low', tS('qualityLow')], ['medium', tS('qualityMedium')], ['high', tS('qualityHigh')]], this.settings.quality, (v) => { this.settings.quality = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.monitor, tS('modelDetail'), tS('modelDetailSub'), seg<ModelDetail>([['hd', tS('modelHd')], ['standard', tS('modelStandard')]], modelDetailOf(this.settings), (v) => { this.settings.modelDetail = v; apply(); })));
+    gfx.append(...offlineContentRows(settingRow)); // download HD content for offline play (src/ui/offline-setting.ts)
+    gfx.appendChild(settingRow(ICONS.gauge, tS('perfOverlay'), tS('perfOverlaySub'), toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.motion, tS('reduceMotion'), tS('reduceMotionSub'), toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.map, tS('layout'), tS('layoutSub'), seg<'modern' | 'classic'>([['modern', tS('layoutModern')], ['classic', tS('layoutClassic')]], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); })));
+    const aud = sec(ICONS.volume, tS('audio'));
     const vols = this.audio.getVolumes();
-    const VOL: Record<string, [string, string]> = { master: ['Master', ICONS.volume], sfx: ['Effects', ICONS.bolt], music: ['Music', ICONS.music], voice: ['Voices', ICONS.mic], ambience: ['Ambience', ICONS.tree] };
+    const VOL: Record<string, [string, string]> = { master: [tS('volume.master'), ICONS.volume], sfx: [tS('volume.sfx'), ICONS.bolt], music: [tS('volume.music'), ICONS.music], voice: [tS('volume.voice'), ICONS.mic], ambience: [tS('volume.ambience'), ICONS.tree] };
     for (const k of Object.keys(vols) as (keyof typeof vols)[]) {
-      const [label, icon] = VOL[k] ?? [k.charAt(0).toUpperCase() + k.slice(1), ICONS.volume];
+      const [label, icon] = VOL[k] ?? [esc(k.charAt(0).toUpperCase() + k.slice(1)), ICONS.volume];
       aud.appendChild(settingRow(icon, label, '', slider(vols[k], (v) => this.audio.setVolumes({ [k]: v } as Partial<typeof vols>))));
     }
-    const play = sec(ICONS.mouse, 'Gameplay');
-    play.appendChild(settingRow(ICONS.mouse, 'Edge scrolling', 'Scroll when the cursor touches the screen edge', toggle(this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; apply(); })));
-    play.appendChild(settingRow(ICONS.mic, 'Unit voices', 'Acknowledgements when giving orders', toggle(this.settings.unitVoices, (v) => { this.settings.unitVoices = v; apply(); })));
-    play.appendChild(settingRow(ICONS.bulb, 'Field manual hints', 'Contextual tips for new commanders', toggle(this.settings.hints, (v) => { this.settings.hints = v; apply(); })));
-    play.appendChild(settingRow(ICONS.eye, 'Skip intro cinematic', 'Start every battle at your base', toggle(!!this.settings.skipIntro, (v) => { this.settings.skipIntro = v; apply(); })));
-    play.appendChild(settingRow(ICONS.scatter, 'Fullscreen in battle', 'Hides the browser so the map scrolls at the screen edge (Alt+Enter toggles)', toggle(this.settings.fullscreen !== false, (v) => { this.settings.fullscreen = v; apply(); })));
+    const play = sec(ICONS.mouse, tS('gameplay'));
+    play.appendChild(this.languageRow(back, opts));
+    play.appendChild(settingRow(ICONS.mouse, tS('edgeScroll'), tS('edgeScrollSub'), toggle(this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; apply(); })));
+    play.appendChild(settingRow(ICONS.mic, tS('unitVoices'), tS('unitVoicesSub'), toggle(this.settings.unitVoices, (v) => { this.settings.unitVoices = v; apply(); })));
+    play.appendChild(settingRow(ICONS.bulb, tS('hints'), tS('hintsSub'), toggle(this.settings.hints, (v) => { this.settings.hints = v; apply(); })));
+    play.appendChild(settingRow(ICONS.eye, tS('skipIntro'), tS('skipIntroSub'), toggle(!!this.settings.skipIntro, (v) => { this.settings.skipIntro = v; apply(); })));
+    play.appendChild(settingRow(ICONS.scatter, tS('fullscreen'), tS('fullscreenSub'), toggle(this.settings.fullscreen !== false, (v) => { this.settings.fullscreen = v; apply(); })));
+    // accessibility: team colours, interface size, subtitles, key bindings, diagnostics
+    const T = SETTINGS_TEXT;
+    const acc = sec(ICONS.eye, esc(T.section));
+    const pal = seg<TeamPalette>([['default', esc(T.palDefault)], ['cvd', esc(T.palCvd)], ['vs', esc(T.palVs)]], this.settings.teamPalette ?? 'default', (v) => { this.settings.teamPalette = v; apply(); });
+    pal.querySelectorAll('button').forEach((b, i) => { b.title = [T.palDefaultTip, T.palCvdTip, T.palVsTip][i]; });
+    acc.appendChild(settingRow(ICONS.flag, esc(T.teamColours), esc(T.teamColoursSub), pal)).classList.add('set-wide');
+    acc.appendChild(settingRow(ICONS.monitor, esc(T.uiScale), esc(T.uiScaleSub), slider(clampUiScale(this.settings.uiScale), (v) => { this.settings.uiScale = clampUiScale(v); apply(); }, { min: 0.8, max: 1.5, step: 0.05, onCommit: true })));
+    acc.appendChild(settingRow(ICONS.info, esc(T.subtitles), esc(T.subtitlesSub), toggle(this.settings.subtitles !== false, (v) => { this.settings.subtitles = v; apply(); })));
+    const size = seg<SubtitleSize>([['small', esc(T.sizeSmall)], ['medium', esc(T.sizeMedium)], ['large', esc(T.sizeLarge)], ['xl', esc(T.sizeXl)]], subtitleSizeOf(this.settings.subtitleSize), (v) => { this.settings.subtitleSize = v; apply(); });
+    size.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-label', [T.sizeSmallName, T.sizeMediumName, T.sizeLargeName, T.sizeXlName][i]));
+    acc.appendChild(settingRow(ICONS.info, esc(T.subtitleSize), esc(T.subtitleSizeSub), size));
+    // leaving the screen first applies a language pick that is still pending (so the next screen is in it)
+    const leave = (fn: () => void) => {
+      if (!this.langPick && !this.langBusy) { fn(); return; }
+      void this.settleLanguage().then(() => { if (this.screen === s) fn(); });
+    };
+    const keysBtn = h('button', 'btn btn-sm', `${ICONS.keyboard}<span>${esc(T.keysButton)}</span>`) as HTMLButtonElement;
+    keysBtn.onclick = () => { apply(); leave(() => this.showKeys(() => this.showSettings(back, opts))); };
+    acc.appendChild(settingRow(ICONS.keyboard, esc(T.keys), esc(T.keysSub), keysBtn));
+    const diagBtn = h('button', 'btn btn-sm', `${ICONS.copy}<span>${esc(T.diagnosticsButton)}</span>`) as HTMLButtonElement;
+    const diagStatus = h('div', 'acc-status');
+    diagStatus.setAttribute('role', 'status');
+    diagBtn.onclick = async () => {
+      const ok = await copyDiagnostics();
+      diagBtn.querySelector('span')!.textContent = ok ? T.copied : T.copyFailed;
+      diagStatus.textContent = ok ? T.copiedStatus : T.copyFailedStatus;
+      setTimeout(() => { const sp = diagBtn.querySelector('span'); if (sp) sp.textContent = T.diagnosticsButton; }, 2500);
+    };
+    acc.appendChild(settingRow(ICONS.bulb, esc(T.diagnostics), esc(T.diagnosticsSub), diagBtn));
+    acc.appendChild(diagStatus);
     const g = h('div', 'set-grid');
-    g.append(gfx, aud, play);
+    const right = h('div', 'set-sec set-col'); // audio, then accessibility, in the right-hand column
+    right.append(aud, acc);
+    g.append(gfx, right, play);
     panel.appendChild(g);
-    const done = () => { apply(); back(); };
-    const b = h('button', 'btn btn-back', `${ICONS.chevL}<span>Back</span><kbd>Esc</kbd>`);
+    const done = () => { apply(); leave(back); };
+    const b = backButton();
+    b.onclick = done;
+    panel.appendChild(b);
+    if (again) { // (the same screen: no exit / entry animation)
+      panel.style.animation = 'none';
+      const top = oldPanel?.scrollTop ?? 0;
+      oldPanel?.remove();
+      s.appendChild(panel);
+      panel.scrollTop = top;
+    } else s.appendChild(panel);
+    this.escAction = done;
+  }
+
+  /**
+   * Settings › Gameplay › Language: Auto (the browser's language) or a fixed one, each in its own name. The switch
+   * waits for the stepper to settle, then reloads the screen in the new language. Locked during a battle.
+   */
+  private languageRow(back: () => void, o: SettingsOpts): HTMLElement {
+    const options: Opt<LangPref>[] = [
+      ['auto', esc(tSettings('languageAuto', { lang: LANG_NAMES[resolvePref('auto')] }))],
+      ...LANGS.map((l): Opt<LangPref> => [l, esc(LANG_NAMES[l])]),
+    ];
+    const control = stepper<LangPref>(options, languagePref(), (v) => {
+      // (stepping through the list loads only the language it stops on)
+      this.langPick = () => void this.switchLanguage(v, back, o, control);
+      window.clearTimeout(this.langTimer);
+      this.langTimer = window.setTimeout(() => { const pick = this.langPick; this.langPick = null; pick?.(); }, 450);
+    });
+    control.style.cssText = 'width:14rem;flex-shrink:0';
+    control.dataset.setting = 'language';
+    if (o.inBattle) {
+      control.setAttribute('aria-disabled', 'true');
+      control.style.opacity = '0.4';
+      control.style.pointerEvents = 'none';
+      control.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    }
+    const row = settingRow(picto('globe', 'ic'), tSettings.html('language'), tSettings.html(o.inBattle ? 'languageInBattle' : 'languageSub'), control);
+    const val = control.querySelector('.st-mid');
+    val?.setAttribute('aria-live', 'polite'); // the picked language is read out
+    return row;
+  }
+
+  /** Apply a language pick (serialised: the last pick wins) and rebuild the Settings screen in it. */
+  private async switchLanguage(v: LangPref, back: () => void, o: SettingsOpts, control: HTMLElement) {
+    const ticket = ++this.langTicket;
+    const focused = control.contains(document.activeElement) ? [...control.querySelectorAll('button')].indexOf(document.activeElement as HTMLButtonElement) : -1;
+    this.langBusy++;
+    this.langSwitch = this.langSwitch.then(() => setLanguage(v)).catch(() => 'en');
+    try { await this.langSwitch; } finally { this.langBusy--; }
+    if (ticket !== this.langTicket || !control.isConnected || this.screen !== this.settingsScreen) return; // a newer pick, or the screen is gone
+    this.showSettings(back, { ...o, rerender: true });
+    if (focused >= 0) this.screen?.querySelector('[data-setting="language"]')?.querySelectorAll('button')[focused]?.focus({ preventScroll: true });
+  }
+
+  /** Apply a language pick that is still waiting, and wait for every switch in flight. */
+  private async settleLanguage(): Promise<void> {
+    const pick = this.langPick;
+    this.langPick = null;
+    window.clearTimeout(this.langTimer);
+    pick?.();
+    await this.langSwitch;
+  }
+
+  /** Key rebinding (ui/a11y-controls.ts): changes are saved as they are made. */
+  showKeys(back: () => void) {
+    const s = this.open('sub-screen');
+    const panel = h('div', 'menu-panel panel keys-panel');
+    panel.appendChild(this.header(esc(CONTROLS_TEXT.kicker), esc(CONTROLS_TEXT.title), ICONS.keyboard));
+    const body = buildKeysPanel(this.settings, () => { saveSettings(this.settings); this.cb.settingsChanged(this.settings); });
+    panel.appendChild(body.el);
+    const done = () => { body.dispose(); back(); };
+    const b = h('button', 'btn btn-back', `${ICONS.chevL}<span>${esc(CONTROLS_TEXT.back)}</span><kbd>${tCommon.html('keys.esc')}</kbd>`);
     b.onclick = done;
     panel.appendChild(b);
     s.appendChild(panel);
     this.escAction = done;
+    (panel.querySelector('.kb-key') as HTMLElement | null)?.focus({ preventScroll: true });
   }
 
   showHelp(back: () => void) {
     const s = this.open('sub-screen');
     const panel = h('div', 'menu-panel panel help-panel');
-    panel.appendChild(this.header('Field manual', 'Controls', ICONS.keyboard));
+    panel.appendChild(this.header(tMenu.html('help.kicker'), tMenu.html('main.nav.controls'), ICONS.keyboard));
+    // the active key bindings (rebindable: ui/keymap.ts); "—" when an action has no key
+    const K = (id: ActionId) => keysLabel(id);
+    const Ks = (...ids: ActionId[]) => ids.map(K).join(' / ');
+    const GM = (which: 'assign' | 'add') => groupModLabel(groupMods()[which]);
+    // key caps (common.keys) and mouse buttons; " + " and " / " split them into separate caps
+    const ctrl = tCommon('keys.ctrl'), shift = tCommon('keys.shift'), alt = tCommon('keys.alt');
+    const kk = (k: Parameters<typeof tMenu>[0] & `help.key.${string}`) => tMenu(k);
+    const lmb = kk('help.key.lmb'), rmb = kk('help.key.rmb');
+    const d = (k: Parameters<typeof tMenu>[0]) => tMenu(k);
     const groups: [string, string, [string, string][]][] = [
-      ['Selection', ICONS.target, [
-        ['LMB', 'Select · drag to box select'], ['Double-click', 'All of that type on screen'], ['Ctrl + LMB', 'All of that type on screen'],
-        ['E', 'All combat units on the map'], ['W', 'All of the selected type(s) on screen'], ['Ctrl + A', 'All own units on screen'],
-        ['I', 'Next idle unit (Shift: idle harvester)'], ['Ctrl + 1–9', 'Assign control group'], ['1–9', 'Recall group · double tap to jump'],
-        ['Shift + 1–9', 'Add the selection to a group'], ['Ctrl + drag', 'Remove units from the selection'], ['Double-click structure', 'All of that structure on screen'],
-        ['`', 'Army overview: every type, idle, damaged, value · click selects'], ['Shift + E', 'All damaged units on the map'],
+      [GROUP_TEXT.selection, ICONS.target, [
+        [lmb, d('help.sel.select')], [kk('help.key.doubleClick'), d('help.sel.typeOnScreen')], [`${ctrl} + ${lmb}`, d('help.sel.typeOnScreen')],
+        [K('selectCombat'), d('help.sel.combat')], [K('selectType'), d('help.sel.selectedTypes')], [K('selectScreen'), d('help.sel.ownOnScreen')],
+        [K('nextIdle'), d('help.sel.nextIdle')], [`${GM('assign')} + 1–9`, d('help.sel.assignGroup')], ['1–9', d('help.sel.recallGroup')],
+        [`${GM('add')} + 1–9`, d('help.sel.addToGroup')], [kk('help.key.ctrlDrag'), d('help.sel.removeFromSelection')], [kk('help.key.doubleClickStructure'), d('help.sel.structureOnScreen')],
+        [K('army'), d('help.sel.army')], [K('selectDamaged'), d('help.sel.damaged')],
       ]],
-      ['Orders', ICONS.attackMove, [
-        ['RMB', 'Move · attack · harvest · enter'], ['Shift + RMB', 'Queue waypoints'], ['Ctrl + RMB', 'Force fire'], ['Alt + RMB', 'Force move'],
-        ['A', 'Attack-move'], ['S / X / G', 'Stop · scatter · fire at ground'], ['D', 'Deploy · unload · return to base'],
-        ['F1 / F2 / F3 / F4', 'Stance: aggressive · guard · hold · hold fire'],
-        ['M', 'Minelayers: lay a minefield (or Ctrl + RMB)'],
-        ['P', 'Patrol: click the far end (Shift-click: more waypoints)'], ['C', 'Guard: click a unit to escort or a structure to defend'],
-        ['RMB friendly unit', 'Escort it (follow and defend)'], ['L', 'Formation: auto · line · box · wedge (Shift: back)'],
-        ['D', 'Chrono Tank: pick a chronoshift spot · demolition truck: detonate'],
-        ['Shift + R', 'Damaged vehicles queue at the service depot, then drive back'],
+      [GROUP_TEXT.orders, ICONS.attackMove, [
+        [rmb, d('help.ord.rmb')], [`${shift} + ${rmb}`, d('help.ord.waypoints')], [`${ctrl} + ${rmb}`, d('help.ord.forceFire')], [`${alt} + ${rmb}`, d('help.ord.forceMove')],
+        [K('attackMove'), ACTION_TEXT.attackMove], [Ks('stop', 'scatter', 'attackGround'), d('help.ord.stopScatter')], [K('deploy'), d('help.ord.deploy')],
+        [Ks('stanceAggressive', 'stanceGuard', 'stanceHold', 'stancePassive'), d('help.ord.stances')],
+        [K('layMines'), d('help.ord.mines')],
+        [K('patrol'), d('help.ord.patrol')], [K('guard'), d('help.ord.guard')],
+        [kk('help.key.rmbFriendly'), d('help.ord.escort')], [K('formation'), d('help.ord.formation')],
+        [K('deploy'), d('help.ord.chrono')],
+        [K('sendRepair'), d('help.ord.sendRepair')],
       ]],
-      ['Base', ICONS.building, [
-        ['Z / R / P', 'Sell · repair · primary factory'], ['LMB', 'Sidebar: build (Shift ×5) · place'], ['RMB', 'Sidebar: hold / cancel'],
-        ['RMB', 'Factory selected: set rally point · on a unit: new units join it'],
-        ['Shift + LMB', 'Place, then plan more of the same'], ['LMB card (yard busy)', 'Plan a structure: built and placed in order when affordable'],
-        ['Tab / B, 1–9', 'Modern layout: next build tab · build the card with that number'],
-        ['Alt + LMB', 'Sidebar: loop a unit (keeps training while you can pay) · RMB stops'], ['Ctrl + 1–9', 'Factory selected: its new units join that group'],
+      [GROUP_TEXT.base, ICONS.building, [
+        [Ks('sell', 'repair', 'patrol'), d('help.base.sellRepair')], [lmb, d('help.base.build')], [rmb, d('help.base.hold')],
+        [rmb, d('help.base.rally')],
+        [`${shift} + ${lmb}`, d('help.base.placeMore')], [kk('help.key.lmbCardBusy'), d('help.base.plan')],
+        [kk('help.key.tabB'), d('help.base.tabs')],
+        [`${alt} + ${lmb}`, d('help.base.loop')], [`${GM('assign')} + 1–9`, d('help.base.factoryGroup')],
+        [`${K('powers')}, 1–9`, d('help.base.powers')], [Ks('speedDown', 'speedUp'), d('help.base.speed')],
       ]],
-      ['Camera', ICONS.eye, [
-        ['Arrows', 'Scroll (or touch the screen edge)'], ['MMB / RMB drag', 'Pan the battlefield'], ['Wheel', 'Zoom'],
-        ['H / Space', 'Home base · last attack'], ['F', 'Camera follows the selection'], ['Q / , / .', 'Rotate camera · Backspace: north'],
-        ['F6–F9', 'Camera bookmark · Ctrl / Shift + F6–F9: save'],
-        ['Alt', 'Hold: show all health bars'], ['U', 'Photo mode'], ['Alt+Enter', 'Fullscreen on / off'], ['Esc', 'Cancel · pause menu'],
+      [GROUP_TEXT.camera, ICONS.eye, [
+        [Ks('camUp', 'camDown', 'camLeft', 'camRight'), d('help.cam.scroll')], [kk('help.key.mmbRmbDrag'), d('help.cam.pan')], [`${tCommon('keys.wheel')} / ${Ks('zoomIn', 'zoomOut')}`, d('help.cam.zoom')],
+        [Ks('home', 'lastAttack'), d('help.cam.homeAttack')], [K('follow'), d('help.cam.follow')], [Ks('rotateLeft', 'rotateRight'), tMenu('help.cam.rotate', { key: K('resetNorth') })],
+        [Ks('bookmark1', 'bookmark2', 'bookmark3', 'bookmark4'), d('help.cam.bookmark')],
+        [alt, d('help.cam.healthBars')], [K('photo'), d('help.cam.photo')], [`${alt}+${tCommon('keys.enter')}`, d('help.cam.fullscreen')], [tCommon('keys.esc'), d('help.cam.esc')],
       ]],
       // touch screens and gamepads
-      ['Touch', ICONS.target, [
-        ['Tap', 'Select · with a selection: move / attack / enter'], ['Double tap', 'All of that type on screen'], ['Drag', 'Pan (hold, then drag: box select)'],
-        ['Hold', 'Order menu: stop, scatter, deploy, patrol, guard, stance, formation'], ['Two fingers', 'Pan · pinch to zoom · twist to rotate'],
-        ['Toolbar', 'Box · Add · Attack · Force · Guard · Patrol · Stop · All'], ['Hold a card', 'Sidebar: hold / cancel'],
-        ['Card loop button', 'Loop a unit · army chip: army overview'],
+      [tMenu('help.touch'), ICONS.target, [
+        [kk('help.key.tap'), d('help.tch.tap')], [kk('help.key.doubleTap'), d('help.tch.doubleTap')], [kk('help.key.drag'), d('help.tch.drag')],
+        [kk('help.key.hold'), d('help.tch.hold')], [kk('help.key.twoFingers'), d('help.tch.twoFingers')],
+        [kk('help.key.toolbar'), d('help.tch.toolbar')], [kk('help.key.holdCard'), d('help.tch.holdCard')],
+        [kk('help.key.cardLoop'), d('help.tch.cardLoop')],
       ]],
-      ['Gamepad', ICONS.gear, [
-        ['Left stick', 'Cursor · right stick: camera · LT / RT: zoom'], ['A', 'Select (hold and move: box) · X: command'], ['B / Y', 'Cancel · deploy'],
-        ['View', 'Order menu (stance, formation, patrol, guard…)'], ['LB / RB', 'Next idle unit · next group (hold: Shift / Ctrl)'],
-        ['D-pad', 'Sidebar: tabs and cards (A build, X hold / cancel, Y loop)'], ['L3 / R3', 'All units on screen · base'], ['Start', 'Pause · menus: D-pad, A, B'], // Y loop
+      [tMenu('help.gamepad'), ICONS.gear, [
+        [kk('help.key.leftStick'), d('help.pad.stick')], ['A', d('help.pad.a')], ['B / Y', d('help.pad.by')],
+        [kk('help.key.view'), d('help.pad.view')], ['LB / RB', d('help.pad.bumpers')],
+        [kk('help.key.dpad'), d('help.pad.dpad')], ['L3 / R3', d('help.pad.sticks')], [kk('help.key.start'), d('help.pad.start')], // Y loop
       ]],
-      ['Replays', ICONS.replay, [
-        ['Space', 'Pause / play'], ['[ / ]', 'Slower · faster (1× – 8×)'], ['V', 'Next player view · observer'], ['Home', 'Restart the replay'],
+      [tMenu('main.nav.replays'), ICONS.replay, [
+        [tCommon('keys.space'), d('help.rpl.pause')], ['[ / ]', d('help.rpl.speed')], ['V', d('help.rpl.view')], [tCommon('keys.home'), d('help.rpl.restart')],
       ]],
     ];
     const g = h('div', 'help-grid');
     for (const [title, icon, rows] of groups) {
-      const sct = h('section', 'help-sec', `<div class="sec-title">${icon}<span>${title}</span></div>`);
-      for (const [k, v] of rows) sct.appendChild(h('div', 'help-row', `<span class="keys">${keycaps(k)}</span><span>${v}</span>`));
+      const sct = h('section', 'help-sec', `<div class="sec-title">${icon}<span>${esc(title)}</span></div>`);
+      for (const [k, v] of rows) sct.appendChild(h('div', 'help-row', `<span class="keys">${keycaps(k)}</span><span>${esc(v)}</span>`));
       g.appendChild(sct);
     }
     panel.appendChild(g);
-    const b = h('button', 'btn btn-back', `${ICONS.chevL}<span>Back</span><kbd>Esc</kbd>`);
+    const foot = h('div', 'help-foot');
+    const b = backButton();
     b.onclick = back;
-    panel.appendChild(b);
+    const custom = h('button', 'btn', `${ICONS.keyboard}<span>${esc(CONTROLS_TEXT.helpButton)}</span>`);
+    custom.onclick = () => this.showKeys(() => this.showHelp(back));
+    foot.append(b, custom);
+    panel.appendChild(foot);
     s.appendChild(panel);
     this.escAction = back;
   }
@@ -885,59 +1073,62 @@ export class Menus {
     const panel = h('div', 'menu-panel panel pause-panel');
     const rp = game.setup.replay;
     const mp = !!game.net?.active; // a multiplayer match runs on behind this menu
-    panel.appendChild(h('div', 'mp-head', `<span class="mp-ic pause-ic"><i></i><i></i></span><div><small>${rp ? 'Replay on hold' : mp ? 'The match goes on' : 'Mission on hold'}</small><h2>${mp ? 'Menu' : 'Paused'}</h2></div>`));
+    const P = (k: Parameters<typeof tMenu>[0]) => tMenu.html(k);
+    panel.appendChild(h('div', 'mp-head', `<span class="mp-ic pause-ic"><i></i><i></i></span><div><small>${P(rp ? 'pause.replayOnHold' : mp ? 'pause.matchGoesOn' : 'pause.missionOnHold')}</small><h2>${mp ? tCommon.html('menu') : P('pause.paused')}</h2></div>`));
     const me = game.local;
     const foes = game.world.players.filter((o) => me.isEnemy(o));
     const alive = foes.filter((o) => !o.defeated).length;
     panel.appendChild(h('div', 'pp-stats', rp ? `
-      <div>${ICONS.clock}<small>Replay time</small><b>${formatTime(game.world.time)} / ${formatTime(rp.data.ticks / 20)}</b></div>
-      <div>${ICONS.map}<small>Battlefield</small><b>${esc(rp.data.mapName)}</b></div>
-      <div>${ICONS.eye}<small>Viewing</small><b>${esc(me.name)}</b></div>` : `
-      <div>${ICONS.clock}<small>Mission time</small><b>${formatTime(game.world.time)}</b></div>
-      <div>${ICONS.target}<small>Hostiles</small><b>${alive} / ${foes.length}</b></div>
-      <div>${ICONS.coin}<small>Credits</small><b>$${me.credits.toLocaleString('en-US')}</b></div>`));
+      <div>${ICONS.clock}<small>${P('pause.replayTime')}</small><b>${formatTime(game.world.time)} / ${formatTime(rp.data.ticks / 20)}</b></div>
+      <div>${ICONS.map}<small>${P('skirmish.battlefield')}</small><b>${esc(replayMapName(rp.data))}</b></div>
+      <div>${ICONS.eye}<small>${P('pause.viewing')}</small><b>${esc(me.name)}</b></div>` : `
+      <div>${ICONS.clock}<small>${P('pause.missionTime')}</small><b>${formatTime(game.world.time)}</b></div>
+      <div>${ICONS.target}<small>${P('pause.hostiles')}</small><b>${alive} / ${foes.length}</b></div>
+      <div>${ICONS.coin}<small>${P('skirmish.credits')}</small><b>${fmtMoney(me.credits)}</b></div>`));
     // the battlefield: curated map name, or the shareable code of a generated map
     const code = !rp && !game.setup.mission ? mapCodeForSetup(game.setup) : null;
     const mapDef = game.setup.mapId ? getMapDef(game.setup.mapId) : undefined;
     if (code || mapDef) {
-      const row = h('div', 'pp-map', `${ICONS.map}<span>${mapDef ? `<b>${esc(mapDef.name)}</b><small>${mapDef.size}×${mapDef.size} · ${mapDef.players} players</small>` : `<small>Map code</small><code>${code}</code>`}</span>`);
+      const row = h('div', 'pp-map', `${ICONS.map}<span>${mapDef ? `<b>${esc(mapName(mapDef))}</b><small>${tMenu.html('pause.mapMeta', { size: mapDef.size, players: mapDef.players })}</small>` : `<small>${P('skirmish.mapCode')}</small><code>${code}</code>`}</span>`);
       if (code) {
         const c = h('button', 'mr-ib', ICONS.copy);
-        c.title = 'Copy the map code';
-        c.onclick = () => { copyText(code); this.flashTip(c, 'Copied'); };
+        c.title = tMenu('skirmish.copyMapCode');
+        c.onclick = () => { copyText(code); this.flashTip(c, tCommon('copied')); };
         row.appendChild(c);
       }
       panel.appendChild(row);
     }
     const list = h('div', 'pp-list');
-    const mk = (label: string, icon: string, fn: () => void, cls = '') => {
-      const b = h('button', 'pp-btn ' + cls, `<span class="pp-bic">${icon}</span><span>${label}</span>${cls.includes('primary') ? '<kbd>Esc</kbd>' : ICONS.chevR}`);
-      b.dataset.act = label.toLowerCase(); // the HUD's settings button opens "settings" directly
+    /** A menu entry; `act` names it for scripts (the HUD's settings button opens "settings" directly). */
+    const mk = (act: string, label: string, icon: string, fn: () => void, cls = '') => {
+      const b = h('button', 'pp-btn ' + cls, `<span class="pp-bic">${icon}</span><span>${esc(label)}</span>${cls.includes('primary') ? `<kbd>${tCommon.html('keys.esc')}</kbd>` : ICONS.chevR}`);
+      b.dataset.act = act;
       b.onclick = fn;
       list.appendChild(b);
     };
     const resume = () => { this.hide(); this.cb.resume(); };
-    mk('Resume', ICONS.play, resume, 'primary');
+    const settings = () => this.showSettings(() => this.showPause(game), { inBattle: true }); // (the language is locked in a battle)
+    mk('resume', tMenu('pause.resume'), ICONS.play, resume, 'primary');
     if (rp) {
-      mk('Settings', ICONS.gear, () => this.showSettings(() => this.showPause(game)));
-      mk('Controls', ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
-      mk('Watch from the start', ICONS.restart, () => { this.hide(); this.cb.start(playbackSetup(rp.data, this.settings.quality, { view: game.world.players.indexOf(game.local) })); });
-      mk('Back to replays', ICONS.replay, () => { this.hide(); this.cb.quit(); this.showReplays(); });
-      mk('Quit to menu', ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
+      mk('settings', tCommon('settings'), ICONS.gear, settings);
+      mk('controls', tMenu('main.nav.controls'), ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
+      mk('watch from the start', tMenu('pause.watchFromStart'), ICONS.restart, () => { this.hide(); this.cb.start(playbackSetup(rp.data, this.settings.quality, { view: game.world.players.indexOf(game.local) })); });
+      mk('back to replays', tMenu('pause.backToReplays'), ICONS.replay, () => { this.hide(); this.cb.quit(); this.showReplays(); });
+      mk('quit to menu', tMenu('pause.quitToMenu'), ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
       panel.appendChild(list);
       s.appendChild(panel);
       this.escAction = resume;
       return;
     }
-    if (this.cb.saveGame && !mp) mk('Save game', ICONS.history, () => { // (no saves of multiplayer matches)
+    if (this.cb.saveGame && !mp) mk('save game', tMenu('pause.saveGame'), ICONS.history, () => { // (no saves of multiplayer matches)
       const ok = this.cb.saveGame!();
       const lbl = list.querySelector('.pp-btn:nth-child(2) span:nth-child(2)');
-      if (lbl) lbl.textContent = ok ? 'Game saved ✓' : 'Save failed';
+      if (lbl) lbl.textContent = tMenu(ok ? 'pause.saved' : 'pause.saveFailed');
     });
-    mk('Settings', ICONS.gear, () => this.showSettings(() => this.showPause(game)));
-    mk('Controls', ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
-    if (!mp) mk('Restart', ICONS.restart, () => { this.hide(); this.cb.restart(); });
-    mk(mp ? 'Leave match' : 'Quit to menu', ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
+    mk('settings', tCommon('settings'), ICONS.gear, settings);
+    mk('controls', tMenu('main.nav.controls'), ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
+    if (!mp) mk('restart', tMenu('pause.restart'), ICONS.restart, () => { this.hide(); this.cb.restart(); });
+    mk(mp ? 'leave match' : 'quit to menu', tMenu(mp ? 'pause.leaveMatch' : 'pause.quitToMenu'), ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
     panel.appendChild(list);
     s.appendChild(panel);
     this.escAction = resume;
@@ -946,28 +1137,30 @@ export class Menus {
   // ---------------------------------------------------------------------------
   showEnd(game: Game, won: boolean) {
     const s = this.open(`sub-screen end-screen ${won ? 'win' : 'lose'}`);
+    this.escAction = () => { this.hide(); this.cb.resume(); }; // Esc: keep watching the battlefield (Enter plays again)
     // results screen (src/ui/results.ts): XP and rank-up, contracts, medals, next unlock, battle report, MVP,
     // highlights, and a big "Play again" (same settings, new seed) next to "Rematch" (same seed) and "Menu"
     const rec = game.recorder;
     const setup = game.setup;
-    showResults(s, game, won, {
+    // (loaded on demand; main.ts warms these chunks up while the match runs)
+    void Promise.all([import('./results'), import('./clips')]).then(([{ showResults }, { canRecordClips, clipStartTick, requestClip }]) => showResults(s, game, won, {
       summary: game.metaSummary, report: game.report, rating: rateCommander(game, won), audio: this.audio,
       playAgain: () => { this.hide(); if (setup.net && this.cb.backToLobby) { this.cb.backToLobby(); return; } this.playAgain(setup, false); }, // (a fresh map; a Quick Battle rolls a new one) multiplayer: back to the room
       rematch: !setup.mission && !setup.branch && !setup.challenge && !setup.net ? () => { this.hide(); this.cb.restart(); } : undefined,
       watchReplay: rec ? () => { const data = rec.toData(); this.hide(); this.cb.start(playbackSetup(data, this.settings.quality)); } : undefined,
       // highlight clips: open the replay just before the moment; the player records once it gets there
-      recordClip: rec && canRecordClips() ? (t, label) => {
+      recordClip: rec && canRecordClips() ? (t, label, fileLabel) => {
         const data = rec.toData();
         const at = Math.round(t * 20);
-        requestClip(data.id, at, label);
+        requestClip(data.id, at, label, fileLabel);
         this.hide();
         const ps = playbackSetup(data, this.settings.quality);
         this.cb.start({ ...ps, replay: { ...ps.replay!, seekTo: clipStartTick(at) } });
       } : undefined,
       keepWatching: () => { this.hide(); this.cb.resume(); },
       menu: () => { this.hide(); this.cb.quit(); },
-      copyCode: (code, el) => { copyText(code); this.flashTip(el, 'Copied'); },
-    });
+      copyCode: (code, el) => { copyText(code); this.flashTip(el, tCommon('copied')); },
+    }));
   }
 }
 
@@ -984,10 +1177,10 @@ export function rateCommander(game: Game, won: boolean): { score: number; tier: 
   if (won) r += mins < 12 ? 11 : mins < 20 ? 7 : mins < 30 ? 3 : 0;
   r = Math.max(0, Math.min(100, r));
   const score = Math.round(r * 97 + kills * 25 + st.harvested * 0.05);
-  const tiers: [number, MedalTier, string, string][] = [
-    [88, 's', 'S', 'General of the Army'], [74, 'a', 'A', 'Colonel'], [60, 'b', 'B', 'Major'],
-    [45, 'c', 'C', 'Captain'], [28, 'd', 'D', 'Lieutenant'], [0, 'e', 'E', 'Sergeant'],
+  const tiers: [number, MedalTier, string][] = [
+    [88, 's', 'S'], [74, 'a', 'A'], [60, 'b', 'B'],
+    [45, 'c', 'C'], [28, 'd', 'D'], [0, 'e', 'E'],
   ];
-  const [, tier, grade, title] = tiers.find(([min]) => r >= min)!;
-  return { score, tier, grade, title };
+  const [, tier, grade] = tiers.find(([min]) => r >= min)!;
+  return { score, tier, grade, title: tMenu(`rating.${tier}`) }; // (the title: General of the Army … Sergeant)
 }

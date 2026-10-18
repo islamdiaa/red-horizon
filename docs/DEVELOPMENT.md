@@ -26,8 +26,17 @@ The game is a deterministic simulation and a renderer that only observes it.
   all rely on this.
 - **Rendering** (`src/render/`). three.js on WebGL 2. It interpolates between ticks and turns
   entity state into models, effects, lights and sound.
-- **Dependencies.** three.js is the only runtime dependency. The editor and the Conquest UI load
-  as separate chunks.
+- **Dependencies.** three.js is the only runtime dependency, in its own chunk.
+- **Loading.** The first menu frame needs only the menu, the simulation and the audio (about 330 KB of
+  gzipped script). Everything 3D (three.js, the renderer, the models, the HUD and the menu's backdrop battle)
+  is the engine chunk, `src/engine.ts`, which `main.ts` requests at boot, so it downloads while the menu is
+  already up. Screens most sessions never open load on demand: results, profile, Locker, challenges,
+  campaign, Conquest, editor, replay viewer, research tree, lobby, clips, trailer and the share dialogs.
+  `tests/perf.test.ts` fails if `main.ts` reaches three.js or the battle code statically.
+- **Data.** HD models and terrain textures load when a match needs them. The quiet background prefetch for
+  offline play (`src/platform/prefetch.ts`) skips Data Saver, slow (2g/3g) and metered connections;
+  Settings › Graphics has an explicit "Download HD content for offline play" (`src/platform/offline.ts`).
+  The service worker keeps those content-hashed files in a cache that survives updates (`public/sw.js`).
 
 ```
 src/
@@ -47,6 +56,7 @@ src/
   replay/     recording, storage, playback and branching
   meta/       XP, ranks, medals, contracts, unlocks, rivals
   platform/   error boundary, WebGL and GPU detection, fullscreen, PWA, untrusted-input parsing
+  i18n/       interface languages: the English catalogue (en/), the translations (locales/), formatting
 public/       manifest, service worker, icons, fonts, example mods, HD models
 tests/        node:test suite, PWA verification, leak and profile audits
 tools/        headless simulation, mission autopilots, self-play, screenshot tooling
@@ -63,6 +73,9 @@ node --import tsx tools/savetest.ts       # save/load determinism (must print DE
 npm run verify:pwa                        # production build + manifest, service worker, offline
 npm run audit:leaks                       # 5 matches in a browser: heap and GPU resources stay flat
 npm run audit:profile                     # CPU profile of a 30 s battle
+npm run audit:stress                      # 300 units: frame-time spikes, GC and allocation sites (q, frames, units)
+npm run audit:presets -- <url,url2>       # per preset: draw calls, triangles, CPU / GPU-synced frame time, load and compile time
+npm run audit:startup -- <url,url2>       # time to menu and backdrop, script bytes before the menu, on 4G / 3G
 ```
 
 The suite covers:
@@ -82,6 +95,39 @@ Other tools are listed in [`tools/README.md`](../tools/README.md), among them:
 - screenshot scripts.
 
 The browser tools use Playwright (`npx playwright install chromium`).
+
+## Translations
+
+The interface is translated into Russian, German, Spanish, Brazilian Portuguese, French and Simplified Chinese
+(`src/i18n`, no dependencies). English is the source and the fallback for any missing key.
+
+- **English** lives in namespace modules, `src/i18n/en/<ns>.ts`, that register themselves when first imported, so
+  each chunk carries the English it uses. `strings('hud', {...})` returns a typed translator:
+  `tHud('build.needMore', { money })`, or `tHud.html(...)` for HTML. Messages are ICU-lite: `{name}`,
+  `{n, plural, one {# unit} other {# units}}`, `{x, select, ...}`.
+- **Other languages** are one flat JSON file each, `src/i18n/locales/<lang>.json`, lazy-loaded: only the active
+  language downloads. The setting is Settings › Gameplay › Language (Auto follows the browser), stored in
+  `localStorage` (`rh.lang`).
+- **Game data** (unit, structure, power, doctrine, research, achievement... names) keeps its English in the data
+  modules; the interface reads it through `dt()` and the helpers in `src/i18n/names.ts`.
+  `tools/i18n/data-sources.ts` lists those tables for the translators.
+- **Text made by the simulation or mission scripts** stays English at the source: it is lockstep-networked, saved
+  and hashed. `sourceStrings()` registers that English, and the display calls `trSource(text)`.
+- **Safety.** Translations are plain text, inserted with `textContent`, `esc()` or the `.html()` variants. The
+  `.html()` variants escape everything and allow only the `[b] [i] [em] [strong] [kbd] [small] [br]` markers.
+- **Rules.** Never translate at module scope; look strings up when rendering.
+- **Format numbers, money and dates** with `fmtInt`, `fmtMoney`, `fmtDate` and `fmtRelative` (Intl).
+- **Fonts.** Latin uses Rajdhani. Cyrillic uses a 7.6 KB subset of Tektur. Chinese uses the system font, with a
+  subset of Noto Sans SC as the fallback. Both fallbacks are rebuilt with `tools/fonts` (see `tools/README.md`).
+- **Tests.** `tests/i18n.test.ts` checks that:
+  - every key exists in every language;
+  - placeholders and markup match the English, and no translation contains raw HTML;
+  - every character is covered by the fonts;
+  - the setting persists;
+  - no new hard-coded player-facing string appears in the UI files.
+
+To add a string, put it in the namespace module and translate it in each `locales/<lang>.json`.
+`node --import tsx tools/i18n/catalog.ts missing <lang>` lists what a language still lacks.
 
 ## HD models
 

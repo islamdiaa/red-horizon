@@ -20,6 +20,10 @@ import { canGarrison } from '../sim/economy'; // Commander economy: bunkers
 import { CTRL_ICONS, FORMATION_INFO, RadialMenu, type RadialItem } from './orderui';
 import type { InputController, InputHost, PtrLike } from './input';
 import { armyTools } from './army';
+import tControls from '../i18n/en/controls';
+import { esc } from './dom';
+import tCommon from '../i18n/en/common';
+import { typeName } from '../i18n/names';
 
 /** A touch-first device (coarse pointer, or touch without hover). */
 export function isTouchDevice(): boolean {
@@ -38,9 +42,8 @@ const MENU_MS = 600;
 const HUD_HOLD_MS = 500;
 const SLOP = 11;
 
-const STANCES: { id: Stance; label: string }[] = [
-  { id: 'aggressive', label: 'Aggressive' }, { id: 'guard', label: 'Guard' }, { id: 'hold', label: 'Hold' }, { id: 'passive', label: 'Hold fire' },
-];
+/** Order-ring stances (labels: controls.stance.<id>). */
+const STANCES: Stance[] = ['aggressive', 'guard', 'hold', 'passive'];
 
 export class TouchController {
   /** A touch gesture is in progress (edge scrolling is off meanwhile). */
@@ -120,24 +123,24 @@ export class TouchController {
     bar.id = 'touch-bar';
     const add = (id: string, label: string, icon: string, run: () => void) => {
       const b = document.createElement('button');
-      b.innerHTML = `${icon}<span>${label}</span>`;
+      b.innerHTML = `${icon}<span>${esc(label)}</span>`;
       b.setAttribute('aria-label', label);
       b.addEventListener('click', (e) => { e.stopPropagation(); this.input.playClick(); run(); });
       bar.appendChild(b);
       this.btns.set(id, b);
     };
     const mode = (m: 'attackMove' | 'attackGround' | 'guard' | 'patrol') => () => {
-      if (!this.input.ownSelectedUnits().length) { this.input.message('Select units first'); return; }
+      if (!this.input.ownSelectedUnits().length) { this.input.message(tControls('touch.selectFirst')); return; }
       this.input.setMode(this.input.mode === m ? 'normal' : m);
     };
-    add('box', 'Box', CTRL_ICONS.box, () => { this.boxMode = !this.boxMode; this.input.message(this.boxMode ? 'Drag to box select (two fingers pan)' : 'Drag to pan (hold, then drag to box select)'); });
-    add('add', 'Add', CTRL_ICONS.add, () => { this.addMode = !this.addMode; this.input.message(this.addMode ? 'Taps add to the selection (and act as Shift)' : 'Taps select'); });
-    add('attackMove', 'Attack', CTRL_ICONS.attackMove, mode('attackMove'));
-    add('attackGround', 'Force', CTRL_ICONS.force, mode('attackGround'));
-    add('guard', 'Guard', CTRL_ICONS.guard, mode('guard'));
-    add('patrol', 'Patrol', CTRL_ICONS.patrol, mode('patrol'));
-    add('stop', 'Stop', CTRL_ICONS.stop, () => this.input.keyCommand('s', true));
-    add('all', 'All', CTRL_ICONS.all, () => this.input.keyCommand('e', true));
+    add('box', tControls('touch.box'), CTRL_ICONS.box, () => { this.boxMode = !this.boxMode; this.input.message(tControls(this.boxMode ? 'touch.boxOn' : 'touch.boxOff')); });
+    add('add', tControls('touch.add'), CTRL_ICONS.add, () => { this.addMode = !this.addMode; this.input.message(tControls(this.addMode ? 'touch.addOn' : 'touch.addOff')); });
+    add('attackMove', tControls('touch.attack'), CTRL_ICONS.attackMove, mode('attackMove'));
+    add('attackGround', tControls('touch.force'), CTRL_ICONS.force, mode('attackGround'));
+    add('guard', tControls('touch.guard'), CTRL_ICONS.guard, mode('guard'));
+    add('patrol', tControls('touch.patrol'), CTRL_ICONS.patrol, mode('patrol'));
+    add('stop', tControls('touch.stop'), CTRL_ICONS.stop, () => this.input.keyCommand('s', true));
+    add('all', tControls('touch.all'), CTRL_ICONS.all, () => this.input.keyCommand('e', true));
     document.body.appendChild(bar);
     this.bar = bar;
   }
@@ -352,7 +355,7 @@ export class TouchController {
     const [gx, gy] = inp.screenToGround(x, y);
     const t = inp.pickAt(x, y, 1.6);
     const items = orderMenu(inp, (c) => this.h.issue(c), gx, gy, t);
-    if (items.length) this.radial.open(x, y, items, t ? t.type.name : 'Orders');
+    if (items.length) this.radial.open(x, y, items, t ? typeName(t.type) : tControls('radial.orders'));
   }
 }
 
@@ -368,54 +371,54 @@ export function orderMenu(inp: InputController, issue: (c: Command) => void, gx:
   if (units.length) {
     const ids = units.map((u) => u.id);
     const ground = units.filter((u) => u.kind === 'infantry' || u.kind === 'vehicle');
-    items.push({ id: 'amove', label: 'Attack-move', icon: CTRL_ICONS.attackMove, key: 'A', run: () => issue({ c: 'move', player, units: ids, x: gx, y: gy, attackMove: true }) });
+    items.push({ id: 'amove', label: tControls('radial.attackMove'), icon: CTRL_ICONS.attackMove, key: 'A', run: () => issue({ c: 'move', player, units: ids, x: gx, y: gy, attackMove: true }) });
     if (t && !inp.local.isEnemy(t.owner) && !inp.selection.has(t.id) && !(t instanceof Building && t.bt.mine)) {
-      items.push({ id: 'guard', label: 'Guard this', icon: CTRL_ICONS.guard, key: 'C', run: () => issue({ c: 'guard', player, units: ids, target: t.id }) });
+      items.push({ id: 'guard', label: tControls('radial.guardThis'), icon: CTRL_ICONS.guard, key: 'C', run: () => issue({ c: 'guard', player, units: ids, target: t.id }) });
     }
-    items.push({ id: 'patrol', label: 'Patrol here', icon: CTRL_ICONS.patrol, key: 'P', run: () => issue({ c: 'patrol', player, units: ids, points: [[gx, gy]] }) });
+    items.push({ id: 'patrol', label: tControls('radial.patrolHere'), icon: CTRL_ICONS.patrol, key: 'P', run: () => issue({ c: 'patrol', player, units: ids, points: [[gx, gy]] }) });
     items.push({
-      id: 'force', label: t ? 'Force fire' : 'Fire here', icon: CTRL_ICONS.force, key: 'G',
+      id: 'force', label: tControls(t ? 'radial.forceFire' : 'radial.fireHere'), icon: CTRL_ICONS.force, key: 'G',
       run: () => issue(t ? { c: 'attack', player, units: ids, target: t.id, forced: true } : { c: 'attackGround', player, units: ids, x: gx, y: gy }),
     });
-    items.push({ id: 'stop', label: 'Stop', icon: CTRL_ICONS.stop, key: 'S', run: () => issue({ c: 'stop', player, units: ids }) });
-    items.push({ id: 'scatter', label: 'Scatter', icon: CTRL_ICONS.scatter, key: 'X', run: () => issue({ c: 'scatter', player, units: ids }) });
+    items.push({ id: 'stop', label: tControls('radial.stop'), icon: CTRL_ICONS.stop, key: 'S', run: () => issue({ c: 'stop', player, units: ids }) });
+    items.push({ id: 'scatter', label: tControls('radial.scatter'), icon: CTRL_ICONS.scatter, key: 'X', run: () => issue({ c: 'scatter', player, units: ids }) });
     if (units.some((u) => u.ut.deploysInto || u.ut.passengers || u.ut.minelayer || u.kind === 'aircraft' || u.kind === 'naval')) {
-      items.push({ id: 'deploy', label: units.some((u) => u.ut.passengers) ? 'Unload' : 'Deploy', icon: CTRL_ICONS.deploy, key: 'D', run: () => issue({ c: 'deploy', player, units: ids }) });
+      items.push({ id: 'deploy', label: tControls(units.some((u) => u.ut.passengers) ? 'radial.unload' : 'radial.deploy'), icon: CTRL_ICONS.deploy, key: 'D', run: () => issue({ c: 'deploy', player, units: ids }) });
     }
     const armed = units.filter((u) => u.weapons.length);
     if (armed.length) {
       const cur = armed.every((u) => u.stance === armed[0].stance) ? armed[0].stance : null;
       items.push({
-        id: 'stance', label: 'Stance', icon: CTRL_ICONS.stance, key: 'F1–F4',
-        sub: STANCES.map((s, k) => ({ id: s.id, label: s.label, icon: CTRL_ICONS.stance, key: `F${k + 1}`, on: cur === s.id, run: () => inp.setStance(s.id) })),
+        id: 'stance', label: tControls('radial.stance'), icon: CTRL_ICONS.stance, key: 'F1–F4',
+        sub: STANCES.map((s, k) => ({ id: s, label: tControls(`stance.${s}`), icon: CTRL_ICONS.stance, key: `F${k + 1}`, on: cur === s, run: () => inp.setStance(s) })),
       });
     }
     if (ground.length >= 2) {
       const cur = ground.every((u) => u.formShape === ground[0].formShape) ? ground[0].formShape : null;
       items.push({
-        id: 'formation', label: 'Formation', icon: CTRL_ICONS.formation, key: 'L',
-        sub: FORMATION_INFO.map((f) => ({ id: f.id, label: f.title.replace(' formation', ''), icon: f.icon, on: cur === f.id, run: () => inp.setFormation(f.id as FormationShape) })),
+        id: 'formation', label: tControls('radial.formation'), icon: CTRL_ICONS.formation, key: 'L',
+        sub: FORMATION_INFO.map((f) => ({ id: f.id, label: f.short, icon: f.icon, on: cur === f.id, run: () => inp.setFormation(f.id as FormationShape) })),
       });
     }
   } else if (blds.length) {
     const b = blds[0];
-    items.push({ id: 'sell', label: 'Sell', icon: CTRL_ICONS.sell, key: 'Z', run: () => issue({ c: 'sell', player, building: b.id }) });
-    items.push({ id: 'repair', label: b.repairing ? 'Stop repair' : 'Repair', icon: CTRL_ICONS.repair, key: 'R', on: b.repairing, run: () => issue({ c: 'repair', player, building: b.id }) });
-    if (b.garrison?.length) items.push({ id: 'evacuate', label: 'Evacuate', icon: CTRL_ICONS.deploy, key: 'D', run: () => issue({ c: 'evacuate', player, building: b.id }) }); // bunker (Commander economy)
+    items.push({ id: 'sell', label: tControls('radial.sell'), icon: CTRL_ICONS.sell, key: 'Z', run: () => issue({ c: 'sell', player, building: b.id }) });
+    items.push({ id: 'repair', label: tControls(b.repairing ? 'radial.stopRepair' : 'radial.repair'), icon: CTRL_ICONS.repair, key: 'R', on: b.repairing, run: () => issue({ c: 'repair', player, building: b.id }) });
+    if (b.garrison?.length) items.push({ id: 'evacuate', label: tControls('radial.evacuate'), icon: CTRL_ICONS.deploy, key: 'D', run: () => issue({ c: 'evacuate', player, building: b.id }) }); // bunker (Commander economy)
     if (b.bt.factory && b.bt.factory !== 'building') {
-      items.push({ id: 'primary', label: 'Primary', icon: CTRL_ICONS.primary, key: 'P', on: b.primary, run: () => issue({ c: 'primary', player, building: b.id }) });
+      items.push({ id: 'primary', label: tControls('radial.primary'), icon: CTRL_ICONS.primary, key: 'P', on: b.primary, run: () => issue({ c: 'primary', player, building: b.id }) });
       const facs = blds.filter((o) => o.bt.factory && o.bt.factory !== 'building');
-      items.push({ id: 'rally', label: 'Rally here', icon: CTRL_ICONS.rally, run: () => { for (const f of facs) issue({ c: 'rally', player, building: f.id, x: gx, y: gy }); } });
+      items.push({ id: 'rally', label: tControls('radial.rallyHere'), icon: CTRL_ICONS.rally, run: () => { for (const f of facs) issue({ c: 'rally', player, building: f.id, x: gx, y: gy }); } });
       if (t instanceof Unit && t.owner === inp.local && t.kind !== 'aircraft') {
-        items.push({ id: 'rallyUnit', label: 'Join this unit', icon: CTRL_ICONS.guard, run: () => { for (const f of facs) issue({ c: 'rallyUnit', player, building: f.id, target: t.id }); } });
+        items.push({ id: 'rallyUnit', label: tControls('radial.joinUnit'), icon: CTRL_ICONS.guard, run: () => { for (const f of facs) issue({ c: 'rallyUnit', player, building: f.id, target: t.id }); } });
       }
     }
   } else {
-    items.push({ id: 'all', label: 'All units', icon: CTRL_ICONS.all, key: 'E', run: () => inp.keyCommand('e', true) });
-    items.push({ id: 'idle', label: 'Idle unit', icon: CTRL_ICONS.add, key: 'I', run: () => inp.cycleIdle(false) });
-    items.push({ id: 'army', label: 'Army', icon: CTRL_ICONS.all, key: '`', run: () => armyTools()?.toggle() }); // army overview
-    items.push({ id: 'base', label: 'Base', icon: CTRL_ICONS.home, key: 'H', run: () => inp.keyCommand('h', true) });
-    items.push({ id: 'alert', label: 'Last attack', icon: CTRL_ICONS.force, key: 'Space', run: () => inp.keyCommand(' ', true) });
+    items.push({ id: 'all', label: tControls('radial.allUnits'), icon: CTRL_ICONS.all, key: 'E', run: () => inp.keyCommand('e', true) });
+    items.push({ id: 'idle', label: tControls('radial.idleUnit'), icon: CTRL_ICONS.add, key: 'I', run: () => inp.cycleIdle(false) });
+    items.push({ id: 'army', label: tControls('radial.army'), icon: CTRL_ICONS.all, key: '`', run: () => armyTools()?.toggle() }); // army overview
+    items.push({ id: 'base', label: tControls('radial.base'), icon: CTRL_ICONS.home, key: 'H', run: () => inp.keyCommand('h', true) });
+    items.push({ id: 'alert', label: tControls('radial.lastAttack'), icon: CTRL_ICONS.force, key: tCommon('keys.space'), run: () => inp.keyCommand(' ', true) });
   }
   return items;
 }

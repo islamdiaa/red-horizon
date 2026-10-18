@@ -9,7 +9,7 @@
  *  - Research at a Research Lab (`research` command): global upgrades in two levels, compiled into the player's
  *    modifier tables through the doctrine path (sim/doctrine.ts), so every cost / time / health / armour / weapon
  *    read in the simulation picks them up.
- *  - New structures: Ore Purifier / Smelter (+25% ore value), Mining Outpost (a forward dock), Logistics Centre
+ *  - New structures: Ore Purifier / Smelter (+25% / +40% ore value), Mining Outpost (a forward dock), Logistics Centre
  *    (cheaper units, free repairs nearby), Bunker (infantry garrison) and Fortress Gate (opens for its team only).
  *
  * Deterministic: driven by commands and the world tick, no randomness. State: `World.econ` (tiers and research per
@@ -17,12 +17,12 @@
  * the entities. Classic worlds have `econ === null` and never reach this module.
  */
 import { BUILDINGS, type BuildingTypeDef, type TypeDef } from '../data/rules';
-import { Building, Unit, type Entity } from './entities';
+import { Building, Unit, distToEntity, type Entity } from './entities';
 import type { Player } from './player';
 import { DT, TICK_HZ, type Command } from './types';
 import type { DeathHow, World } from './world';
 import { DOCTRINES, applyDoctrineToEntity, applyEffects, blankRules, type DoctrineEffect } from './doctrine';
-import { findTarget, maxRange, updateUnitWeapons } from './combat';
+import { findTarget, maxRange, pickWeapon, updateUnitWeapons } from './combat';
 import { SUPER_KINDS, superAvailable, superFull } from './superweapons';
 import {
   CHRONO_MINER_COOLDOWN, CHRONO_MINER_RANGE, CHRONO_RECHARGE, LEVEL2_TIER, LOGISTICS_DISCOUNT, LOGISTICS_RADIUS, MAX_TIER,
@@ -507,15 +507,54 @@ export function econCombat(world: World) {
         t = u.target = findTarget(world, u, reach, reach);
       }
       // stand at the firing slit facing the target (or the bunker's centre when idle)
-      if (t) {
-        const [px, py] = b.closestPoint(t.x, t.y);
-        u.x = px;
-        u.y = py;
-      } else { u.x = b.x; u.y = b.y; }
+      let slit = -1;
+      if (t) slit = aimSlit(b, u, t);
+      else { u.x = b.x; u.y = b.y; }
       u.prevX = u.x; u.prevY = u.y;
+      const ev0 = world.events.length;
       updateUnitWeapons(world, u);
+      // (the shots leave through that slit: the renderer flashes the bunker's muzzle m<slit>, falling back to m0)
+      if (slit >= 0) for (let k = ev0; k < world.events.length; k++) {
+        const ev = world.events[k];
+        if (ev.e === 'fire' && ev.shooter === u.id) { ev.muzzle = slit; ev.via = b.id; }
+      }
     }
   }
+}
+
+/**
+ * Firing slits of a bunker, as the models have them (render/models/commander-structures.ts muzzles m0..m7): two
+ * per side, south (+y) first, then east, north and west; [side normal x, y, offset along the side as a fraction of
+ * the footprint]. A slit's firing point is on the footprint's edge in front of it.
+ */
+const SLITS: readonly [number, number, number][] = [
+  [0, 1, -0.132], [0, 1, 0.132], [1, 0, 0.119], [1, 0, -0.119], [0, -1, 0.132], [0, -1, -0.132], [-1, 0, -0.119], [-1, 0, 0.119],
+];
+
+/**
+ * Put a garrisoned shooter at the slit facing its target and return the slit index: the slit whose firing point is
+ * nearest the target, when the target is in weapon range from there; otherwise the point of the wall nearest the
+ * target (a bunker reaches as far as before) and the slit on that side nearest to it.
+ */
+function aimSlit(b: Building, u: Unit, t: Entity): number {
+  const hw = b.w / 2, hh = b.h / 2;
+  let best = 0, bestD = Infinity, bx = b.x, by = b.y;
+  for (let i = 0; i < SLITS.length; i++) {
+    const [nx, ny, f] = SLITS[i];
+    const x = b.x + (nx ? nx * hw : f * b.w), y = b.y + (ny ? ny * hh : f * b.h);
+    const d = distToEntity(x, y, t);
+    if (d < bestD) { bestD = d; best = i; bx = x; by = y; }
+  }
+  const slot = pickWeapon(u, t);
+  if (slot && bestD <= slot.def.range) { u.x = bx; u.y = by; return best; }
+  const [px, py] = b.closestPoint(t.x, t.y);
+  u.x = px; u.y = py;
+  // (the side the wall point is on, then the nearer of its two slits)
+  const dx = px - b.x, dy = py - b.y;
+  const side = Math.abs(dx) * b.h > Math.abs(dy) * b.w ? (dx > 0 ? 1 : 3) : dy > 0 ? 0 : 2;
+  const [nx, , f] = SLITS[side * 2];
+  const along = nx ? (py - b.y) / b.h : (px - b.x) / b.w;
+  return side * 2 + (Math.abs(along - f) <= Math.abs(along + f) ? 0 : 1);
 }
 
 // =====================================================================================================

@@ -30,6 +30,8 @@ interface AIView {
   state?: string;
   stage?: string;
   stageTarget?: [number, number];
+  /** The Allied AI's radar spy (ai-allies.ts walks it in itself). */
+  radarSpy?: number;
   baseCenter(): [number, number];
   enemyDir(): [number, number];
 }
@@ -180,7 +182,7 @@ function agents(v: AIView, due: (s: number) => boolean) {
   // send idle agents in (not during the build-up time: they wait at home)
   const truce = ceasefireActive(w);
   for (const u of mine) {
-    if (u.order.type !== 'idle' || truce) continue;
+    if (u.order.type !== 'idle' || truce || u.id === v.radarSpy) continue;
     let best: Building | null = null, bestScore = -Infinity;
     for (const b of targets) {
       const t = apparentType(b, p);

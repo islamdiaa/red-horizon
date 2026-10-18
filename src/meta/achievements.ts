@@ -1,5 +1,7 @@
 /** Medal & achievement catalogue (40 entries, tiered and hidden ones included). */
 import type { Metal } from './art';
+import { dt, fmtInt, fmtMoney } from '../i18n/core';
+import tMeta from '../i18n/en/meta';
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export type Category = 'combat' | 'career' | 'economy' | 'campaign' | 'challenge' | 'secret';
@@ -93,7 +95,15 @@ export const MAX_COUNTERS = new Set(['wall', 'bestWave', 'bestSurvival', 'streak
 export const BY_COUNTER: Record<string, AchievementDef[]> = {};
 for (const a of ACHIEVEMENTS) if (a.counter) (BY_COUNTER[a.counter] ??= []).push(a);
 
+/** English tier names (display: tierName()). */
 export const TIER_NAMES = ['Bronze', 'Silver', 'Gold'];
+const TIER_KEYS = ['tier.bronze', 'tier.silver', 'tier.gold'] as const;
+/** A medal tier's display name (0 = bronze). */
+export const tierName = (t: number): string => tMeta(TIER_KEYS[Math.max(0, Math.min(2, t))]);
+/** A rarity's display name. */
+export const rarityName = (r: Rarity): string => tMeta(`rarity.${r}`);
+/** A medal's display title. */
+export const achievementTitle = (a: Pick<AchievementDef, 'id' | 'title'>): string => dt('achievement', a.id, 'title', a.title);
 const TIER_XP = [100, 250, 600];
 const RARITY_XP: Record<Rarity, number> = { common: 100, rare: 250, epic: 500, legendary: 1000 };
 const RARITY_METAL: Record<Rarity, Metal> = { common: 'bronze', rare: 'silver', epic: 'gold', legendary: 'platinum' };
@@ -116,10 +126,10 @@ export function achievementRarity(a: AchievementDef, t = 0): Rarity {
   return isTiered(a) ? (['common', 'rare', 'epic'] as Rarity[])[Math.min(t, 2)] : a.rarity ?? 'common';
 }
 export function fmtThreshold(a: AchievementDef, n: number): string {
-  return a.money ? '$' + n.toLocaleString('en-US') : n.toLocaleString('en-US');
+  return a.money ? fmtMoney(n) : fmtInt(n);
 }
-/** Description with the threshold of tier `t` filled in. */
+/** Description (translated) with the threshold of tier `t` filled in. */
 export function achievementDesc(a: AchievementDef, t = 0): string {
   const n = a.tiers?.[Math.min(t, (a.tiers?.length ?? 1) - 1)] ?? 0;
-  return a.desc.replace('{n}', fmtThreshold(a, n));
+  return dt('achievement', a.id, 'desc', a.desc, { n: fmtThreshold(a, n) });
 }

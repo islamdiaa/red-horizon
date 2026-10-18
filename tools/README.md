@@ -39,6 +39,7 @@ ship with the game.
 | `balance.ts` | Cost-equal unit duels (`--emit` regenerates `src/sim/ai-matchups.ts`) | `node --import tsx tools/selfplay/balance.ts [--budget 3000] [--seeds 2] [--emit]` |
 | `doctrine.ts` | Commander-rules balance: doctrines and commander powers | `node --import tsx tools/selfplay/doctrine.ts [--seeds 6] [--only mirror,cross,powers,comeback]` |
 | `economy.ts` | Commander economy sanity: what each personality builds, researches and upgrades, the economy on vs off, greed vs aggression | `node --import tsx tools/selfplay/economy.ts [--games 12] [--minutes 40] [--only usage,ablation,greed,pace]` |
+| `difficulty.ts` | Difficulty curve: each AI level against a passive player (first wave, contact, first loss, wipe-out) with and without build-up time, against a new-player stand-in, and economy vs rush under the mutators | `node --import tsx tools/selfplay/difficulty.ts [--games 8] [--size 96] [--only passive,ceasefire,novice,mutators] [--rules classic,commander]` |
 | `optimize.ts` | Hill-climbing of the AI's tuning parameters | `node --import tsx tools/selfplay/optimize.ts [--iters 20] [--games 96] [--vs best\|legacy]` |
 | `inspect.ts` | Watches one match in the terminal (economy, army, AI decisions) | `node --import tsx tools/selfplay/inspect.ts [seed] [map] [p0] [p1] [minutes]` |
 | `campaign-compare.ts` | Campaign autopilots against the current AI and the legacy AI | `node --import tsx tools/selfplay/campaign-compare.ts [jitters=4] [missions] [minutes=40]` |
@@ -126,10 +127,28 @@ Chromium (SwiftShader), so run `tools/assets/memguard.sh` first.
 | `trailer-test.mjs` | Records the `?trailer=1` cut and saves the video and frames | `node tools/release/trailer-test.mjs <baseUrl> <outPrefix>` |
 | `backdrop-stats.mjs` | Draw calls and triangles of the menu backdrop, directed vs `?attract=0` | `node tools/release/backdrop-stats.mjs <baseUrl> [q=low]` |
 
+## Translations and fonts (`tools/i18n`, `tools/fonts`)
+
+| Tool | What it does | Command |
+|---|---|---|
+| `i18n/catalog.ts sync` | Collects the game data's English (`i18n/data-sources.ts`) into `src/i18n/source/data.en.json`. The test fails until it is re-run after a data text changes. | `node --import tsx tools/i18n/catalog.ts sync` |
+| `i18n/catalog.ts coverage` | Keys translated per language | `node --import tsx tools/i18n/catalog.ts coverage` |
+| `i18n/catalog.ts missing` | The English a language still lacks, as flat JSON (optionally filtered by a key regex) | `node --import tsx tools/i18n/catalog.ts missing <lang> [out.json] [keyRegex]` |
+| `i18n/catalog.ts merge` | Merges translated batch files into `src/i18n/locales/<lang>.json` (sorted, known keys only) | `node --import tsx tools/i18n/catalog.ts merge <lang> <batch.json>...` |
+| `i18n/catalog.ts check` | Placeholder, plural, markup and raw-HTML problems in the translations | `node --import tsx tools/i18n/catalog.ts check [lang]` |
+| `i18n/catalog.ts prune` | Drops keys English no longer has | `node --import tsx tools/i18n/catalog.ts prune <lang>` |
+| `fonts/fetch.mjs` | Downloads the pinned OFL sources of the interface fallback fonts (`fonts/fonts.json`, google/fonts at a fixed commit, sha256-checked) into `~/.cache/red-horizon/fonts/` | `node tools/fonts/fetch.mjs` |
+| `fonts/subset.py` | Builds `public/fonts/tektur-cyrillic.woff2` (Cyrillic) and `noto-sans-sc-subset.woff2` (the characters `zh-CN.json` uses). Re-run it after changing the Chinese catalogue. Needs fontTools + brotli. | `~/.cache/rh-fonts/venv/bin/python tools/fonts/subset.py` |
+
+`subset.py` needs a Python with `fonttools==4.60.1 brotli==1.1.0`, for example
+`python3 -m venv ~/.cache/rh-fonts/venv && ~/.cache/rh-fonts/venv/bin/pip install fonttools==4.60.1 brotli==1.1.0`.
+
 ## Elsewhere
 
 The browser audits in `tests/perf/` and the scripts in `tests/tools/` run through npm:
-- `npm run audit:leaks`;
+- `npm run audit:leaks` (every system on; `--classic` for plain rules);
 - `npm run audit:profile`;
+- `npm run audit:stress` (a 300-unit battle: spikes, GC, allocation sites);
+- `npm run audit:presets` and `npm run audit:startup` (point them at one or two builds: before / after);
 - `npm run verify:pwa`;
 - `npm run icons`.

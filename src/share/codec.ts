@@ -13,6 +13,7 @@
  * Pure module (no DOM): the node tests run it directly.
  */
 import { gunzipBounded, parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
+import tShare from '../i18n/en/share'; // (messages are translated when thrown: they are shown as they are)
 
 export type ShareKind = 'map' | 'challenge' | 'replay';
 export const SHARE_KINDS: readonly ShareKind[] = ['map', 'challenge', 'replay'];
@@ -47,7 +48,7 @@ export const SHARE_LIMITS = {
   maxDepth: 40,
 } as const;
 
-/** Thrown for a share link that is malformed, too large or not ours; `message` is user-facing. */
+/** Thrown for a share link that is malformed, too large or not ours; `message` is user-facing (translated). */
 export class ShareLinkError extends Error {}
 
 const B64URL = /^[A-Za-z0-9_-]*$/;
@@ -59,13 +60,13 @@ export function toBase64Url(bytes: Uint8Array): string {
 }
 
 export function fromBase64Url(s: string): Uint8Array {
-  if (!B64URL.test(s) || s.length % 4 === 1) throw new ShareLinkError('The share link is damaged.');
+  if (!B64URL.test(s) || s.length % 4 === 1) throw new ShareLinkError(tShare('link.damaged'));
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
   let bin: string;
   try {
     bin = atob(b64);
   } catch {
-    throw new ShareLinkError('The share link is damaged.');
+    throw new ShareLinkError(tShare('link.damaged'));
   }
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -73,7 +74,7 @@ export function fromBase64Url(s: string): Uint8Array {
 }
 
 async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
-  if (typeof CompressionStream === 'undefined') throw new ShareLinkError('This browser cannot create share links.');
+  if (typeof CompressionStream === 'undefined') throw new ShareLinkError(tShare('link.cannotCreate'));
   const out = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>);
   return new Uint8Array(await new Response(out).arrayBuffer());
 }
@@ -106,28 +107,28 @@ export function payloadFromHash(hash: string): string | null {
  * anything malformed, oversized or of an unknown version / kind.
  */
 export async function decodeSharePayload(payload: string): Promise<ShareEnvelope> {
-  if (typeof payload !== 'string' || !payload) throw new ShareLinkError('The share link is empty.');
-  if (payload.length > SHARE_LIMITS.maxFragmentChars) throw new ShareLinkError('The share link is too long.');
+  if (typeof payload !== 'string' || !payload) throw new ShareLinkError(tShare('link.empty'));
+  if (payload.length > SHARE_LIMITS.maxFragmentChars) throw new ShareLinkError(tShare('link.tooLong'));
   const dot = payload.indexOf('.');
-  if (dot < 1) throw new ShareLinkError('The share link is damaged.');
+  if (dot < 1) throw new ShareLinkError(tShare('link.damaged'));
   const ver = payload.slice(0, dot);
-  if (ver !== String(SHARE_VERSION)) throw new ShareLinkError(/^\d{1,3}$/.test(ver) && +ver > SHARE_VERSION ? 'This share link needs a newer version of the game.' : 'The share link is damaged.');
+  if (ver !== String(SHARE_VERSION)) throw new ShareLinkError(/^\d{1,3}$/.test(ver) && +ver > SHARE_VERSION ? tShare('link.newer') : tShare('link.damaged'));
   const bytes = fromBase64Url(payload.slice(dot + 1));
-  if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) throw new ShareLinkError('The share link is damaged.');
-  if (typeof DecompressionStream === 'undefined') throw new ShareLinkError('This browser cannot open share links.');
+  if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) throw new ShareLinkError(tShare('link.damaged'));
+  if (typeof DecompressionStream === 'undefined') throw new ShareLinkError(tShare('link.cannotOpen'));
   let raw: unknown;
   try {
     const text = await gunzipBounded(bytes, SHARE_LIMITS.maxJsonBytes);
     raw = parseUntrustedJson(text, { maxChars: SHARE_LIMITS.maxJsonBytes, maxString: SHARE_LIMITS.maxJsonBytes, maxNodes: SHARE_LIMITS.maxNodes, maxDepth: SHARE_LIMITS.maxDepth });
   } catch (e) {
-    if (e instanceof UntrustedInputError) throw new ShareLinkError('The share link holds more data than the game accepts.');
-    throw new ShareLinkError('The share link is damaged.');
+    if (e instanceof UntrustedInputError) throw new ShareLinkError(tShare('link.tooMuch'));
+    throw new ShareLinkError(tShare('link.damaged'));
   }
   const env = raw as Partial<ShareEnvelope> | null;
-  if (!env || typeof env !== 'object' || Array.isArray(env)) throw new ShareLinkError('Not a Red Horizon share link.');
-  if (env.v !== SHARE_VERSION) throw new ShareLinkError(typeof env.v === 'number' && env.v > SHARE_VERSION ? 'This share link needs a newer version of the game.' : 'Not a Red Horizon share link.');
-  if (typeof env.k !== 'string' || !SHARE_KINDS.includes(env.k as ShareKind)) throw new ShareLinkError('This share link holds something this version of the game cannot open.');
-  if (!env.d || typeof env.d !== 'object' || Array.isArray(env.d)) throw new ShareLinkError('The share link is empty.');
+  if (!env || typeof env !== 'object' || Array.isArray(env)) throw new ShareLinkError(tShare('link.notOurs'));
+  if (env.v !== SHARE_VERSION) throw new ShareLinkError(typeof env.v === 'number' && env.v > SHARE_VERSION ? tShare('link.newer') : tShare('link.notOurs'));
+  if (typeof env.k !== 'string' || !SHARE_KINDS.includes(env.k as ShareKind)) throw new ShareLinkError(tShare('link.unknownKind'));
+  if (!env.d || typeof env.d !== 'object' || Array.isArray(env.d)) throw new ShareLinkError(tShare('link.empty'));
   return { v: SHARE_VERSION, k: env.k as ShareKind, t: typeof env.t === 'string' ? env.t.slice(0, 120) : '', d: env.d };
 }
 

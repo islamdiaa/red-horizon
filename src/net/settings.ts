@@ -6,6 +6,7 @@
 import { CURATED_MAPS } from '../maps';
 import { normaliseMutators } from '../modes/mutators';
 import { MAX_SLOTS, type RoomView, type SlotView } from './protocol';
+import { START_PROBLEMS, fillEnglish, type StartProblem } from './reasons';
 
 export type NetMode = '1v1' | '2v2' | 'ffa' | 'coop';
 export type FactionPick = 'allies' | 'soviet' | 'random';
@@ -103,21 +104,28 @@ export function activeSlots(room: Pick<RoomView, 'slots'>): { slot: SlotView; in
   return room.slots.map((slot, index) => ({ slot, index })).filter((s) => s.slot.kind === 'human' || s.slot.kind === 'ai');
 }
 
-/** Why the room cannot start yet (null = it can). */
-export function startProblem(room: Pick<RoomView, 'slots' | 'settings'>): string | null {
+/** Why the room cannot start yet (null = it can), as a reason id and its parameters (the lobby translates it). */
+export function startIssue(room: Pick<RoomView, 'slots' | 'settings'>): { id: StartProblem; map?: { id: string; name: string; players: number } } | null {
   const act = activeSlots(room);
   const humans = act.filter((s) => s.slot.kind === 'human');
-  if (humans.length < 2) return 'Waiting for another player';
-  if (humans.some((s) => !s.slot.connected)) return 'A player is reconnecting';
-  if (humans.some((s) => !s.slot.ready)) return 'Waiting for everyone to be ready';
+  if (humans.length < 2) return { id: 'needPlayer' };
+  if (humans.some((s) => !s.slot.connected)) return { id: 'reconnecting' };
+  if (humans.some((s) => !s.slot.ready)) return { id: 'notReady' };
   const mode = room.settings.mode;
   const teams = new Set(act.map((s) => slotTeam(mode, s.index, s.slot.kind)));
-  if (teams.size < 2) return mode === 'coop' ? 'Add at least one AI opponent' : 'Both teams need a player';
-  if (mode === '2v2' && act.length < 4) return 'Fill all four seats (players or AI)';
-  if (mode === 'ffa' && act.length < 3) return 'Free for all needs at least three commanders';
+  if (teams.size < 2) return { id: mode === 'coop' ? 'needAi' : 'needTeams' };
+  if (mode === '2v2' && act.length < 4) return { id: 'fill2v2' };
+  if (mode === 'ffa' && act.length < 3) return { id: 'ffaThree' };
   const curated = room.settings.map !== 'gen' ? CURATED_MAPS.find((m) => m.id === room.settings.map) : undefined;
-  if (curated && curated.players < act.length) return `${curated.name} is a ${curated.players}-player map`;
+  if (curated && curated.players < act.length) return { id: 'mapPlayers', map: { id: curated.id, name: curated.name, players: curated.players } };
   return null;
+}
+
+/** Why the room cannot start yet, in English (null = it can): the relay sends it to the host as is. */
+export function startProblem(room: Pick<RoomView, 'slots' | 'settings'>): string | null {
+  const why = startIssue(room);
+  if (!why) return null;
+  return why.map ? fillEnglish(START_PROBLEMS[why.id], { name: why.map.name, n: why.map.players }) : START_PROBLEMS[why.id];
 }
 
 /** Curated maps that fit a number of players. */

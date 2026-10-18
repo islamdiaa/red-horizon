@@ -17,17 +17,20 @@ import { MISSIONS } from '../missions';
 import { edgeNear, ground, hunt, huntWave, layout, nudgeEntries, quietSetup } from '../missions/common';
 import type { Climate, Terrain } from './geo';
 import { ENEMY_POOLS, PERSONALITIES, type PersonalityId } from './data';
+import { BATTLE as T, BATTLE_LOCAL as TL } from '../i18n/en/conquest-battle'; // the English these battles emit
+import { fill as en } from './text';
 
 export type BattleKind = 'assault' | 'capture' | 'hold' | 'defend' | 'naval' | 'boss';
 export const BATTLE_KINDS: BattleKind[] = ['assault', 'capture', 'hold', 'defend', 'naval', 'boss'];
 
+/** Battle types (English: src/i18n/en/conquest-battle.ts, translated where shown). */
 export const KIND_INFO: Record<BattleKind, { name: string; icon: string; desc: string }> = {
-  assault: { name: 'Assault', icon: 'crosshair', desc: 'Destroy every enemy structure.' },
-  capture: { name: 'Capture', icon: 'capture', desc: 'Capture the enemy command post with an engineer.' },
-  hold: { name: 'Seize & Hold', icon: 'flag', desc: 'Take the objective zone and hold it.' },
-  defend: { name: 'Defence', icon: 'shield', desc: 'Hold out until the relief column arrives.' },
-  naval: { name: 'Naval Blockade', icon: 'anchor', desc: 'Destroy the enemy naval yard and sink the fleet.' },
-  boss: { name: 'Capital Assault', icon: 'skull', desc: 'Destroy the enemy capital\'s command centres.' },
+  assault: { ...T.kind.assault, icon: 'crosshair' },
+  capture: { ...T.kind.capture, icon: 'capture' },
+  hold: { ...T.kind.hold, icon: 'flag' },
+  defend: { ...T.kind.defend, icon: 'shield' },
+  naval: { ...T.kind.naval, icon: 'anchor' },
+  boss: { ...T.kind.boss, icon: 'skull' },
 };
 
 /** A core veteran deployed into the battle. */
@@ -117,29 +120,29 @@ export function battleMap(kind: BattleKind, terrain: Terrain, climate: Climate, 
   const hour = HOURS[seed % HOURS.length];
   const base: BattleMap = { size, seed, players: kind === 'boss' ? 3 : 2, climate, hour, weather: 'auto', dayCycle: true, ore: 0.7, trees: 0.45, water: 0.3 };
   const pick = (n: number) => (seed >>> 3) % n === 0;
-  if (kind === 'boss') return { map: { ...base, water: 0.25, trees: 0.4, ore: 0.85, rocks: 0.25 }, label: 'Capital outskirts' };
+  if (kind === 'boss') return { map: { ...base, water: 0.25, trees: 0.4, ore: 0.85, rocks: 0.25 }, label: T.map.capital };
   if (kind === 'naval') {
-    if (terrain === 'islands' && climate !== 'winter') return { map: { ...base, size: 96, mapId: 'archipelago' }, label: 'Archipelago' };
-    return { map: { ...base, water: 0.95, trees: 0.4, ore: 0.75 }, label: climate === 'winter' ? 'Frozen coast' : 'Coastal waters' };
+    if (terrain === 'islands' && climate !== 'winter') return { map: { ...base, size: 96, mapId: 'archipelago' }, label: T.map.archipelago };
+    return { map: { ...base, water: 0.95, trees: 0.4, ore: 0.75 }, label: climate === 'winter' ? T.map.frozenCoast : T.map.coastalWaters };
   }
   switch (terrain) {
-    case 'plains': return { map: { ...base, water: 0.25, trees: 0.35, ore: 0.75 }, label: 'Open farmland' };
-    case 'forest': return { map: { ...base, water: 0.3, trees: 0.9, ore: 0.6 }, label: 'Dense forest' };
+    case 'plains': return { map: { ...base, water: 0.25, trees: 0.35, ore: 0.75 }, label: T.map.farmland };
+    case 'forest': return { map: { ...base, water: 0.3, trees: 0.9, ore: 0.6 }, label: T.map.forest };
     case 'mountain':
-      if (climate === 'desert' && pick(2)) return { map: { ...base, size: 96, mapId: 'red-canyon' }, label: 'Red Canyon' };
-      return { map: { ...base, water: 0.1, trees: 0.45, ore: 0.65, rocks: 0.85 }, label: 'Mountain pass' };
+      if (climate === 'desert' && pick(2)) return { map: { ...base, size: 96, mapId: 'red-canyon' }, label: T.map.canyon };
+      return { map: { ...base, water: 0.1, trees: 0.45, ore: 0.65, rocks: 0.85 }, label: T.map.pass };
     case 'lakes':
-      if (climate === 'winter' && pick(2)) return { map: { ...base, size: 96, mapId: 'frozen-lakes' }, label: 'Frozen Lakes' };
-      return { map: { ...base, water: 0.75, trees: 0.55, ore: 0.65 }, label: 'Lake country' };
+      if (climate === 'winter' && pick(2)) return { map: { ...base, size: 96, mapId: 'frozen-lakes' }, label: T.map.frozenLakes };
+      return { map: { ...base, water: 0.75, trees: 0.55, ore: 0.65 }, label: T.map.lakes };
     case 'river':
-      if (climate !== 'desert' && climate !== 'winter' && pick(3)) return { map: { ...base, size: 96, mapId: 'bridgewater' }, label: 'Bridgewater crossing' };
-      return { map: { ...base, water: 0.62, trees: 0.45, ore: 0.7 }, label: 'River valley' };
-    case 'coast': return { map: { ...base, water: 0.92, trees: 0.4, ore: 0.75 }, label: 'Coastline' };
-    case 'urban': return { map: { ...base, water: 0.3, trees: 0.2, ore: 0.9 }, label: 'Industrial district' };
-    case 'steppe': return { map: { ...base, water: 0.12, trees: 0.1, ore: 0.85 }, label: 'Open steppe' };
-    case 'islands': return { map: { ...base, water: 0.8, trees: 0.45, ore: 0.7 }, label: 'Island chain' };
+      if (climate !== 'desert' && climate !== 'winter' && pick(3)) return { map: { ...base, size: 96, mapId: 'bridgewater' }, label: T.map.bridgewater };
+      return { map: { ...base, water: 0.62, trees: 0.45, ore: 0.7 }, label: T.map.river };
+    case 'coast': return { map: { ...base, water: 0.92, trees: 0.4, ore: 0.75 }, label: T.map.coastline };
+    case 'urban': return { map: { ...base, water: 0.3, trees: 0.2, ore: 0.9 }, label: T.map.industrial };
+    case 'steppe': return { map: { ...base, water: 0.12, trees: 0.1, ore: 0.85 }, label: T.map.steppe };
+    case 'islands': return { map: { ...base, water: 0.8, trees: 0.45, ore: 0.7 }, label: T.map.islands };
   }
-  return { map: base, label: 'Battlefield' };
+  return { map: base, label: T.map.default };
 }
 
 /** Sea maps let the human build naval yards whatever the research. */
@@ -153,15 +156,14 @@ const NAVAL_TYPES = ['syrd', 'spen', 'pt', 'dd', 'ss', 'lst'];
 // =====================================================================================================
 const COLOR: Record<Faction, number> = { allies: 0x3d7be0, soviet: 0xd23a2c };
 const NEUTRAL_COLOR = 0xe0b030, GUARD_COLOR = 0xe07b2a;
-const adj = (f: Faction) => (f === 'allies' ? 'Allied' : 'Soviet');
 const mainTank = (f: Faction) => (f === 'allies' ? '2tnk' : '3tnk');
 const B = (f: Faction, allies: string, soviet: string) => (f === 'allies' ? allies : soviet);
 const TANKS = new Set(['1tnk', '2tnk', '3tnk', '4tnk', 'ttnk', 'ctnk', 'qtnk', 'stnk']);
 
 function hq(S: BattleSpec): { name: string; portrait: Portrait } {
-  return S.faction === 'allies' ? { name: 'Allied Command', portrait: 'commander' } : { name: 'Soviet High Command', portrait: 'enemy' };
+  return S.faction === 'allies' ? { name: T.speaker.allied, portrait: 'commander' } : { name: T.speaker.soviet, portrait: 'enemy' };
 }
-const INTEL: { name: string; portrait: Portrait } = { name: 'Intelligence', portrait: 'intel' };
+const INTEL: { name: string; portrait: Portrait } = { name: T.speaker.intel, portrait: 'intel' };
 function foe(S: BattleSpec): { name: string; portrait: Portrait } {
   return { name: S.commander, portrait: S.enemy === 'soviet' ? 'enemy' : 'commander' };
 }
@@ -438,33 +440,35 @@ function setupBattle(m: MissionRuntime, S: BattleSpec) {
   }
   if (S.mods.recon) m.reveal(0, e.x, e.y, 13);
   // ---- objectives
-  const where = S.name;
+  const territory = S.name;
+  const O = T.objective;
   switch (S.kind) {
-    case 'assault': m.objective('destroy', `Destroy every enemy structure in ${where}`); break;
-    case 'capture': m.objective('capture', `Capture the ${m.flags.targetName ?? 'command post'} (damage it, then send in an Engineer)`); break;
-    case 'hold': m.objective('hold', `Seize the ${zoneName(S)} and hold it for ${fmtTime(holdNeed(S))}`); m.progress('hold', `0:00 / ${fmtTime(holdNeed(S))}`); break;
+    case 'assault': m.objective('destroy', en(O.destroy, { territory })); break;
+    case 'capture': m.objective('capture', en(O.capture, { building: m.flags.targetName ?? T.commandPost })); break;
+    case 'hold': m.objective('hold', en(T.zone[zoneOf(S)].objective, { time: fmtTime(holdNeed(S)) })); m.progress('hold', `0:00 / ${fmtTime(holdNeed(S))}`); break;
     case 'defend':
-      m.objective('holdout', `Hold ${where} until the relief column arrives`);
-      m.objective('hq', 'Keep your Construction Yard standing');
-      m.objective('counter', 'Destroy the enemy staging base', false);
-      m.startTimer('relief', defendTime(S), 'Relief column');
+      m.objective('holdout', en(O.holdout, { territory }));
+      m.objective('hq', O.hq);
+      m.objective('counter', O.counter, false);
+      m.startTimer('relief', defendTime(S), T.timer);
       break;
     case 'naval':
-      m.objective('yards', 'Destroy the enemy naval yard');
-      m.objective('fleet', 'Sink the enemy fleet');
+      m.objective('yards', O.yards);
+      m.objective('fleet', O.fleet);
       break;
     case 'boss':
-      m.objective('command', `Destroy the command centres of ${where}`);
-      if (m.flags.sw) m.objective('superweapon', `Destroy the ${m.flags.swName}`, false);
+      m.objective('command', en(O.command, { territory }));
+      if (m.flags.sw) m.objective('superweapon', en(TL.superweapon, { building: m.flags.swName }), false);
       break;
   }
-  if (S.superweapon && S.kind !== 'boss' && m.flags.sw) m.objective('sw', `Destroy the ${m.flags.swName} before it fires`, false);
-  if (S.core.length) m.objective('veterans', 'Bring every core veteran home', false);
-  m.objective('swift', `Win within ${fmtTime(S.parTime)}`, false);
+  if (S.superweapon && S.kind !== 'boss' && m.flags.sw) m.objective('sw', en(O.sw, { building: m.flags.swName }), false);
+  if (S.core.length) m.objective('veterans', O.veterans, false);
+  m.objective('swift', en(O.swift, { time: fmtTime(S.parTime) }), false);
   if (S.kind === 'hold') m.beacon(m.flags.zone[0], m.flags.zone[1]);
 }
 
-const zoneName = (S: BattleSpec) => ({ river: 'bridgehead', urban: 'rail junction', coast: 'harbour', mountain: 'pass', forest: 'crossroads', lakes: 'causeway', steppe: 'supply depot', plains: 'crossroads', islands: 'beachhead' } as Record<string, string>)[S.terrain] ?? 'crossroads';
+/** The zone to seize in a Seize & Hold battle (its English lines are in T.zone). */
+const zoneOf = (S: BattleSpec): keyof typeof T.zone => ({ river: 'bridgehead', urban: 'railJunction', coast: 'harbour', mountain: 'pass', forest: 'crossroads', lakes: 'causeway', steppe: 'supplyDepot', plains: 'crossroads', islands: 'beachhead' } as Record<string, keyof typeof T.zone>)[S.terrain] ?? 'crossroads';
 const holdNeed = (S: BattleSpec) => 120 + 15 * S.strength;
 const defendTime = (S: BattleSpec) => 420 + 60 * S.strength;
 
@@ -480,32 +484,25 @@ function victory(m: MissionRuntime, S: BattleSpec) {
 
 function intro(m: MissionRuntime, S: BattleSpec) {
   const H = hq(S);
+  const territory = S.name, R = T.radio;
   const lines: Record<BattleKind, string> = {
-    assault: `${S.name}: the ${S.neutral ? 'local' : adj(S.enemy)} garrison has dug in. Establish a base and wipe it out.`,
-    capture: `Their command post in ${S.name} holds the codes for the whole front. Take it intact: damage it, then send in an Engineer.`,
-    hold: `Seize the ${zoneName(S)} at ${S.name} and hold it for ${fmtTime(holdNeed(S))}. Keep enemy troops out of the zone.`,
-    defend: `${S.commander} is throwing everything at ${S.name}! Hold the line until the relief column arrives.`,
-    naval: `The enemy fleet blockades the coast at ${S.name}. Sink it and destroy their naval yard.`,
-    boss: `This is it, Commander: ${S.name}. Destroy their command centres and the war is won.`,
+    assault: en(S.neutral ? R.assaultLocal : S.enemy === 'allies' ? R.assaultAllied : R.assaultSoviet, { territory }),
+    capture: en(R.capture, { territory }),
+    hold: en(T.zone[zoneOf(S)].intro, { territory, time: fmtTime(holdNeed(S)) }),
+    defend: en(R.defend, { commander: S.commander, territory }),
+    naval: en(R.naval, { territory }),
+    boss: en(R.boss, { territory }),
   };
   say(m, H, lines[S.kind]);
-  if (S.core.length) say(m, INTEL, `Your core army is deployed: ${S.core.slice(0, 4).map((v) => v.name).join(', ')}${S.core.length > 4 ? ` and ${S.core.length - 4} more` : ''}.`);
+  const names = S.core.slice(0, 4).map((v) => v.name).join(', ');
+  if (S.core.length) say(m, INTEL, S.core.length > 4 ? en(R.coreMore, { names, n: S.core.length - 4 }) : en(R.core, { names }));
   const P = PERSONALITIES[S.personality];
-  if (!S.neutral) say(m, INTEL, `Enemy commander: ${S.commander}, "${P.name}". ${P.desc}`);
-  if (S.partisans) say(m, INTEL, 'Partisans are in position on the enemy flank. They will fight with you.');
-  if (S.superweapon && m.flags.sw) say(m, INTEL, `Confirmed: a ${m.flags.swName} in the enemy base. Destroy it before it is charged.`);
+  if (!S.neutral) say(m, INTEL, en(R.enemy, { commander: S.commander, personality: P.name, desc: P.desc }));
+  if (S.partisans) say(m, INTEL, R.partisans);
+  if (S.superweapon && m.flags.sw) say(m, INTEL, en(R.superweapon, { building: m.flags.swName }));
 }
 
-const TAUNTS: Record<PersonalityId, string> = {
-  steamroller: 'My tanks will roll over your little army like it is not even there.',
-  siege: 'Dig in all you like. My guns have your range.',
-  air: 'Look up, Commander. That is where the end will come from.',
-  fortress: 'You will break your teeth on my walls.',
-  blitz: 'Too slow, Commander. Far too slow.',
-  naval: 'Every shore is my front line.',
-  horde: 'For every soldier you kill, ten more will come.',
-  raider: 'You will never see us coming.',
-};
+const TAUNTS: Record<PersonalityId, string> = T.taunt;
 
 /** Perks that act during the battle. */
 function perks(m: MissionRuntime, S: BattleSpec) {
@@ -520,7 +517,7 @@ function perks(m: MissionRuntime, S: BattleSpec) {
     launchSortie(m.world, me, 'paratroopers', tx, ty);
     m.flags.paraRank = d.rank;
     m.flags.paraUntil = m.time + 14;
-    say(m, hq(S), d.rank >= 2 ? 'Elite paratroopers inbound to your position.' : 'Paratroopers inbound to your position.');
+    say(m, hq(S), d.rank >= 2 ? T.radio.eliteDrop : T.radio.drop);
   }
   if (!m.every(1, 'perks')) return;
   if (m.flags.paraUntil && m.time <= m.flags.paraUntil) {
@@ -621,7 +618,7 @@ function waves(m: MissionRuntime, S: BattleSpec) {
       if (tgt && ships.length) m.attack(ships, tgt);
     }
   }
-  if (n === 1 || n % 3 === 0) say(m, foe(S), n === 1 ? TAUNTS[pers] : `Wave after wave, Commander. How long can you last?`);
+  if (n === 1 || n % 3 === 0) say(m, foe(S), n === 1 ? TAUNTS[pers] : T.radio.waves);
 }
 
 /** Wave aircraft: retarget while armed, leave the map when empty. */
@@ -664,24 +661,24 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
   // optional objectives that can fail along the way
   if (S.core.length && m.state('veterans') === 'active') {
     const { alive, total } = coreAlive(m);
-    if (alive < total) { m.fail('veterans'); say(m, INTEL, 'We have lost a core veteran.'); }
+    if (alive < total) { m.fail('veterans'); say(m, INTEL, T.radio.vetLost); }
   }
   if (m.time > S.parTime) m.fail('swift');
-  if (m.flags.sw && !m.alive(m.flags.sw) && m.state('sw') === 'active') { m.complete('sw'); say(m, hq(S), 'The superweapon is destroyed. The threat is over.'); }
+  if (m.flags.sw && !m.alive(m.flags.sw) && m.state('sw') === 'active') { m.complete('sw'); say(m, hq(S), T.radio.swDestroyed); }
   if (m.flags.sw && !m.alive(m.flags.sw) && m.state('superweapon') === 'active') m.complete('superweapon');
   const s = m.start(0);
   switch (S.kind) {
     case 'assault': {
       const left = enemyStructures(m).length;
-      m.progress('destroy', `${left} left`);
+      m.progress('destroy', en(T.progress.left, { n: left }));
       if (left === 0) { m.complete('destroy'); victory(m, S); }
       break;
     }
     case 'capture': {
       const t = m.world.getEntity(m.flags.target) as Building | undefined;
-      if (!t || !t.alive) { m.fail('capture'); m.lose(`The ${m.flags.targetName ?? 'command post'} was destroyed`); break; }
-      if (t.owner === m.human) { m.complete('capture'); say(m, hq(S), 'Command post captured. The front is ours.'); victory(m, S); break; }
-      if (t.healthFrac <= 0.25 && m.once('weak')) { say(m, INTEL, 'The command post is badly damaged. Send in an Engineer now, before it collapses!'); m.beacon(t.x, t.y); }
+      if (!t || !t.alive) { m.fail('capture'); m.lose(en(T.lose.target, { building: m.flags.targetName ?? T.commandPost })); break; }
+      if (t.owner === m.human) { m.complete('capture'); say(m, hq(S), T.radio.captured); victory(m, S); break; }
+      if (t.healthFrac <= 0.25 && m.once('weak')) { say(m, INTEL, T.radio.damaged); m.beacon(t.x, t.y); }
       break;
     }
     case 'hold': {
@@ -693,15 +690,15 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
       for (const b of m.world.buildings) if (b.alive && m.human.isEnemy(b.owner) && !b.bt.wall && !b.bt.mine && Math.hypot(b.x - zx, b.y - zy) <= 5) theirs++;
       if (mine > 0 && theirs === 0) {
         m.flags.held++;
-        if (m.flags.held === 1) say(m, hq(S), `We hold the ${zoneName(S)}. Keep it clear for ${fmtTime(need)}.`);
-      } else if (mine > 0 && theirs > 0 && m.every(20, 'contested')) say(m, INTEL, 'The zone is contested!');
+        if (m.flags.held === 1) say(m, hq(S), en(T.zone[zoneOf(S)].held, { time: fmtTime(need) }));
+      } else if (mine > 0 && theirs > 0 && m.every(20, 'contested')) say(m, INTEL, T.radio.contested);
       m.progress('hold', `${fmtTime(m.flags.held)} / ${fmtTime(need)}`);
       if (m.every(15, 'zonebeacon')) m.beacon(zx, zy);
       if (m.flags.held >= need) { m.complete('hold'); victory(m, S); }
       break;
     }
     case 'defend': {
-      if (m.flags.hq && !m.alive(m.flags.hq)) { m.fail('hq'); m.lose('The Construction Yard was destroyed'); break; }
+      if (m.flags.hq && !m.alive(m.flags.hq)) { m.fail('hq'); m.lose(T.lose.hq); break; }
       if (enemyStructures(m).length === 0) { m.complete('counter'); m.complete('holdout'); m.complete('hq'); victory(m, S); break; }
       if (m.timerDone('relief')) {
         m.clearTimer('relief');
@@ -709,7 +706,7 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
         m.complete('hq');
         const [ex, ey] = edgeNear(m, s.x, s.y);
         m.reinforce(0, [mainTank(S.faction), mainTank(S.faction), mainTank(S.faction), 'e3', 'e3'], [ex, ey], humanBase(m));
-        say(m, hq(S), `The relief column has reached ${S.name}. Outstanding work, Commander.`);
+        say(m, hq(S), en(T.radio.relief, { territory: S.name }));
         victory(m, S);
       }
       break;
@@ -717,15 +714,15 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
     case 'naval': {
       const yards = enemyStructures(m).filter((b) => b.bt.water && b.bt.factory === 'naval').length;
       const fleet = m.world.units.filter((u) => u.alive && m.human.isEnemy(u.owner) && u.kind === 'naval').length;
-      m.progress('yards', yards ? `${yards} left` : 'done');
-      m.progress('fleet', `${fleet} ships left`);
+      m.progress('yards', yards ? en(T.progress.left, { n: yards }) : T.progress.done);
+      m.progress('fleet', en(T.progress.shipsLeft, { n: fleet }));
       if (!yards) m.complete('yards');
       if (!yards && !fleet) { m.complete('fleet'); victory(m, S); }
       break;
     }
     case 'boss': {
       const facts = enemyStructures(m).filter((b) => b.bt.id === 'fact').length + m.world.units.filter((u) => u.alive && m.human.isEnemy(u.owner) && u.ut.deploysInto === 'fact').length;
-      m.progress('command', `${facts} left`);
+      m.progress('command', en(T.progress.left, { n: facts }));
       if (facts === 0) { m.complete('command'); victory(m, S); }
       break;
     }
@@ -735,6 +732,7 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
 // =====================================================================================================
 // MissionDef
 // =====================================================================================================
+/** (Briefing and debrief lines are not shown: the Conquest screens present the battle and its report.) */
 function briefing(S: BattleSpec): string[] {
   const P = PERSONALITIES[S.personality];
   return [
@@ -751,17 +749,17 @@ export function conquestMission(c: ConquestSetup): MissionDef {
   const allowed = sea ? [...new Set([...S.allowed, ...NAVAL_TYPES])] : S.allowed;
   const ai = PERSONALITIES[S.personality]?.ai;
   const players: MissionPlayerSpec[] = [
-    { name: 'Commander', faction: S.faction, color: COLOR[S.faction] },
+    { name: T.player, faction: S.faction, color: COLOR[S.faction] },
     // (outlying garrisons, strength 1-2, fight by the book; the commander's own style shows from strength 3)
     { name: S.commander, faction: S.enemy, color: S.neutral ? NEUTRAL_COLOR : COLOR[S.enemy], ai: S.ai, credits: S.enemyCredits, team: 1, ...(ai && !S.neutral && S.strength >= 3 ? { personality: ai } : {}) },
   ];
-  if (S.kind === 'boss') players.push({ name: `${S.name} Guard`, faction: S.enemy, color: GUARD_COLOR, ai: S.ai === 'brutal' ? 'hard' : S.ai, credits: Math.round(S.enemyCredits * 0.7), team: 1, personality: 'ironfist' });
+  if (S.kind === 'boss') players.push({ name: en(TL.guard, { territory: S.name }), faction: S.enemy, color: GUARD_COLOR, ai: S.ai === 'brutal' ? 'hard' : S.ai, credits: Math.round(S.enemyCredits * 0.7), team: 1, personality: 'ironfist' });
   const H = hq(S);
   const def: MissionDef = quietSetup({
     id: 'conquest',
     campaign: 'special',
     index: 90,
-    title: `Battle of ${S.name}`,
+    title: en(T.title, { territory: S.name }),
     codename: S.name.toUpperCase(),
     location: S.name,
     date: S.date,

@@ -410,12 +410,12 @@
     },
     "ca.allies": {
       "file": "ca.allies.glb",
-      "bytes": 467532,
-      "hash": "cf1ecbdb11",
+      "bytes": 469044,
+      "hash": "904bf4823f",
       "type": "ca",
       "faction": "allies",
       "kind": "naval",
-      "tris": 5512,
+      "tris": 5505,
       "parts": [
         "hull",
         "turret",
@@ -442,12 +442,12 @@
       ],
       "atlas": 1024,
       "textures": {
-        "base": 80340,
-        "orm": 29938,
-        "normal": 106512,
-        "mask": 11252
+        "base": 79950,
+        "orm": 29890,
+        "normal": 106844,
+        "mask": 13182
       },
-      "seconds": 176.8
+      "seconds": 116.8
     },
     "ctnk.allies": {
       "file": "ctnk.allies.glb",
@@ -479,12 +479,12 @@
     },
     "dd.allies": {
       "file": "dd.allies.glb",
-      "bytes": 383404,
-      "hash": "535377ac25",
+      "bytes": 384684,
+      "hash": "d641a4d46c",
       "type": "dd",
       "faction": "allies",
       "kind": "naval",
-      "tris": 3943,
+      "tris": 3948,
       "parts": [
         "hull",
         "fgun",
@@ -504,12 +504,12 @@
       ],
       "atlas": 1024,
       "textures": {
-        "base": 74968,
-        "orm": 29666,
-        "normal": 100372,
-        "mask": 10972
+        "base": 74810,
+        "orm": 29288,
+        "normal": 99328,
+        "mask": 13756
       },
-      "seconds": 171.4
+      "seconds": 133.2
     },
     "dome.allies": {
       "file": "dome.allies.glb",
@@ -1075,12 +1075,12 @@
     },
     "lst.allies": {
       "file": "lst.allies.glb",
-      "bytes": 291592,
-      "hash": "5bb6c100e0",
+      "bytes": 291216,
+      "hash": "25ba0c8fda",
       "type": "lst",
       "faction": "allies",
       "kind": "naval",
-      "tris": 2485,
+      "tris": 2487,
       "parts": [
         "hull",
         "doorR",
@@ -1093,21 +1093,21 @@
       ],
       "atlas": 1024,
       "textures": {
-        "base": 66598,
-        "orm": 25468,
-        "normal": 78466,
-        "mask": 8456
+        "base": 64944,
+        "orm": 24938,
+        "normal": 78182,
+        "mask": 10258
       },
-      "seconds": 143
+      "seconds": 183
     },
     "lst.soviet": {
       "file": "lst.soviet.glb",
-      "bytes": 292496,
-      "hash": "fc0680c93e",
+      "bytes": 292960,
+      "hash": "6b9eae59c7",
       "type": "lst",
       "faction": "soviet",
       "kind": "naval",
-      "tris": 2482,
+      "tris": 2483,
       "parts": [
         "hull",
         "doorR",
@@ -1120,12 +1120,12 @@
       ],
       "atlas": 1024,
       "textures": {
-        "base": 64306,
-        "orm": 25672,
-        "normal": 79956,
-        "mask": 9866
+        "base": 64252,
+        "orm": 26726,
+        "normal": 78178,
+        "mask": 11134
       },
-      "seconds": 149
+      "seconds": 178
     },
     "mcv.allies": {
       "file": "mcv.allies.glb",
@@ -1417,8 +1417,8 @@
     },
     "msub.soviet": {
       "file": "msub.soviet.glb",
-      "bytes": 191124,
-      "hash": "0675c95ce9",
+      "bytes": 190548,
+      "hash": "bdd04181fb",
       "type": "msub",
       "faction": "soviet",
       "kind": "naval",
@@ -1445,12 +1445,12 @@
       ],
       "atlas": 512,
       "textures": {
-        "base": 23298,
-        "orm": 10848,
-        "normal": 33504,
-        "mask": 4478
+        "base": 23114,
+        "orm": 10844,
+        "normal": 33172,
+        "mask": 4454
       },
-      "seconds": 31.6
+      "seconds": 44.9
     },
     "pbox.allies": {
       "file": "pbox.allies.glb",
@@ -1613,12 +1613,12 @@
     },
     "pt.allies": {
       "file": "pt.allies.glb",
-      "bytes": 175504,
-      "hash": "79ec95a3f7",
+      "bytes": 176384,
+      "hash": "9b091edc3a",
       "type": "pt",
       "faction": "allies",
       "kind": "naval",
-      "tris": 2134,
+      "tris": 2135,
       "parts": [
         "hull",
         "turret",
@@ -1634,12 +1634,12 @@
       ],
       "atlas": 512,
       "textures": {
-        "base": 31636,
-        "orm": 12478,
-        "normal": 33970,
-        "mask": 4176
+        "base": 31460,
+        "orm": 12334,
+        "normal": 34392,
+        "mask": 4954
       },
-      "seconds": 35.9
+      "seconds": 43.3
     },
     "purf.allies": {
       "file": "purf.allies.glb",
@@ -1862,8 +1862,8 @@
     },
     "ss.soviet": {
       "file": "ss.soviet.glb",
-      "bytes": 106516,
-      "hash": "624f4c1ddd",
+      "bytes": 106260,
+      "hash": "9ebe8386d4",
       "type": "ss",
       "faction": "soviet",
       "kind": "naval",
@@ -1882,12 +1882,12 @@
       ],
       "atlas": 512,
       "textures": {
-        "base": 16982,
-        "orm": 8192,
-        "normal": 23106,
-        "mask": 922
+        "base": 16486,
+        "orm": 8086,
+        "normal": 23164,
+        "mask": 1212
       },
-      "seconds": 25.7
+      "seconds": 28.6
     },
     "stek.soviet": {
       "file": "stek.soviet.glb",

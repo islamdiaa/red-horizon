@@ -10,6 +10,8 @@ import { TICK_HZ } from '../sim/types';
 import { el, esc, hexColor } from './dom';
 import { picto } from '../meta';
 import { ensureModesCss } from './modes-css';
+import tHud from '../i18n/en/hud';
+import { currentLang } from '../i18n/core';
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
 const SEG = 96;
@@ -44,7 +46,7 @@ export class KothHud {
     }
     ringGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     ringGeo.setIndex(idx);
-    this.ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 });
+    this.ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: -4 }); // (flat: one pass)
     this.ring = new THREE.Mesh(ringGeo, this.ringMat);
     this.ring.renderOrder = 5;
     const discGeo = new THREE.BufferGeometry();
@@ -56,7 +58,7 @@ export class KothHud {
     }
     discGeo.setAttribute('position', new THREE.Float32BufferAttribute(dp, 3));
     discGeo.setIndex(di);
-    this.discMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3 });
+    this.discMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: -3 });
     this.disc = new THREE.Mesh(discGeo, this.discMat);
     this.disc.renderOrder = 4;
     game.gfx.scene.add(this.ring, this.disc);
@@ -103,14 +105,14 @@ export class KothHud {
     const rows = kothStandings(w, st);
     const holderRow = rows.find((r) => r.team === st.holder);
     const stateCls = st.contested ? 'contested' : st.holder >= 0 ? 'held' : 'neutral';
-    const stateText = st.contested ? 'Contested' : holderRow ? (st.holder === g.local.team && !g.setup.replay ? 'You hold the hill' : `Held by ${holderRow.name}`) : 'Unclaimed';
-    const key = `${stateCls}|${st.holder}|${rows.map((r) => `${r.team}:${Math.floor(r.seconds)}:${r.defeated}`).join(',')}|${g.local.team}`;
+    const stateText = st.contested ? tHud('koth.contested') : holderRow ? (st.holder === g.local.team && !g.setup.replay ? tHud('koth.youHold') : tHud('koth.heldBy', { name: holderRow.name })) : tHud('koth.unclaimed');
+    const key = `${stateCls}|${st.holder}|${rows.map((r) => `${r.team}:${Math.floor(r.seconds)}:${r.defeated}`).join(',')}|${g.local.team}|${currentLang()}`;
     if (key === this.key) return;
     this.key = key;
-    this.box.innerHTML = `<div class="kh-head">${picto('trophy', 'ic')}<span>King of the Hill</span><small>first to ${fmt(st.target / TICK_HZ)}</small></div>
+    this.box.innerHTML = `<div class="kh-head">${picto('trophy', 'ic')}<span>${tHud.html('koth.title')}</span><small>${tHud.html('koth.firstTo', { time: fmt(st.target / TICK_HZ) })}</small></div>
       <div class="kh-state ${stateCls}" style="--c:${holderRow ? hexColor(holderRow.color) : '#9aa'}"><i></i><span>${esc(stateText)}</span></div>
       <div class="kh-rows">${rows.map((r) => `<div class="kh-row${r.team === g.local.team ? ' me' : ''}${r.defeated ? ' dead' : ''}${r.team === st.holder ? ' holding' : ''}" style="--c:${hexColor(r.color)}">
-        <i></i><span class="nm">${esc(r.team === g.local.team && !g.setup.replay ? 'You' : r.name)}</span><span class="bar"><b style="width:${(r.frac * 100).toFixed(1)}%"></b></span><span class="t">${fmt(r.seconds)}</span></div>`).join('')}</div>`;
+        <i></i><span class="nm">${esc(r.team === g.local.team && !g.setup.replay ? tHud('koth.you') : r.name)}</span><span class="bar"><b style="width:${(r.frac * 100).toFixed(1)}%"></b></span><span class="t">${fmt(r.seconds)}</span></div>`).join('')}</div>`;
     // radar: ping the hill when control changes
     const sig = st.contested ? -2 : st.holder;
     if (sig !== this.lastPing) {

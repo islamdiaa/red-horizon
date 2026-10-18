@@ -23,6 +23,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ModelAnimState, ModelInstance } from './types';
 import { assetUrl } from '../../platform/paths'; // base-path helper
+import { backgroundDownloadsAllowed } from '../../platform/network';
 import { lodDistance, type ModelFaction, type ModelTemplate, type NodeT } from './builder';
 import {
   BODY_EMISSIVE_OFF, BODY_EMISSIVE_ON, BODY_SHARED_UNIFORMS, BodyVariant, conditionTeamColor, fxMaterial, getDamageTexture, teamGlossUniform, teamUniform, // paint schemes
@@ -310,12 +311,14 @@ const preloadLog: string[] = [];
 
 /**
  * Offline play: once a battle runs, quietly download (not decode) the factions' remaining GLBs one at a time,
- * so the service worker has them cached for lazily loaded types even if the network goes away later.
+ * so the service worker has them cached for lazily loaded types even if the network goes away later. Not with
+ * Data Saver on or on a slow or metered connection (platform/network.ts): there types load lazily only.
  */
 export function prefetchHdFiles(factions: ModelFaction[], delayMs = 20000): void {
-  if (!enabled || !manifest || typeof navigator === 'undefined' || !navigator.serviceWorker?.controller) return;
+  if (!enabled || !manifest || typeof navigator === 'undefined' || !navigator.serviceWorker?.controller || !backgroundDownloadsAllowed()) return;
   const list = [...entries.values()].filter((en) => !en.buf && !en.failed && (!en.e.faction || factions.includes(en.e.faction)));
   setTimeout(async () => {
+    if (!backgroundDownloadsAllowed()) return; // Data Saver, a slow or metered connection: lazy loading only
     for (const en of list) {
       if (en.buf || en.failed) continue;
       try {
@@ -414,9 +417,10 @@ let offscreen = false;
 /**
  * Upload (renderer.initTexture) the atlases of up to `max` newly ready templates and close their decoded bitmaps
  * (game.ts, once per frame and after the loading-screen warm-up). three keeps no CPU copy: re-uploading needs a
- * re-decode (hdRestoreTextures).
+ * re-decode (hdRestoreTextures). One template per frame in play: four atlas uploads are a frame's worth of driver
+ * time on an integrated GPU, so a burst of new types swaps in over a few frames instead of in one long one.
  */
-export function hdReleaseUploaded(renderer: THREE.WebGLRenderer, max = 2): number {
+export function hdReleaseUploaded(renderer: THREE.WebGLRenderer, max = 1): number {
   let n = 0;
   for (const x of extensions) n += x.release(renderer, max);
   const aniso = hdAnisotropy(renderer);
@@ -441,8 +445,8 @@ export function hdReleaseUploaded(renderer: THREE.WebGLRenderer, max = 2): numbe
   return n;
 }
 
-/** Anisotropic filtering of HD atlases: up to 8x on High, 4x on Medium, within what the GPU offers. */
-export const HD_ANISOTROPY = { high: 8, medium: 4 } as const;
+/** Anisotropic filtering of HD atlases: up to 8x on High, 2x on Medium (integrated GPUs), within what the GPU offers. */
+export const HD_ANISOTROPY = { high: 8, medium: 2 } as const;
 function hdAnisotropy(renderer: THREE.WebGLRenderer): number {
   const q = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('hdaniso')) : 0; // tests
   return Math.max(1, Math.min(q > 0 ? q : HD_ANISOTROPY[tier], renderer.capabilities.getMaxAnisotropy()));

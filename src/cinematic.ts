@@ -1,8 +1,7 @@
 import type { Game } from './game';
 import { esc } from './ui/dom';
-
-const OPERATIONS = ['IRON DAWN', 'RED TEMPEST', 'NORTHERN WRATH', 'STEEL CURTAIN', 'SILENT THUNDER', 'BROKEN ARROW', 'CRIMSON TIDE', 'GLASS HAMMER', 'WINTER SUN', 'LONG SHADOW'];
-const SECTORS = ['Carpathian Front', 'Baltic Coast', 'Danube Valley', 'Bavarian Highlands', 'Vistula Basin', 'Black Forest', 'Thuringian Gap', 'Silesian Plains', 'Alpine Pass', 'Pomeranian Lakes'];
+import tCine, { CINE_NAMES } from './i18n/en/cinematic';
+import { dt, trSource } from './i18n/core';
 
 const CSS = `
 .cine-bar { position: fixed; left: 0; right: 0; height: 11vh; background: #000; z-index: 40; transition: transform 0.9s cubic-bezier(.7,0,.2,1); pointer-events: none; }
@@ -80,13 +79,14 @@ export function playIntro(game: Game, onDone: () => void) {
   mk('cine-bar bottom');
   const seed = game.setup.seed >>> 0;
   const md = game.missionDef;
-  const op = md ? md.codename : OPERATIONS[seed % OPERATIONS.length];
-  const sector = md ? md.location : SECTORS[(seed >> 4) % SECTORS.length];
-  const faction = game.local.faction === 'allies' ? 'Allied Expeditionary Force' : 'Red Army Group "Vostok"';
+  const ops = CINE_NAMES.operations, sectors = CINE_NAMES.sectors;
+  const op = md ? md.codename : ops[seed % ops.length];
+  const sector = md ? dt('mission', md.id, 'location', trSource(md.location)) : sectors[(seed >> 4) % sectors.length];
+  const faction = tCine(game.local.faction === 'allies' ? 'intro.allies' : 'intro.soviet');
   const h = Math.floor(game.hours), m = Math.floor((game.hours % 1) * 60);
   const clock = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  const text = mk('cine-text', `<div class="op">OPERATION <b>${esc(op)}</b></div><div class="rule"></div><div class="line" data-l="1"></div><div class="line" data-l="2"></div>`);
-  mk('cine-skip', 'PRESS ANY KEY TO SKIP');
+  const text = mk('cine-text', `<div class="op">${tCine.html('intro.operation', { name: op })}</div><div class="rule"></div><div class="line" data-l="1"></div><div class="line" data-l="2"></div>`);
+  mk('cine-skip', tCine.html('intro.skip'));
   body.classList.add('cine-active');
 
   // camera: start high and rotated over the map, sweep down onto the base
@@ -161,7 +161,7 @@ export function playIntro(game: Game, onDone: () => void) {
   void (async () => {
     await new Promise((r) => timers.push(window.setTimeout(r, 700)));
     await typeInto(l1, `${sector.toUpperCase()}  ·  ${faction.toUpperCase()}`, 38, () => skipped);
-    await typeInto(l2, `DAY 1  ·  ${clock} LOCAL  ·  ${game.world.players.length - 1} HOSTILE FORCE${game.world.players.length > 2 ? 'S' : ''} DETECTED`, 38, () => skipped);
+    await typeInto(l2, tCine('intro.status', { clock, n: game.world.players.length - 1 }), 38, () => skipped);
     timers.push(window.setTimeout(finish, 1800));
   })();
 }
@@ -193,11 +193,11 @@ export function nukeWarning(): { update(seconds: number): void; remove(): void }
   v.className = 'danger-vignette';
   const w = document.createElement('div');
   w.className = 'nuke-warn';
-  w.innerHTML = `<div class="t1">WARNING</div><div class="t2">NUCLEAR LAUNCH DETECTED</div><div class="t3"></div>`;
+  w.innerHTML = `<div class="t1">${tCine.html('nuke.warning')}</div><div class="t2">${tCine.html('nuke.detected')}</div><div class="t3"></div>`;
   document.body.append(v, w);
   const t3 = w.querySelector('.t3') as HTMLElement;
   return {
-    update(s: number) { t3.textContent = `IMPACT IN ${Math.max(0, s).toFixed(1)}s — EVACUATE THE MARKED ZONE`; },
+    update(s: number) { t3.textContent = tCine('nuke.impact', { s: Math.max(0, s).toFixed(1) }); },
     remove() { v.remove(); w.remove(); },
   };
 }
@@ -289,7 +289,7 @@ export function endingCinematic(won: boolean, subtitle: string, gfx?: LensHost):
   bars[1].className = 'cine-bar bottom';
   const t = document.createElement('div');
   t.className = 'end-cine ' + (won ? 'win' : 'lose');
-  t.innerHTML = `<div class="big">${won ? 'VICTORY' : 'DEFEAT'}</div><div class="sub">${esc(subtitle.toUpperCase())}</div>`;
+  t.innerHTML = `<div class="big">${tCine.html(won ? 'end.victory' : 'end.defeat')}</div><div class="sub">${esc(subtitle.toUpperCase())}</div>`;
   body.append(...bars, t);
   body.classList.add('cine-active');
   requestAnimationFrame(() => { body.classList.add('cine-on'); t.classList.add('on'); });

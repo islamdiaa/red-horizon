@@ -4,6 +4,7 @@
  * selection panel, a radial menu (touch long-press, gamepad), the icons for the new orders, and the CSS for
  * touch / gamepad / radial UI (injected once, so styles.css stays untouched).
  */
+import { keyLabel } from './keymap';
 import { BUILDINGS, getType } from '../data/rules';
 import { lerp } from '../core/util';
 import { Building, Unit } from '../sim/entities';
@@ -11,6 +12,8 @@ import type { Player } from '../sim/player';
 import type { FormationShape } from '../sim/types';
 import type { World } from '../sim/world';
 import { esc, tipHtml } from './dom';
+import tHud from '../i18n/en/hud';
+import { typeName } from '../i18n/names';
 
 const svg = (body: string) =>
   `<svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -38,12 +41,18 @@ export const CTRL_ICONS = {
   menu: svg('<path d="M4 7h16M4 12h16M4 17h16"/>'),
 };
 
-export const FORMATION_INFO: { id: FormationShape; title: string; desc: string; icon: string }[] = [
-  { id: 'none', title: 'Auto formation', desc: 'Keep your relative positions on the move; a spread-out group gathers into a box (armour in front, artillery at the back).', icon: dots([[6, 8], [14, 6], [10, 13], [18, 14], [6, 18]]) },
-  { id: 'line', title: 'Line', desc: 'A broad battle line facing the direction of travel: every gun can fire forward.', icon: dots([[3, 12], [7.5, 12], [12, 12], [16.5, 12], [21, 12]]) },
-  { id: 'box', title: 'Box', desc: 'A compact block: armour in the front rows, rocket infantry and artillery protected in the middle and back.', icon: dots([[6, 6], [12, 6], [18, 6], [6, 12], [12, 12], [18, 12], [6, 18], [12, 18], [18, 18]]) },
-  { id: 'wedge', title: 'Wedge', desc: 'An arrowhead led by the toughest unit: punches through and covers both flanks.', icon: dots([[12, 4], [8, 10], [16, 10], [4, 16], [12, 16], [20, 16]]) },
-];
+/** Formations; `title`, `short` (order ring label) and `desc` read in the interface language (hud.formation.<id>). */
+export const FORMATION_INFO: { id: FormationShape; readonly title: string; readonly short: string; readonly desc: string; icon: string }[] = ([
+  ['none', dots([[6, 8], [14, 6], [10, 13], [18, 14], [6, 18]])],
+  ['line', dots([[3, 12], [7.5, 12], [12, 12], [16.5, 12], [21, 12]])],
+  ['box', dots([[6, 6], [12, 6], [18, 6], [6, 12], [12, 12], [18, 12], [6, 18], [12, 18], [18, 18]])],
+  ['wedge', dots([[12, 4], [8, 10], [16, 10], [4, 16], [12, 16], [20, 16]])],
+] as [FormationShape, string][]).map(([id, icon]) => ({
+  id, icon,
+  get title() { return tHud(`formation.${id}.title`); },
+  get short() { return tHud(`formation.${id}.short`); },
+  get desc() { return tHud(`formation.${id}.desc`); },
+}));
 
 /** Formation selector for the selection panel (own ground units). */
 export function formationBar(units: Unit[], set: (shape: FormationShape) => void): HTMLElement | null {
@@ -51,14 +60,14 @@ export function formationBar(units: Unit[], set: (shape: FormationShape) => void
   if (ground.length < 2) return null;
   const box = document.createElement('div');
   box.className = 'stances formations';
-  box.innerHTML = '<span class="st-lbl">Formation</span>';
+  box.innerHTML = `<span class="st-lbl">${tHud.html('formations.label')}</span>`;
   for (const f of FORMATION_INFO) {
     const b = document.createElement('button');
     b.className = 'stance fm';
     b.dataset.fm = f.id;
     b.innerHTML = f.icon;
-    b.dataset.tip = tipHtml(f.title, `${f.desc} The group moves at the pace of its slowest unit.`, [['L', 'cycle formations']]);
-    b.setAttribute('aria-label', `Formation: ${f.title}`);
+    b.dataset.tip = tipHtml(esc(f.title), `${esc(f.desc)} ${tHud.html('formations.pace')}`, [[esc(keyLabel('formation')) || '—', tHud.html('formations.cycle')]]);
+    b.setAttribute('aria-label', tHud('formations.set', { name: f.title }));
     b.onclick = () => set(f.id);
     box.appendChild(b);
   }
@@ -139,7 +148,7 @@ export class OrderViz {
         ctx.stroke();
         ctx.setLineDash([]);
         const c = at(it.cx + bt.size[0] / 2, it.cy + bt.size[1] / 2, 0.3);
-        if (c) this.badge(ctx, c[0], c[1], `${k + 1}`, getType(it.type).name, head);
+        if (c) this.badge(ctx, c[0], c[1], `${k + 1}`, typeName(getType(it.type)), head);
         ctx.globalAlpha = 1;
       });
     }
@@ -455,7 +464,7 @@ body.cur-guard #game-canvas { cursor: ${cursor("<g fill='none' stroke='#5fd8ff' 
 body.cur-patrol #game-canvas { cursor: ${cursor("<g fill='none' stroke='#ffc24a' stroke-width='2.4' stroke-linecap='round'><path d='M7 15a9 9 0 0 1 15.6-6'/><path d='M23 4v5h-5'/><path d='M25 17a9 9 0 0 1-15.6 6'/><path d='M9 28v-5h5'/></g>", 16, 'crosshair')}; }
 body.cur-rally #game-canvas { cursor: ${cursor("<g fill='none' stroke='#ffd34d' stroke-width='2.4' stroke-linejoin='round'><path d='M9 28V5h14l-3 5 3 5H9'/></g>")}; }
 .formations .fm svg { font-size: 1.15rem; }
-.bitem[data-planned]::after { content: 'Planned ' attr(data-planned); position: absolute; left: 0.3rem; top: 0.3rem; z-index: 3; padding: 0.05rem 0.3rem; border-radius: 0.3rem;
+.bitem[data-planned]::after { content: attr(data-planned); position: absolute; left: 0.3rem; top: 0.3rem; z-index: 3; padding: 0.05rem 0.3rem; border-radius: 0.3rem;
   background: rgba(6, 24, 40, 0.88); border: 1px solid rgba(140, 210, 255, 0.7); color: #cfeaff; font: 700 0.55rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
 .stance.fm.on { color: #fff; }
 

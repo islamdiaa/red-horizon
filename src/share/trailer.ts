@@ -8,12 +8,14 @@ import type { AudioSystem } from '../audio';
 import type { Game, GameSetup } from '../game';
 import type { Quality, TimeOfDay } from '../render/renderer';
 import { ICONS } from '../ui/icons';
-import { el, esc } from '../ui/dom';
+import { el } from '../ui/dom';
 import { showClipResult } from '../ui/clips';
 import { attractSetup, battleProgram, pickBattlefield, stageBattle } from './attract';
 import { actionFocus, Director, ease, lerp, type Shot, type TitleCard } from './director';
 import { CanvasRecorder, canRecordVideo, paintOverlay } from './recorder';
 import { siteUrl } from './links';
+import tShare from '../i18n/en/share';
+import tCommon from '../i18n/en/common';
 
 export interface TrailerHost {
   audio: AudioSystem;
@@ -26,32 +28,35 @@ export interface TrailerHost {
   exit(): void;
 }
 
-const CARDS: Record<string, TitleCard> = {
-  establish: { at: 'lower', kicker: 'Real-time strategy', title: 'Two superpowers', sub: 'Allies against Soviets' },
-  'soviet-base': { at: 'lower', kicker: 'Build', title: 'Your war machine', sub: 'Bases · ore · power' },
-  tesla: { at: 'lower', kicker: 'Defend', title: 'Tesla coils' },
-  clash: { at: 'lower', kicker: 'Command', title: 'Armoured warfare' },
-  naval: { at: 'lower', kicker: 'Rule the waves', title: 'Naval combat' },
-  'allied-base': { at: 'lower', kicker: 'Allies', title: 'Precision and technology' },
-  'nuke-launch': { at: 'lower', kicker: 'Superweapons', title: 'Nuclear strike' },
-  aftermath: { at: 'lower', kicker: 'Campaigns · skirmish · replays', title: 'Every battle is yours' },
-};
+/** The trailer's title cards by shot (in the player's language when the trailer starts). */
+function cards(): Record<string, TitleCard> {
+  return {
+    establish: { at: 'lower', kicker: tShare('trailer.cards.establishKicker'), title: tShare('trailer.cards.establish'), sub: tShare('trailer.cards.establishSub') },
+    'soviet-base': { at: 'lower', kicker: tShare('trailer.cards.buildKicker'), title: tShare('trailer.cards.build'), sub: tShare('trailer.cards.buildSub') },
+    tesla: { at: 'lower', kicker: tShare('trailer.cards.teslaKicker'), title: tShare('trailer.cards.tesla') },
+    clash: { at: 'lower', kicker: tShare('trailer.cards.clashKicker'), title: tShare('trailer.cards.clash') },
+    naval: { at: 'lower', kicker: tShare('trailer.cards.navalKicker'), title: tShare('trailer.cards.naval') },
+    'allied-base': { at: 'lower', kicker: tShare('trailer.cards.alliedKicker'), title: tShare('trailer.cards.allied') },
+    'nuke-launch': { at: 'lower', kicker: tShare('trailer.cards.nukeKicker'), title: tShare('trailer.cards.nuke') },
+    aftermath: { at: 'lower', kicker: tShare('trailer.cards.endKicker'), title: tShare('trailer.cards.end') },
+  };
+}
 
 /** The trailer cut: opening title, the battle program with cards, closing title. */
 export function trailerProgram(sea: ReturnType<typeof pickBattlefield>['sea']): Shot[] {
   const site = siteUrl().replace(/^https?:\/\//, '').replace(/\/$/, '');
   const mid = (d: Director) => ({ x: d.world.map.w / 2, y: d.world.map.h / 2 });
   const open: Shot = {
-    name: 'title', dur: 6, card: { at: 'center', kicker: 'A Cold War real-time strategy', title: 'Red Horizon' },
+    name: 'title', dur: 6, card: { at: 'center', kicker: tShare('trailer.tagline'), title: 'Red Horizon' },
     begin: (d) => { const m = actionFocus(d.world) ?? mid(d); d.follow.jump(m.x, m.y); return true; },
     pose: (d, t) => ({ x: d.follow.x, y: d.follow.y + lerp(10, 4, ease(t)), dist: lerp(70, 56, ease(t)), yaw: -0.7 + 0.25 * t, blur: 0.1 }),
   };
   const close: Shot = {
-    name: 'end', dur: 7, card: { at: 'center', title: 'Red Horizon', sub: site ? `Free in your browser · ${site}` : 'Free in your browser · no install' },
+    name: 'end', dur: 7, card: { at: 'center', title: 'Red Horizon', sub: site ? tShare('trailer.freeSite', { site }) : tShare('trailer.freeNoInstall') },
     begin: (d) => { const m = actionFocus(d.world) ?? mid(d); d.follow.jump(m.x, m.y); return true; },
     pose: (d, t) => ({ x: d.follow.x, y: d.follow.y, dist: lerp(30, 62, ease(t)), yaw: 0.4 - 0.3 * t, blur: 0.1 }),
   };
-  const body = battleProgram({ sea, cards: CARDS, pace: 0.95 });
+  const body = battleProgram({ sea, cards: cards(), pace: 0.95 });
   return [open, ...body, close];
 }
 
@@ -90,10 +95,10 @@ export function startTrailer(host: TrailerHost, params: URLSearchParams): void {
   game.start();
   const go = (record: boolean) => void run(game, host, sea, record);
   if (params.get('autorecord') === '1') { go(canRecordVideo()); return; }
-  const gate = el('div', 'tr-gate', `<div class="panel"><h2>Red Horizon trailer</h2>
-    <p>An 85-second cut of a staged battle with title cards. Record it to a ${canRecordVideo() ? 'WebM video (with sound) for social media' : 'video (not supported in this browser)'}; it plays in real time at your graphics quality.</p>
-    <div class="row"><button class="btn-primary" data-a="rec" ${canRecordVideo() ? '' : 'disabled'}>${ICONS.download}<span>Record trailer</span></button>
-    <button class="btn" data-a="play">${ICONS.play}<span>Just play</span></button><button class="btn" data-a="exit">${ICONS.exit}<span>Menu</span></button></div></div>`);
+  const gate = el('div', 'tr-gate', `<div class="panel"><h2>${tShare.html('trailer.gateTitle')}</h2>
+    <p>${tShare.html(canRecordVideo() ? 'trailer.gateVideo' : 'trailer.gateNoVideo')}</p>
+    <div class="row"><button class="btn-primary" data-a="rec" ${canRecordVideo() ? '' : 'disabled'}>${ICONS.download}<span>${tShare.html('trailer.record')}</span></button>
+    <button class="btn" data-a="play">${ICONS.play}<span>${tShare.html('trailer.justPlay')}</span></button><button class="btn" data-a="exit">${ICONS.exit}<span>${tCommon.html('menu')}</span></button></div></div>`);
   document.body.appendChild(gate);
   const pick = (record: boolean) => { gate.remove(); go(record); };
   (gate.querySelector('[data-a="rec"]') as HTMLElement).onclick = () => pick(true);
@@ -115,7 +120,7 @@ async function run(game: Game, host: TrailerHost, sea: ReturnType<typeof pickBat
     try {
       rec = new CanvasRecorder({ source: game.gfx.renderer.domElement, audio: host.audio.captureStream(), fps: 30, overlay: (ctx, w, h) => paintOverlay(ctx, w, h, dir) });
       rec.start();
-      badge = el('div', 'tr-rec', '<i></i>REC');
+      badge = el('div', 'tr-rec', `<i></i>${tShare.html('clip.rec')}`);
       document.body.appendChild(badge);
     } catch (e) {
       console.warn('[trailer] recording unavailable', e);
@@ -125,7 +130,7 @@ async function run(game: Game, host: TrailerHost, sea: ReturnType<typeof pickBat
   const total = dir.length;
   await new Promise<void>((resolve) => {
     const iv = window.setInterval(() => {
-      if (badge && rec) badge.innerHTML = `<i></i>REC ${Math.floor(dir.elapsed)} / ${Math.round(total)} s`;
+      if (badge && rec) badge.innerHTML = `<i></i>${tShare.html('trailer.recTime', { s: Math.floor(dir.elapsed), total: Math.round(total) })}`;
       if (dir.ended || !document.body.contains(game.gfx.renderer.domElement)) { window.clearInterval(iv); resolve(); }
     }, 250);
   });
@@ -134,9 +139,9 @@ async function run(game: Game, host: TrailerHost, sea: ReturnType<typeof pickBat
   host.audio.releaseCapture();
   (window as unknown as { __trailer?: { blob: Blob | null; ext: string; frames: number } }).__trailer = { blob, ext: rec?.format.ext ?? 'webm', frames: rec?.frames ?? 0 }; // for automated capture
   game.speed = 0;
-  if (blob && blob.size) showClipResult(blob, rec!.format.ext, 'Trailer', rec!.width, rec!.height, () => location.reload());
+  if (blob && blob.size) showClipResult(blob, rec!.format.ext, tShare('trailer.label'), rec!.width, rec!.height, () => location.reload(), 'Trailer');
   else {
-    const g = el('div', 'tr-gate', `<div class="panel"><h2>That was Red Horizon</h2><p>Play it free in your browser.</p><div class="row"><button class="btn-primary" data-a="exit">${ICONS.play}<span>Play</span></button><button class="btn" data-a="again">${ICONS.restart}<span>Watch again</span></button></div></div>`);
+    const g = el('div', 'tr-gate', `<div class="panel"><h2>${tShare.html('trailer.endTitle')}</h2><p>${tShare.html('trailer.endText')}</p><div class="row"><button class="btn-primary" data-a="exit">${ICONS.play}<span>${tCommon.html('play')}</span></button><button class="btn" data-a="again">${ICONS.restart}<span>${tShare.html('trailer.again')}</span></button></div></div>`);
     document.body.appendChild(g);
     (g.querySelector('[data-a="exit"]') as HTMLElement).onclick = () => { g.remove(); host.exit(); };
     (g.querySelector('[data-a="again"]') as HTMLElement).onclick = () => location.reload();

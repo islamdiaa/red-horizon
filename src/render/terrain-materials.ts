@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { assetUrl } from '../platform/paths';
+import { prefetchOffline } from '../platform/prefetch';
 
 /**
  * Scanned terrain materials (CC0 Poly Haven scans baked by tools/assets/terrain/build.mjs into
@@ -186,7 +187,7 @@ export class TerrainTextureSet {
     this.nrm.value = makeArray(b, S, LAYER_COUNT, false, 1);
     this.placeholders = [this.albedo.value, this.nrm.value];
     this.ready = this.load(anisotropy).then(
-      () => { this.state = 'ready'; prefetchOffline(); },
+      () => { this.state = 'ready'; prefetchOffline(terrainTextureUrls); },
       (e) => {
         this.state = 'failed';
         if ((e as Error)?.message !== NO_BROWSER) console.warn('[terrain] scanned materials unavailable, using flat colours:', (e as Error)?.message ?? e);
@@ -284,23 +285,6 @@ export function releaseTerrainTextures(s: TerrainTextureSet) {
   if (sets.get(s.climate) === s) sets.delete(s.climate);
   s.dispose();
 }
-
-/**
- * Offline play: once a match runs, ask the service worker to cache every climate's materials quietly (the
- * current climate's files are already cached as they load). Once per page, best effort, production only.
- */
-export function prefetchOffline(extra?: () => Promise<string[]>) {
-  if (extra) prefetchExtra.add(extra);
-  if (prefetched || typeof navigator === 'undefined' || !navigator.serviceWorker?.controller) return;
-  prefetched = true;
-  setTimeout(() => {
-    void Promise.all([terrainTextureUrls(), ...[...prefetchExtra].map((f) => f().catch(() => [] as string[]))])
-      .then((lists) => navigator.serviceWorker.ready.then((r) => r.active?.postMessage({ type: 'CACHE_URLS', urls: lists.flat() })))
-      .catch(() => {});
-  }, 45000);
-}
-let prefetched = false;
-const prefetchExtra = new Set<() => Promise<string[]>>();
 
 /** Every baked file (offline prefetch). */
 export async function terrainTextureUrls(): Promise<string[]> {

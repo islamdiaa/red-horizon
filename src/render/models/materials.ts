@@ -391,7 +391,11 @@ export function setLitMaterialPatch(fn: ((m: THREE.MeshStandardMaterial) => void
 /** Other lit model materials (HD models, hd.ts): patched like the body materials, now and later. */
 const extraLit = new Set<THREE.MeshStandardMaterial>();
 export function registerLitMaterial(m: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
-  extraLit.add(m);
+  if (!extraLit.has(m)) {
+    extraLit.add(m);
+    // (every match makes new HD materials: a disposed one leaves the set, or it would grow match after match)
+    m.addEventListener('dispose', () => extraLit.delete(m));
+  }
   return applyLitPatch(m);
 }
 

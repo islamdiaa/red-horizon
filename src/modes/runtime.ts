@@ -16,6 +16,7 @@ import { coopMissionId } from '../missions/special';
 import { getMapDef } from '../maps';
 import { challengeSetup, challengeUpdate } from './challenge';
 import { KOTH_DEFAULT_MINUTES, kothSetup, kothUpdate } from './koth';
+import { MODES_EN } from './text';
 
 /** Player index the human commands. */
 export function localIndex(setup: Pick<GameSetup, 'branch' | 'challenge'>): number {
@@ -80,7 +81,7 @@ function modeDef(setup: GameSetup): ModeDef | null {
   const koth = !!setup.koth;
   if (!ch && !koth) return null;
   const minutes = setup.kothMinutes ?? KOTH_DEFAULT_MINUTES;
-  const title = ch?.title ?? 'King of the Hill';
+  const title = ch?.title ?? MODES_EN.koth.title; // (English: mission state; shown through trSource)
   return {
     id: ch ? 'challenge' : 'koth', campaign: 'special', index: 0, title, codename: title.toUpperCase(), location: '', briefing: [],
     map: { size: setup.mapSize, seed: setup.seed, players: 1 + setup.opponents.length }, players: [],

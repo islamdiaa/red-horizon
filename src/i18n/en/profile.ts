@@ -1,0 +1,101 @@
+/** Commander profile screen (src/ui/profile.ts): rank and XP, service record, medal case, contracts, history. */
+import { strings } from '../core';
+
+export default strings('profile', {
+  /** Short durations: "2h 05m", "12m 30s". */
+  dur: { hm: '{h}h {m}m', ms: '{m}m {s}s' },
+  justNow: 'just now',
+  /** Money: "$1.25M". */
+  moneyM: '${n}M',
+  cmd: {
+    kicker: 'Commander · rank {n} of {total}',
+    rename: 'Rename commander',
+    commendations: 'Commendations',
+    xp: '{n} XP',
+    nextRank: 'Next: {rank}',
+    highestRank: 'Highest rank',
+    toPromotion: '{n} XP to promotion',
+    topRank: 'Every medal still counts.',
+    ladderTip: '{rank} · {xp} XP',
+  },
+  service: {
+    title: 'Service record',
+    battles: 'Battles',
+    victories: 'Victories',
+    inService: 'In service',
+    kills: 'Kills',
+    // structures destroyed
+    razed: 'Razed',
+    harvested: 'Harvested',
+    bestWave: 'Best wave',
+    streak: 'Daily streak',
+    best: 'best {n}',
+    fastestWin: 'Fastest win',
+    favUnits: 'Favourite units · kills',
+    favUnitTip: '{unit}: {n} kills',
+    favUnit: 'Favourite unit',
+    noneYet: 'None yet',
+    kills2: '{n} kills',
+  },
+  victories: {
+    title: 'Victories',
+    byFaction: 'By faction',
+    byDifficulty: 'By AI difficulty',
+    allies: 'Allies',
+    soviet: 'Soviet',
+  },
+  foot: {
+    rivals: 'Rivals',
+    locker: 'Locker',
+  },
+  medals: {
+    toggle: 'Medals',
+    case: 'Medal case',
+    count: '{earned} / {total} medals',
+    complete: 'Medals complete',
+    tab: { all: 'All', earned: 'Earned', progress: 'In progress', locked: 'Locked' },
+    empty: 'Nothing here yet.',
+    classified: 'Classified',
+    secret: 'A secret commendation. Keep fighting to reveal it.',
+    goldComplete: 'Gold · complete',
+    earned: 'Earned',
+    // a medal with bronze / silver / gold tiers, none earned yet
+    tiered: 'Tiered',
+  },
+  contracts: {
+    toggle: 'Contracts',
+    title: 'Contracts',
+    summary: '{done} completed · {cmd} Commendations earned',
+    // lower case tag on each card
+    daily: 'daily',
+    weekly: 'weekly',
+    complete: 'Complete',
+    reward: '+{xp} XP · +{cmd}',
+    rerollTip: 'Swap for another contract (one free reroll a day)',
+    reroll: 'Reroll',
+    today: "Today's orders",
+    week: 'This week',
+    rerollFree: 'One free reroll a day: swap an unfinished contract for another.',
+    rerollUsed: 'Reroll used today. New orders arrive with the date; nothing is lost by skipping a day.',
+  },
+  history: {
+    title: 'Recent operations',
+    last: 'last {n}',
+    empty: 'No operations on record yet. Deploy to start your service record.',
+    // result square: won / lost / abandoned
+    win: 'W',
+    loss: 'L',
+    skirmish: 'Skirmish',
+    daily: 'Daily',
+    survival: 'Survival',
+    campaign: 'Campaign',
+    soviet: 'Soviet',
+    allied: 'Allied',
+    /** AI difficulty and climate, lower case in the history line. */
+    difficulty: { easy: 'easy', normal: 'normal', hard: 'hard', brutal: 'brutal' },
+    climate: { temperate: 'temperate', winter: 'winter', desert: 'desert' },
+    wave: 'Wave {n}',
+    kills: 'Kills',
+    xp: '+{n} XP',
+  },
+});

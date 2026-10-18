@@ -1,71 +1,31 @@
 /**
  * Applies the equipped cosmetics (src/meta/unlocks.ts): the unit paint scheme of the local player's army
- * (render only, through the team-colour uniforms in src/render/models/materials.ts), the HUD accent theme
+ * (render only, in ./paint.ts through the team-colour uniforms in src/render/models/materials.ts), the HUD accent theme
  * (CSS variables), the announcer voice style, the victory fanfare, portraits and banners. Nothing here can
  * change the simulation: paint, colour, voice and music are presentation.
  *
  * Browser-only module (DOM, WebAudio, WebGL thumbnails); node tests use unlocks.ts directly.
  */
 import type { AudioSystem } from '../audio';
-import { setPaintScheme, type PaintScheme } from '../render/models/materials';
-import { renderThumbnails } from '../render/thumbnails';
 import { rivalPortraitSvg } from '../ui/rivals';
-import { COSMETICS, COSMETIC_BY_ID, equipped, type CosmeticDef, type FanfareSpec, type UnlockCtx, type VoiceSpec } from './unlocks';
+import { COSMETICS, COSMETIC_BY_ID, cosmeticName, equipped, type CosmeticDef, type FanfareSpec, type UnlockCtx, type VoiceSpec } from './unlocks';
 import { unlockContext } from './index';
 import { rankIndexFor } from './ranks';
 import type { Profile } from './profile';
 
-// ---------------------------------------------------------------------------
-// Paint schemes
-// ---------------------------------------------------------------------------
-let activePaint: { hex: number; scheme: PaintScheme | null } = { hex: -1, scheme: null };
-
-function setPaint(hex: number, scheme: PaintScheme | null) {
-  setPaintScheme(hex, scheme);
-  activePaint = { hex: scheme ? hex : -1, scheme };
-}
-
 /**
- * Start-of-match cosmetics: the local army's paint scheme (only for a match the player commands: not the
- * menu backdrop or a replay), the HUD theme and the announcer voice.
+ * Start-of-match cosmetics: the HUD theme and the announcer voice. The local army's paint scheme is applied by
+ * ./paint.ts (it needs the 3D models, which load after the menu).
  */
 export function applyMatchCosmetics(opts: { teamColor: number; commanded: boolean; audio?: AudioSystem }) {
   try {
     const ctx = unlockContext();
-    const paint = equipped('paint', ctx).paint ?? null;
-    setPaint(opts.teamColor, opts.commanded ? paint : null);
     applyHudTheme(ctx);
     if (opts.audio) bindCosmeticsAudio(opts.audio);
     voiceNow = voiceSpecFor(ctx);
   } catch (e) {
     console.warn('cosmetics', e);
   }
-}
-
-/** Back to factory colours (the match is over and torn down). */
-export function clearMatchCosmetics() {
-  if (activePaint.scheme) setPaint(activePaint.hex, null);
-}
-
-/** Locker previews: one portrait of a tank per paint scheme, in the player's colour (procedural models). */
-export function paintPreviews(hex: number, faction: 'allies' | 'soviet', w = 216, h = 150): Map<string, string> {
-  const out = new Map<string, string>();
-  const unit = faction === 'soviet' ? '3tnk' : '2tnk';
-  const keep = activePaint;
-  try {
-    for (const def of COSMETICS) {
-      if (def.slot !== 'paint') continue;
-      setPaintScheme(hex, def.paint ?? null);
-      const url = renderThumbnails([unit], hex, w, h, faction).get(unit);
-      if (url) out.set(def.id, url);
-    }
-  } catch (e) {
-    console.warn('paint previews', e);
-  } finally {
-    setPaintScheme(hex, null);
-    if (keep.scheme) setPaintScheme(keep.hex, keep.scheme);
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +277,6 @@ export function commanderLook(ctx: UnlockCtx = unlockContext()): { portrait: str
   return {
     portrait: portraitSvg(equipped('portrait', ctx), ctx.profile),
     banner: equipped('banner', ctx).banner ?? COSMETIC_BY_ID['banner-standard'].banner!,
-    title: t.req.kind === 'default' ? '' : t.name,
+    title: t.req.kind === 'default' ? '' : cosmeticName(t),
   };
 }

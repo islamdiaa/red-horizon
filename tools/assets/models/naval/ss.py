@@ -36,7 +36,7 @@ def build(m):
         edge_strip(m, hl, (-0.41, dy + 0.016, 0.027 * s), (0.45, dy + 0.016, 0.023 * s), '+y', 0.008, depth=0.01)
         for i in range(10):
             box(hl, P.black, (0.03, 0.006, 0.004), (-0.38 + i * 0.09, dy - 0.012, (H.half_at(-0.38 + i * 0.09) * 0.62) * s))
-    team_shade(m, hl, (-0.22, dy + 0.017, 0), (0.3, 0.03), '+y', TEAM_NEUTRAL, depth=0.012)
+    team_shade(m, hl, (-0.2, dy + 0.017, 0), (0.44, 0.046), '+y', TEAM_NEUTRAL, depth=0.012)
     roundel(m, hl, P, (-0.2, dy + 0.017, 0), 0.052, depth=0.012)
     for x in (0.3, -0.1, -0.35):
         cyl(hl, P.black, 0.012, 0.004, (x, dy + 0.017, 0), seg=10)

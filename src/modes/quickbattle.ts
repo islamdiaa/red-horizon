@@ -12,7 +12,12 @@ import type { GameSetup, OpponentSetup } from '../game';
 import { CURATED_MAPS } from '../maps';
 import type { AIDifficulty } from '../sim/ai';
 import { PERSONALITIES } from '../sim/ai-personality';
-import { mutateSetup, mutatorNames, surpriseMutators } from './mutators';
+import { MUTATOR_BY_ID, mutateSetup, normaliseMutators, surpriseMutators } from './mutators';
+import { MODES_EN, fillEn } from './text';
+import { dt, trSource, tx } from '../i18n/core';
+import { mutatorName, personalityName } from '../i18n/names';
+import tModes from '../i18n/en/modes';
+import tCommon from '../i18n/en/common';
 
 /** What a Quick Battle rolled (GameSetup.quick: the loading card and the end screen). */
 export interface QuickInfo {
@@ -39,19 +44,20 @@ const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
 
 /**
  * The AI level that keeps a commander's matches close: a newcomer starts on easy, then the highest level they beat
- * at least half the time, one higher once they win there comfortably.
+ * at least half the time, one higher once they win there comfortably (three wins, 60%). Somebody who hasn't yet
+ * beaten any level half the time stays on easy (a single lucky win doesn't promote them: Quick Battle is where new
+ * players learn).
  */
 export function quickSkill(st: QuickStats | null | undefined): AIDifficulty {
   if (!st || !(st.skirmishes ?? 0)) return 'easy';
-  let best = 0;
+  let best = -1;
   for (let i = 0; i < DIFFS.length; i++) {
     const g = st.gamesByDifficulty?.[DIFFS[i]] ?? 0, w = st.winsByDifficulty?.[DIFFS[i]] ?? 0;
     if (w >= 1 && w / Math.max(1, g) >= 0.5) best = i;
   }
+  if (best < 0) return 'easy';
   const g = st.gamesByDifficulty?.[DIFFS[best]] ?? 0, w = st.winsByDifficulty?.[DIFFS[best]] ?? 0;
   if (w >= 3 && w / Math.max(1, g) >= 0.6) best = Math.min(DIFFS.length - 1, best + 1);
-  // somebody who has played but never won: normal is still the friendliest real test
-  if (best === 0 && (st.winsByDifficulty?.easy ?? 0) >= 1) return 'normal';
   return DIFFS[best];
 }
 
@@ -83,8 +89,9 @@ export function rollQuickBattle(seed: number, o: QuickOptions): GameSetup {
   const opponent: OpponentSetup = o.rival?.opponent ?? { faction: foe, difficulty: o.skill, personality };
   const size = def ? def.size : rng.pick([80, 96, 96, 112]);
   const info: QuickInfo = {
-    seed, map: def ? def.name : `Generated ${size}×${size}`, climate, time,
-    opponent: o.rival ? o.rival.name : PERSONALITIES[personality]?.name ?? 'AI commander',
+    // (stored with the setup: English, translated by quickLines)
+    seed, map: def ? def.name : fillEn(MODES_EN.quick.generated, { w: String(size), h: String(size) }), climate, time,
+    opponent: o.rival ? o.rival.name : PERSONALITIES[personality]?.name ?? MODES_EN.quick.aiCommander,
     difficulty: opponent.difficulty, personality: o.rival ? undefined : personality, rival: !!o.rival, mutators,
   };
   const setup = mutateSetup<GameSetup>({
@@ -99,13 +106,18 @@ export function rollQuickBattle(seed: number, o: QuickOptions): GameSetup {
   return setup;
 }
 
-/** Short lines describing a roll (loading card). */
+/** Short lines describing a roll (loading card), in the active language. */
 export function quickLines(q: QuickInfo): { label: string; value: string }[] {
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const curated = CURATED_MAPS.find((m) => m.name === q.map);
+  const map = curated ? dt('map', curated.id, 'name', curated.name) : trSource(q.map);
+  const pers = !q.rival && q.personality ? PERSONALITIES[q.personality] : undefined;
+  const opponent = pers ? personalityName(pers) : trSource(q.opponent);
+  const word = (k: string, v: string) => tx(`modes.quick.${k}.${v}`, undefined, cap(v));
   return [
-    { label: 'Battlefield', value: `${q.map} · ${cap(q.climate)} · ${cap(q.time)}` },
-    { label: 'Opponent', value: `${q.opponent} · ${cap(q.difficulty)}${q.rival ? ' · Rival' : ''}` },
-    { label: 'Rules', value: 'Commander · battlefield events' },
-    { label: 'Mutators', value: mutatorNames(q.mutators).join(' · ') || 'None' },
+    { label: tModes('quick.battlefield'), value: `${map} · ${word('climate', q.climate)} · ${word('time', q.time)}` },
+    { label: tModes('quick.opponent'), value: `${opponent} · ${tx(`common.difficulty.${q.difficulty}`, undefined, cap(q.difficulty))}${q.rival ? ` · ${tModes('quick.rival')}` : ''}` },
+    { label: tModes('quick.rules'), value: tModes('quick.rulesValue') },
+    { label: tModes('quick.mutators'), value: normaliseMutators(q.mutators).map((id) => mutatorName(MUTATOR_BY_ID[id])).join(' · ') || tCommon('none') },
   ];
 }

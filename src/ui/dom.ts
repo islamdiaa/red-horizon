@@ -1,5 +1,6 @@
 /** Small DOM helpers shared by the HUD and menus. */
 import type { SfxKey } from '../audio/types';
+import { fmtInt, groupSeparator } from '../i18n/core';
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -79,7 +80,7 @@ export class Odometer {
     this.el.innerHTML = '';
     this.cols = [];
     for (let i = 0; i < n; i++) {
-      if (i > 0 && (n - i) % 3 === 0) this.el.appendChild(el('span', 'odo-sep', ','));
+      if (i > 0 && (n - i) % 3 === 0) this.el.appendChild(el('span', 'odo-sep', groupSeparator())); // 10,000 · 10.000 · 10 000
       const col = el('span', 'odo-col');
       const strip = el('span', 'odo-strip', [0, 1, 2].map(() => '<i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i>').join(''));
       col.appendChild(strip);
@@ -113,7 +114,7 @@ export function countUp(root: HTMLElement, duration = 1400, delayStep = 90) {
   els.forEach((e, i) => {
     const target = +e.dataset.count!;
     const prefix = e.dataset.prefix ?? '';
-    const fmt = (v: number) => prefix + Math.round(v).toLocaleString('en-US');
+    const fmt = (v: number) => prefix + fmtInt(v); // (grouped in the interface language)
     if (fast || !isFinite(target)) { e.textContent = fmt(target); return; }
     e.textContent = fmt(0);
     const start = performance.now() + i * delayStep;

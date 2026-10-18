@@ -3,14 +3,18 @@
  * case (earned, in progress, locked, classified) and the last 20 operations.
  */
 import {
-  RANKS, allAchievementStates, achievementDesc, achievementMetal, achievementRarity, favouriteUnit, insigniaSvg, loadProfile, medalSvg, medalTotals,
-  picto, rankName, rankProgress, setCommanderName, TIER_NAMES, type AchievementState, type MatchRecord, type Profile,
+  RANKS, allAchievementStates, achievementDesc, achievementMetal, achievementRarity, achievementTitle, favouriteUnit, insigniaSvg, loadProfile, medalSvg, medalTotals,
+  moneyShort, picto, rankName, rankProgress, rankTransliteration, rarityName, recordTitle, setCommanderName, tierName, type AchievementState, type MatchRecord, type Profile,
 } from '../meta';
+import { currentLang, fmtInt, fmtMoney, fmtPct, fmtRelative, tx } from '../i18n/core';
+import { typeName } from '../i18n/names';
+import tProfile from '../i18n/en/profile';
+import tCommon from '../i18n/en/common';
 import { star } from '../meta/art';
 import { UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
 import { showRivals } from './rivals';
-import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, fmtContractValue, profileWithContracts, rerollContractNow, unlockContext, unseenUnlocks, type Cadence } from '../meta';
+import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, contractTitle, fmtContractValue, profileWithContracts, rerollContractNow, unlockContext, unseenUnlocks, type Cadence } from '../meta';
 import { commanderLook } from '../meta/cosmetics'; // portrait, banner, title
 import { showLocker } from './locker';
 
@@ -205,27 +209,29 @@ const CSS = `
 `;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
+const fmt = (n: number) => fmtInt(n);
 function fmtDuration(sec: number): string {
   const m = Math.floor(sec / 60), h = Math.floor(m / 60);
-  return h ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m ${String(Math.floor(sec % 60)).padStart(2, '0')}s`;
+  return h ? tProfile('dur.hm', { h: String(h), m: String(m % 60).padStart(2, '0') }) : tProfile('dur.ms', { m: String(m), s: String(Math.floor(sec % 60)).padStart(2, '0') });
 }
 function ago(t: number): string {
   const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 90) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+  return s < 90 ? tProfile('justNow') : fmtRelative(t);
 }
 function money(n: number): string {
-  return n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e4 ? `$${(n / 1000).toFixed(1)}k` : `$${fmt(n)}`;
+  if (n >= 1e6) {
+    let v: string;
+    try { v = new Intl.NumberFormat(currentLang(), { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n / 1e6); } catch { v = (n / 1e6).toFixed(2); }
+    return tProfile('moneyM', { n: v });
+  }
+  return n >= 1e4 ? moneyShort(n, 1) : fmtMoney(Math.round(n));
 }
 
 function ring(frac: number): string {
   const r = 20, c = 2 * Math.PI * r;
   return `<svg class="ring" viewBox="0 0 48 48"><circle cx="24" cy="24" r="${r}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="4"/>
     <circle cx="24" cy="24" r="${r}" fill="none" stroke="#ffcf3f" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(c * frac).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 24 24)" style="filter:drop-shadow(0 0 3px rgba(255,207,63,.7))"/>
-    <text x="24" y="28" text-anchor="middle" fill="#fff" font-size="12" font-family="monospace">${Math.round(frac * 100)}%</text></svg>`;
+    <text x="24" y="28" text-anchor="middle" fill="#fff" font-size="12" font-family="monospace">${fmtPct(Math.round(frac * 100) / 100)}</text></svg>`;
 }
 
 function medalCard(s: AchievementState, i: number): string {
@@ -234,16 +240,16 @@ function medalCard(s: AchievementState, i: number): string {
   const t = Math.max(0, s.tier - 1);
   const rarity = achievementRarity(a, earned ? t : 0);
   const art = medalSvg({ metal: achievementMetal(a, earned ? t : 0), picto: a.picto, category: a.category, locked: !earned, hidden: s.secret });
-  const title = s.secret ? 'Classified' : a.title;
-  const desc = s.secret ? 'A secret commendation. Keep fighting to reveal it.' : achievementDesc(a, s.done ? s.tiers - 1 : s.tier);
-  const tiers = s.tiers > 1 ? `<div class="pf-tiers">${['b', 's', 'g'].map((k, j) => `<i class="${k}${j < s.tier ? ' on' : ''}" title="${TIER_NAMES[j]}"></i>`).join('')}</div>` : '';
+  const title = s.secret ? tProfile('medals.classified') : achievementTitle(a);
+  const desc = s.secret ? tProfile('medals.secret') : achievementDesc(a, s.done ? s.tiers - 1 : s.tier);
+  const tiers = s.tiers > 1 ? `<div class="pf-tiers">${['b', 's', 'g'].map((k, j) => `<i class="${k}${j < s.tier ? ' on' : ''}" title="${esc(tierName(j))}"></i>`).join('')}</div>` : '';
   const prog = s.done
-    ? `<span class="done">${s.tiers > 1 ? 'Gold · complete' : 'Earned'}</span>`
+    ? `<span class="done">${tProfile.html(s.tiers > 1 ? 'medals.goldComplete' : 'medals.earned')}</span>`
     : s.secret ? '<span>???</span>' : `<span>${a.money ? money(s.cur) : fmt(s.cur)} / ${a.money ? money(s.target) : fmt(s.target)}</span>`;
-  const rarLabel = s.tiers > 1 ? (earned ? TIER_NAMES[t] : 'Tiered') : rarity;
+  const rarLabel = s.tiers > 1 ? (earned ? tierName(t) : tProfile('medals.tiered')) : rarityName(rarity);
   return `<div class="pf-md ${earned ? 'earned' : 'locked'} r-${rarity}" style="--i:${i}" title="${esc(title)}">
     <div class="pf-md-art">${art}</div>
-    <div class="pf-md-b"><div class="pf-md-t"><span>${esc(title)}</span>${s.secret ? '' : `<em class="pf-rar">${rarLabel.toUpperCase()}</em>`}</div>
+    <div class="pf-md-b"><div class="pf-md-t"><span>${esc(title)}</span>${s.secret ? '' : `<em class="pf-rar">${esc(rarLabel.toLocaleUpperCase(currentLang()))}</em>`}</div>
       <div class="pf-md-d">${esc(desc)}</div>
       <div class="pf-md-p"><div class="tr"><i style="width:${(s.secret ? 0 : s.frac * 100).toFixed(1)}%"></i></div>${prog}</div></div>
     ${tiers}
@@ -252,23 +258,24 @@ function medalCard(s: AchievementState, i: number): string {
 
 function historyRow(h: MatchRecord, i: number): string {
   const cls = h.abandoned ? 'abandoned' : h.won ? 'win' : 'loss';
-  const res = h.abandoned ? '–' : h.won ? 'W' : 'L';
-  const bits = [h.mode === 'skirmish' ? 'Skirmish' : h.missionId === 'daily' ? 'Daily' : h.wave !== undefined ? 'Survival' : 'Campaign', h.faction === 'soviet' ? 'Soviet' : 'Allied'];
-  if (h.difficulty) bits.push(h.difficulty);
-  if (h.climate) bits.push(h.climate);
+  const res = h.abandoned ? '–' : tProfile(h.won ? 'history.win' : 'history.loss');
+  const bits = [tProfile(h.mode === 'skirmish' ? 'history.skirmish' : h.missionId === 'daily' ? 'history.daily' : h.wave !== undefined ? 'history.survival' : 'history.campaign'),
+    tProfile(h.faction === 'soviet' ? 'history.soviet' : 'history.allied')];
+  if (h.difficulty) bits.push(tx(`profile.history.difficulty.${h.difficulty}`, undefined, h.difficulty));
+  if (h.climate) bits.push(tx(`profile.history.climate.${h.climate}`, undefined, h.climate));
   let extra = '';
-  if (h.wave !== undefined) extra = `Wave ${h.wave}`;
+  if (h.wave !== undefined) extra = tProfile.html('history.wave', { n: String(h.wave) });
   else if (h.stars !== undefined) extra = [0, 1, 2].map((k) => `<svg class="pf-star${k < (h.stars ?? 0) ? ' on' : ''}" viewBox="0 0 24 24"><path d="${star(12, 12.5, 11, 4.6)}"/></svg>`).join('');
   else if (h.score !== undefined) extra = fmt(h.score);
   if (h.medals.length) extra += ` ${picto('medal')}${h.medals.length}`;
   return `<div class="pf-hr ${cls}" style="--i:${i}"><span class="pf-res">${res}</span>
-    <span class="pf-ht"><b>${esc(h.title)}</b><small>${esc(bits.join(' · '))}</small></span>
-    <span class="pf-hc">${picto('clock')} ${formatTime(h.time)}</span><span class="pf-hc" title="Kills">${picto('crosshair')} ${fmt(h.kills)}</span><span class="pf-hc score">${extra}</span>
-    <span class="pf-hc xp">+${fmt(h.xp)} XP</span><span class="pf-hc ago">${ago(h.at)}</span></div>`;
+    <span class="pf-ht"><b>${esc(recordTitle(h))}</b><small>${esc(bits.join(' · '))}</small></span>
+    <span class="pf-hc">${picto('clock')} ${formatTime(h.time)}</span><span class="pf-hc" title="${tProfile.html('history.kills')}">${picto('crosshair')} ${fmt(h.kills)}</span><span class="pf-hc score">${extra}</span>
+    <span class="pf-hc xp">${tProfile.html('history.xp', { n: fmt(h.xp) })}</span><span class="pf-hc ago">${esc(ago(h.at))}</span></div>`;
 }
 
 function barRow(label: string, wins: number, games: number, color: string, max: number): string {
-  return `<div class="pf-br" style="--c:${color}"><span>${label}</span><span class="tr"><u style="width:${((games / max) * 100).toFixed(1)}%"></u><i style="width:${((wins / max) * 100).toFixed(1)}%"></i></span><b>${wins}/${games}</b></div>`;
+  return `<div class="pf-br" style="--c:${color}"><span>${esc(label)}</span><span class="tr"><u style="width:${((games / max) * 100).toFixed(1)}%"></u><i style="width:${((wins / max) * 100).toFixed(1)}%"></i></span><b>${wins}/${games}</b></div>`;
 }
 
 /** Daily and weekly contracts with progress, rewards and the free daily reroll. */
@@ -279,15 +286,15 @@ function contractsGrid(p: Profile): string {
     const def = CONTRACT_BY_ID[s.id];
     const r = contractReward(s.id, cad);
     return `<div class="pf-ct${s.done ? ' done' : ''}" style="--i:${i + (cad === 'weekly' ? 3 : 0)}">
-      <div class="pf-ct-t">${picto(s.done ? 'untouchable' : def?.picto ?? 'target')}<span>${esc(def?.title ?? s.id)}</span><em>${cad}</em></div>
+      <div class="pf-ct-t">${picto(s.done ? 'untouchable' : def?.picto ?? 'target')}<span>${esc(def ? contractTitle(def) : s.id)}</span><em>${tProfile.html(cad === 'weekly' ? 'contracts.weekly' : 'contracts.daily')}</em></div>
       <p>${esc(contractDesc(s))}</p>
       <div class="tr"><i style="width:${((s.p / Math.max(1, s.n)) * 100).toFixed(1)}%"></i></div>
-      <div class="pf-ct-f"><span>${s.done ? 'Complete' : `${fmtContractValue(def, s.p)} / ${fmtContractValue(def, s.n)}`}</span><b>+${fmt(r.xp)} XP · +${r.cmd} ${picto('medal')}</b></div>
-      ${!s.done && reroll ? `<button class="pf-ct-rr" data-rr="${cad}:${i}" title="Swap for another contract (one free reroll a day)">${picto('history')} Reroll</button>` : ''}</div>`;
+      <div class="pf-ct-f"><span>${s.done ? tProfile.html('contracts.complete') : `${esc(fmtContractValue(def, s.p))} / ${esc(fmtContractValue(def, s.n))}`}</span><b>${tProfile.html('contracts.reward', { xp: fmt(r.xp), cmd: String(r.cmd) })} ${picto('medal')}</b></div>
+      ${!s.done && reroll ? `<button class="pf-ct-rr" data-rr="${cad}:${i}" title="${tProfile.html('contracts.rerollTip')}">${picto('history')} ${tProfile.html('contracts.reroll')}</button>` : ''}</div>`;
   };
-  return `<div class="pf-grid"><div class="pf-ct-h">Today's orders</div>${p.contracts.daily.map((_, i) => card('daily', i)).join('')}
-    <div class="pf-ct-h">This week</div>${p.contracts.weekly.map((_, i) => card('weekly', i)).join('')}
-    <div class="pf-ct-h">${reroll ? 'One free reroll a day: swap an unfinished contract for another.' : 'Reroll used today. New orders arrive with the date; nothing is lost by skipping a day.'}</div></div>`;
+  return `<div class="pf-grid"><div class="pf-ct-h">${tProfile.html('contracts.today')}</div>${p.contracts.daily.map((_, i) => card('daily', i)).join('')}
+    <div class="pf-ct-h">${tProfile.html('contracts.week')}</div>${p.contracts.weekly.map((_, i) => card('weekly', i)).join('')}
+    <div class="pf-ct-h">${tProfile.html(reroll ? 'contracts.rerollFree' : 'contracts.rerollUsed')}</div></div>`;
 }
 
 /** Full-screen commander profile. Returns a close function. */
@@ -318,13 +325,13 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
     const fav = favouriteUnit(p);
     const favKind = fav ? UNITS[fav.id]?.kind : null;
     const winPct = st.games ? Math.round((st.wins / st.games) * 100) : 0;
-    const ladder = RANKS.map((r) => `<span class="${r.index <= rp.index ? 'on' : ''}${r.index === rp.index ? ' cur' : ''}" title="${esc(rankName(r.index, p.faction))} · ${fmt(r.xp)} XP">${insigniaSvg(r.index, p.faction)}</span>`).join('');
+    const ladder = RANKS.map((r) => `<span class="${r.index <= rp.index ? 'on' : ''}${r.index === rp.index ? ' cur' : ''}" title="${esc(tProfile('cmd.ladderTip', { rank: rankName(r.index, p.faction), xp: fmt(r.xp) }))}">${insigniaSvg(r.index, p.faction)}</span>`).join('');
     const maxF = Math.max(1, st.gamesByFaction.allies, st.gamesByFaction.soviet);
     const maxD = Math.max(1, ...Object.values(st.gamesByDifficulty));
     const list = states
       .filter((s) => filter === 'all' || (filter === 'earned' ? s.tier > 0 : filter === 'locked' ? s.tier === 0 : !s.done && !s.secret && s.frac > 0))
       .sort((a, b) => (filter === 'progress' ? b.frac - a.frac : 0));
-    const ru = p.faction === 'soviet' ? RANKS[rp.index].ru : '';
+    const ru = p.faction === 'soviet' ? rankTransliteration(rp.index) : '';
     const byRarity = (r: string) => states.filter((s) => s.tier > 0 && achievementRarity(s.def, s.tier - 1) === r).length;
 
     root.innerHTML = `
@@ -333,57 +340,57 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
         <div class="pf-cmd-top">
           <div class="pf-por">${look.portrait}<div class="pf-ins">${insigniaSvg(rp.index, p.faction)}</div></div>
           <div class="pf-id">
-            <div class="pf-kick">Commander · rank ${rp.index + 1} of ${RANKS.length}</div>
+            <div class="pf-kick">${tProfile.html('cmd.kicker', { n: rp.index + 1, total: RANKS.length })}</div>
             <div class="pf-rank">${esc(rp.name)}</div>${ru ? `<div class="pf-ru">${esc(ru)}</div>` : ''}
-            <div class="pf-name" data-act="rename" title="Rename commander"><span>${esc(p.name)}</span>${picto('pencil')}</div>${look.title ? `<div class="pf-title">${esc(look.title)}</div>` : ''}
-            <div class="pf-cmdn">${picto('medal')}${fmt(p.commendations)}<small>Commendations</small></div>
+            <div class="pf-name" data-act="rename" title="${tProfile.html('cmd.rename')}"><span>${esc(p.name)}</span>${picto('pencil')}</div>${look.title ? `<div class="pf-title">${esc(look.title)}</div>` : ''}
+            <div class="pf-cmdn">${picto('medal')}${fmt(p.commendations)}<small>${tProfile.html('cmd.commendations')}</small></div>
           </div>
         </div>
         <div class="pf-xp">
-          <div class="pf-xp-row"><b>${fmt(p.xp)} XP</b><small>${rp.next ? `Next: ${esc(rankName(rp.next.index, p.faction))}` : 'Highest rank'}</small></div>
+          <div class="pf-xp-row"><b>${tProfile.html('cmd.xp', { n: fmt(p.xp) })}</b><small>${rp.next ? tProfile.html('cmd.nextRank', { rank: rankName(rp.next.index, p.faction) }) : tProfile.html('cmd.highestRank')}</small></div>
           <div class="pf-bar"><i style="width:${(rp.frac * 100).toFixed(2)}%"></i></div>
-          <div class="pf-xp-row"><span>${rp.next ? `${fmt(rp.next.xp - p.xp)} XP to promotion` : 'Every medal still counts.'}</span><span>${rp.next ? `${fmt(rp.into)} / ${fmt(rp.span)}` : ''}</span></div>
+          <div class="pf-xp-row"><span>${rp.next ? tProfile.html('cmd.toPromotion', { n: fmt(rp.next.xp - p.xp) }) : tProfile.html('cmd.topRank')}</span><span>${rp.next ? `${fmt(rp.into)} / ${fmt(rp.span)}` : ''}</span></div>
         </div>
         <div class="pf-ladder">${ladder}</div>
       </div>
       <div class="pf-panel">
-        <div class="pf-h2">${picto('chart')}<span>Service record</span><i class="sp"></i></div>
+        <div class="pf-h2">${picto('chart')}<span>${tProfile.html('service.title')}</span><i class="sp"></i></div>
         <div class="pf-tiles">
-          <div class="pf-tile"><small>${picto('flag')}Battles</small><b>${fmt(st.games)}</b></div>
-          <div class="pf-tile"><small>${picto('trophy')}Victories</small><b>${fmt(st.wins)}<em>${winPct}%</em></b></div>
-          <div class="pf-tile"><small>${picto('clock')}In service</small><b>${fmtDuration(st.timePlayed)}</b></div>
-          <div class="pf-tile"><small>${picto('skull')}Kills</small><b>${fmt(st.kills)}</b></div>
-          <div class="pf-tile"><small>${picto('building')}Razed</small><b>${fmt(st.structuresDestroyed)}</b></div>
-          <div class="pf-tile"><small>${picto('ore')}Harvested</small><b>${money(st.harvested)}</b></div>
-          <div class="pf-tile"><small>${picto('tower')}Best wave</small><b>${st.bestSurvivalWave || '–'}</b></div>
-          <div class="pf-tile"><small>${picto('streak')}Daily streak</small><b>${p.daily.streak}<em>best ${p.daily.longest}</em></b></div>
-          <div class="pf-tile"><small>${picto('stopwatch')}Fastest win</small><b>${st.fastestWin ? formatTime(st.fastestWin) : '–'}</b></div>
+          <div class="pf-tile"><small>${picto('flag')}${tProfile.html('service.battles')}</small><b>${fmt(st.games)}</b></div>
+          <div class="pf-tile"><small>${picto('trophy')}${tProfile.html('service.victories')}</small><b>${fmt(st.wins)}<em>${fmtPct(winPct / 100)}</em></b></div>
+          <div class="pf-tile"><small>${picto('clock')}${tProfile.html('service.inService')}</small><b>${esc(fmtDuration(st.timePlayed))}</b></div>
+          <div class="pf-tile"><small>${picto('skull')}${tProfile.html('service.kills')}</small><b>${fmt(st.kills)}</b></div>
+          <div class="pf-tile"><small>${picto('building')}${tProfile.html('service.razed')}</small><b>${fmt(st.structuresDestroyed)}</b></div>
+          <div class="pf-tile"><small>${picto('ore')}${tProfile.html('service.harvested')}</small><b>${esc(money(st.harvested))}</b></div>
+          <div class="pf-tile"><small>${picto('tower')}${tProfile.html('service.bestWave')}</small><b>${st.bestSurvivalWave || '–'}</b></div>
+          <div class="pf-tile"><small>${picto('streak')}${tProfile.html('service.streak')}</small><b>${p.daily.streak}<em>${tProfile.html('service.best', { n: String(p.daily.longest) })}</em></b></div>
+          <div class="pf-tile"><small>${picto('stopwatch')}${tProfile.html('service.fastestWin')}</small><b>${st.fastestWin ? formatTime(st.fastestWin) : '–'}</b></div>
         </div>
-        ${topUnits.length > 1 ? `<div class="pf-fav pf-favs">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite units · kills</small><span class="cols">${topUnits.map(([id, k]) => `<span title="${esc(UNITS[id].name)}: ${fmt(k)} kills"><b>${esc(UNITS[id].name)}</b><u><i style="width:${((k / topUnits[0][1]) * 100).toFixed(1)}%"></i></u><em>${fmt(k)}</em></span>`).join('')}</span></span></div>` // career: favourite units
-          : `<div class="pf-fav">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>Favourite unit</small><b>${fav ? esc(fav.name) : 'None yet'}</b></span>${fav ? `<i>${fmt(fav.kills)} kills</i>` : ''}</div>`}
+        ${topUnits.length > 1 ? `<div class="pf-fav pf-favs">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>${tProfile.html('service.favUnits')}</small><span class="cols">${topUnits.map(([id, k]) => `<span title="${esc(tProfile('service.favUnitTip', { unit: typeName(UNITS[id]), n: fmt(k) }))}"><b>${esc(typeName(UNITS[id]))}</b><u><i style="width:${((k / topUnits[0][1]) * 100).toFixed(1)}%"></i></u><em>${fmt(k)}</em></span>`).join('')}</span></span></div>` // career: favourite units
+          : `<div class="pf-fav">${picto(favKind === 'infantry' ? 'user' : favKind === 'aircraft' ? 'plane' : 'tank')}<span><small>${tProfile.html('service.favUnit')}</small><b>${fav ? esc(fav.name) : tProfile.html('service.noneYet')}</b></span>${fav ? `<i>${tProfile.html('service.kills2', { n: fmt(fav.kills) })}</i>` : ''}</div>`}
       </div>
       <div class="pf-panel">
-        <div class="pf-h2">${picto('target')}<span>Victories</span><i class="sp"></i></div>
+        <div class="pf-h2">${picto('target')}<span>${tProfile.html('victories.title')}</span><i class="sp"></i></div>
         <div class="pf-bars">
-          <div><h5>By faction</h5>${barRow('Allies', st.winsByFaction.allies, st.gamesByFaction.allies, '#5ab4ff', maxF)}${barRow('Soviet', st.winsByFaction.soviet, st.gamesByFaction.soviet, '#ff5a46', maxF)}</div>
-          <div><h5>By AI difficulty</h5>${barRow('Easy', st.winsByDifficulty.easy, st.gamesByDifficulty.easy, '#4dff9a', maxD)}${barRow('Normal', st.winsByDifficulty.normal, st.gamesByDifficulty.normal, '#5ab4ff', maxD)}${barRow('Hard', st.winsByDifficulty.hard, st.gamesByDifficulty.hard, '#ffb43c', maxD)}${barRow('Brutal', st.winsByDifficulty.brutal, st.gamesByDifficulty.brutal, '#ff4a3a', maxD)}</div>
+          <div><h5>${tProfile.html('victories.byFaction')}</h5>${barRow(tProfile('victories.allies'), st.winsByFaction.allies, st.gamesByFaction.allies, '#5ab4ff', maxF)}${barRow(tProfile('victories.soviet'), st.winsByFaction.soviet, st.gamesByFaction.soviet, '#ff5a46', maxF)}</div>
+          <div><h5>${tProfile.html('victories.byDifficulty')}</h5>${barRow(tCommon('difficulty.easy'), st.winsByDifficulty.easy, st.gamesByDifficulty.easy, '#4dff9a', maxD)}${barRow(tCommon('difficulty.normal'), st.winsByDifficulty.normal, st.gamesByDifficulty.normal, '#5ab4ff', maxD)}${barRow(tCommon('difficulty.hard'), st.winsByDifficulty.hard, st.gamesByDifficulty.hard, '#ffb43c', maxD)}${barRow(tCommon('difficulty.brutal'), st.winsByDifficulty.brutal, st.gamesByDifficulty.brutal, '#ff4a3a', maxD)}</div>
         </div>
 
       </div>
-      <div class="pf-foot"><button class="pf-btn" data-act="back">${picto('back')}<span>Back</span><kbd>Esc</kbd></button><button class="pf-btn" data-act="rivals">${picto('skull')}<span>Rivals</span></button><button class="pf-btn" data-act="locker">${picto('tank')}<span>Locker</span>${freshLocker ? '<i class="dot"></i>' : ''}</button></div>
+      <div class="pf-foot"><button class="pf-btn" data-act="back">${picto('back')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button><button class="pf-btn" data-act="rivals">${picto('skull')}<span>${tProfile.html('foot.rivals')}</span></button><button class="pf-btn" data-act="locker">${picto('tank')}<span>${tProfile.html('foot.locker')}</span>${freshLocker ? '<i class="dot"></i>' : ''}</button></div>
     </div>
     <div class="pf-col pf-right">
       <div class="pf-panel pf-case">
-        <div class="pf-case-head"><span class="pf-mode"><button class="${view === 'medals' ? 'on' : ''}" data-view="medals">Medals</button><button class="${view === 'contracts' ? 'on' : ''}" data-view="contracts">Contracts</button></span>
-          <div class="pf-h2">${view === 'medals' ? `${picto('medal')}<span>Medal case</span><i class="sp"></i><small>${totals.earned} / ${totals.total} medals</small>` : `${picto('target')}<span>Contracts</span><i class="sp"></i><small>${fmt(p.contracts.completed)} completed · ${fmt(p.contracts.earned)} Commendations earned</small>`}</div>
-          ${view === 'medals' ? `<div class="pf-tabs">${(['all', 'earned', 'progress', 'locked'] as const).map((k) => `<button class="pf-tab${k === filter ? ' on' : ''}" data-f="${k}">${k === 'progress' ? 'In progress' : k}</button>`).join('')}</div>` : ''}</div>
-        ${view === 'contracts' ? contractsGrid(p) : `<div class="pf-sum">${ring(totals.earned / totals.total)}<div><b>${totals.complete} / ${totals.achievements}</b><small>Medals complete</small></div>
-          <div class="cnt"><span style="--c:#d08a4e"><i></i>${byRarity('common')}<em>common</em></span><span style="--c:#a0cdff"><i></i>${byRarity('rare')}<em>rare</em></span><span style="--c:#ffcf3f"><i></i>${byRarity('epic')}<em>epic</em></span><span style="--c:#be96ff"><i></i>${byRarity('legendary')}<em>legendary</em></span></div></div>
-        <div class="pf-grid">${list.length ? list.map(medalCard).join('') : `<div class="pf-empty">${picto('medal')}<span>Nothing here yet.</span></div>`}</div>`}
+        <div class="pf-case-head"><span class="pf-mode"><button class="${view === 'medals' ? 'on' : ''}" data-view="medals">${tProfile.html('medals.toggle')}</button><button class="${view === 'contracts' ? 'on' : ''}" data-view="contracts">${tProfile.html('contracts.toggle')}</button></span>
+          <div class="pf-h2">${view === 'medals' ? `${picto('medal')}<span>${tProfile.html('medals.case')}</span><i class="sp"></i><small>${tProfile.html('medals.count', { earned: String(totals.earned), total: String(totals.total) })}</small>` : `${picto('target')}<span>${tProfile.html('contracts.title')}</span><i class="sp"></i><small>${tProfile.html('contracts.summary', { done: fmt(p.contracts.completed), cmd: fmt(p.contracts.earned) })}</small>`}</div>
+          ${view === 'medals' ? `<div class="pf-tabs">${(['all', 'earned', 'progress', 'locked'] as const).map((k) => `<button class="pf-tab${k === filter ? ' on' : ''}" data-f="${k}">${tProfile.html(`medals.tab.${k}`)}</button>`).join('')}</div>` : ''}</div>
+        ${view === 'contracts' ? contractsGrid(p) : `<div class="pf-sum">${ring(totals.earned / totals.total)}<div><b>${totals.complete} / ${totals.achievements}</b><small>${tProfile.html('medals.complete')}</small></div>
+          <div class="cnt"><span style="--c:#d08a4e"><i></i>${byRarity('common')}<em>${esc(rarityName('common'))}</em></span><span style="--c:#a0cdff"><i></i>${byRarity('rare')}<em>${esc(rarityName('rare'))}</em></span><span style="--c:#ffcf3f"><i></i>${byRarity('epic')}<em>${esc(rarityName('epic'))}</em></span><span style="--c:#be96ff"><i></i>${byRarity('legendary')}<em>${esc(rarityName('legendary'))}</em></span></div></div>
+        <div class="pf-grid">${list.length ? list.map(medalCard).join('') : `<div class="pf-empty">${picto('medal')}<span>${tProfile.html('medals.empty')}</span></div>`}</div>`}
       </div>
       <div class="pf-panel pf-histp">
-        <div class="pf-h2">${picto('history')}<span>Recent operations</span><i class="sp"></i><small>last ${Math.min(20, p.history.length)}</small></div>
-        <div class="pf-hist">${p.history.length ? p.history.map(historyRow).join('') : `<div class="pf-empty">${picto('flag')}<span>No operations on record yet. Deploy to start your service record.</span></div>`}</div>
+        <div class="pf-h2">${picto('history')}<span>${tProfile.html('history.title')}</span><i class="sp"></i><small>${tProfile.html('history.last', { n: Math.min(20, p.history.length) })}</small></div>
+        <div class="pf-hist">${p.history.length ? p.history.map(historyRow).join('') : `<div class="pf-empty">${picto('flag')}<span>${tProfile.html('history.empty')}</span></div>`}</div>
       </div>
     </div>`;
 

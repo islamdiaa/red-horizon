@@ -13,6 +13,10 @@ import type { Unit } from '../sim/entities';
 import type { World } from '../sim/world';
 import { TICK_HZ } from '../sim/types';
 import type { KothState } from './types';
+import { MODES_EN, fillEn as en } from './text';
+
+// Objectives and radio lines run inside the simulation: English (src/modes/text.ts), translated where shown (trSource).
+const K = MODES_EN.koth;
 
 export const KOTH_MINUTES = [2, 3, 5, 8];
 export const KOTH_DEFAULT_MINUTES = 5;
@@ -121,7 +125,7 @@ function squadUnit(u: Unit): boolean {
 
 export function teamName(world: World, team: number): string {
   const ps = world.players.filter((p) => p.team === team);
-  return ps.map((p) => p.name).join(' & ') || `Team ${team + 1}`;
+  return ps.map((p) => p.name).join(' & ') || en(K.team, { n: String(team + 1) });
 }
 
 const fmt = (ticks: number) => {
@@ -140,8 +144,8 @@ export function kothSetup(m: MissionRuntime, minutes: number, mapId?: string, de
   m.flags.koth = st;
   m.flags.kothMsgT = -1e9;
   for (const p of w.players) m.reveal(p, hill.x, hill.y, hill.r + 3);
-  m.objective('hill', `Hold the hill alone for ${fmt(target)}`);
-  m.say('Battle Control', `King of the Hill: the first commander to hold the marked hill for ${fmt(target)} wins. Enemy units on the hill contest it.`, 'eva');
+  m.objective('hill', en(K.objective, { time: fmt(target) }));
+  m.say(MODES_EN.speaker.battleControl, en(K.intro, { time: fmt(target) }), 'eva');
 }
 
 /** Called every tick by the mode runtime. */
@@ -155,7 +159,7 @@ export function kothUpdate(m: MissionRuntime) {
     let best = -1, bestHeld = -1;
     const alive = [...new Set(w.players.filter((p) => !p.defeated).map((p) => p.team))].sort((a, b) => a - b);
     for (const team of alive) if ((st.held[team] ?? 0) > bestHeld) { bestHeld = st.held[team] ?? 0; best = team; }
-    end(m, best, 'All forces lost');
+    end(m, best, MODES_EN.challenge.reason.allLost);
     return;
   }
   if (t % KOTH_CHECK === 0) {
@@ -174,7 +178,7 @@ export function kothUpdate(m: MissionRuntime) {
     if (holder >= 0) {
       warn(m, st, holder);
       if (st.held[holder] >= st.target) {
-        end(m, holder, holder === m.human.team ? `You held the hill for ${fmt(st.target)}` : `${teamName(w, holder)} held the hill for ${fmt(st.target)}`);
+        end(m, holder, holder === m.human.team ? en(K.youHeld, { time: fmt(st.target) }) : en(K.theyHeld, { team: teamName(w, holder), time: fmt(st.target) }));
         return;
       }
     }
@@ -184,7 +188,7 @@ export function kothUpdate(m: MissionRuntime) {
     const alive = new Set(w.players.filter((p) => !p.defeated).map((p) => p.team));
     if (alive.size <= 1) {
       const team = alive.size ? [...alive][0] : -1;
-      end(m, team, team === m.human.team ? 'All enemy forces destroyed' : 'Your forces have been overrun');
+      end(m, team, team === m.human.team ? MODES_EN.challenge.reason.enemiesDestroyed : MODES_EN.challenge.reason.overrun);
       return;
     }
   }
@@ -206,12 +210,12 @@ function message(m: MissionRuntime, text: string, force = false) {
   const t = m.world.tick;
   if (!force && t - (m.flags.kothMsgT ?? -1e9) < TICK_HZ * 12) return;
   m.flags.kothMsgT = t;
-  m.say('Battle Control', text, 'eva');
+  m.say(MODES_EN.speaker.battleControl, text, 'eva');
 }
 
 function announceCapture(m: MissionRuntime, st: KothState, team: number) {
-  if (team === m.human.team) message(m, 'We hold the hill. Keep enemy units off it to keep the clock running.');
-  else message(m, `${teamName(m.world, team)} has taken the hill! Push them off it.`);
+  if (team === m.human.team) message(m, K.weHold);
+  else message(m, en(K.taken, { team: teamName(m.world, team) }));
   if (team !== m.human.team) m.announce('base_under_attack');
   void st;
 }
@@ -222,7 +226,7 @@ function warn(m: MissionRuntime, st: KothState, team: number) {
   const step = f >= 0.9 ? 3 : f >= 0.75 ? 2 : f >= 0.5 ? 1 : 0;
   if (step > (st.warned[team] ?? 0)) {
     st.warned[team] = step;
-    message(m, `${teamName(m.world, team)} has held the hill for ${fmt(st.held[team])} of ${fmt(st.target)}!`, true);
+    message(m, en(K.warning, { team: teamName(m.world, team), held: fmt(st.held[team]), target: fmt(st.target) }), true);
   }
 }
 

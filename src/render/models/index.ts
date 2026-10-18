@@ -25,6 +25,7 @@ import { COMMANDER_BUILDERS } from './commander-structures'; // Commander-rules 
 import { createProjectile } from './projectiles';
 import { hdModelsEnabled, hdWrap, holdHd, preloadHdModels, requestHd } from './hd';
 import { createInfantryHd, isHdInfantryType, preloadInfantryHd, requestInfantryHd } from './infantry-hd'; // rigged HD infantry (instanced crowd)
+import { bindModelAliases } from './alias';
 
 export type { ModelInstance, ModelAnimState, ProjectileModelKind } from './types';
 export type { ModelFaction } from './builder';
@@ -180,6 +181,8 @@ export function setModelAlias(typeId: string, baseId: string | null): void {
   templates.delete(`${typeId}|soviet`);
   templates.delete(`${typeId}|allies`);
 }
+// the mod loader registers aliases through the three-free ./alias (it runs before this module loads)
+bindModelAliases(setModelAlias);
 
 /**
  * The merged body geometry (model space, rest pose) a type renders with, or null; `far` = the distant

@@ -15,7 +15,8 @@
  *   --minutes 45          time limit per match (timed-out matches go to the material leader in "decided" stats)
  *   --personality id      personality for both sides in faction mode (default: none)
  *   --tune k=v,k=v        AITuning overrides for the current AI (e.g. harassOn=0, retreatHp=0.4); ablation studies
- *   --rules JSON          rule overrides for every match (see RuleOverrides in lib.ts), e.g. '{"units":{"4tnk":{"cost":1900}}}'
+ *   --rules JSON          rule overrides for every match (see RuleOverrides in lib.ts), e.g. '{"units":{"4tnk":{"cost":1900}}}',
+ *                         or Commander numbers: '{"patches":[["POWERS.funds.cooldown",300]]}'
  *   --faction f           legacy / gauntlet modes: mirror matches of this faction only
  *   --prefer JSON         unit weight multipliers for the current AI's personality, e.g. '{"2tnk":2}'
  *   --adiff d             faction mode: the Allies play at this difficulty instead (how big is the faction gap?)
@@ -184,6 +185,22 @@ function report(results: MatchResult[]) {
       if (!rs.length) continue;
       const w = winShare(rs, (r, s) => r.players[s].faction === 'allies');
       log(`  ${kind.padEnd(8)} decided: ${rate(w.wins, w.n - w.timeouts)}   with timeouts: ${rate(w.total, w.n)}`);
+    }
+    // by difficulty and map size (the Allied side's difficulty; generated maps)
+    const cells = new Map<string, MatchResult[]>();
+    for (const r of results) {
+      if (!/^(land|sea)/.test(r.map)) continue;
+      const a = r.players.find((p) => p.faction === 'allies');
+      if (!a) continue;
+      const k = `${r.map.padEnd(8)} ${a.difficulty}`;
+      cells.set(k, [...(cells.get(k) ?? []), r]);
+    }
+    if (cells.size > 1) {
+      log('\n  by map and difficulty (with timeouts resolved by material):');
+      for (const [k, rs] of [...cells].sort()) {
+        const w = winShare(rs, (r, s) => r.players[s].faction === 'allies');
+        log(`    ${k.padEnd(16)} allies ${rate(w.total, w.n)}  timeouts ${w.timeouts}`);
+      }
     }
     if (results.some((r) => !/^(land|sea)/.test(r.map))) {
       for (const [map, rs] of [...groups].filter(([k]) => !/^(land|sea)/.test(k))) {

@@ -13,6 +13,7 @@ import { SURVIVAL_VARIANTS, parseCoopId, coopMissionId } from '../missions/speci
 import { BUILTINS } from '../modes/builtins';
 import { challengeGameSetup } from '../modes/author';
 import { cleanName } from './names';
+import { SUBMISSION_ERRORS as E, VERIFY_REASONS } from './reasons'; // (English: the client translates them)
 
 export type BoardKind = 'daily' | 'survival' | 'challenge';
 
@@ -125,22 +126,22 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 /** Shape-check an untrusted submission (the commands are checked again when the run is re-simulated). */
 export function parseSubmission(raw: unknown): Submission | string {
-  if (!isObj(raw)) return 'Not a submission.';
+  if (!isObj(raw)) return E.notSubmission;
   const r = raw;
-  if (r.v !== SUBMISSION_VERSION) return 'Unsupported submission version.';
-  if (typeof r.build !== 'string' || r.build.length > 80) return 'Bad build.';
+  if (r.v !== SUBMISSION_VERSION) return E.version;
+  if (typeof r.build !== 'string' || r.build.length > 80) return E.build;
   const info = boardInfo(r.kind, r.id);
-  if (!info) return 'Unknown leaderboard.';
-  if (typeof r.day !== 'string' || !DAY.test(r.day)) return 'Bad day.';
-  if (typeof r.player !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(r.player)) return 'Bad player id.';
-  if (!Number.isInteger(r.ticks) || (r.ticks as number) < 1 || (r.ticks as number) > MAX_RUN_TICKS) return 'Bad length.';
-  if (typeof r.hash !== 'string' || !/^[0-9a-f]{16}$/.test(r.hash)) return 'Bad hash.';
-  if (!Number.isInteger(r.score) || Math.abs(r.score as number) > 1e9) return 'Bad score.';
-  if (typeof r.won !== 'boolean') return 'Bad result.';
-  if (!Array.isArray(r.cmds) || r.cmds.length > MAX_RUN_CMDS) return 'Too many commands.';
+  if (!info) return VERIFY_REASONS.unknownBoard;
+  if (typeof r.day !== 'string' || !DAY.test(r.day)) return E.day;
+  if (typeof r.player !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(r.player)) return E.player;
+  if (!Number.isInteger(r.ticks) || (r.ticks as number) < 1 || (r.ticks as number) > MAX_RUN_TICKS) return E.length;
+  if (typeof r.hash !== 'string' || !/^[0-9a-f]{16}$/.test(r.hash)) return E.hash;
+  if (!Number.isInteger(r.score) || Math.abs(r.score as number) > 1e9) return E.score;
+  if (typeof r.won !== 'boolean') return E.result;
+  if (!Array.isArray(r.cmds) || r.cmds.length > MAX_RUN_CMDS) return E.tooMany;
   let last = 0;
   for (const c of r.cmds) {
-    if (!Array.isArray(c) || c.length !== 2 || !Number.isInteger(c[0]) || c[0] < last || c[0] > (r.ticks as number) || !isObj(c[1]) || typeof c[1].c !== 'string') return 'Bad command list.';
+    if (!Array.isArray(c) || c.length !== 2 || !Number.isInteger(c[0]) || c[0] < last || c[0] > (r.ticks as number) || !isObj(c[1]) || typeof c[1].c !== 'string') return E.cmds;
     last = c[0];
   }
   return {

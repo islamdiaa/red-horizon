@@ -80,6 +80,11 @@ export async function registerServiceWorker(opts: PwaOptions = {}): Promise<Serv
 
     // cache whatever this page already pulled in (lazy chunks, workers) once a worker is active
     navigator.serviceWorker.ready.then((r) => r.active?.postMessage({ type: 'CACHE_URLS', urls: loadedResources() })).catch(() => {});
+    // the player's language (src/i18n sets <html lang>): the worker remembers it, so the next build's install also
+    // precaches that language's catalogue and an offline start after an update keeps the language
+    const tellLang = () => navigator.serviceWorker.ready.then((r) => r.active?.postMessage({ type: 'LANG', lang: document.documentElement.lang || 'en' })).catch(() => {});
+    void tellLang();
+    new MutationObserver(() => void tellLang()).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
     // look for new deploys when the tab comes back after a while
     let lastCheck = Date.now();
     document.addEventListener('visibilitychange', () => {

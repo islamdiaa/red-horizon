@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { assetUrl } from '../platform/paths';
+import { hdTier } from './models/hd';
 
 /**
  * HD trees and rocks (tools/assets/models/nature, baked by the Blender factory into public/models/nature/*.glb):
@@ -87,7 +88,7 @@ async function parse(id: string, buf: ArrayBuffer): Promise<NatureTemplate> {
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearMipmapLinearFilter;
     t.magFilter = THREE.LinearFilter;
-    t.anisotropy = 4;
+    t.anisotropy = hdTier() === 'high' ? 4 : 2; // (Medium: integrated GPUs)
     t.needsUpdate = true;
   }
   m.map!.colorSpace = THREE.SRGBColorSpace;

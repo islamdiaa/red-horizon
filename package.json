@@ -34,6 +34,9 @@
     "verify:pwa": "node tests/tools/verify-pwa.mjs",
     "audit:leaks": "node tests/perf/leaks.mjs",
     "audit:profile": "node tests/perf/profile.mjs",
+    "audit:stress": "node tests/perf/stress.mjs",
+    "audit:presets": "node tests/perf/presets.mjs",
+    "audit:startup": "node tests/perf/startup.mjs",
     "desktop": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run dev",
     "desktop:build": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run build"
   },

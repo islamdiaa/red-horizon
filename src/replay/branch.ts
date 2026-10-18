@@ -13,6 +13,7 @@ import type { World } from '../sim/world';
 import type { BranchInfo, StartView } from '../modes/types';
 import type { ReplayData, ReplaySetup } from './format';
 import { worldHash } from './hash';
+import { SIM_VERSION } from '../sim/version';
 
 const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
 
@@ -50,6 +51,7 @@ export function makeBranch(data: ReplayData, world: World, local: number, ai: AI
     hash: worldHash(world),
     view,
     name: world.players[local]?.name,
+    sim: SIM_VERSION,
   };
 }
 

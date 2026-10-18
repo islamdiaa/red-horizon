@@ -3,10 +3,14 @@
  * sheet where there is one) and the shared modal frame the import confirmation (open.ts) and the clip
  * recorder (ui/clips.ts) use. Every dynamic string is escaped; shared content never becomes markup.
  */
+import { focusTrap } from '../ui/a11y';
 import { el, esc } from '../ui/dom';
 import { ICONS } from '../ui/icons';
 import { ensureModesCss } from '../ui/modes-css';
-import { KIND_LABEL } from './content';
+import { kindLabel } from './content';
+import tShare from '../i18n/en/share';
+import tCommon from '../i18n/en/common';
+import { fmtInt } from '../i18n/core';
 import { canShareLink, copyToClipboard, makeShareLink, shareLinkNatively } from './links';
 import { SHARE_LIMITS, type ShareKind } from './codec';
 
@@ -71,7 +75,7 @@ export function openModal(icon: string, kicker: string, title: string, opts: { s
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.innerHTML = `<div class="mx-head"><span class="mx-ic">${icon}</span><div><small>${esc(kicker)}</small><h2>${esc(title)}</h2></div>
-    <button class="mx-x" data-a="close" title="Close (Esc)" aria-label="Close">${ICONS.close}</button></div><div class="sh-body"></div>`;
+    <button class="mx-x" data-a="close" title="${esc(tShare('modal.closeTip'))}" aria-label="${esc(tCommon('close'))}">${ICONS.close}</button></div><div class="sh-body"></div>`;
   ov.appendChild(panel);
   document.body.appendChild(ov);
   const handlers: (() => void)[] = [];
@@ -81,9 +85,11 @@ export function openModal(icon: string, kicker: string, title: string, opts: { s
     if (e.key === 'Escape' && !opts.sticky) { e.preventDefault(); close(); }
   };
   window.addEventListener('keydown', keys, true);
+  const untrap = focusTrap(panel, { initial: false }); // (callers focus the primary button)
   const close = () => {
     if (closed) return;
     closed = true;
+    untrap();
     window.removeEventListener('keydown', keys, true);
     ov.classList.add('leaving');
     setTimeout(() => ov.remove(), 220);
@@ -111,29 +117,29 @@ export interface ShareRequest {
  * browsers / too long → file). Returns the modal.
  */
 export async function openShareDialog(req: ShareRequest): Promise<Modal> {
-  const label = KIND_LABEL[req.kind];
-  const m = openModal(SHARE_ICONS.link, `Share ${label.toLowerCase()}`, req.title || label);
+  const label = kindLabel(req.kind);
+  const m = openModal(SHARE_ICONS.link, tShare('dialog.kicker', { kind: req.kind }), req.title || label);
   const body = m.panel.querySelector('.sh-body') as HTMLElement;
-  body.innerHTML = `<div class="mx-note">Preparing the link…</div>`;
+  body.innerHTML = `<div class="mx-note">${tShare.html('dialog.preparing')}</div>`;
   const link = await makeShareLink(req.kind, req.title, req.data);
   const pct = Math.min(100, (link.chars / SHARE_LIMITS.maxFragmentChars) * 100);
-  const reachText = link.problem === 'unsupported' ? 'This browser cannot build share links.'
-    : link.problem === 'no-address' ? 'This copy of the game has no public web address to link to.'
-    : link.reach === 'too-long' ? `Too long for a link (${link.chars.toLocaleString('en-US')} characters; links hold up to ${SHARE_LIMITS.maxFragmentChars.toLocaleString('en-US')}).`
-    : link.reach === 'chat' ? 'Short enough for Discord, WhatsApp, X and email.'
-    : 'Works in WhatsApp, email and browsers; too long for a Discord message.';
+  const reachText = link.problem === 'unsupported' ? tShare('dialog.unsupported')
+    : link.problem === 'no-address' ? tShare('dialog.noAddress')
+    : link.reach === 'too-long' ? tShare('dialog.tooLong', { chars: fmtInt(link.chars), max: fmtInt(SHARE_LIMITS.maxFragmentChars) })
+    : link.reach === 'chat' ? tShare('dialog.chat')
+    : tShare('dialog.browser');
   const fallback = !link.url;
   body.innerHTML = `
-    ${link.url ? `<div class="sh-url"><input readonly spellcheck="false" aria-label="Share link" value="${esc(link.url)}"></div>` : ''}
-    <div class="sh-meter ${link.reach}"><span class="bar"><i style="width:${pct.toFixed(1)}%"></i></span><span>${link.chars ? `<b>${link.chars.toLocaleString('en-US')}</b> chars` : ''}</span></div>
-    <div class="mx-note${fallback ? ' bad' : ''}" style="margin-top:.45rem">${esc(reachText)}${fallback ? ' Download the file instead and send it as an attachment: it opens with Import.' : ''}</div>
+    ${link.url ? `<div class="sh-url"><input readonly spellcheck="false" aria-label="${esc(tShare('dialog.linkLabel'))}" value="${esc(link.url)}"></div>` : ''}
+    <div class="sh-meter ${link.reach}"><span class="bar"><i style="width:${pct.toFixed(1)}%"></i></span><span>${link.chars ? tShare.html('dialog.chars', { n: fmtInt(link.chars) }) : ''}</span></div>
+    <div class="mx-note${fallback ? ' bad' : ''}" style="margin-top:.45rem">${esc(reachText)}${fallback ? ` ${tShare.html('dialog.fallback')}` : ''}</div>
     <div class="sh-status" role="status" aria-live="polite"></div>
     <div class="mx-actions">
-      ${link.url ? `<button class="btn-primary" data-a="copy">${ICONS.copy}<span>Copy link</span></button>` : ''}
-      ${link.url && canShareLink() ? `<button class="btn" data-a="native">${SHARE_ICONS.share}<span>Share…</span></button>` : ''}
-      <button class="${fallback ? 'btn-primary' : 'btn'}" data-a="file">${ICONS.download}<span>Download file</span></button>
+      ${link.url ? `<button class="btn-primary" data-a="copy">${ICONS.copy}<span>${tShare.html('dialog.copyLink')}</span></button>` : ''}
+      ${link.url && canShareLink() ? `<button class="btn" data-a="native">${SHARE_ICONS.share}<span>${tShare.html('dialog.shareSheet')}</span></button>` : ''}
+      <button class="${fallback ? 'btn-primary' : 'btn'}" data-a="file">${ICONS.download}<span>${tShare.html('dialog.downloadFile')}</span></button>
     </div>
-    <div class="sh-priv">${SHARE_ICONS.lock}<span>Everything is inside the link, after the <b>#</b>: browsers never send that part to any server, and nothing is uploaded. Whoever opens it is asked before anything is imported.</span></div>`;
+    <div class="sh-priv">${SHARE_ICONS.lock}<span>${tShare.html('dialog.privacy')}</span></div>`;
   const status = body.querySelector('.sh-status') as HTMLElement;
   const say = (t: string, bad = false) => { status.textContent = t; status.classList.toggle('bad', bad); };
   const input = body.querySelector('input');
@@ -141,14 +147,14 @@ export async function openShareDialog(req: ShareRequest): Promise<Modal> {
   const copy = async (quiet = false) => {
     if (!link.url) return;
     const ok = await copyToClipboard(link.url);
-    if (ok) { req.play?.('ready_ping'); say('Link copied to the clipboard.'); } else if (!quiet) { input?.focus(); input?.select(); say('Copy blocked by the browser: the link is selected, press Ctrl+C.', true); }
+    if (ok) { req.play?.('ready_ping'); say(tShare('dialog.copied')); } else if (!quiet) { input?.focus(); input?.select(); say(tShare('dialog.copyBlocked'), true); }
   };
   const btn = (a: string) => body.querySelector<HTMLElement>(`[data-a="${a}"]`);
   const c = btn('copy');
   if (c) c.onclick = () => void copy();
   const n = btn('native');
-  if (n) n.onclick = () => void shareLinkNatively(`Red Horizon: ${req.title}`, `${label} for Red Horizon: ${req.title}`, link.url!);
-  btn('file')!.onclick = () => { req.exportFile(); say('File downloaded.'); };
+  if (n) n.onclick = () => void shareLinkNatively(`Red Horizon: ${req.title}`, tShare('dialog.shareText', { kind: req.kind, title: req.title }), link.url!);
+  btn('file')!.onclick = () => { req.exportFile(); say(tShare('dialog.downloaded')); };
   if (link.url) void copy(true); // still inside the click's user activation in most browsers (quiet if refused)
   m.focus();
   return m;

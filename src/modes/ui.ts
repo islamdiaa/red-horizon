@@ -26,6 +26,8 @@ import { challengeResult } from './challenge';
 import { MomentTracker } from './moments';
 import { isWhatIf } from './runtime';
 import { recordAttempt } from './store';
+import { trSource } from '../i18n/core';
+import tModes from '../i18n/en/modes';
 
 export interface ModeHost {
   start(setup: GameSetup): void;
@@ -70,8 +72,8 @@ function badge(game: Game): { dispose(): void } {
   ensureModesCss();
   const s = game.setup;
   const [icon, kind, text] = s.challenge
-    ? [picto('trophy', 'ic'), 'Challenge', s.challenge.title]
-    : [ICONS.flag, 'Branch', `from ${formatTime(s.branch!.tick * DT)} as ${game.local.name}`];
+    ? [picto('trophy', 'ic'), tModes.html('badge.challenge'), trSource(s.challenge.title)]
+    : [ICONS.flag, tModes.html('badge.branch'), tModes('badge.from', { time: formatTime(s.branch!.tick * DT), name: game.local.name })];
   // a chip in the HUD's top bar (next to the objective), else a floating badge
   const bar = document.getElementById('topbar');
   const b = bar
@@ -122,6 +124,7 @@ export function offerMoments(game: Game, won: boolean) {
   if (!moments.length) return;
   const s = game.setup;
   const def = s.customMap ?? (s.mapId ? getMapDef(s.mapId) : undefined);
+  // (stored in the challenge's source info: English, like the map's own name)
   const mapName = def?.name ?? `Random ${game.world.map.w}×${game.world.map.h}`;
   const offers = moments.map((m) => ({ def: challengeFromMoment(m, s, game.local.id, mapName), at: m.at * DT }));
   const wrap = document.querySelector('.end-screen .end-wrap');

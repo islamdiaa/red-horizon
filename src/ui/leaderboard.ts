@@ -7,8 +7,11 @@ import { esc, el } from './dom';
 import { picto } from '../meta/art';
 import { ICONS } from './icons';
 import { listBoards, type BoardInfo } from '../net/boards';
-import { callsign, fetchTop, pendingRun, setCallsign, submitAndMark, type TopResponse } from '../net/leaderboard';
+import { boardTitle, callsign, fetchTop, pendingRun, setCallsign, submitAndMark, type TopResponse } from '../net/leaderboard';
 import { serverStatus } from '../net/endpoint';
+import { fmtDate, fmtInt } from '../i18n/core';
+import tChallenges from '../i18n/en/challenges';
+import tCommon from '../i18n/en/common';
 
 const CSS = `
 .lbd { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(2,5,9,.55), rgba(0,0,0,.88)); backdrop-filter: blur(3px); animation: screenIn .4s var(--ease) both; }
@@ -52,6 +55,9 @@ function ensureCss() {
 const ICON: Record<BoardInfo['kind'], string> = { daily: 'calendar', survival: 'tower', challenge: 'target' };
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+/** A UTC day key (YYYY-MM-DD) as a date. */
+const dayLabel = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? fmtDate(new Date(d + 'T12:00:00Z'), { dateStyle: 'medium', timeZone: 'UTC' }) : d);
+
 /** Open the leaderboards (optionally on one board). Returns a close function. */
 export function showLeaderboard(opts: { play(k: 'click' | 'hover' | 'tab'): void; board?: string; onClose?(): void }): () => void {
   ensureCss();
@@ -68,15 +74,15 @@ export function showLeaderboard(opts: { play(k: 'click' | 'hover' | 'tab'): void
   const render = () => {
     const run = pendingRun(cur.id);
     panel.innerHTML = `
-      <div class="lbd-head"><span class="mp-ic">${picto('trophy', 'ic')}</span><div><small>Verified by replay</small><h2>Leaderboards</h2></div><i class="sp"></i>
-        <span class="note">Every score is re-simulated by the server from the run's orders before it counts. Daily tops, kept for 30 days.</span></div>
-      <div class="lbd-tabs">${boards.map((b) => `<button class="lbd-tab${b.id === cur.id ? ' on' : ''}" data-b="${esc(b.id)}">${picto(ICON[b.kind], 'ic')}<span>${esc(b.title)}</span>${pendingRun(b.id) ? '<em>Your run</em>' : ''}</button>`).join('')}</div>
+      <div class="lbd-head"><span class="mp-ic">${picto('trophy', 'ic')}</span><div><small>${tChallenges.html('boards.kicker')}</small><h2>${tChallenges.html('boards.title')}</h2></div><i class="sp"></i>
+        <span class="note">${tChallenges.html('boards.note')}</span></div>
+      <div class="lbd-tabs">${boards.map((b) => `<button class="lbd-tab${b.id === cur.id ? ' on' : ''}" data-b="${esc(b.id)}">${picto(ICON[b.kind], 'ic')}<span>${esc(boardTitle(b))}</span>${pendingRun(b.id) ? `<em>${tChallenges.html('boards.yourRun')}</em>` : ''}</button>`).join('')}</div>
       <div class="lbd-main">
-        <div class="lbd-bar"><h3>${esc(cur.title)}</h3>${data && data.days.length ? `<select data-day>${[...new Set([data.today, ...data.days])].map((d) => `<option value="${esc(d)}"${d === data!.day ? ' selected' : ''}>${d === data!.today ? 'Today' : esc(d)}</option>`).join('')}</select>` : ''}</div>
-        ${run ? `<div class="lbd-run">${picto('medal', 'ic')}<span>Your last run: <b>${run.rec.result!.score.toLocaleString('en-US')}</b></span><input type="text" maxlength="20" value="${esc(callsign())}" spellcheck="false"><button class="btn" data-a="submit">Submit</button><span class="msg"></span></div>` : ''}
+        <div class="lbd-bar"><h3>${esc(boardTitle(cur))}</h3>${data && data.days.length ? `<select data-day>${[...new Set([data.today, ...data.days])].map((d) => `<option value="${esc(d)}"${d === data!.day ? ' selected' : ''}>${d === data!.today ? tChallenges.html('boards.today') : esc(dayLabel(d))}</option>`).join('')}</select>` : ''}</div>
+        ${run ? `<div class="lbd-run">${picto('medal', 'ic')}<span>${tChallenges.html('boards.lastRun', { score: fmtInt(run.rec.result!.score) })}</span><input type="text" maxlength="20" value="${esc(callsign())}" spellcheck="false"><button class="btn" data-a="submit">${tChallenges.html('boards.submit')}</button><span class="msg"></span></div>` : ''}
         <div class="lbd-list">${list()}</div>
       </div>
-      <div class="lbd-foot"><button class="btn" data-a="back">${picto('back', 'ic')}<span>Back</span><kbd>Esc</kbd></button><span class="why">No accounts: a callsign and a random id kept in this browser.</span></div>`;
+      <div class="lbd-foot"><button class="btn" data-a="back">${picto('back', 'ic')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button><span class="why">${tChallenges.html('boards.why')}</span></div>`;
     panel.querySelectorAll<HTMLElement>('[data-b]').forEach((b) => (b.onclick = () => { opts.play('tab'); cur = boards.find((x) => x.id === b.dataset.b)!; day = undefined; data = null; render(); void load(); }));
     const sel = panel.querySelector('[data-day]') as HTMLSelectElement | null;
     if (sel) sel.onchange = () => { day = sel.value; void load(); };
@@ -90,21 +96,21 @@ export function showLeaderboard(opts: { play(k: 'click' | 'hover' | 'tab'): void
         sb.disabled = true;
         setCallsign(input.value);
         const msg = panel.querySelector('.lbd-run .msg') as HTMLElement;
-        msg.textContent = 'Verifying…';
+        msg.textContent = tChallenges('boards.verifying');
         const r = await submitAndMark(run, input.value);
         msg.className = `msg ${r.ok ? 'ok' : 'bad'}`;
-        msg.textContent = r.ok ? (r.rank ? `Verified · rank #${r.rank}` : 'Verified') : r.error;
+        msg.textContent = r.ok ? (r.rank ? tChallenges('boards.verifiedRank', { rank: String(r.rank) }) : tChallenges('boards.verified')) : r.error;
         if (r.ok) { day = r.day; await load(); } else sb.disabled = false;
       };
     }
   };
 
   const list = (): string => {
-    if (online === false) return `<div class="lbd-empty">${ICONS.warn}<br>No leaderboard server answers here.<br><small>Self-hosting: docs/MULTIPLAYER.md (the relay container runs the leaderboards too).</small></div>`;
-    if (!data) return '<div class="lbd-empty">Loading…</div>';
-    if (!data.entries.length) return `<div class="lbd-empty">No verified runs ${data.day === data.today ? 'today' : 'that day'} yet.<br>Finish a run and submit it to take the top spot.</div>`;
-    return `<div class="lbd-row h"><span>Rank</span><span>Commander</span><span style="text-align:right">Score</span><span style="text-align:right">Time</span><span style="text-align:right">Result</span></div>` +
-      data.entries.map((e) => `<div class="lbd-row${e.rank <= 3 ? ` top${e.rank}` : ''}${e.you ? ' you' : ''}"><span class="rk">#${e.rank}</span><span class="nm">${esc(e.name)}${e.you ? ' · you' : ''}</span><span class="sc">${e.score.toLocaleString('en-US')}</span><span class="tm">${mmss(e.seconds)}</span><span class="rs${e.won ? ' won' : ''}">${e.won ? 'Victory' : 'Defeat'}</span></div>`).join('');
+    if (online === false) return `<div class="lbd-empty">${ICONS.warn}<br>${tChallenges.html('boards.offline')}<br><small>${tChallenges.html('boards.offlineSub')}</small></div>`;
+    if (!data) return `<div class="lbd-empty">${tCommon.html('loading')}</div>`;
+    if (!data.entries.length) return `<div class="lbd-empty">${tChallenges.html(data.day === data.today ? 'boards.emptyToday' : 'boards.emptyDay')}<br>${tChallenges.html('boards.emptySub')}</div>`;
+    return `<div class="lbd-row h"><span>${tChallenges.html('boards.rank')}</span><span>${tChallenges.html('boards.commander')}</span><span style="text-align:right">${tChallenges.html('boards.score')}</span><span style="text-align:right">${tChallenges.html('boards.time')}</span><span style="text-align:right">${tChallenges.html('boards.result')}</span></div>` +
+      data.entries.map((e) => `<div class="lbd-row${e.rank <= 3 ? ` top${e.rank}` : ''}${e.you ? ' you' : ''}"><span class="rk">#${e.rank}</span><span class="nm">${e.you ? tChallenges.html('boards.you', { name: e.name }) : esc(e.name)}</span><span class="sc">${fmtInt(e.score)}</span><span class="tm">${mmss(e.seconds)}</span><span class="rs${e.won ? ' won' : ''}">${tCommon.html(e.won ? 'victory' : 'defeat')}</span></div>`).join('');
   };
 
   const load = async () => {

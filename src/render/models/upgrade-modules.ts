@@ -14,6 +14,7 @@
  * (construction, selling) and hides with the host, and mirrors the host's animation state (damage variants, power).
  * One draw call per module (plus its shadow); the hologram shell exists only while a module builds.
  */
+import { teamColor as paletteColor, type PlayerLike } from '../../ui/a11y';
 import * as THREE from 'three';
 import { instantiate, type ModelFaction, type ModelTemplate, type V3 } from './builder';
 import type { ModelAnimState, ModelInstance } from './types';
@@ -118,7 +119,7 @@ export interface UpgradeView {
   model: ModelInstance;
   /** Host type id (the perceived type); defaults to model.typeId. */
   ptype?: string;
-  ent?: { owner: { color: number; faction: string } };
+  ent?: { owner: { color: number; faction: string; id?: number; team?: number } };
   anim?: ModelAnimState;
   /** Chimney emitters made from model.smokePoints: dropped (and so re-made) when module stacks join. */
   chimneys?: { dispose(): void }[];
@@ -194,7 +195,8 @@ function stateOf(view: UpgradeView): HostState {
   if (st && st.view !== view) st.view = view;
   if (st) return st;
   const fac: ModelFaction = view.ent?.owner.faction === 'allies' ? 'allies' : 'soviet';
-  const color = new THREE.Color(view.ent?.owner.color ?? 0x8a8a8a);
+  const own = view.ent?.owner;
+  const color = new THREE.Color(own ? (own.id !== undefined && own.team !== undefined ? paletteColor(own as PlayerLike) : own.color) : 0x8a8a8a); // team colour palette
   st = {
     view, host, hostType: view.ptype ?? host.typeId ?? '', fac, color, hd: isHd(host), slots: new Map(), list: [], hasScaffold: false, ids: [], fresh: true,
     origUpdate: host.update, origDispose: host.dispose, origSetVariant: host.setVariant, hdVer: -1,

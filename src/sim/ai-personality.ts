@@ -75,6 +75,14 @@ export interface AITuning {
   mapHack: number;
   /** Commander economy (economy-ai.ts): tiers, upgrades, research and the new structures (0 = ignore them; experiments). */
   econOn: number;
+  /** The Allied commander's own tools (ai-allies.ts; skirmish, normal and up): master switch, Longbow strikes, Chronosphere, radar spies, artillery. */
+  alliedOn: number;
+  heliOn: number;
+  chronoOn: number;
+  spyOn: number;
+  artyOn: number;
+  /** Allied AI: wave targets weighed by the reach and price of the defences covering them (Tesla Coils above all). */
+  teslaOn: number;
 }
 
 /** Defaults (tuned with tools/selfplay/optimize.ts). */
@@ -114,6 +122,12 @@ export const DEFAULT_TUNING: AITuning = {
   swTimingOn: 1,
   mapHack: 0,
   econOn: 1,
+  alliedOn: 1,
+  heliOn: 1,
+  chronoOn: 1,
+  spyOn: 1,
+  artyOn: 1,
+  teslaOn: 1,
 };
 
 export interface Personality {

@@ -48,7 +48,10 @@ install and no account.
   - It plays under fog of war and counters your army.
   - 11 personalities, and rivals that remember you.
 - **Make your own.** A map and mission editor, and JSON rule mods.
-- **Plays anywhere.** Mouse, touch or gamepad. It installs as an offline-capable app.
+- **Plays anywhere.** Mouse, touch or gamepad. It installs as an offline-capable app; HD content
+  downloads when a battle needs it, or all at once for offline play from Settings.
+- **Speaks your language.** English, Русский, Deutsch, Español, Português (Brasil), Français and 简体中文.
+  It follows the browser, or you pick one in Settings.
 
 ## Quick start
 

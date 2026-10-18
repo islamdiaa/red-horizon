@@ -6,7 +6,9 @@
  * worker. Everything is deterministic for a given MatchSpec.
  */
 import { BUILDINGS, UNITS, WEAPONS, WARHEADS, type Faction } from '../../src/data/rules';
-import { UPGRADES } from '../../src/sim/economy-data';
+import { RESEARCH, TIER_OF, UPGRADES } from '../../src/sim/economy-data';
+import { DOCTRINES } from '../../src/sim/doctrine';
+import { POWERS } from '../../src/sim/commander';
 import { generateMap } from '../../src/sim/mapgen';
 import { GameMap } from '../../src/sim/map';
 import { World, type PlayerSetup } from '../../src/sim/world';
@@ -16,6 +18,9 @@ import type { AIDifficulty } from '../../src/sim/ai';
 import type { Personality } from '../../src/sim/ai-personality';
 import { loadCuratedMap, getMapDef } from '../../src/maps';
 import { LegacyAIController } from './legacy/ai';
+import { ceasefireTicks } from '../../src/sim/ceasefire';
+import { applyModSet } from '../../src/mods/engine';
+import { withMutatorMods } from '../../src/modes/mutators';
 
 export type MapKind = 'land' | 'sea' | 'curated';
 
@@ -57,6 +62,11 @@ export interface MatchSpec {
    * its own from personality and seed); `noPowers`: slots that never use commander powers (they still earn points).
    */
   commander?: { doctrines?: (string | null)[]; noPowers?: number[]; econ?: boolean };
+  /** Build-up time in minutes (sim/ceasefire.ts; -1 = unlimited), skirmish mutators (modes/mutators.ts: rules and world). */
+  ceasefire?: number;
+  mutators?: string[];
+  /** Battlefield events (default: on under Commander rules). */
+  events?: boolean;
 }
 
 export interface PlayerResult {
@@ -118,7 +128,15 @@ export interface RuleOverrides {
   weapons?: Record<string, Record<string, unknown>>;
   warheads?: Record<string, Record<string, unknown>>;
   buildings?: Record<string, Record<string, unknown>>;
+  /**
+   * Commander data experiments: [path, value] pairs into the Commander tables, e.g.
+   * ['RESEARCH.precision_optics.levels.1.cost', 3000], ['DOCTRINES.armouredfist.effects.0.mul', 1.05],
+   * ['POWERS.funds.cooldown', 300], ['UPGRADES.weap_assembly.cost', 2000], ['TIER_OF.stek', 1].
+   */
+  patches?: [string, unknown][];
 }
+
+const PATCH_ROOTS: Record<string, Record<string, any>> = { RESEARCH, UPGRADES, DOCTRINES, POWERS, TIER_OF };
 
 /** Apply rule overrides in place; returns a function that restores the originals. */
 export function applyRules(r?: RuleOverrides): () => void {
@@ -138,6 +156,16 @@ export function applyRules(r?: RuleOverrides): () => void {
   patch(WEAPONS, r?.weapons);
   patch(WARHEADS, r?.warheads);
   patch(BUILDINGS, r?.buildings);
+  for (const [path, v] of r?.patches ?? []) {
+    const keys = path.split('.');
+    let o: any = PATCH_ROOTS[keys[0]];
+    for (const k of keys.slice(1, -1)) o = o?.[k];
+    const last = keys[keys.length - 1];
+    if (!o || typeof o !== 'object') throw new Error(`rules patch: bad path ${path}`);
+    const had = last in o, old = o[last];
+    o[last] = v;
+    undo.push(() => { if (had) o[last] = old; else delete o[last]; });
+  }
   return () => { for (const f of undo.reverse()) f(); };
 }
 
@@ -166,6 +194,7 @@ export function buildMatch(spec: MatchSpec): World {
   const world = new World({
     map, players, credits: spec.credits ?? 10000, startUnits: spec.startUnits ?? 'light', fog: true, seed: spec.seed,
     rules: spec.commander ? 'commander' : undefined, doctrines: spec.commander?.doctrines, econ: spec.commander?.econ,
+    ceasefireUntil: ceasefireTicks(spec.ceasefire), mutators: spec.mutators, events: spec.events,
   });
   for (const i of spec.commander?.noPowers ?? []) { const c = world.players[i]?.cmd; if (c) c.disabled = true; }
   // legacy slots: the frozen controller thinks in the slot order the world would give it
@@ -206,9 +235,12 @@ function materialScore(world: World, pid: number): number {
 /** Play one match to the end (or the time limit) and summarise it. */
 export function playMatch(spec: MatchSpec): MatchResult {
   const restore = applyRules(spec.rules);
+  const mods = spec.mutators?.length ? withMutatorMods(undefined, spec.mutators) : undefined;
+  if (mods) applyModSet(mods); // (the mutators' rule changes, as Game applies them)
   try {
     return playMatchInner(spec);
   } finally {
+    if (mods) applyModSet(null);
     restore();
   }
 }

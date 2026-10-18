@@ -280,6 +280,13 @@ export function aiNavalStructure(world: World, p: Player, ai?: NavalAIView): str
 // ---------------------------------------------------------------------------
 
 const ALLIED_MIX: [string, number][] = [['pt', 25], ['dd', 40], ['ca', 35]];
+/**
+ * Skirmish: cruisers first. Their 8-inch guns shell the shore from 20 cells out, which is what wins a sea map; gunboats
+ * and destroyers mostly hunt Soviet submarines (ANTI_SUB_MIX once subs show up). Self-play on generated sea maps:
+ * Allied win share 36% with the mission mix, 48% with this one.
+ */
+const ALLIED_SKIRMISH_MIX: [string, number][] = [['pt', 15], ['dd', 40], ['ca', 63]];
+const ANTI_SUB_SKIRMISH_MIX: [string, number][] = [['pt', 18], ['dd', 60], ['ca', 22]];
 const ANTI_SUB_MIX: [string, number][] = [['pt', 30], ['dd', 60], ['ca', 10]];
 
 function pick(world: World, p: Player, mix: [string, number][], ai?: NavalAIView): string | null {
@@ -322,7 +329,7 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
     // one hull at a time, paid as it is built like the land queues (so the land army isn't starved)
     const reserve = world.time < 600 ? 600 : 250;
     if (!q.items.length && ships.length < cap && p.credits > reserve) {
-      const t = p.faction === 'soviet' ? (p.canBuild('ss') ? 'ss' : null) : pick(world, p, enemy.subs ? ANTI_SUB_MIX : ALLIED_MIX, ai);
+      const t = p.faction === 'soviet' ? (p.canBuild('ss') ? 'ss' : null) : pick(world, p, world.mission ? (enemy.subs ? ANTI_SUB_MIX : ALLIED_MIX) : enemy.subs ? ANTI_SUB_SKIRMISH_MIX : ALLIED_SKIRMISH_MIX, ai);
       if (t) world.issue({ c: 'build', player: p.id, type: t });
     }
   }
@@ -396,6 +403,9 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
     if (id >= 0) {
       const coast = coastDistance(m, info, id);
       const range = cruisers[0].weapons[0].def.range - 2;
+      // (skirmish: Tesla Coils go dark without power, so the plants feeding them come first)
+      let coils = 0;
+      if (ai && !world.mission) for (const s of ai.intel.structures.values()) if (s.type === 'tsla') coils++;
       let best: Building | null = null, bestScore = Infinity;
       for (const b of world.buildings) {
         if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || (ai && !ai.intel.structures.has(b.id))) continue;
@@ -403,6 +413,7 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
         let score = Math.hypot(b.x - cruisers[0].x, b.y - cruisers[0].y) * 0.2;
         if (b.weapons.length) score -= 6; // silence coastal defences first
         if (b.bt.factory || b.bt.id === 'proc') score -= 4;
+        if (coils && b.bt.power > 0) score -= 4 + Math.min(4, coils);
         if (score < bestScore) { bestScore = score; best = b; }
       }
       if (best) {
