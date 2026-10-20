@@ -30,7 +30,7 @@
     "dog.soviet": {
       "file": "dog.soviet.glb",
       "bytes": 132112,
-      "hash": "635a96c2d5",
+      "hash": "65a4624752",
       "type": "dog",
       "faction": "soviet",
       "kind": "infantry",
@@ -46,12 +46,12 @@
         "normal": 17184,
         "mask": 140
       },
-      "seconds": 22.2
+      "seconds": 20.7
     },
     "e1.allies": {
       "file": "e1.allies.glb",
-      "bytes": 233088,
-      "hash": "6e1b33b7ee",
+      "bytes": 231736,
+      "hash": "09a6ab8af2",
       "type": "e1",
       "faction": "allies",
       "kind": "infantry",
@@ -62,17 +62,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 30598,
-        "orm": 16164,
-        "normal": 29114,
-        "mask": 4186
+        "base": 29486,
+        "orm": 16196,
+        "normal": 28842,
+        "mask": 4190
       },
-      "seconds": 35.9
+      "seconds": 28
     },
     "e1.soviet": {
       "file": "e1.soviet.glb",
-      "bytes": 223340,
-      "hash": "5463c85db9",
+      "bytes": 224332,
+      "hash": "cf46e51591",
       "type": "e1",
       "faction": "soviet",
       "kind": "infantry",
@@ -83,17 +83,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 28126,
-        "orm": 16330,
-        "normal": 30382,
+        "base": 29110,
+        "orm": 16342,
+        "normal": 30378,
         "mask": 1652
       },
-      "seconds": 33.4
+      "seconds": 25.4
     },
     "e2.soviet": {
       "file": "e2.soviet.glb",
-      "bytes": 204012,
-      "hash": "0a89295cce",
+      "bytes": 203572,
+      "hash": "66f6f83ddf",
       "type": "e2",
       "faction": "soviet",
       "kind": "infantry",
@@ -104,17 +104,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 28866,
-        "orm": 15034,
-        "normal": 23592,
-        "mask": 3534
+        "base": 28838,
+        "orm": 15014,
+        "normal": 23334,
+        "mask": 3412
       },
-      "seconds": 34.6
+      "seconds": 28.1
     },
     "e3.allies": {
       "file": "e3.allies.glb",
-      "bytes": 213036,
-      "hash": "9c29a010bb",
+      "bytes": 213084,
+      "hash": "441c0698db",
       "type": "e3",
       "faction": "allies",
       "kind": "infantry",
@@ -125,17 +125,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 31134,
-        "orm": 16110,
-        "normal": 26524,
-        "mask": 4138
+        "base": 31078,
+        "orm": 16188,
+        "normal": 26620,
+        "mask": 4182
       },
-      "seconds": 30.4
+      "seconds": 27.5
     },
     "e3.soviet": {
       "file": "e3.soviet.glb",
-      "bytes": 208492,
-      "hash": "52a4e9fd5a",
+      "bytes": 207788,
+      "hash": "c876ea767c",
       "type": "e3",
       "faction": "soviet",
       "kind": "infantry",
@@ -146,17 +146,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 30726,
-        "orm": 15944,
-        "normal": 26258,
-        "mask": 4318
+        "base": 30586,
+        "orm": 16000,
+        "normal": 25822,
+        "mask": 4132
       },
-      "seconds": 25.7
+      "seconds": 23.8
     },
     "e4.soviet": {
       "file": "e4.soviet.glb",
-      "bytes": 208924,
-      "hash": "79a268dacc",
+      "bytes": 208180,
+      "hash": "9783f94267",
       "type": "e4",
       "faction": "soviet",
       "kind": "infantry",
@@ -167,17 +167,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 27386,
-        "orm": 15188,
-        "normal": 30644,
-        "mask": 1430
+        "base": 26644,
+        "orm": 15254,
+        "normal": 30552,
+        "mask": 1402
       },
-      "seconds": 31.9
+      "seconds": 26.4
     },
     "e6.allies": {
       "file": "e6.allies.glb",
-      "bytes": 201880,
-      "hash": "de853113d2",
+      "bytes": 201912,
+      "hash": "e49752198c",
       "type": "e6",
       "faction": "allies",
       "kind": "infantry",
@@ -188,17 +188,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 33892,
-        "orm": 15400,
-        "normal": 24980,
-        "mask": 5424
+        "base": 33870,
+        "orm": 15430,
+        "normal": 24984,
+        "mask": 5444
       },
-      "seconds": 28.2
+      "seconds": 22.2
     },
     "e6.soviet": {
       "file": "e6.soviet.glb",
-      "bytes": 200720,
-      "hash": "61cef21e2d",
+      "bytes": 201616,
+      "hash": "b723490695",
       "type": "e6",
       "faction": "soviet",
       "kind": "infantry",
@@ -209,17 +209,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 32878,
-        "orm": 15348,
-        "normal": 24920,
-        "mask": 5388
+        "base": 33592,
+        "orm": 15434,
+        "normal": 24994,
+        "mask": 5406
       },
-      "seconds": 24.9
+      "seconds": 27.1
     },
     "e7.allies": {
       "file": "e7.allies.glb",
-      "bytes": 180096,
-      "hash": "8727138b56",
+      "bytes": 180056,
+      "hash": "9fda3cc641",
       "type": "e7",
       "faction": "allies",
       "kind": "infantry",
@@ -230,17 +230,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 27602,
-        "orm": 14552,
-        "normal": 20758,
+        "base": 27552,
+        "orm": 14540,
+        "normal": 20780,
         "mask": 2194
       },
-      "seconds": 29.2
+      "seconds": 26.7
     },
     "mech.allies": {
       "file": "mech.allies.glb",
-      "bytes": 185056,
-      "hash": "08cce08f6e",
+      "bytes": 185088,
+      "hash": "6fcd0942e3",
       "type": "mech",
       "faction": "allies",
       "kind": "infantry",
@@ -251,17 +251,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 25854,
-        "orm": 15334,
-        "normal": 26158,
+        "base": 25906,
+        "orm": 15350,
+        "normal": 26118,
         "mask": 1266
       },
-      "seconds": 25.4
+      "seconds": 20.4
     },
     "medi.allies": {
       "file": "medi.allies.glb",
-      "bytes": 168248,
-      "hash": "e5413ff63c",
+      "bytes": 167488,
+      "hash": "22eae6496e",
       "type": "medi",
       "faction": "allies",
       "kind": "infantry",
@@ -272,17 +272,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 28774,
-        "orm": 14090,
-        "normal": 22594,
+        "base": 27974,
+        "orm": 14042,
+        "normal": 22684,
         "mask": 1614
       },
-      "seconds": 29.3
+      "seconds": 22.6
     },
     "shok.soviet": {
       "file": "shok.soviet.glb",
-      "bytes": 222468,
-      "hash": "6072549a0e",
+      "bytes": 222436,
+      "hash": "22b0450122",
       "type": "shok",
       "faction": "soviet",
       "kind": "infantry",
@@ -293,17 +293,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 28612,
-        "orm": 16790,
-        "normal": 31110,
-        "mask": 1664
+        "base": 28492,
+        "orm": 16636,
+        "normal": 31374,
+        "mask": 1636
       },
-      "seconds": 29.7
+      "seconds": 20.8
     },
     "spy.allies": {
       "file": "spy.allies.glb",
-      "bytes": 159860,
-      "hash": "d387e5f2eb",
+      "bytes": 159452,
+      "hash": "b927ffc7d9",
       "type": "spy",
       "faction": "allies",
       "kind": "infantry",
@@ -314,17 +314,17 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 20444,
-        "orm": 14614,
-        "normal": 22056,
-        "mask": 676
+        "base": 20196,
+        "orm": 14418,
+        "normal": 22088,
+        "mask": 678
       },
-      "seconds": 26.6
+      "seconds": 19.9
     },
     "thf.allies": {
       "file": "thf.allies.glb",
-      "bytes": 154576,
-      "hash": "826642a312",
+      "bytes": 154520,
+      "hash": "9cef9564e9",
       "type": "thf",
       "faction": "allies",
       "kind": "infantry",
@@ -335,12 +335,12 @@
       "points": [],
       "atlas": 512,
       "textures": {
-        "base": 17478,
-        "orm": 14164,
+        "base": 17432,
+        "orm": 14158,
         "normal": 19782,
         "mask": 562
       },
-      "seconds": 29.2
+      "seconds": 19.2
     }
   }
 }

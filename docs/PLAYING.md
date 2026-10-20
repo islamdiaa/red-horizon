@@ -155,7 +155,11 @@ All controls are also listed in-game under **Controls**, which always shows your
 - **Interface size:** 80–150%.
 - **Subtitles:** on by default, for announcer lines, with four sizes. Mission and rival radio is also
   read out to screen readers.
-- **Menus:** keyboard focus rings and a logical tab order in every menu and dialog.
+- **Menus:** keyboard focus rings and a logical tab order in every menu and dialog. Tab stays inside the screen
+  or dialog that is open.
+- **Any screen:** the menus fit phones and tablets in portrait or landscape, from 390 px wide to ultrawide.
+  On a phone, menu controls are at least 44 px tall.
+- **Performance overlay:** the FPS and renderer stats chip is off by default (*Settings › Graphics*).
 - **Reduce motion:** calmer animations, and no camera shake or slow motion.
 - **Copy diagnostics** (in Settings and on the crash screen): a plain-text report to paste into a bug
   report. It contains no personal data and is never sent anywhere.

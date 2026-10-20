@@ -3,6 +3,7 @@
  * Styles are injected once; everything is plain DOM + inline SVG.
  */
 import { campaignMissions } from '../missions';
+import { focusTrap } from './a11y'; // Tab stays inside the screen
 import { isUnlocked, loadProgress, type MissionRecord } from '../missions/progress';
 import { MissionRuntime, type MissionDef, type Objective, type Portrait } from '../sim/mission';
 import { BUILDINGS, UNITS } from '../data/rules';
@@ -27,7 +28,7 @@ const CSS = `
 .cmp-head { display: flex; align-items: flex-end; gap: 18px; padding: 14px 18px; }
 .cmp-head .ttl { flex: 1; min-width: 0; }
 .cmp-kick { font-size: 12px; letter-spacing: .34em; color: rgb(var(--accent-rgb, 90,180,255)); font-weight: 700; }
-.cmp-head h1 { margin: 2px 0 0; font-size: 30px; letter-spacing: .14em; line-height: 1.05; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.cmp-head h1 { margin: 2px 0 0; font-size: clamp(20px, 2.35vw, 30px); letter-spacing: .14em; line-height: 1.05; text-wrap: balance; overflow-wrap: break-word; }
 .cmp-prog { text-align: right; font-family: var(--mono, monospace); font-size: 12px; color: #9fb0c2; letter-spacing: .12em; }
 .cmp-prog b { display: block; font-size: 22px; color: #ffd34d; letter-spacing: .06em; font-family: var(--font, sans-serif); }
 .cmp-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -159,6 +160,14 @@ const CSS = `
 .dbf-radio .who { font-size: 12px; letter-spacing: .24em; color: rgb(var(--accent-rgb, 90,180,255)); font-weight: 700; margin-bottom: 6px; }
 .dbf-radio .line { font-size: 16px; line-height: 1.5; color: #e8f0f8; }
 .dbf-actions { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: flex-end; }
+/* portrait screens (tablets, phones): the theatre map above the briefing, one column that scrolls */
+@media (max-aspect-ratio: 1/1) {
+  .cmp { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; align-content: start; overflow-y: auto; padding: 1rem .8rem 1.4rem; }
+  .cmp-left { min-height: auto; }
+  .cmp-map { flex: none; height: min(62vw, 26rem); }
+  .cmp-brief { overflow: visible; }
+}
+@media (max-width: 600px) { .cmp-head { flex-wrap: wrap; } .cmp-brief h1 { font-size: 26px; } }
 `;
 
 function injectCss() {
@@ -446,9 +455,11 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   let typer = 0;
   let closed = false;
 
+  const untrap = focusTrap(root, { initial: false });
   const close = () => {
     if (closed) return;
     closed = true;
+    untrap();
     cancelAnimationFrame(typer);
     window.removeEventListener('keydown', onKey);
     root.remove();
@@ -464,7 +475,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   const back = () => { opts.play('click'); close(); opts.onBack(); };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') { e.preventDefault(); back(); }
-    else if (e.key === 'Enter') { e.preventDefault(); deploy(); }
+    else if (e.key === 'Enter' && !(e.target as HTMLElement | null)?.closest?.('button, a, input, [role="button"]')) { e.preventDefault(); deploy(); } // (Enter on a focused button presses that button)
   };
   window.addEventListener('keydown', onKey);
 
@@ -686,9 +697,11 @@ export function showDebrief(
   };
   timers.push(window.setTimeout(() => { raf = requestAnimationFrame(type); }, 1300));
 
+  const untrap = focusTrap(root, { initial: false, restore: false });
   const close = () => {
     if (closed) return;
     closed = true;
+    untrap();
     timers.forEach((t) => clearTimeout(t));
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', onKey);
@@ -697,7 +710,7 @@ export function showDebrief(
   };
   const act = (fn?: () => void) => () => { if (!fn) return; close(); fn(); };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') { e.preventDefault(); (result.won && actions.onNext ? act(actions.onNext) : act(actions.onRetry))(); }
+    if (e.key === 'Enter' && !(e.target as HTMLElement | null)?.closest?.('button, a, input, [role="button"]')) { e.preventDefault(); (result.won && actions.onNext ? act(actions.onNext) : act(actions.onRetry))(); } // (Enter on a focused button presses that button)
     else if (e.key === 'Escape') { e.preventDefault(); act(actions.onMenu)(); }
   };
   window.addEventListener('keydown', onKey);

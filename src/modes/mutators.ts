@@ -13,8 +13,9 @@
  */
 import { DAILY_MODIFIERS, type Climate, type DailyFaction } from '../meta/daily';
 import { Rng } from '../core/rng';
-import { WEAPONS } from '../data/rules';
+import type { WeaponDef } from '../data/rules';
 import { makeModSet, type ModFile, type ModSet, type ScaleRule } from '../mods/format';
+import { pristineTables } from '../mods/engine';
 
 export interface MutatorInfo {
   id: string;
@@ -192,7 +193,10 @@ export function mutatorMod(ids: readonly string[] | undefined): ModFile | null {
   }
   if (has('big-guns')) {
     // (not the map-wide ones: the nuke, naval guns and the like already reach far enough)
-    const ids = Object.values(WEAPONS).filter((w) => w.range < 15 && w.damage > 0).map((w) => w.id);
+    // judged on the base rules: the live table may still hold the last match's mutators (Big Guns already applied
+    // would push weapons past 15 and change this list, so the next match, a replay or a peer got different rules)
+    const base = pristineTables().weapons as unknown as Record<string, WeaponDef>;
+    const ids = Object.values(base).filter((w) => w.range < 15 && w.damage > 0).map((w) => w.id);
     scale.push({ table: 'weapons', ids, fields: { range: 1.3 } });
   }
   if (has('heavy-metal')) units['4tnk'] = { owner: ['allies', 'soviet'], prereq: ['weap'] };

@@ -29,7 +29,7 @@ varying vec2 vParams;
 void main() {
   vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
   vL = position;
-  vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+  vN = mat3(modelMatrix) * mat3(instanceMatrix) * normal; // normalised per fragment (zero-scale instances)
   vV = normalize(cameraPosition - wp.xyz);
   vParams = aParams;
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -54,9 +54,10 @@ void main() {
   float k = vParams.x;
   if (k < 0.003) discard;
   float t = uTime + vParams.y * 13.0;
-  float ndv = abs(dot(normalize(vN), normalize(vV)));
-  float fres = pow(1.0 - ndv, 2.2);
-  float ang = atan(vL.z, vL.x);
+  // guarded: normalize(0), pow(<0) and atan(0, 0) are NaN / undefined on real GPUs
+  float ndv = abs(dot(vN * inversesqrt(max(dot(vN, vN), 1e-12)), normalize(vV)));
+  float fres = pow(max(1.0 - ndv, 0.0), 2.2);
+  float ang = atan(vL.z, vL.x + 1e-6);
   // churning smoke over the shell
   float n = n2(vec2(ang * 4.0 + t * 0.25, vL.y * 5.0 - t * 0.4)) * 0.6 + n2(vec2(ang * 11.0 - t * 0.5, vL.y * 13.0 + t * 0.3)) * 0.4;
   // bands of interference climbing the dome

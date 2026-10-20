@@ -6,7 +6,8 @@ const DX = [1, -1, 0, 0, 1, 1, -1, -1];
 const DY = [0, 0, 1, -1, 1, -1, 1, -1];
 const COST = [1, 1, 1, 1, SQRT2, SQRT2, SQRT2, SQRT2];
 
-export interface PathPoint { x: number; y: number }
+/** A path waypoint; `bay`: a passing place a vehicle pulls into to let another one by (unitlogic.ts giveWay). */
+export interface PathPoint { x: number; y: number; bay?: boolean }
 
 /** Movement layer: ground units (land, bridges) or ships (open water). */
 export type Locomotor = 'ground' | 'naval';

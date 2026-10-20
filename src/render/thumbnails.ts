@@ -5,6 +5,7 @@ import { createModel, guessFaction, type ModelFaction } from './models';
 import { WallRenderer } from './walls';
 import { getModelSnow, setBodyTime, setModelSnow } from './models/materials';
 import { hdOffscreen } from './models/hd'; // closed HD bitmaps can't upload into this GL context
+import { installGlslSafety } from './glsl-safety';
 
 interface ThumbStage { renderer: THREE.WebGLRenderer; scene: THREE.Scene; canvas: HTMLCanvasElement }
 let stage: ThumbStage | null = null;
@@ -13,6 +14,7 @@ let stage: ThumbStage | null = null;
 function getStage(w: number, h: number): ThumbStage {
   if (!stage || stage.renderer.getContext().isContextLost()) {
     const canvas = document.createElement('canvas');
+    installGlslSafety(); // NaN-safe normals (may run before the game renderer loads)
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(1);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;

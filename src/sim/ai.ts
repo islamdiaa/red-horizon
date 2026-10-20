@@ -13,12 +13,14 @@ import { apparentType } from './infiltration';
 import { AIIntel } from './ai-intel';
 import { bestFitness, counterWeights } from './ai-counter';
 import { DEFAULT_TUNING, resolvePersonality, trait, type AITuning, type Personality } from './ai-personality';
-import { expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
+import { canReach, expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
 import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
 import { commanderAI } from './ai-commander';
 import { doctrineDefences, doctrinePrefer } from './doctrine';
 import { econAI, econDocks, econPlacement, econReserve, econStructure } from './economy-ai'; // Commander economy
 import { alliedAir, alliedArtillery, alliedChrono, alliedSpies, alliedTools, coilPenalty } from './ai-allies'; // the Allied commander's own tools
+import { outmatchedWave, trackEnemy, waveNeeds } from './ai-engage'; // Classic: when to fight (normal and up)
+import { guardHarvesters } from './ai-harvest'; // Classic: Ore Truck care (normal and up)
 
 export type AIDifficulty = 'recruit' | 'easy' | 'normal' | 'hard' | 'brutal';
 /** Every AI difficulty, easiest first (menus, Quick Battle, validation). */
@@ -191,6 +193,27 @@ const SKIRMISH_GOALS: Record<Faction, [string, number][]> = {
   soviet: GOALS.soviet,
 };
 
+/**
+ * Classic skirmish build orders, normal and up (AIController.classicPro): the core of a tank army first (two
+ * refineries, the war factory, radar, three defences, the service depot, and for the Soviets the airfield and its
+ * free support powers), then the third refinery, the tech centre and the rest; no decoys. The AI spent about
+ * $27,000 a game on structures against the casual stand-in's $16,000, and fielded half his army. The extras
+ * (PRO_EXTRAS) wait until the money floats or the army is ahead.
+ */
+const CLASSIC_GOALS: Record<Faction, [string, number][]> = {
+  allies: [
+    ['tent', 1], ['proc', 1], ['weap', 1], ['proc', 2], ['dome', 1], ['gun', 1], ['pbox', 1], ['gun', 2], ['fix', 1], ['proc', 3], ['weap', 2],
+    ['atek', 1], ['hbox', 1], ['gun', 3], ['agun', 1], ['hpad', 1], ['gun', 4], ['pbox', 2], ['agun', 2], ['gun', 6], ['pbox', 4], ['hpad', 2], ['gap', 1],
+    ['pdox', 1], ['mslo', 1],
+  ],
+  soviet: [
+    ['barr', 1], ['proc', 1], ['weap', 1], ['proc', 2], ['dome', 1], ['ftur', 1], ['tsla', 1], ['afld', 1], ['tsla', 2], ['fix', 1], ['proc', 3],
+    ['weap', 2], ['stek', 1], ['sam', 1], ['ftur', 2], ['kenn', 1], ['tsla', 3], ['hpad', 1], ['sam', 2], ['iron', 1], ['mslo', 1], ['tsla', 4], ['ftur', 4],
+  ],
+};
+/** Classic, normal and up: structures that wait until the bank covers most of their price or the army is ahead. */
+const PRO_EXTRAS = new Set(['hpad', 'kenn', 'gap', 'pdox', 'mslo', 'iron', 'agun', 'sam']);
+
 /** The first attack wave commits at most this multiple of the difficulty's wave value. */
 const FIRST_WAVE_CAP = 1.3;
 
@@ -225,6 +248,11 @@ const VEH_MIX: Record<Faction, [string, number][]> = {
   allies: [['2tnk', 46], ['1tnk', 24], ['jeep', 6], ['arty', 16]],
   soviet: [['3tnk', 50], ['v2rl', 16], ['4tnk', 28]],
 };
+/** Classic, normal and up (AIController.classicPro): infantry per combat vehicle (plus four), and before the war factory. */
+const PRO_INF_PER_VEH = 0.6;
+const PRO_INF_OPENING = 10;
+/** Classic, normal and up: the longest a ready army holds back for want of an edge while the enemy doesn't attack either (s). */
+const PRO_HOLD = 300;
 const ARTILLERY = new Set(['arty', 'v2rl']);
 const FAST_RAIDERS = new Set(['jeep', '1tnk', 'dog']);
 
@@ -302,6 +330,11 @@ export class AIController {
   lastPower = -99999;
   lostAt: Record<string, number> = {};
   had: Record<string, number> = {};
+  /** Classic (ai-engage.ts): the enemy army it reckons with (credits) and the tick of that estimate. */
+  enemyEst = 0;
+  estTick = 0;
+  /** Classic (ai-engage.ts): tick an enemy force of real size (not a scout or a paradrop) was last seen at the base. */
+  lastAssault = -99999;
   /** UI feed (rivals radio). */
   chatter: AIChatter[] = [];
   private foundSaid = false;
@@ -360,6 +393,16 @@ export class AIController {
     return !scriptedMission(this.world);
   }
 
+  /**
+   * Classic rules in a skirmish, normal and up: the Classic commander's own judgement (simulation version 4). In pure
+   * Red Alert rules main battle tanks decide the fights, so the army is built tank-first, and waves are weighed
+   * against everything it has seen of the enemy (army and defences) before they go. Commander rules, the easier
+   * levels and every mission keep the version-3 behaviour.
+   */
+  get classicPro(): boolean {
+    return !this.world.commander && this.skirmish && this.d.skill >= 0.6;
+  }
+
   /** Build-up time (ceasefire.ts): no offensive action of any kind, only building and defending. */
   get ceasefire(): boolean {
     return ceasefireActive(this.world);
@@ -389,6 +432,7 @@ export class AIController {
     if (p.defeated) return;
     if (this.behaviour === 'passive') { this.intel.update(); this.defendOnly(); return; }
     this.intel.update();
+    if (this.classicPro) trackEnemy(this);
     if (!this.foundSaid && this.intel.foundTick >= 0 && !this.intel.omniscient) {
       this.foundSaid = true;
       const [bx, by] = this.baseCenter();
@@ -408,6 +452,7 @@ export class AIController {
       manageExpansion(this);
     }
     this.military();
+    if (this.classicPro) guardHarvesters(this);
     if (this.skirmish) harass(this);
     this.airStrikes();
     this.superweapons();
@@ -516,7 +561,7 @@ export class AIController {
 
   /** The personality's build order for our faction. */
   goalList(): [string, number][] {
-    return this.personality.goals?.[this.p.faction] ?? (this.skirmish ? SKIRMISH_GOALS : GOALS)[this.p.faction];
+    return this.personality.goals?.[this.p.faction] ?? (this.classicPro ? CLASSIC_GOALS : this.skirmish ? SKIRMISH_GOALS : GOALS)[this.p.faction];
   }
 
   /** The structure we want next, ignoring affordability. */
@@ -580,6 +625,9 @@ export class AIController {
   private allowed(t: string): boolean {
     const pers = this.personality;
     if (t === 'proc' && this.count('proc') >= this.d.maxRefs) return false;
+    // (Classic, normal and up: the army first; extras and a second war factory once the money floats or the army is ahead)
+    if (this.classicPro && (PRO_EXTRAS.has(t) || (t === 'weap' && this.count('weap') >= 1)) && this.p.credits < BUILDINGS[t].cost * 0.8 &&
+      this.armyValue() < this.enemyEst * 1.2 + 3000) return false;
     // (easier levels take their time to replace what they lost)
     const lost = this.lostAt[t];
     if (lost !== undefined && this.world.tick - lost < this.d.rebuildDelay * TICK_HZ) return false;
@@ -706,7 +754,10 @@ export class AIController {
     const nextCost = next ? BUILDINGS[next].cost : 0;
     const keyStruct = next === 'proc' || next === 'weap' || next === 'powr' || next === 'apwr';
     const early = this.world.time < 480;
-    const reserve = keyStruct ? Math.min(early ? 2000 : 1200, nextCost * (early ? 0.8 : 0.6)) + 100 : early ? nextCost * 0.3 : 100;
+    let reserve = keyStruct ? Math.min(early ? 2000 : 1200, nextCost * (early ? 0.8 : 0.6)) + 100 : early ? nextCost * 0.3 : 100;
+    // (Classic, normal and up: the tanks take the money as it comes in, so the next structure on the list, tech and
+    // defences included, keeps what it needs to start: nextStructure() waits for half its price)
+    if (next && this.classicPro) reserve = Math.max(reserve, Math.min(nextCost, 2000) * 0.5 + 100);
     const underThreat = this.world.tick - this.lastDefend < TICK_HZ * 10;
     if (this.world.econ && p.credits < reserve + econReserve(this) && !underThreat) return; // (saving for upgrades / research)
     if (p.credits < reserve && !underThreat) return;
@@ -724,18 +775,30 @@ export class AIController {
     // riflemen), fewer foot soldiers and more vehicles
     const edge = canVeh && this.tune.counterOn && this.skirmish && this.d.skill >= 0.5 ? this.armEdge() : 0;
     if (edge < -1) infCap = Math.max(4, infCap * Math.max(0.35, 1 + edge * 0.25));
-    if (!iq.items.length && (!canVeh || inf < infCap)) {
+    // (Classic, normal and up: tanks first. Riflemen are cheap enough to soak up every credit as it comes in, which
+    // left the war factory waiting for money it never saw, and the scripted casual player's tank columns beat the
+    // AI's rifle crowds. Infantry is the escort: a few before the war factory, then only next to a vehicle in
+    // production with money to spare, or when the money floats.)
+    const pro = this.classicPro;
+    const proVeh = pro && canVeh;
+    const vehicle = () => {
+      // (build-up time: the army comes first, so a vehicle starts as soon as the reserve is covered)
+      if (!vq.items.length && p.credits > reserve + (this.ceasefire ? 0 : proVeh ? 100 : 500)) {
+        const t = this.pick(this.mix(VEH_MIX[p.faction]));
+        if (t) this.world.issue({ c: 'build', player: p.id, type: t });
+      }
+    };
+    if (proVeh) vehicle();
+    if (pro) infCap = (canVeh ? Math.min(infCap, veh * PRO_INF_PER_VEH + 4) : PRO_INF_OPENING) * trait(pers.infantry, 0.6, 2.5); // (a human-wave commander still fields his crowds)
+    const infOk = !proVeh || (vq.items.length > 0 && p.credits > reserve + 300) || p.credits > reserve + 1200;
+    if (!iq.items.length && (!canVeh || inf < infCap) && (!pro || inf < infCap) && infOk) {
       // (healers only in proportion to the infantry they can look after)
       const healers = units.filter((u) => u.ut.medic).length;
       const mix = this.mix(INF_MIX[p.faction]).map(([t, wt]): [string, number] => [t, this.skirmish && UNITS[t]?.medic && healers >= Math.max(1, inf * this.tune.medicCap) ? 0 : wt]);
       const t = this.pick(mix);
       if (t) this.world.issue({ c: 'build', player: p.id, type: t, count: t === 'e1' ? 2 : 1 });
     }
-    // (build-up time: the army comes first, so a vehicle starts as soon as the reserve is covered)
-    if (!vq.items.length && p.credits > reserve + (this.ceasefire ? 0 : 500)) {
-      const t = this.pick(this.mix(VEH_MIX[p.faction]));
-      if (t) this.world.issue({ c: 'build', player: p.id, type: t });
-    }
+    if (!proVeh) vehicle();
     const aq = p.queues.aircraft;
     const air = units.filter((u) => u.kind === 'aircraft').length;
     const airCap = (2 + this.d.defenses / 2) * trait(pers.air, 0, 3);
@@ -935,6 +998,13 @@ export class AIController {
     if (threatValue < 450) return false;
     const free = this.available().filter((u) => !this.wave.has(u.id) || this.state !== 'attack')
       .sort((a, b) => Math.hypot(a.x - sx, a.y - sy) - Math.hypot(b.x - sx, b.y - sy));
+    // (Classic, normal and up: no defenders fed piecemeal to a stronger force outside the base; the army waits for it
+    // at home, among its defences, and the Ore Trucks get out of the way, ai-harvest.ts)
+    if (this.classicPro && !this.ceasefire) {
+      let can = 0;
+      for (const u of free) if (Math.hypot(u.x - sx, u.y - sy) <= reach) can += u.ut.cost * u.healthFrac;
+      if (can < this.intel.strengthNear(sx, sy, 10, 10) * 1.2) return false;
+    }
     const ids: number[] = [];
     let v = 0;
     for (const u of free) {
@@ -1011,6 +1081,25 @@ export class AIController {
         value >= this.d.waveValue * 0.6 && value >= this.intel.armyMix(45).total * this.tune.advantage;
       // (normal and up) no blind first wave: wait for the scouts (a while) before marching on a guess
       const blind = smart && this.waves === 0 && this.intel.foundTick < 0 && !this.intel.omniscient && w.time < firstAt + 120;
+      if (this.classicPro) {
+        // (Classic, normal and up: a wave goes only when it outweighs what it has seen of the enemy army and the
+        // defences at the target; until then the army stays home beside its own defences, ai-engage.ts)
+        const ready = (w.time >= firstAt && value >= need) || broke;
+        // (and never on a guess: the scouts find the enemy base first)
+        const unseen = this.intel.foundTick < 0 && !this.intel.omniscient && w.time < 900;
+        const target = ready && !unseen ? this.pickAttackTarget() : null;
+        // (but not forever against an enemy who doesn't come either: after PRO_HOLD seconds with neither a wave nor a
+        // real attack on the base, scouts and paradrops aside, a ready army tries its luck, and turns back if it meets
+        // more than it can beat; two such commanders would otherwise sit at home all game)
+        const quiet = Math.min(w.tick - Math.max(this.stageStart, Math.round(firstAt * TICK_HZ)), w.tick - this.lastAssault);
+        const held = quiet > PRO_HOLD * TICK_HZ;
+        if (target && (held || value >= waveNeeds(this, target, trait(pers.caution, 0.8, 1.25)))) { this.launchWave(idle, target, bx, by); return; }
+        if (this.due(TICK_HZ * 6)) {
+          const stray = idle.filter((u) => Math.hypot(u.x - gx, u.y - gy) > gather).map((u) => u.id);
+          if (stray.length) w.issue({ c: 'move', player: p.id, units: stray, x: gx, y: gy });
+        }
+        return;
+      }
       if (((w.time >= firstAt && value >= need && !outmatched) || strong || broke) && !blind) {
         const target = this.pickAttackTarget();
         // a wave too weak for the fortress it knows is waiting holds back for reinforcements (up to a point)
@@ -1057,6 +1146,16 @@ export class AIController {
     if (this.d.skill >= 0.6 && this.skirmish) {
       if (this.due(TICK_HZ * 2)) {
         retreatDamaged(this, alive, gx, gy);
+        if (this.classicPro && outmatchedWave(this, alive)) {
+          // (Classic, normal and up: a wave that meets more than it can beat comes home at once, before it is lost)
+          this.state = 'build';
+          this.flank.clear();
+          this.lastFallback = w.tick;
+          this.stageStart = w.tick;
+          w.issue({ c: 'move', player: p.id, units: alive.map((u) => u.id), x: gx, y: gy });
+          this.say('fallback');
+          return;
+        }
         if (this.fallBack(alive)) return;
         if (this.tune.artyOn && alliedTools(this)) alliedArtillery(this, alive); // howitzers stay behind the tanks
       }
@@ -1072,11 +1171,17 @@ export class AIController {
         if (b.alive && b.bt.wall && this.p.isEnemy(b.owner) && Math.hypot(b.x - idle[0].x, b.y - idle[0].y) < 3.5) { wall = b; break; }
       }
       // (only units that can breach it: small arms can't, and such orders are refused)
-      const breakers = wall ? idle.filter((u) => pickWeapon(u, wall!)) : [];
+      // (and only those that can drive up to it: canReach)
+      const breakers = wall ? canReach(w.map, idle.filter((u) => pickWeapon(u, wall!)), wall) : [];
+      // (a structure next to the leader is for the units around him; stragglers across the map close up first)
+      const local = idle.filter((u) => Math.hypot(u.x - idle[0].x, u.y - idle[0].y) < 20);
+      const reach = near ? canReach(w.map, local, near) : [];
       if (wall && breakers.length && (!near || Math.hypot(near.x - idle[0].x, near.y - idle[0].y) > 5)) {
         w.issue({ c: 'attack', player: p.id, units: breakers.map((u) => u.id), target: wall.id, forced: true });
-      } else if (near && Math.hypot(near.x - idle[0].x, near.y - idle[0].y) < 12) {
-        w.issue({ c: 'attack', player: p.id, units: idle.map((u) => u.id), target: near.id });
+      } else if (near && reach.length && Math.hypot(near.x - idle[0].x, near.y - idle[0].y) < 12) {
+        w.issue({ c: 'attack', player: p.id, units: reach.map((u) => u.id), target: near.id });
+        const far = idle.filter((u) => !local.includes(u)).map((u) => u.id);
+        if (far.length) w.issue({ c: 'move', player: p.id, units: far, x: idle[0].x, y: idle[0].y, attackMove: true });
       } else {
         const target = this.pickAttackTarget(idle[0].x, idle[0].y);
         if (target) w.issue({ c: 'move', player: p.id, units: idle.map((u) => u.id), x: target[0], y: target[1], attackMove: true });
@@ -1105,7 +1210,8 @@ export class AIController {
         wave.push(u);
         sum += u.ut.cost;
       }
-    } else if (this.nextWaveValue <= this.d.waveValue && !w.mission) {
+    } else if (this.nextWaveValue <= this.d.waveValue && !w.mission && !this.classicPro) {
+      // (Classic, normal and up: the wave has been weighed against the enemy, ai-engage.ts, and goes in whole)
       // (skirmish only: campaign missions are balanced around their scripted openings)
       const cap = this.d.waveValue * FIRST_WAVE_CAP;
       const byDist = idle.slice().sort((a, b) => Math.hypot(a.x - target[0], a.y - target[1]) - Math.hypot(b.x - target[0], b.y - target[1]) || a.id - b.id);
@@ -1352,6 +1458,7 @@ export class AIController {
       expansion: this.expansion, escort: [...this.escort], expansions: this.expansions, lastExpandTry: this.lastExpandTry,
       nukeSince: this.nukeSince, chronoSince: this.chronoSince, spyTries: this.spyTries, lastSpy: this.lastSpy, radarSpy: this.radarSpy,
       threatSince: this.threatSince, lostAt: { ...this.lostAt }, had: { ...this.had }, lastPower: this.lastPower,
+      enemyEst: this.enemyEst, estTick: this.estTick, lastAssault: this.lastAssault,
     };
   }
 
@@ -1376,6 +1483,7 @@ export class AIController {
     this.nukeSince = s.nukeSince ?? -1; this.chronoSince = s.chronoSince ?? -1;
     this.spyTries = s.spyTries ?? 0; this.lastSpy = s.lastSpy ?? -9999; this.radarSpy = s.radarSpy ?? 0;
     this.lastPower = s.lastPower ?? -99999;
+    this.enemyEst = s.enemyEst ?? 0; this.estTick = s.estTick ?? 0; this.lastAssault = s.lastAssault ?? -99999;
     this.threatSince = s.threatSince ?? -1; this.lostAt = { ...(s.lostAt ?? {}) }; this.had = { ...(s.had ?? {}) };
   }
 }

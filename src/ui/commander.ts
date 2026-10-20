@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { ICONS } from './icons';
 import { DOCTRINE_ICONS } from './doctrine-icons';
 import { el, esc, reducedMotion } from './dom';
+import { loadSettings } from './settings'; // (hints on = a calm opening for the panel)
 import { TargetReticle } from '../render/reticle';
 import {
   ELITE_N, LEVELS, POWERS, TIER_COST, TIER_LEVEL, commanderLevel, nextLevelAt, powerCooldown, powerReady, powerTree, sabotageTarget, tierOpen,
@@ -89,6 +90,12 @@ class CommanderPanel {
   private faction = '';
   private lang = '';
   private hintTimer = 0;
+  /**
+   * A calm opening: with hints on, the panel stays quiet (no "buy" glow, no pulses) and its first hint waits until
+   * the Field Manual's opening steps are done (MCV deployed, a power plant up) or two minutes have passed, so a new
+   * player meets one thing at a time. False once the panel has been introduced.
+   */
+  private quiet = false;
   private readonly spectator: boolean;
 
   constructor(private g: CommanderGame) {
@@ -122,12 +129,16 @@ class CommanderPanel {
     this.offKey = () => window.removeEventListener('keydown', onKey, true);
     this.refresh();
     this.timer = window.setInterval(() => this.refresh(), 125);
-    // a new match: point the newcomer at the panel once
+    // a new match: point the newcomer at the panel once (with hints on, after the opening steps: see `quiet`)
     if (!this.spectator && g.world.tick < TICK_HZ * 5) {
-      this.hintTimer = window.setTimeout(() => {
-        const c = this.cmd;
-        if (c && !c.unlocked.length) g.hud?.message(tCmd('msg.firstHint', { n: Math.floor(c.points) }), false, 'info');
-      }, 6000);
+      let hintsOn = true;
+      try { hintsOn = loadSettings().hints !== false; } catch { /* defaults */ }
+      if (hintsOn) {
+        this.quiet = true;
+        root.classList.add('quiet');
+      } else {
+        this.hintTimer = window.setTimeout(() => this.introduce(), 6000);
+      }
     }
     const frame = () => { this.raf = requestAnimationFrame(frame); this.frame(); };
     this.raf = requestAnimationFrame(frame);
@@ -175,6 +186,23 @@ class CommanderPanel {
   private mount() {
     const ui = document.getElementById('ui');
     if (ui && this.root.parentElement !== ui) ui.appendChild(this.root);
+  }
+
+  /** The panel's one-time introduction: the first-power hint and a single pulse. */
+  private introduce() {
+    if (this.quiet) { this.quiet = false; this.root.classList.remove('quiet'); }
+    const c = this.cmd;
+    if (!c || c.unlocked.length) return;
+    this.g.hud?.message(tCmd('msg.firstHint', { n: Math.floor(c.points) }), false, 'info');
+    this.flash('pulse');
+  }
+
+  /** Quiet opening over? (the MCV is deployed and a power plant stands, or two minutes have gone by) */
+  private openingDone(): boolean {
+    const w = this.g.world, p = this.g.local;
+    if (w.time < 8) return false;
+    if (w.time > 120 || (this.cmd?.unlocked.length ?? 0) > 0) return true;
+    return w.buildings.some((b) => b.alive && b.owner === p && (b.bt.id === 'powr' || b.bt.id === 'apwr') && b.buildAnim >= 1);
   }
 
   dispose() {
@@ -255,6 +283,7 @@ class CommanderPanel {
       if (this.tipFor === b) this.showTip(b);
     }
     this.root.classList.toggle('canbuy', canBuy && !this.spectator);
+    if (this.quiet && this.openingDone()) this.introduce();
     this.root.classList.toggle('armed', performance.now() < this.armedUntil);
   }
 
@@ -365,6 +394,7 @@ class CommanderPanel {
   }
 
   flash(cls: 'pulse' | 'level') {
+    if (this.quiet) return; // (the calm opening: the panel's introduction comes with its own pulse)
     this.root.classList.remove(cls);
     void this.root.offsetWidth;
     this.root.classList.add(cls);
@@ -536,4 +566,9 @@ body.hud-modern .cmdp-tip { left: auto; right: calc(100% + 0.5rem); transform: t
 .cmdp-tt-st.ok { color: var(--ok); } .cmdp-tt-st.cool { color: var(--warn); } .cmdp-tt-st.lock { color: var(--gold); }
 @media (prefers-reduced-motion: reduce) { #cmdpanel.pulse, #cmdpanel.level, .cmdp-pw[data-state="buy"] { animation: none; } }
 body.reduce-motion #cmdpanel.pulse, body.reduce-motion #cmdpanel.level, body.reduce-motion .cmdp-pw[data-state="buy"] { animation: none; }
+/* the calm opening (hints on): no glow until the panel is introduced */
+#cmdpanel.quiet .cmdp-pw[data-state="buy"] { animation: none; box-shadow: none; }
+/* short screens (phones in landscape): the power tree scrolls, so the panel stays clear of the top bar's buttons */
+@media (max-height: 500px) { body.hud-modern #cmdpanel:not(.min) .cmdp-body { max-height: max(2.6rem, min(26vh, calc(100vh - max(var(--dock-h, 12rem), var(--sel-h, 0px)) - var(--edge, 0.7rem) * 3 - 7.2rem))); overflow-y: auto; scrollbar-width: none; } }
+#cmdpanel.quiet.min.canbuy .cmdp-head { box-shadow: none; }
 `;

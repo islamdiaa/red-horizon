@@ -10,6 +10,7 @@ import { formatTime } from '../core/util';
 import { picto } from '../meta';
 import { ICONS } from './icons';
 import { el, esc } from './dom';
+import { focusTrap } from './a11y'; // Tab stays inside the screen
 import { ensureModesCss } from './modes-css';
 import { openShareDialog, SHARE_ICONS } from '../share/dialog'; // share links
 import { dt, fmtInt, trSource } from '../i18n/core';
@@ -70,9 +71,11 @@ export function openChallengeList(o: ChallengeListOptions): () => void {
   const note = root.querySelector('.note') as HTMLElement;
   const file = root.querySelector('input[type=file]') as HTMLInputElement;
   let closed = false;
+  const untrap = focusTrap(root, { initial: false });
   const close = () => {
     if (closed) return;
     closed = true;
+    untrap();
     document.removeEventListener('keydown', onKey, true);
     root.classList.add('leaving');
     setTimeout(() => root.remove(), 240);

@@ -67,14 +67,14 @@ export function patchMaterialForWeather(mat: THREE.MeshStandardMaterial, uniform
             wxn = mat3(instanceMatrix) * wxn;
           #endif
           vWxPos = (modelMatrix * wxp).xyz;
-          vWxNrm = normalize(mat3(modelMatrix) * wxn);
+          vWxNrm = mat3(modelMatrix) * wxn; // normalised per fragment (zero normals / zero-scale axes must not give NaN)
         }`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec3 vWxPos;\nvarying vec3 vWxNrm;\n${WEATHER_SURFACE_DECL}`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         {
           vec3 wxPos = vWxPos;
-          vec3 wxNrm = normalize(vWxNrm);
+          vec3 wxNrm = dot(vWxNrm, vWxNrm) > 1e-12 ? normalize(vWxNrm) : vec3(0.0, 1.0, 0.0);
           ${WEATHER_SURFACE_APPLY}
         }`);
   };

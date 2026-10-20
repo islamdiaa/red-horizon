@@ -286,15 +286,42 @@ def _mesh_arrays(obj, nb):
     }
 
 
+def _unit_frames(pos, nrm, tan):
+    """Unit normals and tangents for every corner (arrays in triangle-corner order, 3 per triangle).
+    A zero normal (decimation can collapse a fan to nothing) takes its triangle's face normal, a zero tangent
+    (degenerate UVs) one perpendicular to the normal: normalize() of a zero vector is NaN on real GPUs."""
+    n = nrm.astype(np.float64)
+    ln = np.linalg.norm(n, axis=1)
+    bad = ln < 1e-4
+    if bad.any():
+        tri = pos.astype(np.float64).reshape(-1, 3, 3)
+        fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        fl = np.linalg.norm(fn, axis=1, keepdims=True)
+        fn = np.where(fl > 1e-12, fn / np.maximum(fl, 1e-12), np.array([0.0, 0.0, 1.0]))
+        n[bad] = np.repeat(fn, 3, axis=0)[bad]
+        ln = np.linalg.norm(n, axis=1)
+    n /= ln[:, None]
+    t = tan.astype(np.float64).copy()
+    t[:, :3] -= n * np.sum(t[:, :3] * n, axis=1, keepdims=True)  # Gram-Schmidt against the normal
+    lt = np.linalg.norm(t[:, :3], axis=1)
+    tb = lt < 1e-4
+    if tb.any():
+        axis = np.where(np.abs(n[tb, 1:2]) < 0.9, np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]))
+        t[tb, :3] = np.cross(n[tb], axis)
+        lt = np.linalg.norm(t[:, :3], axis=1)
+    t[:, :3] /= lt[:, None]
+    t[:, 3] = np.where(t[:, 3] < 0, -1.0, 1.0)
+    return n, t, int(bad.sum()), int(tb.sum())
+
+
 def _quant(d, c, s):
     q = np.round((d['pos'] - c) / s * 32767).astype(np.int16)
-    n = np.round(np.clip(d['nrm'], -1, 1) * 127).astype(np.int8)
+    nf, tf, d['zero_nrm'], d['zero_tan'] = _unit_frames(d['pos'], d['nrm'], d['tan'])
+    n = np.round(np.clip(nf, -1, 1) * 127).astype(np.int8)
     u = np.clip(d['uv'], 0, 1).copy()
     u[:, 1] = 1.0 - u[:, 1]
     uv = np.round(u * 65535).astype(np.uint16)
-    t = d['tan'].copy()
-    t[:, :3] /= np.maximum(np.linalg.norm(t[:, :3], axis=1, keepdims=True), 1e-6)
-    tan = np.round(np.clip(t, -1, 1) * 127).astype(np.int8)
+    tan = np.round(np.clip(tf, -1, 1) * 127).astype(np.int8)
     key = np.concatenate([q.astype(np.int64), n.astype(np.int64), uv.astype(np.int64), tan.astype(np.int64),
                           d['j'].astype(np.int64), d['w'].astype(np.int64)], 1)
     _u, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
@@ -396,6 +423,8 @@ def write_skinned(model, images, path, meta_extra=None, lod_ratio=0.3, log=print
     stats = {'tris': 0, 'verts': 0, 'lods': []}
     for li, d in enumerate((d0, d1)):
         attrs, idx = _quant(d, c, s)
+        if d['zero_nrm'] or d['zero_tan']:
+            log(f"  lod{li}: repaired {d['zero_nrm']} zero normals, {d['zero_tan']} zero tangents")
         pa = {
             'POSITION': B.accessor(attrs['POSITION'], GL_SHORT, 'VEC3', True, stride=8, minmax=True),
             'NORMAL': B.accessor(attrs['NORMAL'], GL_BYTE, 'VEC3', True, stride=4),

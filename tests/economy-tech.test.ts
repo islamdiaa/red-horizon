@@ -105,11 +105,12 @@ describe('economy: Classic rules are untouched', () => {
     // golden hashes from the pre-economy build (git archive HEAD), same seed and setup; the fourth moved deliberately
     // with simulation version 2 (src/sim/version.ts): the Allied skirmish AI's build order changes from minute 3; all four
     // moved deliberately with version 3: the hard AI's build speed and income went from 1.15 to 1.05 (with the old 1.15
-    // restored, the version-3 code reproduces the version-2 hashes exactly)
+    // restored, the version-3 code reproduces the version-2 hashes exactly); all four moved deliberately with version 4:
+    // the Classic AI's own judgement from normal up (tank-first production and the Classic build order, ai.ts)
     const w = skirmish({ seed: 2024, size: 64, ai: ['hard', 'brutal'], credits: 6000 });
     const out: string[] = [];
     for (let t = 1; t <= seconds(240); t++) { w.step(); w.events.length = 0; if (t % 1200 === 0) out.push(worldHash(w)); }
-    assert.deepEqual(out, ['c56939aae402b14d', '3fe8200cffe40eb9', 'fe758d838ef0e9f3', '12d1d8fea18c3edb'], 'Classic hashes unchanged');
+    assert.deepEqual(out, ['443ed69294a6f47c', '3b21f67f76516aa8', '95ba5faa040bfde3', 'ae2251472497b852'], 'Classic hashes unchanged');
   });
 
   test('econ: false keeps a Commander world without the economy', () => {

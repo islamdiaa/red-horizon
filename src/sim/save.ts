@@ -20,11 +20,47 @@ export const SAVE_VERSION = 1;
 type Json = any;
 
 // --- typed array <-> base64 -------------------------------------------------
+// (a table encoder: the same text as btoa, about 15x faster than building a binary string for it; autosaves run
+// it on every map layer and every player's explored map)
+const B64 = new Uint8Array(64);
+for (let i = 0; i < 64; i++) B64[i] = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.charCodeAt(i);
+const ascii = new TextDecoder();
 function b64(arr: ArrayBufferView): string {
-  const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
+  const b = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+  const n = b.length, out = new Uint8Array(Math.ceil(n / 3) * 4);
+  let o = 0, i = 0;
+  for (; i + 2 < n; i += 3) {
+    const v = (b[i] << 16) | (b[i + 1] << 8) | b[i + 2];
+    out[o++] = B64[v >> 18]; out[o++] = B64[(v >> 12) & 63]; out[o++] = B64[(v >> 6) & 63]; out[o++] = B64[v & 63];
+  }
+  if (i < n) {
+    const v = (b[i] << 16) | ((i + 1 < n ? b[i + 1] : 0) << 8);
+    out[o++] = B64[v >> 18]; out[o++] = B64[(v >> 12) & 63]; out[o++] = i + 1 < n ? B64[(v >> 6) & 63] : 61; out[o++] = 61; // '='
+  }
+  return ascii.decode(out);
+}
+/** Run-length code of a mostly flat array (fog visibility): [value, count, value, count, ...]. */
+function rle(arr: ArrayLike<number>): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < arr.length;) {
+    const v = arr[i];
+    let j = i + 1;
+    while (j < arr.length && arr[j] === v) j++;
+    out.push(v, j - i);
+    i = j;
+  }
+  return out;
+}
+function unrle(runs: unknown, into: Uint16Array): boolean {
+  if (!Array.isArray(runs)) return false;
+  let i = 0;
+  for (let k = 0; k + 1 < runs.length && i < into.length; k += 2) {
+    const v = runs[k], n = runs[k + 1];
+    if (typeof v !== 'number' || typeof n !== 'number' || !(n >= 1)) return false;
+    into.fill(v, i, Math.min(into.length, i + n));
+    i += n;
+  }
+  return i === into.length;
 }
 function unb64<T extends Uint8Array | Int32Array | Uint16Array>(s: string, into: T) {
   const bin = atob(s);
@@ -36,7 +72,9 @@ const SKIP_ENTITY = new Set(['owner', 'ut', 'bt', 'weapons', 'target', 'passenge
 
 function serEntity(e: Entity): Json {
   const o: Json = { cls: e instanceof Building ? 'B' : 'U', type: e.type.id, owner: e.owner.id };
-  for (const [k, v] of Object.entries(e)) {
+  const r = e as unknown as Record<string, unknown>;
+  for (const k in r) { // (own fields only: the classes have no enumerable inherited members; twice as fast as Object.entries)
+    const v = r[k];
     if (SKIP_ENTITY.has(k) || typeof v === 'function') continue;
     o[k] = v;
   }
@@ -55,6 +93,7 @@ function serPlayer(p: Player): Json {
   o.queues = Object.fromEntries(Object.entries(p.queues).map(([k, q]) => [k, { items: q.items, ready: q.ready, stalled: q.stalled }]));
   o.owned = [...p.owned.entries()];
   o.explored = b64(p.explored);
+  o.visible = rle(p.visible); // as of its last refresh (every 4 ticks): recomputing it on load would change the game
   o.lastAnnounce = [...p.lastAnnounce.entries()];
   o.knownOptions = [...p.knownOptions];
   o.allowedTypes = p.allowedTypes ? [...p.allowedTypes] : null;
@@ -76,14 +115,27 @@ export function serializeWorld(w: World): Json {
   const W = w as any;
   const m = w.map;
   const ents: Json[] = [];
-  for (const e of w.entities.values()) ents.push(serEntity(e));
-  const projectiles = w.projectiles.filter((p) => p.alive).map((p) => ({ ...p, weapon: p.weapon.id, owner: p.owner.id, target: p.target ? p.target.id : 0 }));
+  // ghosts: entities already removed from the world that something still points at (a target that died this
+  // tick); restored as dead objects so the loaded game holds exactly the same references and continues identically
+  const ghosts: Json[] = [];
+  const ghostIds = new Set<number>();
+  const ghost = (t: Entity | null) => {
+    if (!t || ghostIds.has(t.id) || w.entities.get(t.id) === t) return;
+    ghostIds.add(t.id);
+    const g = serEntity(t);
+    g.target = 0; // (a dead entity's own target is never read)
+    if (g.cls === 'U') g.passengers = [];
+    ghosts.push(g);
+  };
+  for (const e of w.entities.values()) { ents.push(serEntity(e)); ghost(e.target); }
+  // every projectile in the list, including the spent ones it prunes every 20 ticks (the list is part of the state)
+  const projectiles = w.projectiles.map((p) => { ghost(p.target); return { ...p, weapon: p.weapon.id, owner: p.owner.id, target: p.target ? p.target.id : 0 }; });
   const ais = w.ais.map((ai) => {
     const a = ai as any;
     return {
       player: ai.player.id, difficulty: ai.difficulty, state: a.state, stage: a.stage, stageX: a.stageX, stageY: a.stageY,
       stageTarget: a.stageTarget, stageStart: a.stageStart, wave: [...a.wave], waveStart: a.waveStart, nextWaveValue: a.nextWaveValue,
-      lastDefend: a.lastDefend, deployTries: a.deployTries, behaviour: a.behaviour, thinks: a.thinks,
+      lastDefend: a.lastDefend, deployTries: a.deployTries, behaviour: a.behaviour, thinks: a.thinks, modeSet: a.modeSet,
       ext: a.saveState?.(), // intel, scouting, raids, expansions, flanks, repairs
     };
   });
@@ -108,7 +160,7 @@ export function serializeWorld(w: World): Json {
     // commands issued after the last step (AI thinks at the end of a tick) run at the start of the next one
     commands: W.commands,
     units: w.units.map((u) => u.id), buildings: w.buildings.map((b) => b.id),
-    entities: ents, projectiles, ais, mission,
+    entities: ents, ghosts, projectiles, ais, mission,
     players: w.players.map(serPlayer),
     map: {
       terrain: b64(m.terrain), ore: b64(m.ore), gems: b64(m.gems), oreField: b64(m.oreField), tree: b64(m.tree),
@@ -130,10 +182,11 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   m.oreVersion = s.map.oreVersion + 1;
   m.treeVersion = s.map.treeVersion;
   // --- players
+  const restoredVis = new Set<Player>();
   s.players.forEach((ps: Json, i: number) => {
     const p = w.players[i];
     for (const [k, v] of Object.entries(ps)) {
-      if (k === 'queues' || k === 'owned' || k === 'explored' || k === 'lastAnnounce' || k === 'knownOptions' || k === 'allowedTypes' || k === 'id') continue;
+      if (k === 'queues' || k === 'owned' || k === 'explored' || k === 'visible' || k === 'lastAnnounce' || k === 'knownOptions' || k === 'allowedTypes' || k === 'id') continue;
       (p as any)[k] = v;
     }
     for (const [k, q] of Object.entries(ps.queues as Record<string, Json>)) {
@@ -145,6 +198,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     for (const k of SUPER_KINDS) { p.superCharge[k] ??= 0; p.superAnnounced[k] ??= false; }
     p.owned = new Map(ps.owned);
     unb64(ps.explored, p.explored);
+    if (unrle(ps.visible, p.visible)) restoredVis.add(p); // (older saves: recomputed below)
     p.lastAnnounce = new Map(ps.lastAnnounce);
     p.knownOptions = new Set(ps.knownOptions);
     p.allowedTypes = ps.allowedTypes ? new Set(ps.allowedTypes) : null;
@@ -152,7 +206,8 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   // --- entities
   w.entities.clear();
   const byId = new Map<number, Entity>();
-  for (const es of s.entities as Json[]) {
+  const ghosts = new Set<Json>(Array.isArray(s.ghosts) ? s.ghosts : []); // (none in older saves)
+  for (const es of [...(s.entities as Json[]), ...ghosts]) {
     let e: Entity;
     const owner = es.owner < 0 ? neutralOwner(w, s.variety) : w.players[es.owner]; // neutral structures / event units
     if (es.cls === 'B') {
@@ -172,7 +227,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
       return slot;
     });
     byId.set(e.id, e);
-    w.entities.set(e.id, e);
+    if (!ghosts.has(es)) w.entities.set(e.id, e);
   }
   for (const es of s.entities as Json[]) {
     const e = byId.get(es.id)!;
@@ -209,16 +264,20 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   for (const b of w.bridges) if (b.alive) for (const [x, y] of b.cells) m.bridgeAt[m.idx(x, y)] = b.id;
   W.commands = s.commands ? JSON.parse(JSON.stringify(s.commands)) : [];
   w.ctrl = s.ctrl ? JSON.parse(JSON.stringify(s.ctrl)) : newCtrlState();
+  // the path queue exactly as it was (the units' pathPending / hasGoal flags came back with their fields): a request
+  // made again here would turn on a goal a unit had given up, or revive a request it no longer wants
   W.pathQueue = [];
   for (const id of s.pathQueue as number[]) {
     const u = byId.get(id);
-    if (u instanceof Unit) { u.pathPending = false; w.requestPath(u, u.goalX, u.goalY); }
+    if (u instanceof Unit) W.pathQueue.push(u);
   }
   // --- AI
   for (const as of s.ais as Json[]) {
     const ai = w.ais.find((a) => a.player.id === as.player) as any;
     if (!ai) continue;
+    const p = ai.player as Player, keep = [p.buildSpeed, p.incomeBias];
     if (as.behaviour === 'full') ai.setMode(as.difficulty); else ai.setMode(as.behaviour);
+    if (typeof as.modeSet === 'boolean') { ai.modeSet = as.modeSet; [p.buildSpeed, p.incomeBias] = keep; } // (the economy multipliers as they were: dynamic difficulty moves them)
     Object.assign(ai, { state: as.state, stage: as.stage, stageX: as.stageX, stageY: as.stageY, stageTarget: as.stageTarget, stageStart: as.stageStart, wave: new Set(as.wave), waveStart: as.waveStart, nextWaveValue: as.nextWaveValue, lastDefend: as.lastDefend, deployTries: as.deployTries, thinks: as.thinks ?? 0 });
     ai.loadState?.(as.ext);
   }
@@ -235,7 +294,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   loadCommander(w, s.commander, s.projectiles); // Commander rules state (none in Classic saves)
   if (s.econ || w.econ) loadEcon(w, s.econ); // Commander economy (none in Classic and older saves)
   if (s.variety || w.variety) loadVariety(w, s.variety); // after the AI restored its economy (none in older saves)
-  for (const p of w.players) w.updateVisibility(p);
+  for (const p of w.players) if (!restoredVis.has(p)) w.updateVisibility(p);
 }
 
 // --- storage -----------------------------------------------------------------

@@ -11,7 +11,7 @@ varying vec3 vP;
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vP = position;
-  vN = normalize(mat3(modelMatrix) * normal);
+  vN = mat3(modelMatrix) * normal; // normalised per fragment (safe at zero scale)
   vV = normalize(cameraPosition - wp.xyz);
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -27,8 +27,9 @@ varying vec3 vN;
 varying vec3 vV;
 varying vec3 vP;
 void main() {
-  float ndv = abs(dot(normalize(vN), normalize(vV)));
-  float fres = pow(1.0 - ndv, 2.2);
+  // guarded: normalize(0) and pow(<0) are NaN on real GPUs (shells start at zero scale, |dot| can round above 1)
+  float ndv = abs(dot(vN * inversesqrt(max(dot(vN, vN), 1e-12)), normalize(vV)));
+  float fres = pow(max(1.0 - ndv, 0.0), 2.2);
   float n = texture2D(uNoise, vP.xz * 0.9 + vec2(uTime * 0.11, vP.y * 0.7 - uTime * 0.17)).r;
   float bands = 0.5 + 0.5 * sin(vP.y * 22.0 - uTime * 9.0 + n * 6.0);
   float a = (fres * 1.3 + 0.06 + 0.12 * bands * fres) * (0.55 + 0.8 * n) * uAlpha;

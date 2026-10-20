@@ -4,6 +4,7 @@ import { hash2, Noise2D } from '../core/rng';
 import { getDummyShadowTexture, getNoiseTexture, TNOISE_GLSL } from './terrain';
 import type { Weather } from './weather';
 import { RippleSim } from './watersim';
+import { gpuCaps } from './gpucaps';
 
 /**
  * World Y of every water surface. Identical to the simulation's WATER_LEVEL (-0.32). The mean surface stays
@@ -138,7 +139,10 @@ export class Water {
         minY = Math.min(minY, j / res); maxY = Math.max(maxY, j / res);
       }
     }
-    const tex = new THREE.DataTexture(data, tw, th, THREE.RedFormat, THREE.FloatType);
+    // 32-bit float filters only with OES_texture_float_linear (missing on many phones: it would sample as zero,
+    // no shore foam); half float is always filterable in WebGL2
+    const tex = gpuCaps.floatLinear ? new THREE.DataTexture(data, tw, th, THREE.RedFormat, THREE.FloatType)
+      : new THREE.DataTexture(Uint16Array.from(data, (v) => THREE.DataUtils.toHalfFloat(v)), tw, th, THREE.RedFormat, THREE.HalfFloatType);
     tex.magFilter = THREE.LinearFilter;
     tex.minFilter = THREE.LinearFilter;
     tex.needsUpdate = true;
@@ -396,7 +400,7 @@ export class Water {
             vec3 col = ice * (0.45 + 0.55 * dif) * (0.35 + 0.65 * uSunColor);
             // sky reflection and a sharp glint on the clear ice
             vec3 Ri = reflect(-V, vec3(0.0, 1.0, 0.0));
-            col = mix(col, mix(uHorizon, uSky, smoothstep(0.0, 0.8, Ri.y)) * 1.1, gloss * 0.22 * (0.04 + 0.96 * pow(1.0 - max(dot(V, vec3(0.0, 1.0, 0.0)), 0.0), 5.0)) + gloss * 0.08);
+            col = mix(col, mix(uHorizon, uSky, smoothstep(0.0, 0.8, Ri.y)) * 1.1, gloss * 0.22 * (0.04 + 0.96 * pow(max(1.0 - dot(V, vec3(0.0, 1.0, 0.0)), 0.0), 5.0)) + gloss * 0.08);
             col += uSunColor * pow(max(H.y, 0.0), 160.0) * 1.6 * gloss;
             float a = smoothstep(-0.02, 0.04, depthV);
             gl_FragColor = vec4(col, a);
@@ -438,7 +442,7 @@ export class Water {
 
           // ---- lighting terms
           float NdotV = max(dot(N, V), 0.0);
-          float fres = 0.04 + 0.96 * pow(1.0 - NdotV, 5.0);
+          float fres = 0.04 + 0.96 * pow(max(1.0 - NdotV, 0.0), 5.0); // (NdotV can round above 1: pow(<0) is NaN)
           vec3 R = reflect(-V, N);
           float shadow = 1.0;
           #ifdef SHADOWS

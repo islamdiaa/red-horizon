@@ -20,8 +20,12 @@
  *     and thieves, build order), Commander doctrine / power / economy numbers, the bunker firing slits.
  *  3. Difficulty overhaul: the Recruit level, the scaled-down skirmish levels (economy, tech, powers, events, derricks,
  *     waves, defences, rebuilding: src/sim/ai.ts DIFF), assist-only dynamic difficulty against Recruit and Easy.
+ *  4. Quality pass: the Classic skirmish AI's own judgement (tank-first production, engagement estimates, safer
+ *     harvesting: src/sim/ai-engage.ts, ai-harvest.ts), AI reachability and intel fixes, save/load continuing the
+ *     exact game, passengers no longer targetable, vehicles giving way to each other in head-on jams, units walled
+ *     in by structures stepping out.
  */
-export const SIM_VERSION = 3;
+export const SIM_VERSION = 4;
 
 /** The version of records made before the stamp existed. */
 export const LEGACY_SIM_VERSION = 1;

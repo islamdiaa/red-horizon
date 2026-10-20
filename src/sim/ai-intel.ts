@@ -79,6 +79,8 @@ export class AIIntel {
 
   /** Experiments only (AITuning.mapHack): the classic all-seeing AI. */
   mapHack = false;
+  /** Per known structure: known structures of the same owner within 8 cells (enemyBase); derived, rebuilt after update(). */
+  private nearCache: Map<number, number> | null = null;
 
   constructor(readonly world: World, readonly p: Player) {}
 
@@ -103,6 +105,15 @@ export class AIIntel {
     const m = this.world.map, vis = this.p.visible;
     for (let y = cy; y < cy + h; y++) for (let x = cx; x < cx + w; x++) {
       if (m.inBounds(x, y) && vis[y * m.w + x]) return true;
+    }
+    return false;
+  }
+
+  /** Any cell of the rectangle explored by this side. */
+  private explored(cx: number, cy: number, w: number, h: number): boolean {
+    const m = this.world.map, ex = this.p.explored;
+    for (let y = cy; y < cy + h; y++) for (let x = cx; x < cx + w; x++) {
+      if (m.inBounds(x, y) && ex[y * m.w + x]) return true;
     }
     return false;
   }
@@ -140,7 +151,10 @@ export class AIIntel {
       if (this.omniscient || (radar && p.intel.radar.includes(s.owner))) { if (!alive) this.structures.delete(id); continue; }
       // looked at the spot and it isn't there (destroyed, sold, captured, or hidden by a gap generator: forget)
       if (this.viewing(s.cx, s.cy, s.w, s.h) && (!alive || !this.sees(e!))) this.structures.delete(id);
+      // shrouded again (a gap generator): what the map no longer shows, the AI no longer knows
+      else if (!this.explored(s.cx, s.cy, s.w, s.h)) this.structures.delete(id);
     }
+    this.nearCache = null;
     for (const u of w.units) {
       if (!u.alive || !p.isEnemy(u.owner) || u.ut.supportPlane) continue;
       if (!this.sees(u) && !(radar && this.onRadar(u))) continue;
@@ -225,10 +239,20 @@ export class AIIntel {
    */
   enemyBase(fromX: number, fromY: number): [number, number] | null {
     let best: KnownStructure | null = null, bestScore = Infinity;
+    // (the cluster sizes don't depend on where we look from: counted once per update, not once per call)
+    let cache = this.nearCache;
+    if (!cache) {
+      cache = new Map();
+      for (const s of this.structures.values()) {
+        let near = 0;
+        for (const o of this.structures.values()) if (o.owner === s.owner && Math.hypot(o.x - s.x, o.y - s.y) < 8) near++;
+        cache.set(s.id, near);
+      }
+      this.nearCache = cache;
+    }
     for (const s of this.structures.values()) {
       if (!this.world.players[s.owner] || this.world.players[s.owner].defeated) continue;
-      let near = 0;
-      for (const o of this.structures.values()) if (o.owner === s.owner && Math.hypot(o.x - s.x, o.y - s.y) < 8) near++;
+      const near = cache.get(s.id) ?? 0;
       const score = Math.hypot(s.x - fromX, s.y - fromY) - near * 3 - (s.type === 'fact' ? 10 : 0);
       if (score < bestScore) { bestScore = score; best = s; }
     }
@@ -250,6 +274,7 @@ export class AIIntel {
 
   loadState(st: { s?: KnownStructure[]; u?: SeenUnit[]; f?: number; d?: AIIntel['deaths'] } | undefined) {
     this.structures = new Map((st?.s ?? []).map((s) => [s.id, { ...s }]));
+    this.nearCache = null;
     this.units = new Map((st?.u ?? []).map((s) => [s.id, { ...s }]));
     this.foundTick = st?.f ?? -1;
     this.deaths = (st?.d ?? []).map((d) => ({ ...d }));

@@ -243,6 +243,7 @@ ${smokeVertMain('a.xyz', 'mv', 'sz', 'look.z > 0.5')}
 
 const DRAW_FS = /* glsl */ `
 precision highp float;
+precision highp sampler2D;
 uniform sampler2D uAtlas;
 uniform sampler2D uRamp;
 uniform vec3 uLightCol;

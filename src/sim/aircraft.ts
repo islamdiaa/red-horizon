@@ -60,7 +60,7 @@ export function updateAircraft(world: World, u: Unit) {
   switch (o.type) {
     case 'attack': {
       const t = world.entities.get(o.target);
-      if (!t || !t.alive || u.ammo <= 0) {
+      if (!t || !t.alive || (t instanceof Unit && t.transport) || u.ammo <= 0) {
         world.setOrder(u, { type: 'idle' });
         goHome = u.ammo <= 0 || !vtol;
         break;

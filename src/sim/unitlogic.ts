@@ -232,7 +232,7 @@ function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
 
 function attack(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>) {
   const t = world.entities.get(o.target);
-  if (!t || !t.alive || (!o.forced && !u.owner.isEnemy(t.owner)) || (t.cloaked && !world.canSee(u.owner, t))) {
+  if (!t || !t.alive || (t instanceof Unit && t.transport) || (!o.forced && !u.owner.isEnemy(t.owner)) || (t.cloaked && !world.canSee(u.owner, t))) { // (gone into a transport or bunker: nothing left to shoot at)
     u.target = null;
     if (o.resume) world.setOrder(u, o.resume);
     else finishOrder(world, u);
@@ -431,7 +431,8 @@ function tryMove(world: World, u: Unit, mx: number, my: number): boolean {
 }
 
 function followPath(world: World, u: Unit) {
-  if (!u.path) {
+  if (!u.path || u.yieldHold > 0) {
+    if (u.yieldHold > 0) u.yieldHold--; // (waiting in a passing place for the other vehicle to go by)
     u.moving = false;
     u.speedFrac = Math.max(0, u.speedFrac - DT * 4);
     return;
@@ -442,6 +443,7 @@ function followPath(world: World, u: Unit) {
   const isLast = () => u.pathIdx === u.path!.length - 1;
   const reach = isLast() ? 0.08 : u.kind === 'infantry' ? 0.3 : 0.45;
   if (d < reach) {
+    if (wp.bay) u.yieldHold = YIELD_HOLD;
     u.pathIdx++;
     if (u.pathIdx >= u.path.length) {
       u.path = null;
@@ -487,6 +489,11 @@ function followPath(world: World, u: Unit) {
     const gd = pathRemaining(u);
     if (gd > u.progressDist - 0.2) {
       u.stuckCount++;
+      if (u.stuckCount >= 2 && giveWay(world, u)) {
+        u.stuckCount = 0;
+        u.progressDist = pathRemaining(u);
+        return;
+      }
       if (u.stuckCount >= 5 || (u.stuckCount >= 3 && gd < 2.5)) {
         u.path = null;
         u.hasGoal = false;
@@ -499,6 +506,83 @@ function followPath(world: World, u: Unit) {
     }
     u.progressDist = gd;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Right of way: two vehicles nose to nose
+// ---------------------------------------------------------------------------
+
+/** Ticks a vehicle that gave way waits in its passing place. */
+const YIELD_HOLD = 30;
+/** Neighbour cells, orthogonal first (the first best passing place wins ties). */
+const NEIGHBOURS8: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+
+/** Unit vector from a unit to its current waypoint (null: none, or on it). */
+function wayDir(u: Unit): [number, number] | null {
+  const wp = u.path?.[u.pathIdx];
+  if (!wp) return null;
+  const dx = wp.x - u.x, dy = wp.y - u.y, l = Math.hypot(dx, dy);
+  return l > 1e-3 ? [dx / l, dy / l] : null;
+}
+
+/** A vehicle that wants to go where `u` stands while `u` wants to go where it stands, both making no progress. */
+function mutualBlocker(world: World, u: Unit): Unit | null {
+  const du = wayDir(u);
+  if (!du) return null;
+  let found: Unit | null = null;
+  world.grid.query(u.x, u.y, 1.4, (o) => {
+    if (found || o === u || !o.alive || o.kind !== 'vehicle' || !o.path || o.stuckCount < 1 || o.yieldHold > 0) return;
+    const dx = o.x - u.x, dy = o.y - u.y, d = Math.hypot(dx, dy);
+    if (d < 1e-3 || d > u.ut.radius + o.ut.radius + 0.35) return;
+    const dv = wayDir(o);
+    if (!dv || (dx * du[0] + dy * du[1]) < 0.3 * d || (-dx * dv[0] - dy * dv[1]) < 0.3 * d) return;
+    found = o;
+  });
+  return found;
+}
+
+/** Distance from (px, py) to segment a-b. */
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)) : 0;
+  return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
+}
+
+/** A free neighbouring cell of `u`, out of the way `o` is about to take (its position and next two waypoints). */
+function passingPlace(world: World, u: Unit, o: Unit): [number, number] | null {
+  const m = world.map, ux = Math.floor(u.x), uy = Math.floor(u.y);
+  const pts: [number, number][] = [[o.x, o.y]];
+  for (let k = o.pathIdx; k < Math.min(o.path!.length, o.pathIdx + 2); k++) pts.push([o.path![k].x, o.path![k].y]);
+  let best: [number, number] | null = null, bestScore = 0.75;
+  for (const [dx, dy] of NEIGHBOURS8) {
+    const cx = ux + dx, cy = uy + dy;
+    if (!m.inBounds(cx, cy) || !m.passableIdx(m.idx(cx, cy))) continue;
+    if (dx && dy && !m.passableIdx(m.idx(ux + dx, uy)) && !m.passableIdx(m.idx(ux, uy + dy))) continue; // (no corner squeezing)
+    let taken = false;
+    world.grid.query(cx + 0.5, cy + 0.5, 1, (q) => { if (q !== u && q.alive && q.kind !== 'aircraft' && Math.floor(q.x) === cx && Math.floor(q.y) === cy) taken = true; });
+    if (taken) continue;
+    let clear = Infinity;
+    for (let k = 0; k + 1 < pts.length; k++) clear = Math.min(clear, segDist(cx + 0.5, cy + 0.5, pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1]));
+    if (clear > bestScore) { bestScore = clear; best = [cx + 0.5, cy + 0.5]; }
+  }
+  return best;
+}
+
+/**
+ * Two vehicles nose to nose, each wanting the other's spot (a harvester and a tank in a gap between structures):
+ * paths ignore units, so re-planning gives both the same line again. The one with the lower id pulls into a free
+ * neighbouring cell out of the other's way, waits there a moment and carries on (the other one gives way instead
+ * when the first has no room). Called after 2 s without progress; true when this unit gave way.
+ */
+function giveWay(world: World, u: Unit): boolean {
+  if (u.kind !== 'vehicle' || !u.path || u.path[u.pathIdx]?.bay || u.ut.harvester && isDocking(world, u)) return false;
+  const o = mutualBlocker(world, u);
+  if (!o) return false;
+  if (o.id < u.id && passingPlace(world, o, u)) return false; // (the other one gives way)
+  const bay = passingPlace(world, u, o);
+  if (!bay) return false;
+  u.path.splice(u.pathIdx, 0, { x: bay[0], y: bay[1], bay: true });
+  return true;
 }
 
 /** Length of the rest of the unit's path (to the current waypoint, then waypoint to waypoint). */

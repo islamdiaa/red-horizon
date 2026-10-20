@@ -17,6 +17,7 @@ import { showRivals } from './rivals';
 import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, contractTitle, fmtContractValue, profileWithContracts, rerollContractNow, unlockContext, unseenUnlocks, type Cadence } from '../meta';
 import { commanderLook } from '../meta/cosmetics'; // portrait, banner, title
 import { showLocker } from './locker';
+import { focusTrap } from './a11y'; // Tab stays inside the screen
 
 type PlayKey = 'click' | 'tab' | 'hover';
 
@@ -50,7 +51,7 @@ const CSS = `
 .pf-kick { font-size: .66rem; font-weight: 700; letter-spacing: .34em; text-transform: uppercase; color: var(--muted, #7d8c9d); }
 .pf-rank { font-size: 1.05rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: #ffd34d; margin-top: .3rem; text-shadow: 0 0 1rem rgba(255,207,63,.35); }
 .pf-ru { font-family: var(--mono, monospace); font-size: .72rem; color: #b89a52; letter-spacing: .06em; }
-.pf-name { display: flex; align-items: center; gap: .5rem; margin-top: .15rem; font-size: 2.1rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; line-height: 1.05; cursor: text; }
+.pf-name { display: flex; align-items: center; gap: .5rem; margin-top: .15rem; font-size: 2rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; line-height: 1.05; cursor: text; }
 .pf-name span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-name .mx-ic { font-size: .95rem; color: var(--muted, #7d8c9d); opacity: 0; transition: opacity .2s; flex-shrink: 0; }
 .pf-name:hover .mx-ic { opacity: 1; }
@@ -133,8 +134,9 @@ const CSS = `
 /* medal case */
 .pf-right { min-width: 0; }
 .pf-case { flex: 1.65; display: flex; flex-direction: column; min-height: 0; }
-.pf-case-head { display: flex; align-items: center; gap: 1rem; margin-bottom: .75rem; }
-.pf-case-head .pf-h2 { margin: 0; flex: 1; }
+.pf-case-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .75rem; }
+.pf-case-head .pf-h2 { margin: 0; flex: 1 1 12rem; min-width: 0; }
+.pf-case-head .pf-mode, .pf-case-head .pf-tabs { flex-shrink: 0; }
 .pf-tabs { display: flex; gap: .3rem; }
 .pf-tab { height: 1.9rem; padding: 0 .8rem; border-radius: .45rem; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #9fb0c2; cursor: pointer; font: inherit; font-size: .72rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; transition: all .2s; }
 .pf-tab:hover { color: #fff; border-color: rgba(var(--accent-rgb, 90,180,255), .4); }
@@ -161,8 +163,9 @@ const CSS = `
 .pf-md-art svg { width: 100%; height: 100%; filter: drop-shadow(0 .25rem .4rem rgba(0,0,0,.55)); }
 .pf-md.locked .pf-md-art svg { opacity: .75; }
 .pf-md-b { flex: 1; min-width: 0; }
-.pf-md-t { display: flex; align-items: center; gap: .4rem; font-size: .92rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
-.pf-md-t span { overflow: hidden; text-overflow: ellipsis; }
+.pf-md-t { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .4rem; font-size: .92rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; line-height: 1.15; }
+.pf-md-t span { min-width: 0; overflow-wrap: anywhere; }
+.pf-md-t em { white-space: nowrap; }
 .pf-md.locked .pf-md-t { color: #9aa6b2; }
 .pf-md-d { font-size: .76rem; color: var(--text-2, #b6c3d1); line-height: 1.25; margin-top: .1rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .pf-md.locked .pf-md-d { color: #6f7c89; }
@@ -445,7 +448,9 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
     if (t && t !== hovered) opts.play('hover');
     hovered = t;
   });
+  const untrap = focusTrap(root, { initial: false });
   const close = () => {
+    untrap();
     document.removeEventListener('keydown', onKey, true);
     root.classList.add('leaving');
     setTimeout(() => root.remove(), 280);

@@ -84,7 +84,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
     if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
     if (!setup.load) def.setup(rt);
     if (setup.load) deserializeWorld(world, setup.load.world, rt);
-    for (const p of world.players) { world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
+    for (const p of world.players) { if (!setup.load) world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); } // (a save restores the fog exactly as it was)
   }
   return { world, local, setup };
 }

@@ -1506,7 +1506,7 @@ export class Hud {
       if (bt.storage) chips.push(this.chip(ICONS.coin, fmtMoney(bt.storage), tHud.html('chip.store'), tipHtml(tHud.html('chip.storage'))));
     }
     if (e.weapons.length || look.masked) chips.push(this.chip(ICONS.kills, '0', tHud.html('chip.kills'), tipHtml(tHud.html('chip.killsTip')), 'kills'));
-    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name">${esc(typeName(t))}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(look.owner.name)}</span>`}</div>
+    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name"${typeName(t).length > 18 ? ' data-long' : ''}>${esc(typeName(t))}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(look.owner.name)}</span>`}</div>
       <div class="sp-hp"><div class="hp-bar"><i class="hp-trail"></i><i class="hp-fill"></i><i class="hp-segs"></i></div><span class="hp-num" data-k="hp"></span></div>
       <div class="sp-chips">${chips.join('')}</div>
       <div class="sp-extra" data-k="extra"></div>`);

@@ -368,7 +368,7 @@ export function unloadTransport(world: World, t: Unit): boolean {
     p.transport = 0;
     p.heading = p.prevHeading = p.turret = p.prevTurret = Math.atan2(p.y - t.y, p.x - t.x);
     world.setOrder(p, { type: 'idle' });
-    world.units.push(p);
+    world.rejoin(p);
     landed++;
   }
   if (!landed) return false;

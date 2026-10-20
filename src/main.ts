@@ -196,6 +196,7 @@ function openProfile() {
 }
 
 function applySettings(g: Game, s: Settings) {
+  g.gfx.setRenderScaleMode(s.renderScale ?? 'auto'); // render resolution: Auto (dynamic) or fixed
   if (g.input) { g.input.edgeScroll = s.edgeScroll; g.input.unitVoices = s.unitVoices; }
   if (g.hints) g.hints.enabled = s.hints;
 }

@@ -70,6 +70,7 @@ docker/       nginx configuration
 npm run typecheck
 npm test                                  # unit, integration, regression and AI-vs-AI soak tests
 node --import tsx tools/savetest.ts       # save/load determinism (must print DETERMINISTIC ✓)
+node --import tsx tools/qa/fuzz.ts --count 40   # command fuzzer: invariants, save / load, replay and portable maths stay in sync
 npm run verify:pwa                        # production build + manifest, service worker, offline
 npm run audit:leaks                       # 5 matches in a browser: heap and GPU resources stay flat
 npm run audit:profile                     # CPU profile of a 30 s battle

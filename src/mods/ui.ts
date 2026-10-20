@@ -91,6 +91,9 @@ const nameOf = (table: TableName, id: string, tables = pristineTables()) => {
   return table === 'units' || table === 'buildings' ? dt(table === 'units' ? 'unit' : 'building', id, 'name', name) : name; // (the base rules: game data)
 };
 
+/** A changed field's name in the player's language (the common gameplay fields; any other as written in the file). */
+const fieldLabel = (field: string): string => (hasKey(`mods.field.${field}`) ? tx(`mods.field.${field}`) : field);
+
 /** A checker message in the player's language (the engine's English when the code is unknown). */
 export function issueText(e: ModIssue): string {
   const key = `mods.issue.${e.code}`;
@@ -122,7 +125,7 @@ function changeRows(r: ModReport): string {
     html += `<h4>${tMods.html('changes.head', { table: tMods(`table.${t}`), n: ch.length })}</h4>`;
     html += ch.map((c) => {
       const dir = typeof c.from === 'number' && typeof c.to === 'number' ? (c.to > c.from ? '▲' : '▼') : '';
-      return `<div class="mods-row"><span class="who">${esc(t === 'weapons' || t === 'warheads' ? c.id : nameOf(t, c.id, tables))}</span><span class="fld">${esc(c.field)}</span><span class="val"><s>${esc(formatModValue(c.from))}</s> → <b>${esc(formatModValue(c.to))}</b><i>${dir}</i></span></div>`;
+      return `<div class="mods-row"><span class="who">${esc(t === 'weapons' || t === 'warheads' ? c.id : nameOf(t, c.id, tables))}</span><span class="fld" title="${esc(c.field)}">${esc(fieldLabel(c.field))}</span><span class="val"><s>${esc(formatModValue(c.from))}</s> → <b>${esc(formatModValue(c.to))}</b><i>${dir}</i></span></div>`;
     }).join('');
   }
   return html || `<div class="mods-empty">${tMods.html('changes.none')}</div>`;

@@ -19,6 +19,8 @@ export interface Settings {
   hudLayout?: HudLayout;
   /** Model detail: baked 'hd' models or the procedural 'standard' ones (unset: HD on High / Medium, Standard on Low). */
   modelDetail?: ModelDetail;
+  /** Render resolution of the 3D view: 'auto' (dynamic, the default) or a fixed scale 0.5..1. */
+  renderScale?: 'auto' | number;
   /** Team colours: setup colours, a colour-blind safe palette, or you blue / enemies orange (display only). */
   teamPalette?: TeamPalette;
   /** Interface scale for the HUD and menus, 0.8–1.5 (1 = default). */
@@ -52,7 +54,8 @@ const SETTINGS_KEY = 'rh.settings';
 const listeners = new Set<(s: Settings) => void>();
 
 export function loadSettings(): Settings {
-  const def: Settings = { quality: 'high', edgeScroll: true, unitVoices: true, hints: true, showFps: true, reduceMotion: false, fullscreen: true };
+  // (the performance overlay is opt-in: Settings › Graphics; a first battle shows the battlefield, not renderer stats)
+  const def: Settings = { quality: 'high', edgeScroll: true, unitVoices: true, hints: true, showFps: false, reduceMotion: false, fullscreen: true };
   try {
     return { ...def, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') };
   } catch {

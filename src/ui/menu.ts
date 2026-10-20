@@ -90,7 +90,7 @@ interface SkirmishPrefs {
 
 function loadPrefs(): SkirmishPrefs {
   const def: SkirmishPrefs = {
-    faction: 'allies', color: TEAM_COLORS[0], opponents: [{ faction: 'soviet', difficulty: 'normal' }],
+    faction: 'allies', color: TEAM_COLORS[0], opponents: [{ faction: 'soviet', difficulty: 'recruit' }], // (a fresh profile starts gently, as Quick Battle does)
     mapSize: 96, water: 0.5, trees: 0.5, ore: 0.6, credits: 10000, startUnits: 'light', fog: true, timeOfDay: 'day',
     weather: 'auto', climate: 'temperate', dayCycle: true,
     rules: 'commander', events: true,
@@ -406,9 +406,10 @@ export class Menus {
     if (this.cb.openBootCamp && bootDone) navItem('06', T('main.nav.bootCamp'), ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
     navItem(bootDone && this.cb.openBootCamp ? '07' : '06', tCommon.html('settings'), ICONS.gear, () => this.showSettings(() => this.showMain()));
     navItem(bootDone && this.cb.openBootCamp ? '08' : '07', T('main.nav.controls'), ICONS.keyboard, () => this.showHelp(() => this.showMain()));
-    // map editor and mods
-    if (this.cb.openEditor) navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), T('main.nav.mapEditor'), ICONS.map, () => { this.hide(); this.cb.openEditor!(); });
-    if (this.cb.openMods) { const n = enabledModIds().length; navItem(String(nav.childElementCount + (cont ? 0 : 1)).padStart(2, '0'), `${T('main.nav.mods')}${n ? pill(tMenu('main.nav.modsOn', { n })) : ''}`, ICONS.gear, () => { this.hide(); this.cb.openMods!(); }); }
+    // map editor and mods: numbered on from the last numbered entry (the ▶ » ★ MP entries carry no number)
+    const nextIdx = () => String(Math.max(0, ...[...nav.querySelectorAll('.nb-idx')].map((e) => parseInt(e.textContent ?? '', 10)).filter(Number.isFinite)) + 1).padStart(2, '0');
+    if (this.cb.openEditor) navItem(nextIdx(), T('main.nav.mapEditor'), ICONS.map, () => { this.hide(); this.cb.openEditor!(); });
+    if (this.cb.openMods) { const n = enabledModIds().length; navItem(nextIdx(), `${T('main.nav.mods')}${n ? pill(tMenu('main.nav.modsOn', { n })) : ''}`, ICONS.gear, () => { this.hide(); this.cb.openMods!(); }); }
     nav.classList.toggle('dense', nav.childElementCount > 7);
     nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
     left.appendChild(nav);
@@ -494,7 +495,7 @@ export class Menus {
       });
       if (prefs.opponents.length < 3 && !def) {
         const add = h('button', 'op-add', `${ICONS.plus}<span>${tMenu.html('skirmish.addOpponent')}</span>`);
-        add.onclick = () => { prefs.opponents.push({ faction: 'random', difficulty: 'normal' }); renderOpps(); renderMap(); };
+        add.onclick = () => { const last = prefs.opponents[prefs.opponents.length - 1]; prefs.opponents.push({ faction: 'random', difficulty: last && !last.rivalId ? last.difficulty : 'normal' }); renderOpps(); renderMap(); }; // (a new opponent matches the last one's level)
         oppBox.appendChild(add);
       }
       oppCount.textContent = def ? tMenu('skirmish.oppCountFixed', { n: prefs.opponents.length }) : `${prefs.opponents.length} / 3`;
@@ -861,6 +862,7 @@ export class Menus {
     const gfx = sec(ICONS.monitor, tS('graphics'));
     gfx.appendChild(settingRow(ICONS.monitor, tS('quality'), tS('qualitySub'), seg<Quality>([['low', tS('qualityLow')], ['medium', tS('qualityMedium')], ['high', tS('qualityHigh')]], this.settings.quality, (v) => { this.settings.quality = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.monitor, tS('modelDetail'), tS('modelDetailSub'), seg<ModelDetail>([['hd', tS('modelHd')], ['standard', tS('modelStandard')]], modelDetailOf(this.settings), (v) => { this.settings.modelDetail = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.monitor, tS('renderScale'), tS('renderScaleSub'), seg<string>([['auto', tS('renderScaleAuto')], ['1', '100%'], ['0.75', '75%'], ['0.5', '50%']], String(this.settings.renderScale ?? 'auto'), (v) => { this.settings.renderScale = v === 'auto' ? 'auto' : +v; apply(); }))); // render resolution (GameRenderer.setRenderScaleMode)
     gfx.append(...offlineContentRows(settingRow)); // download HD content for offline play (src/ui/offline-setting.ts)
     gfx.appendChild(settingRow(ICONS.gauge, tS('perfOverlay'), tS('perfOverlaySub'), toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.motion, tS('reduceMotion'), tS('reduceMotionSub'), toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { hash2, Noise2D } from '../core/rng';
 import { GameMap, T } from '../sim/map';
 import { shadowDepthMaterial } from './models/materials';
+import { gpuCaps } from './gpucaps';
 import { ROAD_HALF, ROAD_REACH, roadsFor, type RoadNetwork } from './roads';
 import { acquireTerrainTextures, classicLook, layerUniforms, LAYER_COUNT, releaseTerrainTextures, SLOT, type Climate, type TerrainTextureSet } from './terrain-materials';
 
@@ -470,7 +471,8 @@ function texturedGlsl(climate: Climate, high: boolean) {
       vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
       vec3 rr1 = cross(sy, normal), rr2 = cross(normal, sx);
       float det = dot(sx, rr1) * faceDirection;
-      normal = normalize(abs(det) * normal - sign(det) * (dHdxy.x * rr1 + dHdxy.y * rr2));
+      vec3 bn = abs(det) * normal - sign(det) * (dHdxy.x * rr1 + dHdxy.y * rr2);
+      normal = dot(bn, bn) > 1e-24 ? normalize(bn) : normal; // (det = 0 on degenerate pixels: normalize(0) is NaN)
     }`;
   const emissive = /* glsl */ `#include <emissivemap_fragment>
     if (uGrid.w > 0.0) {
@@ -599,7 +601,8 @@ export class TerrainMesh implements TerrainDeformApi {
     this.heightData = new Float32Array(n);
     for (let k = 0; k < n; k++) this.baseH[k] = this.heightData[k] = pos[k * 3 + 1];
     this.heightTexture = new THREE.DataTexture(this.heightData, vw, vh, THREE.RedFormat, THREE.FloatType);
-    this.heightTexture.minFilter = this.heightTexture.magFilter = THREE.LinearFilter;
+    // (32-bit float filters only with OES_texture_float_linear, otherwise it would sample as zero)
+    this.heightTexture.minFilter = this.heightTexture.magFilter = gpuCaps.floatLinear ? THREE.LinearFilter : THREE.NearestFilter;
     this.heightTexture.generateMipmaps = false;
     this.heightTexture.needsUpdate = true;
     this.heightUvXf = new THREE.Vector4(SUB / vw, SUB / vh, 0.5 / vw, 0.5 / vh);
@@ -629,7 +632,8 @@ export class TerrainMesh implements TerrainDeformApi {
       uGridColor: { value: new THREE.Color(0.3, 1.0, 0.6) },
       uWet: { value: 0 },
       uSnow: { value: 0 },
-      uPal: { value: PALETTES[climate].map(([r, g, b]) => new THREE.Vector3(r, g, b)) },
+      // linear: decoded once here instead of nine vec3 pow() calls in every pixel of the Low shading
+      uPal: { value: PALETTES[climate].map(([r, g, b]) => new THREE.Vector3(r ** 2.2, g ** 2.2, b ** 2.2)) },
       tDeform: { value: this.deformTexture },
       tBase: { value: this.baseTexture },
       tRoad: { value: this.roadTexture },
@@ -692,15 +696,15 @@ export class TerrainMesh implements TerrainDeformApi {
           vec4 n34 = texture2D(tNoise, p * (7.0 / 16.0));
           float n3 = n34.r;
           float n4 = n34.b;
-          vec3 grassDark = srgb(uPal[0]);
-          vec3 grassLight = srgb(uPal[1]);
-          vec3 grassDry = srgb(uPal[2]);
+          vec3 grassDark = uPal[0];
+          vec3 grassLight = uPal[1];
+          vec3 grassDry = uPal[2];
           vec3 grass = mix(grassDark, grassLight, smoothstep(0.3, 0.7, n1));
           grass = mix(grass, grassDry, smoothstep(0.55, 0.85, n2) * 0.55);
           grass *= 0.86 + 0.28 * n3;
           grass = mix(grass, grass * vec3(0.7, 0.8, 0.6), step(0.82, n4) * 0.5);
-          vec3 sand = srgb(uPal[3]) * (0.9 + 0.18 * n2) * (0.94 + 0.12 * n4);
-          vec3 dirt = srgb(uPal[4]) * (0.85 + 0.3 * n2) * (0.9 + 0.2 * n3);
+          vec3 sand = uPal[3] * (0.9 + 0.18 * n2) * (0.94 + 0.12 * n4);
+          vec3 dirt = uPal[4] * (0.85 + 0.3 * n2) * (0.9 + 0.2 * n3);
           // rock: triplanar so cliff faces are not stretched; horizontal strata
           vec3 tw = nW * nW; tw *= tw; tw /= dot(tw, vec3(1.0));
           ${low ? `float rn = tn_noise(p * 2.6);
@@ -711,7 +715,7 @@ export class TerrainMesh implements TerrainDeformApi {
           float rsy = vWPos.y * 3.4 + rn * 1.1 + rnf * 0.45;
           float rLayer = floor(rsy), rLf = fract(rsy);
           float rTone = fract(sin(rLayer * 12.9898 + 4.1) * 43758.5453);
-          vec3 rock = mix(srgb(uPal[5]), srgb(uPal[6]), 0.2 + 0.5 * rTone + 0.3 * rnf) * (0.84 + 0.3 * rn);
+          vec3 rock = mix(uPal[5], uPal[6], 0.2 + 0.5 * rTone + 0.3 * rnf) * (0.84 + 0.3 * rn);
           rock *= (0.7 + 0.3 * smoothstep(0.0, 0.14, rLf)) * (1.0 + 0.14 * smoothstep(0.78, 0.98, rLf));
           vec4 sp = vSplat / max(0.001, dot(vSplat, vec4(1.0)));
           // noisy blend borders
@@ -732,7 +736,7 @@ export class TerrainMesh implements TerrainDeformApi {
           ${low ? '' : `// riverbank gravel: speckled pebbles in a band along the waterline
           float bankK = smoothstep(0.32, 0.12, hw + (n2 - 0.5) * 0.12) * smoothstep(-0.08, 0.02, hw) * (1.0 - cliff);
           float pebble = smoothstep(0.62, 0.78, texture2D(tNoise, p * (13.0 / 16.0)).a);
-          col = mix(col, mix(col * 0.55, srgb(uPal[6]) * (0.8 + 0.4 * n4), step(0.5, n3)), pebble * bankK * 0.75);`}
+          col = mix(col, mix(col * 0.55, uPal[6] * (0.8 + 0.4 * n4), step(0.5, n3)), pebble * bankK * 0.75);`}
           vec3 lakeBed = mix(sand * vec3(0.86, 0.84, 0.76), sand * vec3(0.5, 0.56, 0.46), smoothstep(-0.05, -0.45, hw));
           lakeBed *= 0.9 + 0.2 * (sin(dot(p, vec2(0.7, 0.71)) * 13.0 + n2 * 6.0) * 0.5 + 0.5);
           col = mix(col, lakeBed, bed);
@@ -785,7 +789,7 @@ export class TerrainMesh implements TerrainDeformApi {
           // persistent damage (terrain.deform / scorch / rut): churned soil in craters, burnt ground
           vec4 dmg = mix(vec4(0.5, 0.0, 0.0, 0.0), texture2D(tDeform, duv), dIn);
           // churned soil: freshly thrown earth, darker towards the bottom of the bowl
-          vec3 soil = srgb(uPal[4]) * vec3(0.85, 0.8, 0.74) * (0.7 + 0.55 * n3) * (1.0 - smoothstep(0.55, 1.0, dmg.a) * 0.35);
+          vec3 soil = uPal[4] * vec3(0.85, 0.8, 0.74) * (0.7 + 0.55 * n3) * (1.0 - smoothstep(0.55, 1.0, dmg.a) * 0.35);
           col = mix(col, soil, smoothstep(0.05, 0.6, dmg.a) * 0.88);
           float burn = smoothstep(0.02, 0.9, dmg.g) * (0.7 + 0.3 * n4);
           col = mix(col, col * vec3(0.2, 0.18, 0.16) + vec3(0.01, 0.008, 0.006), burn * 0.85);
@@ -822,7 +826,8 @@ export class TerrainMesh implements TerrainDeformApi {
             vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
             vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
             float det = dot(sx, r1) * faceDirection;
-            normal = normalize(abs(det) * normal - sign(det) * (dHdxy.x * r1 + dHdxy.y * r2));
+            vec3 bn = abs(det) * normal - sign(det) * (dHdxy.x * r1 + dHdxy.y * r2);
+            normal = dot(bn, bn) > 1e-24 ? normalize(bn) : normal; // (det = 0 on degenerate pixels: normalize(0) is NaN)
           }`}`)
         .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
           ${low ? `{

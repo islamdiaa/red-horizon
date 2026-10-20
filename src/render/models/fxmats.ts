@@ -21,7 +21,7 @@ varying vec3 vP;
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vP = wp.xyz;
-  vN = normalize(mat3(modelMatrix) * normal);
+  vN = mat3(modelMatrix) * normal; // normalised per fragment (safe at zero scale)
   vV = normalize(cameraPosition - wp.xyz);
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -41,8 +41,9 @@ float n2(vec2 p) {
   return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y);
 }
 void main() {
-  float ndv = abs(dot(normalize(vN), normalize(vV)));
-  float fres = pow(1.0 - ndv, 2.0);
+  // guarded: normalize(0) and pow(<0) are NaN on real GPUs (zero-scale shells, |dot| rounding above 1)
+  float ndv = abs(dot(vN * inversesqrt(max(dot(vN, vN), 1e-12)), normalize(vV)));
+  float fres = pow(max(1.0 - ndv, 0.0), 2.0);
   float n = n2(vP.xz * 9.0 + vec2(uTime * 0.7, -uTime * 0.5)) * n2(vP.xy * 7.0 - vec2(uTime * 0.4, uTime * 0.9));
   float bands = 0.5 + 0.5 * sin(vP.y * 60.0 - uTime * 7.0 + n * 8.0);
   float a = (0.015 + fres * 0.55) * (0.25 + 0.95 * n) * (0.5 + 0.5 * bands);
@@ -64,9 +65,9 @@ float n2(vec2 p) {
   return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y);
 }
 void main() {
-  float ndv = abs(dot(normalize(vN), normalize(vV)));
-  float fres = pow(1.0 - ndv, 1.6);
-  float ang = atan(vP.z, vP.x);
+  float ndv = abs(dot(vN * inversesqrt(max(dot(vN, vN), 1e-12)), normalize(vV)));
+  float fres = pow(max(1.0 - ndv, 0.0), 1.6);
+  float ang = atan(vP.z, vP.x + 1e-6);
   float n = n2(vec2(ang * 3.0 + uTime * 1.5, vP.y * 6.0 - uTime * 2.0));
   float a = clamp(0.25 + 0.55 * n, 0.0, 1.0) * (0.45 + 0.55 * fres);
   vec3 rim = uColor * fres * (0.6 + 0.8 * n);

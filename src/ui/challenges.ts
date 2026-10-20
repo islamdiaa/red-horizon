@@ -11,6 +11,7 @@ import tChallenges from '../i18n/en/challenges';
 import tCommon from '../i18n/en/common';
 import { SURVIVAL_VARIANTS, currentDailyDay, type SurvivalVariant } from '../missions/special';
 import { alliedEmblem, sovietEmblem } from './icons';
+import { focusTrap } from './a11y'; // Tab stays inside the screen
 import { bindCoopSwitch, coopSwitchHtml, survivalDeployId, survivalRecord } from './coop'; // co-op survival
 import { openScenarioChallenges } from '../modes/ui'; // scenario challenges
 
@@ -25,6 +26,7 @@ const CSS = `
 @keyframes chlOut { to { opacity: 0; } }
 @keyframes chlUp { from { opacity: 0; transform: translateY(1rem); } }
 .chl-col { display: flex; flex-direction: column; gap: 1rem; min-height: 0; min-width: 0; }
+.chl > .chl-col { overflow-y: auto; scrollbar-width: none; } /* (long languages on 720p-class screens: the footer stays reachable) */
 .chl-panel { position: relative; background: linear-gradient(180deg, rgba(20,28,39,.9), rgba(8,12,18,.93)); border: 1px solid rgba(255,255,255,.08); border-radius: 1rem; padding: 1rem 1.15rem;
   box-shadow: 0 1.4rem 3.5rem rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05); animation: chlUp .6s var(--ease, ease-out) both; }
 .chl-h2 { display: flex; align-items: center; gap: .55rem; margin: 0 0 .75rem; font-size: .72rem; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: rgb(var(--accent-rgb, 90,180,255)); }
@@ -33,7 +35,8 @@ const CSS = `
 .chl-h2 small { font-family: var(--mono, monospace); font-size: .78rem; letter-spacing: .04em; color: var(--muted, #7d8c9d); text-transform: none; }
 
 /* daily hero */
-.chl-daily { flex: 1; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-color: rgba(255,170,80,.25); }
+.chl-daily { flex: 1; display: flex; flex-direction: column; padding: 0; overflow: hidden auto; scrollbar-width: thin; border-color: rgba(255,170,80,.25); }
+@media (max-height: 800px) { .chl-daily .chl-hero { height: 11rem; } }
 .chl-hero { position: relative; height: 15.5rem; flex-shrink: 0; overflow: hidden; }
 .chl-hero > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .chl-hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(4,7,11,0) 0%, rgba(4,7,11,.12) 40%, rgba(12,17,24,.98) 100%), linear-gradient(90deg, rgba(4,7,11,.55), transparent 60%); }
@@ -93,7 +96,7 @@ const CSS = `
 .chl-stat small .mx-ic { font-size: .9rem; color: #ffb45a; }
 .chl-stat b { display: block; margin-top: .2rem; font-family: var(--mono, monospace); font-weight: 400; font-size: 1.35rem; color: #fff; white-space: nowrap; }
 .chl-stat b em { font-style: normal; font-size: .7rem; color: var(--muted, #7d8c9d); margin-left: .3rem; }
-.chl-stat .note { display: block; font-size: .68rem; color: #ffb45a; letter-spacing: .06em; margin-top: .1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chl-stat .note { display: block; font-size: .68rem; color: #ffb45a; letter-spacing: .06em; margin-top: .1rem; line-height: 1.25; }
 .chl-stat.streak b { color: #ffcf6a; text-shadow: 0 0 .8rem rgba(255,160,60,.55); }
 .chl-chart { flex: 1; display: flex; align-items: flex-end; gap: .35rem; min-height: 4rem; margin-top: .45rem; }
 .chl-chart div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .15rem; height: 100%; justify-content: flex-end; min-width: 0; }
@@ -127,7 +130,7 @@ const CSS = `
 .chl-sv-list { flex: 1; }
 .chl-sv-t { display: flex; align-items: center; gap: .5rem; font-size: 1.18rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .chl-sv-t em { font-style: normal; font-family: var(--mono, monospace); font-size: .7rem; letter-spacing: .04em; padding: .05rem .35rem; border-radius: .3rem; color: rgb(var(--sc)); border: 1px solid rgba(var(--sc), .45); }
-.chl-sv-s { font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted, #7d8c9d); margin-top: .05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chl-sv-s { font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted, #7d8c9d); margin-top: .05rem; line-height: 1.3; }
 .chl-sv-r { display: flex; gap: 1.1rem; margin-top: .45rem; }
 .chl-sv-r span small { display: block; font-size: .54rem; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; color: var(--muted, #7d8c9d); }
 .chl-sv-r span b { font-family: var(--mono, monospace); font-weight: 400; font-size: 1.05rem; color: #fff; }
@@ -156,7 +159,8 @@ const CSS = `
 .chl-rank b { display: block; font-size: .85rem; letter-spacing: .14em; text-transform: uppercase; color: #ffd34d; }
 .chl-rank small { font-family: var(--mono, monospace); font-size: .7rem; color: var(--muted, #7d8c9d); }
 .chl-near { display: flex; flex-direction: column; gap: .45rem; min-width: 0; }
-.chl-medp { flex: 1; display: flex; flex-direction: column; }
+.chl-medp { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; } /* (gives way first on short screens, so the footer stays on screen) */
+@media (max-height: 800px) { .chl .chl-foot .chl-sbtn { font-size: .74rem; letter-spacing: .08em; } }
 .chl-recent { margin-top: auto; padding-top: .8rem; border-top: 1px solid rgba(255,255,255,.06); }
 .chl-recent small { display: block; font-size: .58rem; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; color: var(--muted, #7d8c9d); margin-bottom: .4rem; }
 .chl-recent div { display: flex; gap: .5rem; }
@@ -172,6 +176,36 @@ const CSS = `
 .chl-near-r .tr { height: .28rem; border-radius: 1rem; background: rgba(255,255,255,.07); overflow: hidden; margin-top: .25rem; position: relative; }
 .chl-near-r .tr i { position: absolute; inset: 0 auto 0 0; border-radius: 1rem; background: linear-gradient(90deg, #a8741a, #ffcf3f); box-shadow: 0 0 .4rem rgba(255,207,63,.6); }
 .chl-foot { display: flex; gap: .6rem; margin-top: auto; }
+/* the footer buttons share the row: long labels (German, Russian, narrow screens) break onto a second line */
+.chl-foot .chl-sbtn { flex: 0 1 auto; min-width: 0; }
+.chl-foot .chl-sbtn span { white-space: normal; line-height: 1.15; text-align: left; }
+@media (max-width: 1440px) { .chl-foot .chl-sbtn { padding: 0 .75rem; letter-spacing: .12em; gap: .4rem; } }
+/* portrait screens (tablets, phones): one column that scrolls as a whole */
+@media (max-aspect-ratio: 1/1) {
+  .chl { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; align-content: start; overflow-y: auto; padding: 1rem .8rem 1.4rem; }
+  .chl > .chl-col { overflow: visible; }
+  .chl-daily, .chl-medp { flex: none; overflow: visible; }
+  .chl-h2 { flex-wrap: wrap; row-gap: .3rem; }
+  .chl-foot { flex-wrap: wrap; }
+  .chl-foot .chl-sbtn { flex: 1 1 auto; min-height: 2.9rem; height: auto; padding: .4rem .75rem; }
+}
+/* phones: the hero text flows under the clock, single-column cards, survival rows stack their Deploy button */
+@media (max-width: 600px) {
+  .chl-hero { height: auto; min-height: 12rem; padding-top: 4.4rem; }
+  .chl-hero-t { position: relative; left: auto; right: auto; bottom: auto; padding: 0 1rem 1rem; }
+  .chl-clock { left: 1rem; right: auto; }
+  .chl-title { font-size: 1.75rem; }
+  .chl-body { padding: .9rem .9rem 1rem; }
+  .chl-vs { flex-wrap: wrap; }
+  .chl-mods { grid-template-columns: minmax(0, 1fr); }
+  .chl-stats { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .chl-stats > :last-child { grid-column: 1 / -1; }
+  .chl-sv { grid-template-columns: 5.5rem minmax(0, 1fr); }
+  .chl-sv-go { grid-column: 1 / -1; padding: 0 .7rem .7rem; }
+  .chl-sv-go button { width: 100%; min-height: 2.9rem; }
+  .chl-sv-r { flex-wrap: wrap; gap: .4rem .9rem; }
+  .chl-med { grid-template-columns: minmax(0, 1fr); }
+}
 .chl-sbtn { height: 2.7rem; padding: 0 1.2rem; display: inline-flex; align-items: center; gap: .55rem; border-radius: .6rem; cursor: pointer; font: inherit; font-size: .85rem; font-weight: 700; letter-spacing: .24em; text-transform: uppercase;
   color: #dfe8f2; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); transition: all .2s; }
 .chl-sbtn:hover { color: #fff; border-color: rgba(var(--accent-rgb, 90,180,255), .55); background: rgba(var(--accent-rgb, 90,180,255), .14); }
@@ -419,7 +453,9 @@ export function showChallenges(opts: { onDeploy(missionId: string): void; onBack
     if (t && t !== hovered) opts.play('hover');
     hovered = t;
   });
+  const untrap = focusTrap(root, { initial: false });
   const close = () => {
+    untrap();
     window.clearInterval(timer);
     document.removeEventListener('keydown', onKey, true);
     root.classList.add('leaving');

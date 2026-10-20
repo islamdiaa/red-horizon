@@ -27,7 +27,7 @@ export function createHoloMaterial(color = 0x40d8ff): THREE.ShaderMaterial {
         #include <skinning_vertex>
         vec4 w = modelMatrix * vec4(transformed, 1.0);
         vW = w.xyz;
-        vN = normalize(mat3(modelMatrix) * objectNormal);
+        vN = mat3(modelMatrix) * objectNormal; // normalised per fragment (safe for zero-scale axes)
         vV = normalize(cameraPosition - w.xyz);
         gl_Position = projectionMatrix * viewMatrix * w;
       }`,
@@ -36,7 +36,8 @@ export function createHoloMaterial(color = 0x40d8ff): THREE.ShaderMaterial {
       varying vec3 vN; varying vec3 vW; varying vec3 vV;
       void main() {
         if (vW.y < uCut) discard;
-        float f = pow(1.0 - abs(dot(normalize(vN), vV)), 2.0);
+        // guarded: normalize(0) and pow(<0) are NaN on real GPUs (|dot| of unit vectors can round above 1)
+        float f = pow(max(1.0 - abs(dot(vN * inversesqrt(max(dot(vN, vN), 1e-12)), vV)), 0.0), 2.0);
         float scan = smoothstep(0.0, 0.08, fract(vW.y * 6.0 - uTime * 1.5)) * 0.35 + 0.65;
         float grid = max(step(0.96, fract(vW.x * 4.0)), step(0.96, fract(vW.z * 4.0))) * 0.25;
         float flicker = 0.92 + 0.08 * sin(uTime * 37.0 + vW.y * 11.0);

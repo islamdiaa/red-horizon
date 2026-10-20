@@ -116,12 +116,15 @@ function unexploredCell(ai: AIController, bx: number, by: number): [number, numb
 // ---------------------------------------------------------------------------
 
 interface OreField { x: number; y: number; cells: number }
-const fieldCache = new WeakMap<GameMap, OreField[]>();
+/** (keyed by the field-cell list and its length: ore spreads to new cells during a match, and a loaded game must see
+ * the same fields as the one it was saved from, or the AI's choices drift apart after a load) */
+const fieldCache = new WeakMap<GameMap, { cells: number[]; n: number; f: OreField[] }>();
 
-/** Ore / gem fields of the map: clusters of field cells (8 cells apart at most), from the static field layout. */
+/** Ore / gem fields of the map: clusters of field cells (8 cells apart at most), from the current field layout. */
 export function oreFields(m: GameMap): OreField[] {
-  let f = fieldCache.get(m);
-  if (f) return f;
+  const c = fieldCache.get(m);
+  if (c && c.cells === m.oreFieldCells && c.n === m.oreFieldCells.length) return c.f;
+  let f: OreField[];
   const cells = m.oreFieldCells.slice().sort((a, b) => a - b);
   const label = new Map<number, number>();
   const groups: number[][] = [];
@@ -145,7 +148,7 @@ export function oreFields(m: GameMap): OreField[] {
     for (const c of g) { sx += c % m.w; sy += (c / m.w) | 0; }
     return { x: sx / g.length + 0.5, y: sy / g.length + 0.5, cells: g.length };
   });
-  fieldCache.set(m, f);
+  fieldCache.set(m, { cells: m.oreFieldCells, n: m.oreFieldCells.length, f });
   return f;
 }
 
@@ -326,7 +329,7 @@ export function harass(ai: AIController) {
       if (d < 9 && d < pd) { pd = d; prey = u; }
     }
     if (prey) {
-      const ids = squad.filter((u) => u.target !== prey && pickWeapon(u, prey!)).map((u) => u.id);
+      const ids = canReach(w.map, squad.filter((u) => u.target !== prey && pickWeapon(u, prey!)), prey).map((u) => u.id);
       if (ids.length) w.issue({ c: 'attack', player: p.id, units: ids, target: prey.id });
       return;
     }
@@ -340,7 +343,8 @@ export function harass(ai: AIController) {
         const d = Math.hypot(b.x - cx, b.y - cy);
         if (d < 10 && d < sd) { sd = d; soft = b; }
       }
-      if (soft && squad.some((u) => pickWeapon(u, soft!))) w.issue({ c: 'attack', player: p.id, units: squad.map((u) => u.id), target: soft.id });
+      const able = soft ? canReach(w.map, squad, soft) : [];
+      if (soft && able.some((u) => pickWeapon(u, soft!))) w.issue({ c: 'attack', player: p.id, units: able.map((u) => u.id), target: soft.id });
       else home();
     }
     return;
@@ -499,3 +503,58 @@ export function focusFire(ai: AIController, alive: Unit[]) {
 }
 
 void UNITS;
+
+// ---------------------------------------------------------------------------
+// Reachability: ground regions of the map (terrain, trees and intact bridges; buildings and units ignored)
+// ---------------------------------------------------------------------------
+
+const zoneCache = new WeakMap<GameMap, { trees: number; bridges: number; zone: Int32Array }>();
+
+/** Ground regions of the map, one id per cell (0 = not passable ground). Derived from the map alone, so a loaded game sees the same. */
+export function landZones(m: GameMap): Int32Array {
+  let bridges = 0;
+  for (let i = 0; i < m.bridgeAt.length; i++) if (m.bridgeAt[i]) bridges++;
+  const c = zoneCache.get(m);
+  if (c && c.trees === m.treeVersion && c.bridges === bridges) return c.zone;
+  const zone = new Int32Array(m.w * m.h);
+  let next = 0;
+  const q: number[] = [];
+  for (let s = 0; s < zone.length; s++) {
+    if (zone[s] || !m.terrainPassable(s)) continue;
+    zone[s] = ++next;
+    q.length = 0;
+    q.push(s);
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h], cx = i % m.w, cy = (i / m.w) | 0;
+      for (let k = 0; k < 4; k++) {
+        const nx = cx + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = cy + (k === 2 ? 1 : k === 3 ? -1 : 0);
+        if (nx < 0 || ny < 0 || nx >= m.w || ny >= m.h) continue;
+        const j = ny * m.w + nx;
+        if (!zone[j] && m.terrainPassable(j)) { zone[j] = next; q.push(j); }
+      }
+    }
+  }
+  zoneCache.set(m, { trees: m.treeVersion, bridges, zone });
+  return zone;
+}
+
+function zoneAt(m: GameMap, zone: Int32Array, x: number, y: number): number {
+  const fx = Math.floor(x), fy = Math.floor(y);
+  return m.inBounds(fx, fy) ? zone[fy * m.w + fx] : 0;
+}
+
+/**
+ * The ground units of a list that can drive up to an entity (aircraft and ships always pass; a structure is reached
+ * at its edge). Orders to targets across water or cliffs left units waiting on a path that never comes.
+ */
+export function canReach<T extends Unit>(m: GameMap, units: T[], e: { x: number; y: number; w?: number; h?: number }): T[] {
+  const zone = landZones(m);
+  const goal = new Set<number>();
+  const hw = Math.ceil((e.w ?? 1) / 2) + 1, hh = Math.ceil((e.h ?? 1) / 2) + 1;
+  for (let dy = -hh; dy <= hh; dy++) for (let dx = -hw; dx <= hw; dx++) goal.add(zoneAt(m, zone, e.x + dx, e.y + dy));
+  return units.filter((u) => {
+    if (u.kind === 'aircraft' || u.kind === 'naval') return true;
+    const z = zoneAt(m, zone, u.x, u.y);
+    return !z || goal.has(z); // (standing somewhere odd: the pathfinder decides)
+  });
+}

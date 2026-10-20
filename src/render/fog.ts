@@ -243,7 +243,8 @@ export class FogPass extends Pass {
               vec3 dy1 = viewAt(vUv + vec2(0.0, uTexel.y)) - vc, dy2 = vc - viewAt(vUv - vec2(0.0, uTexel.y));
               vec3 ddx = abs(dx1.z) < abs(dx2.z) ? dx1 : dx2;
               vec3 ddy = abs(dy1.z) < abs(dy2.z) ? dy1 : dy2;
-              vec3 nv = normalize(cross(ddx, ddy));
+              vec3 nv = cross(ddx, ddy);
+              nv = dot(nv, nv) > 1e-30 ? normalize(nv) : vec3(0.0, 0.0, 1.0); // (parallel differences: normalize(0) is NaN)
               vec3 N = normalize(mat3(uCamWorld) * nv);
               // irradiance the scene was lit with here: sky + ground bounce, sun (shadowed) and environment
               float ndl = max(dot(N, uSunDir), 0.0);

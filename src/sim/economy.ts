@@ -471,7 +471,7 @@ function evacuate(world: World, b: Building, hurt: boolean, only?: (u: Unit) => 
     u.target = null;
     u.heading = u.prevHeading = Math.PI / 2;
     if (hurt) u.hp = Math.max(1, u.hp - u.maxHp * 0.3);
-    world.units.push(u);
+    world.rejoin(u);
   }
   if (keep.length) b.garrison = keep;
   else delete b.garrison;
@@ -675,7 +675,10 @@ export function loadEcon(world: World, s: any) {
     const ps = s.players[i] ?? {};
     const e = newPlayerEcon();
     e.tier = Math.max(1, Math.min(MAX_TIER, Math.floor(+ps.tier) || 1));
-    for (const id of RESEARCH_IDS) {
+    // in the saved order (the order research finished in: the state hash walks the levels in that order)
+    const saved = ps.levels && typeof ps.levels === 'object' ? Object.keys(ps.levels).filter((id) => RESEARCH_IDS.includes(id)) : [];
+    for (const id of [...saved, ...RESEARCH_IDS]) {
+      if (e.levels[id] !== undefined) continue;
       const lv = Math.floor(+(ps.levels?.[id] ?? 0)) || 0;
       if (lv > 0) e.levels[id] = Math.min(2, lv);
     }

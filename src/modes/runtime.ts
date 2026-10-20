@@ -129,7 +129,7 @@ export function startModes(world: World, setup: GameSetup): Player {
     if (!setup.load) def.setup(rt);
     else if (setup.load.game?.modeStart) def.start(rt);
     // (as missions do: what the stage hands out is not announced as "new construction options")
-    for (const p of world.players) { world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
+    for (const p of world.players) { if (!setup.load) world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); } // (a save restores the fog exactly as it was)
   }
   return world.players[local] ?? world.players[0];
 }

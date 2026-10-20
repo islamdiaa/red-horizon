@@ -23,6 +23,10 @@ export default strings('settings', {
   perfOverlaySub: 'FPS and renderer stats in the top bar',
   reduceMotion: 'Reduce motion',
   reduceMotionSub: 'Calmer UI animations',
+  renderScale: 'Render resolution',
+  renderScaleSub: 'Auto: lowers the 3D view\'s resolution when the frame rate drops (the interface stays sharp)',
+  // render resolution option
+  renderScaleAuto: 'Auto',
   layout: 'Interface layout',
   layoutSub: 'Modern: build bar at the bottom, panels in the corners · Classic: the sidebar on the right',
   // interface layout options

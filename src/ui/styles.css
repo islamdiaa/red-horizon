@@ -1092,6 +1092,63 @@ html:not([lang='en']) .opponent .op-diff button { font-size: 0.68rem; letter-spa
 @keyframes stepL { from { opacity: 0; transform: translateX(-1rem); } to { opacity: 1; transform: none; } }
 @keyframes letterIn { from { opacity: 0; transform: scale(1.8) translateY(-0.3rem); filter: blur(12px); } to { opacity: 1; transform: none; } }
 @keyframes medalIn { from { opacity: 0; transform: translateY(-2rem) rotate(-12deg) scale(0.7); } to { opacity: 1; transform: none; } }
+/* main menu, every screen shape. The long navigation (Boot Camp, Conquest, Multiplayer, the editor, mods...) is
+   compact at every height, so the left column fits a 1080p or 1440p screen; short landscape screens (phones) scroll
+   the whole menu; portrait screens (tablets, phones) stack the navigation above the skirmish setup. */
+.mm-left .mm-nav.dense { gap: 0.22rem; }
+/* longer languages ("Herausforderungen", "Многопользовательская"): a wider navigation, tighter segment labels */
+html:not([lang='en']) .mm-left .mm-nav { width: 20rem; max-width: 100%; }
+html:not([lang='en']) .opponent .seg button { letter-spacing: 0.01em; }
+html[lang='ru'] .opponent .op-diff button { font-size: 0.6rem; }
+.mm-left .mm-nav.dense .mm-nav-btn { height: 2.2rem; }
+/* (and at a large interface size, Settings › Accessibility, where the navigation outgrows the screen) */
+body.ui-scale-up .main-screen { align-items: flex-start; overflow-y: auto; overflow-x: hidden; }
+body.ui-scale-up .main-screen .mm-layout { align-items: flex-start; padding-top: 1rem; padding-bottom: 1rem; }
+body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
+@media (max-height: 600px) and (min-aspect-ratio: 1/1) {
+  .main-screen { align-items: flex-start; overflow-y: auto; overflow-x: hidden; }
+  .main-screen .mm-layout { align-items: flex-start; padding-top: 1rem; padding-bottom: 1rem; }
+  .main-screen .mm-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
+}
+@media (max-aspect-ratio: 1/1) {
+  .main-screen { align-items: flex-start; overflow-y: auto; overflow-x: hidden; }
+  .main-screen .mm-layout { flex-direction: column; align-items: center; gap: 1.6rem; padding: 1.4rem 1rem 2rem; }
+  .main-screen .mm-left, .main-screen .mm-panel { width: min(100%, 41rem); transform: none; }
+  .main-screen .mm-panel { max-height: none; overflow: visible; }
+  .main-screen .mm-panel .deploy { position: static; }
+  .main-screen .mm-nav { width: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+  .main-screen .game-title { font-size: min(5.2rem, 15vw); }
+  .main-screen .mm-tag { display: block; max-width: none; }
+  .main-screen .mm-foot { margin-top: 1.2rem; }
+}
+/* touch screens in the scrolling layouts (phones, portrait tablets): finger-sized menu controls (44 px) */
+@media (pointer: coarse) and (max-aspect-ratio: 1/1), (pointer: coarse) and (max-height: 600px) {
+  .main-screen .mm-left .mm-nav .mm-nav-btn { height: auto; min-height: 44px; }
+  .main-screen .seg button, .main-screen .op-add, .main-screen .op-x, .main-screen .mr-change, .main-screen .vr-tab, .main-screen .mr-ib,
+  .screen .btn, .screen .pp-btn, .screen .btn-back { min-height: 44px; }
+  .main-screen .mr-ib, .main-screen .op-x { min-width: 44px; }
+}
+/* narrow screens (phones in portrait): menu panels take the screen's width, settings and controls in one column */
+@media (max-width: 700px) {
+  .screen.sub-screen > .menu-panel { width: calc(100vw - 1rem); max-width: none; padding: 1rem 0.8rem; }
+  .settings-panel .set-grid, .help-panel .help-grid { grid-template-columns: minmax(0, 1fr); }
+  .set-row { flex-wrap: wrap; row-gap: 0.4rem; }
+}
+/* phones: one column for the setup fields, the opponent row wraps, the faction cards drop their emblem */
+@media (max-width: 600px) {
+  .main-screen .mm-panel { padding: 1rem 0.8rem; }
+  .main-screen .mp-grid { grid-template-columns: 1fr; }
+  .main-screen .opponent { grid-template-columns: 1fr 2.15rem; row-gap: 0.35rem; }
+  .main-screen .opponent > * { grid-column: 1 / -1; }
+  .main-screen .opponent > .op-id { grid-column: 1; grid-row: 1; }
+  .main-screen .opponent > .op-x { grid-column: 2; grid-row: 1; }
+  .main-screen .fc-name { font-size: 1.15rem; letter-spacing: 0.16em; }
+  .main-screen .fc-emblem { opacity: 0.35; }
+  .main-screen .map-row { grid-template-columns: 3.6rem 1fr; }
+  .main-screen .map-row .mr-thumb { width: 3.6rem; height: 3.6rem; }
+  .main-screen .map-row .mr-change { grid-column: 1 / -1; }
+  .main-screen .color-row { flex-wrap: wrap; }
+}
 @keyframes barSweep { from { left: -30%; } to { left: 100%; } }
 @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
 @keyframes tipIn { from { opacity: 0; transform: translateY(0.4rem); } to { opacity: 1; transform: none; } }
@@ -1422,6 +1479,7 @@ body.hud-modern .build-grid.more-left { -webkit-mask-image: linear-gradient(90de
 body.hud-modern .build-grid.more-left.more-right { -webkit-mask-image: linear-gradient(90deg, transparent, #000 2.2rem, #000 calc(100% - 3rem), transparent); mask-image: linear-gradient(90deg, transparent, #000 2.2rem, #000 calc(100% - 3rem), transparent); }
 body.hud-modern .build-grid .grid-sep { flex: 0 0 1.3rem; flex-direction: column; justify-content: center; margin: 0; gap: 0.35rem; }
 body.hud-modern .build-grid .grid-sep span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+body.hud-modern .build-grid .grid-sep span { letter-spacing: 0.06em; } /* ("Technologie nötig", or any label at 80% interface size, fits the card height) */
 body.hud-modern .build-grid .grid-sep i { flex: 1; width: 1px; height: auto; }
 body.hud-modern .build-grid .grid-empty { flex: 1; flex-direction: row; justify-content: center; padding: 0; }
 
@@ -1446,6 +1504,8 @@ html:not([lang='en']) body.hud-modern #buildbar .bi-name {
   white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
   line-height: 1.02; font-size: max(0.68rem, 8.5px); hyphens: auto; overflow-wrap: anywhere; text-overflow: clip;
 }
+/* English: the few long names ("Mobile Gap Generator") wrap too, at the usual size */
+html[lang='en'] body.hud-modern #buildbar .bi-name { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; line-height: 1.02; text-overflow: clip; }
 body.hud-modern #buildbar .bi-cost {
   left: 0; right: 0; top: auto; bottom: 0.22rem; text-align: center; background: none; padding: 0; font-size: max(0.74rem, 9px);
 }
@@ -1503,7 +1563,7 @@ body.hud-modern.spectating #topbar { display: none; }
 .op-row.sub { margin-left: 1.3rem; font-size: 0.78rem; color: var(--text-2); }
 .op-row.sub .op-bx { width: 0.72rem; height: 0.72rem; border-radius: 50%; }
 .op-row.sub.done .op-bx::after { display: none; }
-.op-tx { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.op-tx { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; } /* (long objectives, Russian and German: two lines, not cut) */
 .op-tx small { color: var(--muted); font-size: 0.86em; letter-spacing: 0.06em; text-transform: uppercase; }
 .op-dot { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.35rem; border-radius: 50%; background: var(--c); box-shadow: 0 0 5px var(--c); vertical-align: 0.06em; }
 .op-pg { margin-left: auto; padding-left: 0.5rem; font-family: var(--mono); font-size: 0.76rem; color: var(--gold); white-space: nowrap; }
@@ -1548,6 +1608,9 @@ body.hud-modern #fps { position: absolute; top: calc(100% + 0.35rem); right: 0; 
 body.hud-modern #fps span { color: var(--muted); }
 body.hud-modern #toasts { top: calc(var(--edge) + 5.2rem); right: var(--edge); width: 20rem; }
 body.hud-modern.hide-fps #toasts { top: calc(var(--edge) + 3.4rem); }
+/* short screens (phones in landscape): toasts sit left of the commander panel, and the pause menu scrolls */
+@media (max-height: 500px) { body.hud-modern #toasts { right: calc(var(--edge) * 2 + 11.6rem); width: 16rem; } }
+.pause-panel { overflow-y: auto; scrollbar-width: thin; }
 
 /* --- selection panel + orders (bottom right) ------------------------------------------------- */
 body.hud-modern #dock { left: auto; right: var(--edge); bottom: calc(var(--edge) + var(--bot)); width: var(--sel-w); align-items: stretch; gap: 0.4rem; }
@@ -1561,6 +1624,8 @@ body.hud-modern #selpanel .sp-rank { font-size: 1.1rem; }
 body.hud-modern #selpanel .sp-main { flex: 1 1 0; min-width: 0; gap: 0.3rem; justify-content: flex-start; }
 body.hud-modern #selpanel .sp-title { flex-wrap: wrap; gap: 0.3rem 0.45rem; }
 body.hud-modern #selpanel .sp-name { font-size: 1.02rem; }
+/* long names ("Mobile Construction Vehicle", German and Russian names): smaller, on up to two lines, never cut */
+#selpanel .sp-name[data-long] { font-size: 0.86rem; letter-spacing: 0.03em; line-height: 1.08; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 body.hud-modern #selpanel .sp-owner { font-size: 0.66rem; }
 body.hud-modern #selpanel .hp-bar { height: 0.55rem; }
 body.hud-modern #selpanel .hp-num { font-size: 0.72rem; }

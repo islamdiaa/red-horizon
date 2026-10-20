@@ -27,8 +27,31 @@ import type { ParticleSkyLight, SoftDepthSource } from './effects/smokelight';
 import { JUICE } from './effects/juiceflags';
 import { FXDC } from './effects/fxflags';
 import { classifyGpu, readGpuStrings } from '../platform/gpu';
+import { installGlslSafety } from './glsl-safety';
+import { setGpuCaps } from './gpucaps';
+
+installGlslSafety(); // before any shader compiles: no NaN from zero normals on real GPUs
 
 export type Quality = 'low' | 'medium' | 'high';
+
+/**
+ * One Auto render-scale decision from a 2 s window's average frame time (ms; the slower of the frame-to-frame and
+ * the measured GPU time). Hysteresis: down only after slow windows (one if far too slow), up only after two fast
+ * ones, in steps small enough (pixels go with the square) that a step up never lands back above the threshold.
+ * `w` carries the window counters between calls.
+ */
+export function stepRenderScale(s: number, avg: number, floor: number, w: { badWindows: number; goodWindows: number }): number {
+  if (avg > 34) {
+    w.goodWindows = 0;
+    if (++w.badWindows >= (avg > 50 ? 1 : 2)) { s = Math.max(floor, s - (avg > 50 ? 0.15 : 0.1)); w.badWindows = 0; }
+  } else if (avg < 20 && s < 1) {
+    w.badWindows = 0;
+    if (++w.goodWindows >= 2) { s = Math.min(1, s + 0.05); w.goodWindows = 0; }
+  } else w.goodWindows = w.badWindows = 0;
+  return Math.round(s * 100) / 100;
+}
+/** ?glcheck=1: per-frame WebGL error and HDR NaN diagnostics (see GameRenderer.glCheck). */
+const GL_CHECK = typeof location !== 'undefined' && new URLSearchParams(location.search).get('glcheck') === '1';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 
 export interface GraphicsSettings {
@@ -144,6 +167,7 @@ const FinalShader = {
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     precision highp float;
+    precision highp sampler2D; // (a raw shader: the default lowp sampler would cut HDR and depth precision on phones)
     uniform sampler2D tDiffuse, tBloom;
     uniform vec2 uRes;
     uniform float uTilt, uFocus, uTime, uVignette, uSaturation, uContrast, uFlash, uBloom, uSharpen, uClarity;
@@ -610,7 +634,7 @@ export class GameRenderer {
   private scale = 1;
   private frameAcc = 0;
   private frameN = 0;
-  private goodWindows = 0;
+  goodWindows = 0;
   private frameNo = 0;
   /** Shadow map refresh period in frames (medium refreshes every other frame). */
   private shadowEvery: number;
@@ -632,6 +656,7 @@ export class GameRenderer {
   constructor(readonly canvas: HTMLCanvasElement, readonly map: GameMap, readonly settings: GraphicsSettings) {
     const q = settings.quality;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+    setGpuCaps(this.renderer); // before the terrain and water build their float textures
     // synchronous shader-error checks stall the main thread on every first-use compile
     this.renderer.debug.checkShaderErrors = !!import.meta.env.DEV;
     // weaker presets render fewer pixels: high up to 2x on HiDPI, medium 1.25x, low 1x
@@ -645,7 +670,9 @@ export class GameRenderer {
     this.shadowEvery = q === 'high' ? 1 : 2;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     // hundreds of dynamic lights without THREE.Lights (see dynlights.ts); effects find it on the scene
-    this.dynLights = new DynamicLights(q === 'high' ? 255 : q === 'medium' ? 128 : 48, q === 'high' ? 32 : q === 'medium' ? 24 : 8);
+    // lights per screen tile: the atmosphere pass loops over them for every pixel (measured on an Intel UHD 770 at
+    // 1080p in a burning base: 24 a tile cost Medium 19 ms, 8 cost 9 ms; Low 8 -> 4 saves 2 ms; the brightest stay)
+    this.dynLights = new DynamicLights(q === 'high' ? 255 : q === 'medium' ? 128 : 48, q === 'high' ? 32 : q === 'medium' ? 8 : 4);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.preset = PRESETS[settings.timeOfDay];
     this.renderer.toneMappingExposure = this.preset.exposure;
@@ -946,23 +973,68 @@ export class GameRenderer {
   }
 
   /**
-   * Dynamic resolution: drop the render scale when frames take too long, restore it when frames are
-   * comfortably at the display rate. Keeps big battles smooth on weaker GPUs.
+   * Render resolution of the 3D view (the HUD is HTML and stays at the display resolution). 'auto' (the default)
+   * is dynamic resolution: when frames stay slower than about 30 fps for a few seconds the scale steps down
+   * (to 0.5; 0.6 under the TAA upscaler on High), and it steps back up once frames run at 50 fps or better.
+   * A capable GPU never leaves 1. A number fixes the scale (Settings > Graphics > Render resolution).
    */
   dynamicResolution = true;
+  private scaleMode: 'auto' | number = 'auto';
+  badWindows = 0;
+  setRenderScaleMode(mode: 'auto' | number) {
+    this.scaleMode = mode === 'auto' || !Number.isFinite(mode) ? 'auto' : Math.min(1, Math.max(0.5, mode));
+    this.frameAcc = this.frameN = this.goodWindows = this.badWindows = 0;
+    if (this.scaleMode !== 'auto') this.applyRenderScale(this.taa ? Math.max(0.6, this.scaleMode) : this.scaleMode);
+  }
+  /** The current render scale of the 3D view (1 = display resolution). */
+  get currentRenderScale(): number {
+    return this.taa ? this.renderScale : this.scale;
+  }
+  /**
+   * GPU time of the last measured frame (ms, EXT_disjoint_timer_query_webgl2; 0 without it). requestAnimationFrame
+   * can keep firing at the display rate while the GPU falls behind (frames are dropped, not delayed), so the
+   * frame-to-frame time alone misses a GPU-bound game.
+   */
+  private gpuFrameMs = 0;
+  private gpuTimer: { ext: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number }; q: WebGLQuery | null; busy: boolean } | null | undefined;
+  private gpuTimerBegin(): boolean {
+    if (!this.dynamicResolution || this.scaleMode !== 'auto') return false;
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    if (this.gpuTimer === undefined) {
+      const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      this.gpuTimer = ext ? { ext, q: null, busy: false } : null;
+    }
+    const t = this.gpuTimer;
+    if (!t || gl.isContextLost()) return false;
+    if (t.q && t.busy) {
+      // one query in flight: read it once the GPU is done with it
+      if (!gl.getQueryParameter(t.q, gl.QUERY_RESULT_AVAILABLE)) return false;
+      if (!gl.getParameter(t.ext.GPU_DISJOINT_EXT)) this.gpuFrameMs = gl.getQueryParameter(t.q, gl.QUERY_RESULT) / 1e6;
+      t.busy = false;
+    }
+    t.q ??= gl.createQuery();
+    if (!t.q) return false;
+    gl.beginQuery(t.ext.TIME_ELAPSED_EXT, t.q);
+    t.busy = true;
+    return true;
+  }
+  private gpuTimerEnd() {
+    const t = this.gpuTimer;
+    if (t) (this.renderer.getContext() as WebGL2RenderingContext).endQuery(t.ext.TIME_ELAPSED_EXT);
+  }
+
   adaptResolution(frameMs: number) {
-    if (!this.dynamicResolution) return;
+    if (!this.dynamicResolution || this.scaleMode !== 'auto') return;
+    frameMs = Math.max(frameMs, this.gpuFrameMs);
     this.frameAcc += frameMs;
     this.frameN++;
     if (this.frameAcc < 2000) return;
     const avg = this.frameAcc / this.frameN;
     this.frameAcc = 0;
     this.frameN = 0;
-    let s = this.taa ? this.renderScale : this.scale;
-    // below ~33 fps: render fewer pixels; back up only after two windows at (nearly) the display rate
-    if (avg > 30) { s = Math.max(this.taa ? 0.6 : 0.55, s - 0.12); this.goodWindows = 0; }
-    else if (avg < 19 && s < 1) { if (++this.goodWindows >= 2) { s = Math.min(1, s + 0.08); this.goodWindows = 0; } }
-    else this.goodWindows = 0;
+    this.applyRenderScale(stepRenderScale(this.currentRenderScale, avg, this.taa ? 0.6 : 0.5, this));
+  }
+  private applyRenderScale(s: number) {
     if (this.taa) {
       // TAA upscaling: keep the display resolution, render fewer pixels and let the temporal resolve
       // (plus sharpening) reconstruct the rest
@@ -972,6 +1044,7 @@ export class GameRenderer {
       }
       return;
     }
+    // without TAA the canvas renders fewer pixels and the browser scales it up to the window
     if (s !== this.scale) {
       this.scale = s;
       this.renderer.setPixelRatio(this.basePixelRatio * s);
@@ -1117,7 +1190,7 @@ export class GameRenderer {
   fxStats() {
     return {
       dyn: { ...this.dynLights.stats },
-      renderScale: this.taa ? this.renderScale : this.scale,
+      renderScale: this.currentRenderScale,
       taa: !!this.taa,
       lens: !!this.lens?.enabled,
       gpu: (this.scene.userData.gpuParticles as { stats?: object } | undefined)?.stats,
@@ -1244,13 +1317,16 @@ export class GameRenderer {
     this.passCalls.gpuSim = this.renderer.info.render.calls;
     // interactive water ripples around the camera (high)
     this.passCalls.waterSim = this.water.simulate(this.renderer, this.cam.x, this.cam.y, dt);
+    const q = this.gpuTimerBegin();
     try {
       this.composer.render(dt);
     } finally {
+      if (q) this.gpuTimerEnd();
       this.taa?.unjitter(this.cam.camera);
       lens?.endFrame();
     }
     (this.scene.userData.postRender as (() => void) | undefined)?.();
+    if (GL_CHECK) this.glCheck();
     if (this.trash.length) {
       for (const f of this.trash) f();
       this.trash.length = 0;
@@ -1327,8 +1403,37 @@ export class GameRenderer {
     for (const m of mats) m.dispose();
   }
 
+  private glChecks = 0;
+  /**
+   * ?glcheck=1 (field diagnostics on real GPUs): logs WebGL errors after each frame and, every 2 s, counts
+   * non-finite pixels in the HDR scene target (a NaN there turns into black dots under TAA, white blobs in bloom).
+   */
+  private glCheck() {
+    const gl = this.renderer.getContext();
+    const err = gl.getError();
+    if (err) console.warn(`[glcheck] WebGL error 0x${err.toString(16)} after frame ${this.glChecks}`);
+    if (this.glChecks++ % 120 !== 0 || gl.isContextLost()) return;
+    const rt = this.scenePass.target;
+    const fb = (this.renderer.properties.get(rt) as { __webglFramebuffer?: WebGLFramebuffer }).__webglFramebuffer;
+    if (!fb) return;
+    const px = new Float32Array(rt.width * rt.height * 4);
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.state.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.readPixels(0, 0, rt.width, rt.height, gl.RGBA, gl.FLOAT, px); // (RGBA / FLOAT: always readable from a float colour buffer)
+    this.renderer.setRenderTarget(prev);
+    let bad = 0, max = 0;
+    for (let i = 0; i < px.length; i++) {
+      const v = px[i];
+      if (!Number.isFinite(v)) bad++;
+      else if (v > max) max = v;
+    }
+    console.info(`[glcheck] scene target ${rt.width}x${rt.height}: ${bad} non-finite values, max ${max.toFixed(1)}`);
+  }
+
   /** After a lost WebGL context comes back: three re-uploads buffers itself, but the baked environment map is gone. */
   restoreAfterContextLoss() {
+    this.gpuTimer = undefined; // (queries belong to the lost context)
+    this.gpuFrameMs = 0;
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment?.dispose();
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;

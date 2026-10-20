@@ -4,6 +4,7 @@
  * doctrines, events, perk picks, the battle report and the run summary. Plain DOM + inline SVG, styled like the
  * campaign screen (src/ui/campaign.ts). The rules live in src/conquest.
  */
+import { focusTrap } from './a11y'; // Tab stays inside the screen, or the dialog on top of it
 import { UNITS } from '../data/rules';
 import type { SaveData } from '../sim/save';
 import { deleteSave, readSave } from '../sim/save';
@@ -248,6 +249,13 @@ const CSS = `
 .cq-hist { font-size: 12.5px; color: #b8c8d8; display: flex; flex-direction: column; gap: 5px; }
 .cq-hist div { display: flex; justify-content: space-between; gap: 8px; }
 .cq-hist .w { color: #b9ffcf; } .cq-hist .l { color: #ffb0a0; }
+@media (max-width: 600px) {
+  .cq-facs { grid-template-columns: minmax(0, 1fr); }
+  .cq-fac { height: auto; min-height: 96px; padding: 10px 14px; }
+  .cq-fac .emb { width: 72px; height: 56px; }
+  .cq-new { padding: 12px 10px; }
+  .cq-new-in > .cq-panel { padding: 16px 14px; }
+}
 @media (max-width: 1100px) { .cq-main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; } .cq-side { max-height: 38vh; } .cq-new-in { grid-template-columns: 1fr; } .cq-cards { grid-template-columns: 1fr; } }
 `;
 
@@ -529,6 +537,8 @@ class ConquestScreen {
   private selected: string | null = null;
   private closed = false;
   private keyHandler = (e: KeyboardEvent) => this.onKey(e);
+  private untrap: (() => void) | null = null;
+  private untrapModal: (() => void) | null = null;
 
   constructor(private opts: ConquestUiOptions) {}
 
@@ -556,6 +566,8 @@ class ConquestScreen {
     if (this.closed) return;
     this.closed = true;
     window.removeEventListener('keydown', this.keyHandler);
+    this.untrapModal?.(); this.untrapModal = null;
+    this.untrap?.(); this.untrap = null;
     this.modalEl?.remove();
     this.root?.remove();
     document.body.classList.remove('faction-soviet');
@@ -583,9 +595,11 @@ class ConquestScreen {
   }
 
   private setRoot(el: HTMLElement) {
+    this.untrap?.();
     this.root?.remove();
     this.root = el;
     document.body.appendChild(el);
+    this.untrap = focusTrap(el, { initial: false, restore: false });
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -895,6 +909,8 @@ class ConquestScreen {
     m.innerHTML = `<div class="cq-panel cq-dlg ${cls}">${onClose ? `<button class="cq-x" data-close title="${esc(tCommon('close'))}" aria-label="${esc(tCommon('close'))}">✕</button>` : ''}${html}</div>`;
     document.body.appendChild(m);
     this.modalEl = m;
+    this.untrapModal?.();
+    this.untrapModal = focusTrap(m, { initial: false });
     const x = m.querySelector<HTMLElement>('[data-close]');
     if (x) x.onclick = () => { this.opts.play('click'); this.closeModal(); onClose?.(); };
     animateRows(m);
@@ -902,6 +918,7 @@ class ConquestScreen {
   }
 
   private closeModal() {
+    this.untrapModal?.(); this.untrapModal = null;
     this.modalEl?.remove();
     this.modalEl = null;
   }

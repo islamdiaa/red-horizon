@@ -70,6 +70,11 @@ server, or `QA_BASE`.
 | `vs_passive.ts` | How fast each AI difficulty beats a passive human | `node --import tsx tools/qa/vs_passive.ts` |
 | `pathing_maps.ts` | Long move orders on generated maps | `node --import tsx tools/qa/pathing_maps.ts [trials]` |
 | `juice_cpu.ts` | CPU cost of the effect recipes, with and without the game-feel layers | `node --import tsx tools/qa/juice_cpu.ts` |
+| `fuzz.ts` | Command fuzzer: random legal commands from the whole command vocabulary into random skirmishes (sizes up to 192, 2-4 players, both rulesets, mutators, King of the Hill, sea and curated maps), world invariants every 10 ticks, and per case a save / load at a random tick, a replay of the command log and (some cases) portable maths, which must all hash the same. One seed reproduces a case; `FUZZ_ALL=1` also commands the AI players' units | `node --import tsx tools/qa/fuzz.ts [--from 1] [--count 20] [--minutes 5] [--size 0] [-v]` |
+| `bigarmy.ts` | Long 4-player match with build-up time: units, simulation ms per tick (p50 / p95 / max), AI thinking time and save cost per interval; `--mem` lists collections that keep growing, `--hash` prints state hashes to compare two builds | `node --import tsx tools/qa/bigarmy.ts [--size 128] [--diff brutal] [--minutes 60] [--ceasefire 30] [--credits 10000] [--seed 7]` |
+| `stuck.ts` | Stuck detection in AI-vs-AI matches: movers without progress for 20 s, idle harvesters with ore left, an AI with money that builds nothing for 3 minutes, aircraft that never rearm, transports that never unload | `node --import tsx tools/qa/stuck.ts [--size 128] [--players 4] [--diff hard] [--minutes 45] [--water 0.4]` |
+| `crowd.ts` | A big army ordered across a bridge and back (or across open ground with `--flat`): arrival time and units without progress | `node --import tsx tools/qa/crowd.ts [--units 300] [--seed 4] [--flat]` |
+| `saveprof.ts` | Save cost on a big world: serialise, JSON, load, and the largest parts | `node --import tsx tools/qa/saveprof.ts [minutes=28] [size=128]` |
 | `ui.mjs` | UI checks with real mouse and keyboard input | `node tools/qa/ui.mjs` |
 | `ui_end.mjs` | End screen, quit, new game, restart and defeat | `node tools/qa/ui_end.mjs` |
 | `ui_sidebar.mjs` | Sidebar card states | `node tools/qa/ui_sidebar.mjs` |
@@ -94,6 +99,10 @@ These take the URL or port of a running dev server.
 | `campaign-shot.mjs` | Campaign select and debrief screens | `node tools/campaign-shot.mjs <baseUrl> <outPrefix> [tab] [w] [h]` |
 | `conq-shot.mjs` | Conquest UI | `node tools/conq-shot.mjs <url> <out.png> [waitMs=7000] [w] [h] [action ...]` |
 | `mission-flow.mjs` | A mission's start, win or lose, and debrief | `node tools/mission-flow.mjs <baseUrl> <missionId> <outPrefix> [win\|lose]` |
+
+On a real GPU (Linux with an Intel or AMD GPU and Docker), `tools/gpu-rig/` runs the browser checks that SwiftShader can't do: NaN and
+half-float overflow in every HDR render target, WebGL errors, context loss and restore, missing mobile extensions, and FPS per preset
+with per-pass GPU timings. See [`gpu-rig/README.md`](gpu-rig/README.md).
 
 ## HD model factory (`tools/assets`)
 
@@ -152,6 +161,7 @@ The browser audits in `tests/perf/` and the scripts in `tests/tools/` run throug
 - `npm run audit:leaks` (every system on; `--classic` for plain rules);
 - `npm run audit:profile`;
 - `npm run audit:stress` (a 300-unit battle: spikes, GC, allocation sites);
+- `node tests/perf/speed.mjs [q] [seconds] [units] [speed]` (the game speed a big battle really reaches at x5 with the real frame loop, main-thread costs only);
 - `npm run audit:presets` and `npm run audit:startup` (point them at one or two builds: before / after);
 - `npm run verify:pwa`;
 - `npm run icons`.

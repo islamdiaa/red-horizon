@@ -460,7 +460,7 @@ describe('aircraft', () => {
 });
 
 describe('skirmish AI first wave', () => {
-  test('the first wave waits for its difficulty timer and commits only ~1.3x the wave value', () => {
+  test('the first wave waits for its difficulty timer, and in Classic goes in whole once it outweighs what it knows', () => {
     const s = sandbox({ ai: ['hard', undefined], credits: 0, w: 64, h: 64 });
     const { world, p0, p1 } = s;
     building(world, 'fact', p0, 6, 6);
@@ -474,8 +474,9 @@ describe('skirmish AI first wave', () => {
     run(world, seconds(10));
     assert.equal(ai.state, 'attack', 'attacks after 5:00');
     const value = [...ai.wave].reduce((s: number, id: number) => s + (world.getEntity(id) as Unit).ut.cost, 0);
-    assert.ok(value >= 3500 && value <= 3500 * 1.3, `first wave worth $${value}`);
-    assert.ok(army.filter((u) => !ai.wave.has(u.id)).length >= 6, 'the rest stays home');
+    // (version 4, Classic normal and up: no capped first wave; the wave was weighed against the enemy, ai-engage.ts.
+    // Commander rules keep the ~1.3x wave-value cap.)
+    assert.equal(value, 12 * 800, `first wave worth $${value}: the whole idle army`);
   });
 });
 

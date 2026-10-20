@@ -84,7 +84,7 @@ export class TrackMarks {
           vAlpha = aStrength * (1.0 - smoothstep(life * 0.45, life, age)) * smoothstep(0.0, 0.3, age);
           vKind = aKind;
           // which side of the rut faces the sun: its across-track axis (local x) against the sun's heading
-          vec3 across = normalize(mat3(instanceMatrix) * vec3(1.0, 0.0, 0.0));
+          vec3 across = normalize(mat3(instanceMatrix) * vec3(1.0, 0.0, 0.0) + vec3(1e-6, 0.0, 0.0)); // (unused instances have zero scale)
           vec2 sun = normalize(uSun.xz + vec2(1e-4));
           vSunSide = dot(across.xz, sun);
           gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0);

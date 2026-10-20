@@ -919,7 +919,7 @@ float surfK = 1.0 - smoothstep( 0.05, 0.4, rhEmis );
 diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * uTeam, rhMask.r );
 diffuseColor.rgb *= mix( 0.3, 1.0, surfK );
 // damage: the procedural damage maps, box-projected in model space (same density as the procedural bodies)
-vec3 rhNn = normalize( vRhN );
+vec3 rhNn = vRhN * inversesqrt( max( dot( vRhN, vRhN ), 1e-12 ) ); // (a zero normal must not give NaN)
 vec3 rhAn = abs( rhNn );
 vec2 rhBp = rhAn.x > rhAn.y && rhAn.x > rhAn.z ? vRhP.zy : ( rhAn.y > rhAn.z ? vRhP.xz : vRhP.xy );
 vec2 rhUv = rhBp * 2.2;

@@ -16,7 +16,8 @@
  * |   Tegra, Apple GPU on iOS/iPadOS)                               |                             |
  * |   ... recent flagship mobile (Adreno 7xx/8xx, Immortalis)       | medium                      |
  * | Intel HD Graphics (Gen 7-9, e.g. HD 4000/520/620), GMA          | low                         |
- * | Intel UHD / Iris / Iris Plus / Iris Xe                          | medium                      |
+ * | Intel desktop UHD 7x0 (Mesa: RKL / ADL-S / RPL-S / ARL-S)       | low                         |
+ * | Intel UHD / Iris / Iris Plus / Iris Xe, Mesa laptop codenames   | medium                      |
  * | Intel Arc (discrete)                                            | high                        |
  * | AMD APU ("Radeon(TM) Graphics", Vega 3-11, 610M/660M/680M)      | medium                      |
  * | AMD 760M/780M/880M/890M APUs                                    | medium (high via benchmark) |
@@ -178,7 +179,12 @@ export function classifyGpu(rendererRaw: string, userAgent = ''): GpuClass {
   // ---- Intel
   if (/intel/i.test(r)) {
     if (/\barc\b/i.test(r)) return { tier: 'discrete', baseline: 'high', reason: `Intel Arc (${r})` };
-    if (/iris|uhd/i.test(r)) return { tier: 'integrated', baseline: 'medium', reason: `Intel integrated (${r})` };
+    // desktop UHD 7x0 (24-32 EU; Linux / Mesa calls them by codename: "Mesa Intel(R) Graphics (RPL-S)"): measured
+    // at about 17 FPS in a 150-unit battle at 1920x1080 even on Low (October 2026)
+    if (/uhd graphics 7[0-9]0\b|\((?:RKL|ADL-S|RPL-S|ARL-S)\b/i.test(r)) return { tier: 'integrated', baseline: 'low', reason: `Intel desktop integrated (${r})` };
+    // Mesa names the laptop Iris Xe class by codename too: "Mesa Intel(R) Graphics (ADL GT2)", "(TGL GT2)", "(MTL)"
+    // (Atom-class JSL / EHL stay low)
+    if (/iris|uhd|\bxe\b|\((?:ICL|TGL|ADL|RPL|MTL|ARL|LNL|PTL|DG1)\b/i.test(r)) return { tier: 'integrated', baseline: 'medium', reason: `Intel integrated (${r})` };
     return { tier: 'integrated', baseline: 'low', reason: `older Intel integrated (${r})` };
   }
 

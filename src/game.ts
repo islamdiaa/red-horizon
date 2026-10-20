@@ -345,7 +345,7 @@ export class Game {
       if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
       if (!setup.load) def.setup(rt);
       if (setup.load) deserializeWorld(this.world, setup.load.world, rt);
-      for (const p of this.world.players) { this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
+      for (const p of this.world.players) { if (!setup.load) this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); } // (a save restores the fog exactly as it was: refreshing it here would change the resumed game)
     }
 
     applyMatchPaint(this.local.color, !setup.demo && !setup.replay); // before the first model / portrait

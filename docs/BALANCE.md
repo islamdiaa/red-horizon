@@ -81,12 +81,68 @@ Per ruleset (40 games a cell):
 The targets were: Recruit at most 10% against the novice; Easy at most 25% against the novice and 15% against the
 casual player; Normal about 50% against the casual player; Hard at least 70% against the casual and about 50%
 against the experienced player; Brutal at least 75% against the experienced player. All hold under Commander rules.
-In Classic all hold but Hard against the casual player (20%): in pure Red Alert rules the scripted casual player,
-who masses tanks at home behind four defences and counter-attacks, beats every AI level more often than the
-experienced stand-in does (Normal 25% against it, 53% against the experienced one), so no difficulty number can put
-Hard at 70% against it and 50% against the experienced player at once. Closing that needs better Classic AI play
-(army composition, waves that don't run into a bigger army at home), not more money. The Normal row also wins
-almost every game against the novice: Normal is the casual player's level.
+In Classic all held but Hard against the casual player (20%): in pure Red Alert rules the scripted casual player,
+who masses tanks at home behind four defences and counter-attacks, beat every AI level more often than the
+experienced stand-in did. Version 4 closes most of that gap with better Classic play, not more money (next section).
+The Normal row also wins almost every game against the novice: Normal is the casual player's level.
+
+### Classic: the AI's own judgement (simulation version 4)
+
+What the AI did wrong against the casual stand-in (Classic, Hard, 40 games): it spent about $27,000 a game on
+structures and $14,000 on Ore Trucks against his $16,000 and $9,000, fielded half his army (riflemen took every
+credit as it came in, so the war factory waited for money it never saw), lost eight Ore Trucks a game in mid-map
+fields, and sent waves into his four defences, then had nothing at home when his tanks came. Now, in Classic
+skirmishes from Normal up (`AIController.classicPro`; Commander rules, Recruit, Easy and every scripted mission keep
+version 3, hash for hash):
+
+- **Tanks first** (`ai.ts`, `planUnits`): the war factory gets the money first; infantry is an escort of about 0.6
+  per combat vehicle, built next to a vehicle in production or when the money floats, and ten at most before the war
+  factory.
+- **A lean build** (`CLASSIC_GOALS`): two refineries, the war factory, radar, three defences and the service depot
+  (and the Soviet airfield, for its free support powers), then the third refinery and the tech centre; no decoys. The
+  next structure on the list keeps half its price back from the tank queue. Helipads, kennels, gap generators, AA and
+  superweapons, and a second war factory, wait until the bank covers most of their price or the army is ahead.
+- **When to fight** (`ai-engage.ts`): an estimate of the enemy army from what it has seen (the most it saw at once,
+  less what it saw destroyed, plus $300 a minute for what it can't see) and of the defences it knows at the target.
+  A wave goes only when it outweighs both by a quarter, never before the scouts have found the base, and with the
+  whole idle army (no capped first wave); otherwise the army waits at home among its defences. After five minutes
+  with neither a wave nor a real attack on the base ($2,500 or more of enemy units; scouts and paradrops don't
+  count), a ready army goes anyway (two such commanders would otherwise
+  sit at home all game). A wave that meets more than it can beat comes home at once. Defenders are not fed piecemeal
+  to a stronger force outside the base.
+- **Ore Truck care** (`ai-harvest.ts`): a truck under fire turns back (home to unload when it carries a fair load),
+  and one bound for a field on the enemy's side of the map is sent to a safer field that still has ore.
+
+Win share of the AI in Classic (generated land maps, 64×64 and 96×96, 20 games each, factions and start positions
+alternated, 45-minute limit decided on material; 40 games a cell, 95% Wilson intervals). "Before" is version 3:
+
+| Level | vs novice | vs casual before | after | vs experienced before | after |
+|---|---|---|---|---|---|
+| Recruit | 0% [0–9] | 0% [0–9] | 0% [0–9] | — | — |
+| Easy | 13% [5–26] | 0% [0–9] | 0% [0–9] | — | — |
+| Normal | — | 25% [14–40] | **40% [26–55]** | 53% [37–67] | 58% [42–71] |
+| Hard | — | 20% [10–35] | **65% [50–78]** | 53% [37–67] | 70% [55–82] |
+| Brutal | — | 75% [60–86] | **85% [71–93]** | 98% [87–100] | 93% [80–97] |
+
+Hard against the casual player triples, close to the 70% target: 95% on 64×64 but 35% on 96×96, where the AI's home
+ore runs out by minute ten and its trucks travel to contested fields (earlier expansions were tried and lost more
+than they won). Normal gives the casual player a fair game (40%); Hard beats the experienced player 70% of the time.
+Brutal against the experienced player (93%, was 98%) is within the noise of 40 games. Recruit and Easy are unchanged.
+
+Commander rules keep the version-3 AI (40 games a cell, before → after): Normal against the casual player 48% → 40%
+[26–55], against the experienced one 8% → 18% [9–32]; Hard 93% → 90% [77–96] and 43% → 45% [31–60]; no cell moved
+by more than the noise (the only shared changes are bug fixes: units are no longer ordered at targets they can't
+drive to, and the ore-field map follows ore that spreads, so a loaded game plays on as it was saved).
+
+Allied share on the curated two-player maps (both sides the same AI, normal and hard, 96 games): 32% [24–42] before,
+70% [60–78] now, but 77% of the games run to the 45-minute limit (35% before) and are decided on material. Two
+version-4 Classic AIs do attack each other, but the side that is ahead turns its waves back at the other's defences
+(a Tesla Coil or two outweighs the wave by the 1.15 retreat line), so it wins on material, not by breaking the base.
+A build with a plain five-minute limit on holding back gave 58% [48–68] with 56% timeouts, but about 15 points less
+against the casual player. Two other tries did not reach 50% timeouts with a 40–60% split of the decided games and
+were left out: waves that see a stalemate-breaking attack through (retreating only at 1.8 times the usual line: 79%
+timeouts), and counting towers once instead of twice, health-weighted, when the wave has beaten the defending army
+(68% timeouts, Allies 71% of the decided games). Still open.
 
 Economy at a glance (harvest a minute, AI against stand-in, Commander): Easy against the novice $829 / $851 (was
 $3,139 / $857); Normal against the casual player $1,682 / $1,789 (was $2,651 / $1,470).

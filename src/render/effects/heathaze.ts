@@ -282,7 +282,7 @@ varying float vSeed;
 void main() {
   float u = vLocal.x, v = vLocal.y;
   // strongest just above the source, fading towards the top and the sides of the plume
-  float env = (1.0 - u * u) * smoothstep(0.0, 0.22, v) * pow(1.0 - v, 1.3);
+  float env = (1.0 - u * u) * smoothstep(0.0, 0.22, v) * pow(max(1.0 - v, 0.0), 1.3);
   if (env <= 0.002) discard;
   // turbulence carried up by the hot air: two octaves of noise drifting upwards at different speeds
   vec2 q = vec2(vWorld.x * 0.83 + vWorld.z * 0.56, vWorld.y) + vSeed * 9.7;

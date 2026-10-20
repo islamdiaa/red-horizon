@@ -121,6 +121,8 @@ export class Unit extends Entity {
   progressTimer = 0;
   progressDist = 0;
   stuckCount = 0;
+  /** Ticks left waiting in a passing place after giving way to a vehicle coming the other way (unitlogic.ts giveWay). */
+  yieldHold = 0;
   /** Group-move speed cap (cells/s, 0 = none) so mixed groups arrive together. */
   speedCap = 0;
   /** Building id the unit is currently driving out of (ignored for collision). */

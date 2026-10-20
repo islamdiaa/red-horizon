@@ -540,7 +540,7 @@ float surfK = emisK > 0.0 ? 0.0 : 1.0;
 float detail = dSel < 0.5 ? dTex.r : ( dSel < 1.5 ? dTex.g : ( dSel < 2.5 ? dTex.b : 0.87 ) );
 detail *= 1.15;
 diffuseColor.rgb *= mix( vec3( 1.0 ), uTeam, vPbr.z ) * detail * ( emisK > 0.0 ? 0.3 : 1.0 );
-float rhUp = clamp( normalize( vRhN ).y, 0.0, 1.0 );
+float rhUp = clamp( vRhN.y * inversesqrt( max( dot( vRhN, vRhN ), 1e-12 ) ), 0.0, 1.0 ); // (zero normal: no NaN)
 // material flags packed above the roughness (builder.ts MAT_*): camo, mud, soot
 float rhFlags = floor( vPbr.y * 0.5 + 0.0001 );
 float rhRough = vPbr.y - 2.0 * rhFlags;
@@ -653,7 +653,8 @@ roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.35, uRhGloss * vPbr.
   vec3 rhSx = dFdx( -vViewPosition ), rhSy = dFdy( -vViewPosition );
   vec3 rhR1 = cross( rhSy, normal ), rhR2 = cross( normal, rhSx );
   float rhDet = dot( rhSx, rhR1 ) * faceDirection;
-  normal = normalize( abs( rhDet ) * normal - sign( rhDet ) * ( dHdxy.x * rhR1 + dHdxy.y * rhR2 ) );
+  vec3 rhBn = abs( rhDet ) * normal - sign( rhDet ) * ( dHdxy.x * rhR1 + dHdxy.y * rhR2 );
+  normal = dot( rhBn, rhBn ) > 1e-24 ? normalize( rhBn ) : normal; // (det = 0 on degenerate pixels: normalize(0) is NaN)
 }
 #endif`,
       )

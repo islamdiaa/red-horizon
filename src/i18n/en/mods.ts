@@ -11,6 +11,25 @@ export default strings('mods', {
   issue: MOD_ISSUES,
   /** Why a field is read-only. */
   why: MOD_WHY,
+  /** The changed field in the mod preview (the file's field name stays in a tooltip; other fields show as written). */
+  field: {
+    cost: 'Cost',
+    speed: 'Speed',
+    strength: 'Health',
+    armor: 'Armour',
+    sight: 'Sight',
+    range: 'Range',
+    damage: 'Damage',
+    rof: 'Reload time',
+    power: 'Power',
+    ammo: 'Ammo',
+    burst: 'Burst',
+    minRange: 'Minimum range',
+    rot: 'Turn rate',
+    passengers: 'Passengers',
+    spread: 'Blast spread',
+    storage: 'Ore storage',
+  },
   /** The {table} word in the checker messages. */
   tableWord: {
     unit: 'unit',

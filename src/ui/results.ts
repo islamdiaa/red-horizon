@@ -72,7 +72,7 @@ const CSS = `
 .rr-who b { display: block; font-size: 1.15rem; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rr-who em { display: block; font-style: normal; font-size: .72rem; color: var(--text-2); letter-spacing: .06em; }
 .rr-xpn { text-align: right; font-family: var(--mono); font-size: 1.9rem; line-height: 1; color: #fff; text-shadow: 0 0 1rem rgba(255, 210, 80, .45); }
-.rr-xpn small { display: block; font-family: var(--font); font-size: .56rem; font-weight: 700; letter-spacing: .3em; color: var(--gold); }
+.rr-xpn small { display: block; margin-top: .2rem; font-family: var(--font); font-size: .56rem; font-weight: 700; letter-spacing: .3em; color: var(--gold); }
 .rr-rank { grid-column: 2 / -1; display: flex; align-items: center; gap: .55rem; }
 .rr-rank .ins { width: 2.1rem; height: 2.1rem; flex-shrink: 0; transition: transform .35s var(--spring); }
 .rr-rank .ins svg { width: 100%; height: 100%; }

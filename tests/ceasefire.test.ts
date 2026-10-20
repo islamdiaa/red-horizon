@@ -177,8 +177,10 @@ describe('build-up time (ceasefire)', () => {
     assert.deepEqual(keys, [[4 * MIN, 'ceasefire_warning'], [5 * MIN, 'ceasefire_over']], 'warning a minute before, then the end');
   });
 
-  test('the AI fields a far bigger army when the ceasefire ends than it has at that time without one', () => {
-    // a passive human behind a ring of defences: without a ceasefire the AI spends its first waves on them
+  test('the AI keeps its army through the ceasefire, and in Classic no longer spends waves on a fortified base', () => {
+    // a passive human behind a ring of defences. Version 3 threw its first waves at them without a ceasefire; the
+    // version-4 Classic AI (normal and up, ai-engage.ts) waits for an edge it never gets here, so both armies are
+    // about the same size at 10:00 and the ceasefire costs nothing
     const sum = { 0: 0, 10: 0 } as Record<number, number>;
     const rows: string[] = [];
     for (const seed of [11, 12, 13, 21]) {
@@ -188,15 +190,15 @@ describe('build-up time (ceasefire)', () => {
         while (world.tick < 10 * MIN) { world.step(); world.events.length = 0; }
         v[cf] = ais[0].armyValue();
         sum[cf] += v[cf];
-        if (!cf) assert.ok(ais[0].waves > 0 && ais[0].p.stats.unitsLost > 8, `seed ${seed}: without a ceasefire it has been attacking (${ais[0].waves} waves, ${ais[0].p.stats.unitsLost} lost)`);
+        if (!cf) assert.ok(ais[0].p.stats.unitsLost <= 8, `seed ${seed}: without a ceasefire no army thrown at the defences (${ais[0].waves} waves, ${ais[0].p.stats.unitsLost} lost)`);
         else assert.ok(ais[0].p.stats.unitsLost <= 6, `seed ${seed}: only scouts lost during the ceasefire (${ais[0].p.stats.unitsLost})`);
       }
       rows.push(`${v[10]} vs ${v[0]}`);
-      assert.ok(v[10] > v[0], `seed ${seed}: bigger with the ceasefire (${v[10]} vs ${v[0]})`);
-      assert.ok(v[10] >= 10000, `seed ${seed}: a sizeable army after 10 minutes (${v[10]})`);
+      assert.ok(v[10] >= v[0] * 0.8, `seed ${seed}: about as big with the ceasefire (${v[10]} vs ${v[0]})`);
+      assert.ok(v[10] >= 8000, `seed ${seed}: a sizeable army after 10 minutes (${v[10]})`);
     }
     console.log(`    army value at 10:00 with / without the ceasefire: ${rows.join(', ')} (x${(sum[10] / sum[0]).toFixed(2)})`);
-    assert.ok(sum[10] >= sum[0] * 1.35, `well above overall (${sum[10]} vs ${sum[0]})`);
+    assert.ok(sum[10] >= sum[0], `at least as big overall (${sum[10]} vs ${sum[0]})`);
   });
 
   test('unlimited: no attack in 40 minutes, the army stops at its cap, and the AI defends its base', () => {

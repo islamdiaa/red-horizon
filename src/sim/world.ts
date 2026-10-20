@@ -918,6 +918,7 @@ export class World {
         const [x, y] = this.findFreeSpot(b.x, b.cy + b.h + 0.5, 6, u.kind !== 'infantry', u.kind === 'naval');
         u.x = u.prevX = x;
         u.y = u.prevY = y;
+        if (u.madStage > 0) { u.targetX = u.guardX = x; u.targetY = u.guardY = y; } // a deployed M.A.D. Tank is held at its anchor (aftermath.ts): move that too
         this.setOrder(u, { type: 'idle' });
       }
     }
@@ -944,6 +945,14 @@ export class World {
     return true;
   }
 
+  /**
+   * A passenger / garrison back on the map. One that went in during this same tick is still listed (the lists are
+   * only pruned at the end of the tick): it must not be listed twice.
+   */
+  rejoin(u: Unit) {
+    if (!this.units.includes(u)) this.units.push(u);
+  }
+
   /** Drop all passengers next to a transport. */
   unload(apc: Unit) {
     if (!apc.passengers.length) return;
@@ -955,7 +964,7 @@ export class World {
       p.guardX = x;
       p.guardY = y;
       p.heading = p.prevHeading = apc.heading + Math.PI;
-      this.units.push(p);
+      this.rejoin(p);
     }
     apc.passengers.length = 0;
     this.sfx('door', apc.x, apc.y);
@@ -1047,8 +1056,25 @@ export class World {
       } else {
         u.path = null;
         u.hasGoal = false;
+        if (this.pathfinder.expandedLastSearch <= 1 && !(sx === gx && sy === gy)) this.walledIn(u);
       }
     }
+  }
+
+  /**
+   * A ground unit whose cell has no way out because structures went up all round it (an AI base growing around a
+   * parked tank): it can never get a path again, so it is moved to the nearest free spot, as a placement on top of
+   * it would have done. Ground boxed in by terrain alone (a unit dropped on an islet) is left as it is.
+   */
+  private walledIn(u: Unit) {
+    if (u.kind === 'aircraft' || u.kind === 'naval' || u.exitBuilding || u.madStage > 0) return;
+    const m = this.map, cx = Math.floor(u.x), cy = Math.floor(u.y);
+    if (!NEIGHBOURS4.some(([dx, dy]) => m.inBounds(cx + dx, cy + dy) && m.occupant[m.idx(cx + dx, cy + dy)] && m.terrainPassable(m.idx(cx + dx, cy + dy)))) return;
+    const [x, y] = this.findFreeSpot(u.x, u.y, 6, u.kind !== 'infantry');
+    if (Math.floor(x) === cx && Math.floor(y) === cy) return;
+    u.x = u.prevX = x;
+    u.y = u.prevY = y;
+    this.requestPath(u, u.goalX, u.goalY); // (on to where it was going)
   }
 
   // ---------------------------------------------------------------------------
@@ -1088,6 +1114,7 @@ export class World {
   /** Whether entity e is visible to player p. */
   canSee(p: Player, e: Entity): boolean {
     if (e.owner.team === p.team) return true;
+    if (e instanceof Unit && e.transport) return false; // inside a transport or a bunker: out of sight (and out of reach)
     // detected (sensor ship nearby, sonar pulse): visible even through fog; cloaked and undetected: hidden
     if (e.revealedTo & (1 << p.id)) return true;
     if (e.cloaked) return false;
@@ -1125,6 +1152,9 @@ export class World {
   step() {
     this.tick++;
     if (this.ceasefireUntil > 0) this.ceasefireNews();
+    // commands (placement, free spots, scatter) query the unit grid: give them where the units are now, not where
+    // they were at the start of the previous tick (a restored save has no grid until the rebuild below)
+    if (this.commands.length) this.grid.rebuild(this.units);
     for (const c of this.commands.splice(0)) this.processCommand(c);
 
     for (const u of this.units) { u.prevX = u.x; u.prevY = u.y; u.prevHeading = u.heading; u.prevTurret = u.turret; }

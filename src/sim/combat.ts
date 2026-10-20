@@ -141,9 +141,14 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     if (score < bestScore) { bestScore = score; best = u; }
   });
   // structures (defences first)
+  const ex = e.x, ey = e.y, far = buildingRange + 1e-6;
   for (const b of world.buildings) {
+    // cheap reject first: the footprint is at least its larger axis gap away (every scanning unit walks the whole
+    // structure list, so this test is most of what a big base costs; the result is the same)
+    const size = b.bt.size;
+    if (b.cx - ex > far || ex - (b.cx + size[0]) > far || b.cy - ey > far || ey - (b.cy + size[1]) > far) continue;
     if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1 || b.bt.wall || b.bt.mine) continue;
-    const d = b.distTo(e.x, e.y);
+    const d = b.distTo(ex, ey);
     if (d > buildingRange) continue;
     if (!pickWeapon(e, b)) continue;
     if (!world.canSee(owner, b)) continue;
@@ -366,7 +371,7 @@ function tickSlots(world: World, e: Entity) {
 export function updateUnitWeapons(world: World, u: Unit) {
   if (!u.weapons.length) return;
   tickSlots(world, u);
-  const t = u.target;
+  const t = u.target && !(u.target instanceof Unit && u.target.transport) ? u.target : null; // (a target that went into a transport or bunker is out of reach)
   let tx: number, ty: number;
   let slot: WeaponSlot | null;
   let dist: number;
@@ -535,7 +540,7 @@ export function updateProjectiles(world: World) {
       }
       // a direct hit only counts if the tracked target is still where we landed
       let direct: Entity | null = null;
-      if (p.target && p.target.alive && distToEntity(p.x, p.y, p.target) < 0.5) direct = p.target;
+      if (p.target && p.target.alive && !(p.target instanceof Unit && p.target.transport) && distToEntity(p.x, p.y, p.target) < 0.5) direct = p.target; // (not one that got into a transport meanwhile)
       impact(world, p.weapon, shooter && shooter.alive ? shooter : null, direct, p.x, p.y, p.z);
     }
   }

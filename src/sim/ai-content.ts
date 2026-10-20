@@ -32,6 +32,8 @@ interface AIView {
   stageTarget?: [number, number];
   /** The Allied AI's radar spy (ai-allies.ts walks it in itself). */
   radarSpy?: number;
+  /** Classic, normal and up (ai.ts): spends its money on tanks as it comes in, so a smaller bank buys the specials. */
+  classicPro?: boolean;
   baseCenter(): [number, number];
   enemyDir(): [number, number];
 }
@@ -210,7 +212,7 @@ function agents(v: AIView, due: (s: number) => boolean) {
     targets.some((b) => ['dome', 'spen', 'proc', 'powr', 'apwr'].includes(apparentType(b, p).id) && !(b.spiedBy & (1 << p.id)))) {
     w.issue({ c: 'build', player: p.id, type: 'spy' });
   }
-  if (!thieves.length && w.time > 900 * trait(s, 1.5, 0.6) && p.credits > 1200 && p.canBuild('thf') && !queued(p, 'thf') && due(120 * trait(s, 1.5, 0.5)) && targets.some((b) => !!b.bt.storage)) {
+  if (!thieves.length && w.time > 900 * trait(s, 1.5, 0.6) && p.credits > (v.classicPro ? 700 : 1200) && p.canBuild('thf') && !queued(p, 'thf') && due(120 * trait(s, 1.5, 0.5)) && targets.some((b) => !!b.bt.storage)) {
     w.issue({ c: 'build', player: p.id, type: 'thf' });
   }
 }
@@ -225,7 +227,7 @@ function minelayers(v: AIView, due: (s: number) => boolean) {
   const mines = allMines(w).filter((b) => b.owner === p).length;
   const maxMines = Math.round(MAX_MINES * trait(sub(v), 0, 2.2));
   if (!layers.length) {
-    if (mines < maxMines && w.time > 420 * trait(sub(v), 1.5, 0.6) && p.credits > 1000 && p.canBuild('mnly') && !queued(p, 'mnly')) {
+    if (mines < maxMines && w.time > 420 * trait(sub(v), 1.5, 0.6) && p.credits > (v.classicPro ? 500 : 1000) && p.canBuild('mnly') && !queued(p, 'mnly')) {
       w.issue({ c: 'build', player: p.id, type: 'mnly' });
     }
     return;

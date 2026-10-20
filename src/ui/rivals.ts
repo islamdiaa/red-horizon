@@ -6,7 +6,7 @@
  *
  * The radio only reads the simulation (never issues commands), so matches stay deterministic.
  */
-import { srAnnounce } from './a11y';
+import { focusTrap, srAnnounce } from './a11y'; // (focusTrap: Tab stays inside the board)
 import type { Faction } from '../data/rules';
 import type { AIDifficulty } from '../sim/ai';
 import { PERSONALITIES, type Personality } from '../sim/ai-personality';
@@ -220,7 +220,9 @@ export function showRivals(opts: { onBack(): void; play?(k: 'click' | 'tab' | 'h
         <div class="rv-note">${tRivals.html('board.howTo')}</div>
       </div></div>`;
   document.body.appendChild(root);
+  const untrap = focusTrap(root, { initial: false });
   const close = () => {
+    untrap();
     document.removeEventListener('keydown', onKey, true);
     root.classList.add('leaving');
     setTimeout(() => root.remove(), 250);
