@@ -18,6 +18,10 @@ import type { AIDifficulty } from '../../src/sim/ai';
 import type { Personality } from '../../src/sim/ai-personality';
 import { loadCuratedMap, getMapDef } from '../../src/maps';
 import { LegacyAIController } from './legacy/ai';
+import { AIController as FrozenAIController } from './frozen/ai';
+import { StandIn, type StandInLevel } from './standin';
+import { pickAIDoctrine } from '../../src/sim/commander';
+import { resolvePersonality } from '../../src/sim/ai-personality';
 import { ceasefireTicks } from '../../src/sim/ceasefire';
 import { applyModSet } from '../../src/mods/engine';
 import { withMutatorMods } from '../../src/modes/mutators';
@@ -31,6 +35,11 @@ export interface PlayerSpec {
   personality?: string | Personality;
   /** Play this slot with the frozen legacy AI (tools/selfplay/legacy) instead of the current one. */
   legacy?: boolean;
+  /**
+   * Play this slot as a human stand-in (tools/selfplay/standin.ts): a scripted novice or casual player, or the frozen
+   * version-2 Normal AI with a human's economy ("experienced"). The slot counts as a human player.
+   */
+  standin?: StandInLevel;
   /** Label used in reports (defaults to personality id / "legacy"). */
   label?: string;
 }
@@ -67,6 +76,8 @@ export interface MatchSpec {
   mutators?: string[];
   /** Battlefield events (default: on under Commander rules). */
   events?: boolean;
+  /** Dynamic difficulty (src/sim/events.ts). */
+  dynamic?: boolean;
 }
 
 export interface PlayerResult {
@@ -187,25 +198,37 @@ export function buildMatch(spec: MatchSpec): World {
     if (spec.seed & 2) map.startPositions.reverse();
   }
   const players: PlayerSetup[] = spec.players.map((ps, i) => ({
-    name: `P${i}`, faction: ps.faction, color: TEAM_COLORS[i], team: i, isHuman: false,
-    ai: ps.legacy ? undefined : ps.difficulty,
-    personality: ps.legacy ? undefined : ps.personality,
+    name: `P${i}`, faction: ps.faction, color: TEAM_COLORS[i], team: i, isHuman: !!ps.standin,
+    ai: ps.legacy || ps.standin ? undefined : ps.difficulty,
+    personality: ps.legacy || ps.standin ? undefined : ps.personality,
   } as PlayerSetup));
+  // (stand-ins: no doctrine for the scripted players, as a human who never opened the picker; the experienced one
+  // picks the way the AI it is a copy of would)
+  let doctrines = spec.commander?.doctrines;
+  if (spec.commander && spec.players.some((ps) => ps.standin)) {
+    doctrines = spec.players.map((ps, i) => doctrines?.[i] !== undefined ? doctrines[i]
+      : ps.standin === 'experienced' ? pickAIDoctrine(ps.faction, resolvePersonality(ps.personality), spec.seed, i)
+      : ps.standin ? 'none' : undefined) as (string | null)[];
+  }
   const world = new World({
     map, players, credits: spec.credits ?? 10000, startUnits: spec.startUnits ?? 'light', fog: true, seed: spec.seed,
-    rules: spec.commander ? 'commander' : undefined, doctrines: spec.commander?.doctrines, econ: spec.commander?.econ,
-    ceasefireUntil: ceasefireTicks(spec.ceasefire), mutators: spec.mutators, events: spec.events,
+    rules: spec.commander ? 'commander' : undefined, doctrines, econ: spec.commander?.econ,
+    ceasefireUntil: ceasefireTicks(spec.ceasefire), mutators: spec.mutators, events: spec.events, dynamicDifficulty: spec.dynamic,
   });
   for (const i of spec.commander?.noPowers ?? []) { const c = world.players[i]?.cmd; if (c) c.disabled = true; }
-  // legacy slots: the frozen controller thinks in the slot order the world would give it
-  const legacy = spec.players.map((ps, i) => (ps.legacy ? i : -1)).filter((i) => i >= 0);
-  if (legacy.length) {
+  // legacy and experienced slots: the frozen controllers think in the slot order the world would give them
+  if (spec.players.some((ps) => ps.legacy || ps.standin === 'experienced')) {
     const ais: any[] = [];
     for (let i = 0; i < n; i++) {
-      const p = world.players[i];
-      if (spec.players[i].legacy) {
-        const ai = new LegacyAIController(world, p, spec.players[i].difficulty);
+      const p = world.players[i], ps = spec.players[i];
+      if (ps.legacy) {
+        const ai = new LegacyAIController(world, p, ps.difficulty as any);
         p.isHuman = false;
+        ais.push(ai);
+      } else if (ps.standin === 'experienced') {
+        const ai = new FrozenAIController(world, p, 'normal', ps.personality);
+        p.buildSpeed = 1; // (a human's economy, not the AI difficulty's)
+        p.incomeBias = 1;
         ais.push(ai);
       } else {
         ais.push(world.ais.find((a) => a.player === p));
@@ -213,12 +236,23 @@ export function buildMatch(spec: MatchSpec): World {
     }
     world.ais = ais.filter(Boolean);
   }
+  standIns.set(world, spec.players.flatMap((ps, i) => (ps.standin === 'novice' || ps.standin === 'casual' ? [new StandIn(world, world.players[i], ps.standin, spec.seed)] : [])));
   return world;
+}
+
+/** The scripted stand-ins of a world built by buildMatch (they act between world steps). */
+const standIns = new WeakMap<World, StandIn[]>();
+
+/** Step a match world: stand-in input first (as UI input arrives between ticks), then the simulation. */
+export function stepMatch(world: World) {
+  for (const s of standIns.get(world) ?? []) s.tick();
+  world.step();
 }
 
 function labelOf(ps: PlayerSpec): string {
   if (ps.label) return ps.label;
   if (ps.legacy) return 'legacy';
+  if (ps.standin) return ps.standin;
   if (!ps.personality) return 'default';
   return typeof ps.personality === 'string' ? ps.personality : ps.personality.id;
 }
@@ -282,7 +316,7 @@ function playMatchInner(spec: MatchSpec): MatchResult {
   const samples: { min: number; score: number[] }[] = [];
   const maxTicks = (spec.maxMinutes ?? 45) * 60 * TICK_HZ;
   for (let t = 1; t <= maxTicks; t++) {
-    world.step();
+    stepMatch(world);
     if (t % (5 * 60 * TICK_HZ) === 0) samples.push({ min: t / (60 * TICK_HZ), score: world.players.map((p) => Math.round(materialScore(world, p.id))) });
     for (const ev of world.events) {
       if (ev.e === 'placed') {

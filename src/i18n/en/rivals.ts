@@ -159,7 +159,7 @@ export default strings('rivals', {
     vsYou: 'vs you',
     ai: 'AI',
     /** The rival's AI difficulty (lower case on the card). */
-    difficulty: { easy: 'easy', normal: 'normal', hard: 'hard', brutal: 'brutal' },
+    difficulty: { recruit: 'recruit', easy: 'easy', normal: 'normal', hard: 'hard', brutal: 'brutal' },
     returned: 'returned',
     returnedTimes: '{n}×',
     // history square: rival won (W) or lost (L)

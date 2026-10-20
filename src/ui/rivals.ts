@@ -19,6 +19,8 @@ import {
   type MatchHabits, type PortraitSpec, type Rival, type RivalRef, type RivalStore, type TauntEvent,
 } from '../meta/rivals';
 import { loadProfile } from '../meta';
+import { capDifficulty, stepDifficulty } from '../modes/difficulty';
+import { quickSkill } from '../modes/quickbattle';
 import { currentLang, fmtNum, fmtPct } from '../i18n/core';
 import { personalityBlurb, personalityName, typeName } from '../i18n/names';
 import tRivals from '../i18n/en/rivals';
@@ -82,7 +84,7 @@ const CSS = `
 .rv-chip span { min-width: 0; text-align: left; line-height: 1.05; }
 .rv-chip b { display: block; font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rv-chip small { display: block; font-size: .56rem; letter-spacing: .14em; text-transform: uppercase; color: #ffb0a0; white-space: nowrap; }
-.opponent .op-diff[style*="--n: 5"] button, .opponent .op-diff[style*="--n:5"] button { font-size: .7rem; padding: 0 .1rem; }
+.opponent .op-diff[style*="--n: 6"] button, .opponent .op-diff[style*="--n:6"] button { font-size: .66rem; letter-spacing: 0; padding: 0 .05rem; }
 .opponent[data-diff='rival'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(255,207,63,.5), rgba(255,140,40,.22)); box-shadow: 0 0 .8rem rgba(255,180,60,.4), inset 0 0 0 1px rgba(255,207,63,.8); }
 /* in-match radio (same look as the mission radio) */
 .rv-tx { position: absolute; left: 12px; bottom: 14px; width: 440px; z-index: 7; pointer-events: none; display: flex; gap: 12px;
@@ -181,6 +183,7 @@ export function showRivals(opts: { onBack(): void; play?(k: 'click' | 'tab' | 'h
   const root = document.createElement('div');
   root.className = 'rv';
   const player = loadProfile().name || 'Commander';
+  const cap = rivalCap(); // (the level shown is the one the rival plays at against this commander)
   const h = store.habits;
   const fav = favouriteUnit(h);
   const cards = rosterOrder(store).map((r, i) => {
@@ -195,7 +198,7 @@ export function showRivals(opts: { onBack(): void; play?(k: 'click' | 'tab' | 'h
       <div class="rv-info"><div class="rv-rank">${esc(rivalRankLabel(r))} · ${tRivals.html(r.faction === 'soviet' ? 'board.soviet' : 'board.allied')}${r.id === store.nemesis ? ` · ${tRivals.html('board.nemesis')}` : ''}</div>
         <div class="rv-name">${esc(r.first)} <em>'${esc(rivalText(r.nick))}'</em> ${esc(r.last)}</div>
         <div class="rv-pers"><b>${esc(pers ? personalityName(pers) : r.personality)}</b> — ${esc(pers ? personalityBlurb(pers) : '')}</div>
-        <div class="rv-stats"><span><em>${tRivals.html('board.vsYou')}</em>${r.wins}–${r.losses}</span><span><em>${tRivals.html('board.ai')}</em>${tRivals.html(`board.difficulty.${rivalDifficulty(r)}`)}</span>${r.returns ? `<span><em>${tRivals.html('board.returned')}</em>${tRivals.html('board.returnedTimes', { n: r.returns })}</span>` : ''}</div>
+        <div class="rv-stats"><span><em>${tRivals.html('board.vsYou')}</em>${r.wins}–${r.losses}</span><span><em>${tRivals.html('board.ai')}</em>${tRivals.html(`board.difficulty.${capDifficulty(rivalDifficulty(r), cap)}`)}</span>${r.returns ? `<span><em>${tRivals.html('board.returned')}</em>${tRivals.html('board.returnedTimes', { n: r.returns })}</span>` : ''}</div>
         ${tags ? `<div class="rv-tags">${tags}</div>` : ''}${hist ? `<div class="rv-hist">${hist}</div>` : ''}
         ${plan ? `<div class="rv-plan">“${esc(rivalText(plan))}”</div>` : ''}${act}
       </div></div>`;
@@ -275,10 +278,31 @@ export function rivalChip(o: RivalOpponentPrefs, rerender: () => void, play?: (k
 }
 
 /**
- * Deploy: turn a "Rival" opponent into a full OpponentSetup (faction, difficulty, personality with the counter-plan,
- * rival ref). Decided here, before the match, so the setup (and its replay) carries everything.
+ * The strongest level a rival plays at against this commander: one above their Quick Battle level (src/modes/
+ * quickbattle.ts quickSkill), so a newcomer on Recruit meets at most an Easy rival, however high its rank.
  */
-export function resolveRivalOpponent(o: RivalOpponentPrefs): { faction: Faction | 'random'; difficulty: AIDifficulty; personality?: Personality; rival?: RivalRef } {
+export function rivalCap(): AIDifficulty {
+  let skill: AIDifficulty = 'recruit';
+  try { skill = quickSkill(loadProfile().stats); } catch { /* storage unavailable */ }
+  return stepDifficulty(skill, 1);
+}
+
+/** The level an opponent row will play at (a rival's capped level, else the chosen difficulty). */
+export function opponentLevel(o: RivalOpponentPrefs): AIDifficulty {
+  if (!o.rivalId) return o.difficulty;
+  try {
+    const r = loadRivals().rivals.find((x) => x.id === o.rivalId && x.status === 'active');
+    if (r) return capDifficulty(rivalDifficulty(r), rivalCap());
+  } catch { /* storage unavailable */ }
+  return o.difficulty;
+}
+
+/**
+ * Deploy: turn a "Rival" opponent into a full OpponentSetup (faction, difficulty, personality with the counter-plan,
+ * rival ref). Decided here, before the match, so the setup (and its replay) carries everything. The rival's level
+ * is capped at `cap` (default: rivalCap()).
+ */
+export function resolveRivalOpponent(o: RivalOpponentPrefs, cap?: AIDifficulty): { faction: Faction | 'random'; difficulty: AIDifficulty; personality?: Personality; rival?: RivalRef } {
   const { rivalId, ...plain } = o;
   if (!rivalId) return plain;
   const store = loadRivals();
@@ -287,7 +311,7 @@ export function resolveRivalOpponent(o: RivalOpponentPrefs): { faction: Faction 
   const prep = id ? prepareRivalOpponent(store, id, loadProfile().name || 'Commander') : null;
   saveRivals(store);
   if (!prep) return plain;
-  return { faction: prep.faction, difficulty: prep.difficulty, personality: prep.personality, rival: prep.rival };
+  return { faction: prep.faction, difficulty: capDifficulty(prep.difficulty, cap ?? rivalCap()), personality: prep.personality, rival: prep.rival };
 }
 
 // ---------------------------------------------------------------------------

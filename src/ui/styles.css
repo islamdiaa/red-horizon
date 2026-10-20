@@ -884,7 +884,7 @@ html:not([lang='en']) .mm-nav-btn .nb-label .rh-daily-pill { display: block; wid
 .colors .sw.on { transform: scale(1.12); box-shadow: 0 0 0 2px #0a0f15, 0 0 0 4px #fff, 0 0 1rem var(--c); }
 .mp-section { display: flex; flex-direction: column; gap: 0.55rem; }
 .opponents { display: flex; flex-direction: column; gap: 0.4rem; }
-.opponent { display: grid; grid-template-columns: 5.6rem 1fr 1.35fr 2.15rem; gap: 0.45rem; align-items: center; animation: fadeUp 0.35s var(--ease) both; animation-delay: calc(var(--i) * 50ms); }
+.opponent { display: grid; grid-template-columns: 5.2rem 0.85fr 1.6fr 2.15rem; gap: 0.45rem; align-items: center; animation: fadeUp 0.35s var(--ease) both; animation-delay: calc(var(--i) * 50ms); }
 .op-id { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; letter-spacing: 0.12em; color: var(--text-2); }
 .op-id svg { font-size: 0.95rem; color: var(--muted); }
 .op-id i { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
@@ -892,6 +892,7 @@ html:not([lang='en']) .mm-nav-btn .nb-label .rh-daily-pill { display: block; wid
 html:not([lang='en']) .opponent .op-diff button { font-size: 0.68rem; letter-spacing: 0; padding: 0 0.08rem; }
 .opponent[data-diff='brutal'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(var(--danger-rgb), 0.6), rgba(var(--danger-rgb), 0.25)); box-shadow: 0 0 0.9rem rgba(var(--danger-rgb), 0.45), inset 0 0 0 1px rgba(var(--danger-rgb), 0.8); }
 .opponent[data-diff='easy'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(var(--ok-rgb), 0.38), rgba(var(--ok-rgb), 0.14)); box-shadow: inset 0 0 0 1px rgba(var(--ok-rgb), 0.6); }
+.opponent[data-diff='recruit'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(127, 211, 255, 0.36), rgba(127, 211, 255, 0.12)); box-shadow: inset 0 0 0 1px rgba(127, 211, 255, 0.6); }
 .op-x { height: 2.15rem; border-radius: 0.45rem; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; transition: all 0.15s; }
 .op-x:hover:not(:disabled) { color: #fff; border-color: rgba(var(--danger-rgb), 0.6); background: rgba(var(--danger-rgb), 0.2); }
 .op-x:disabled { opacity: 0.25; cursor: default; }

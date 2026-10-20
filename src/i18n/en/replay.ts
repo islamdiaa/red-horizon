@@ -58,7 +58,7 @@ export default strings('replay', {
     title: 'Players',
     switchHint: 'V · switch view',
     // an AI player: {level} is its difficulty
-    ai: 'AI · {level, select, easy {easy} normal {normal} hard {hard} brutal {brutal} other {{level}}}',
+    ai: 'AI · {level, select, recruit {recruit} easy {easy} normal {normal} hard {hard} brutal {brutal} other {{level}}}',
     commander: 'Commander',
     viewAs: 'View the battle as {name}',
     observer: 'Observer',

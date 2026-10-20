@@ -29,16 +29,18 @@ const APPETITE: Record<PowerId, number> = {
 
 export function commanderAI(ai: AIController) {
   const w = ai.world, p = ai.p, c = p.cmd;
-  if (!c || c.disabled || p.defeated || !ai.due(TICK_HZ)) return;
+  if (!c || c.disabled || p.defeated || !ai.due(TICK_HZ) || ai.d.powerUse <= 0) return;
   aiUnlock(ai, c);
+  if (w.tick - ai.lastPower < ai.d.powerGap * TICK_HZ) return;
   // reaction: easier commanders notice the moment less often
-  if (w.rng.next() > 0.3 + 0.7 * ai.d.skill) return;
+  if (w.rng.next() > (0.3 + 0.7 * ai.d.skill) * ai.d.powerUse) return;
   const ready = (id: PowerId) => powerReady(w, c, id);
   const truce = ai.ceasefire;
   const order: PowerId[] = ['reinforce', 'repair', 'storm', 'barrage', 'aegis', 'rally', 'sabotage', 'funds', 'elite', 'recon'];
   for (const id of order) {
     if (!ready(id)) continue;
-    if (POWERS[id].offensive && truce) continue;
+    if (POWERS[id].offensive && (truce || !ai.d.offensivePowers)) continue;
+    if (ai.d.powers && !ai.d.powers.includes(id)) continue;
     if (tryPower(ai, id)) return;
   }
 }
@@ -48,7 +50,8 @@ export function commanderAI(ai: AIController) {
 function aiUnlock(ai: AIController, c: PlayerCmd) {
   const w = ai.world, p = ai.p, pers = ai.personality, skill = ai.d.skill;
   const open: PowerDef[] = [];
-  for (const tier of powerTree(p.faction)) for (const d of tier) if (!c.unlocked.includes(d.id) && tierOpen(c, d.tier)) open.push(d);
+  // (easier commanders: only the lower tiers, and none of the offensive powers)
+  for (const tier of powerTree(p.faction)) for (const d of tier) if (!c.unlocked.includes(d.id) && tierOpen(c, d.tier) && d.tier <= ai.d.powerTier && (ai.d.offensivePowers || !d.offensive) && (!ai.d.powers || ai.d.powers.includes(d.id))) open.push(d);
   if (!open.length) return;
   const score = (d: PowerDef) => {
     let s = APPETITE[d.id] + (d.tier - 1) * 2 * skill;
@@ -77,6 +80,7 @@ function aiUnlock(ai: AIController, c: PlayerCmd) {
 // ---------------------------------------------------------------------------------------------- use
 
 function cast(ai: AIController, id: PowerId, x?: number, y?: number, target?: number): true {
+  ai.lastPower = ai.world.tick;
   ai.world.issue({ c: 'commanderPower', player: ai.p.id, power: id, x, y, target });
   return true;
 }

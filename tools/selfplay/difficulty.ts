@@ -25,7 +25,7 @@ const games = +opt('games', '8');
 const size = +opt('size', '96');
 const only = opt('only', 'passive,ceasefire,novice,mutators').split(',');
 const rulesSets = opt('rules', 'classic,commander').split(',');
-const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+const DIFFS: AIDifficulty[] = ['recruit', 'easy', 'normal', 'hard', 'brutal'];
 const fmt = (s: number) => (s < 0 ? '  —  ' : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`);
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : -1);
 const med = (xs: number[]) => (xs.length ? xs.slice().sort((a, b) => a - b)[xs.length >> 1] : -1);

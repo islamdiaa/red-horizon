@@ -10,6 +10,7 @@ import { loadProfile } from '../meta/profile';
 import { callSign, ensureRoster, loadRivals, rivalDifficulty, saveRivals } from '../meta/rivals';
 import { MUTATORS, MUTATOR_BY_ID, mutatorEligible, normaliseMutators, surpriseMutators, toggleMutator, type MutatorContext } from '../modes/mutators';
 import { quickSkill, rollQuickBattle, type QuickInfo } from '../modes/quickbattle';
+import { difficultyIndex } from '../modes/difficulty';
 import { PERSONALITIES } from '../sim/ai-personality';
 import { el as h, esc } from './dom';
 import { ICONS } from './icons';
@@ -24,6 +25,7 @@ export interface RulesPrefs {
   rules?: 'classic' | 'commander';
   mutators?: string[];
   events?: boolean;
+  /** The player's explicit choice; undefined = the default (on when every AI is Recruit or Easy, modes/difficulty.ts). */
   dynamicDifficulty?: boolean;
   /** the player's doctrine (null = none / AI picks for AIs). */
   doctrine?: string | null;
@@ -147,12 +149,12 @@ export function ensureVarietyCss() {
   document.head.appendChild(s);
 }
 
-/** Short label of the rules for the tab ("Commander · 2 mutators"). */
-export function rulesSummary(p: RulesPrefs): string {
+/** Short label of the rules for the tab ("Commander · 2 mutators"). `dynDefault`: dynamic difficulty's default. */
+export function rulesSummary(p: RulesPrefs, dynDefault = false): string {
   const n = normaliseMutators(p.mutators).length;
   const parts = [tCommon(p.rules === 'classic' ? 'rules.classic' : 'rules.commander')];
   if (n) parts.push(tVar('summary.mutators', { n }));
-  if (p.dynamicDifficulty) parts.push(tVar('summary.dynamic'));
+  if (p.dynamicDifficulty ?? dynDefault) parts.push(tVar('summary.dynamic'));
   return parts.join(' · ');
 }
 
@@ -169,7 +171,9 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
   /** Host for overlays (the menu screen). */
   host(): HTMLElement | null;
   setEsc(fn: (() => void) | null): void;
-}): { tabs: HTMLElement; rules: HTMLElement; refresh(): void } {
+  /** Dynamic difficulty's default for the current opponents (used until the player flips the toggle). */
+  dynamicDefault?(): boolean;
+}): { tabs: HTMLElement; rules: HTMLElement; refresh(): void; syncDynamic(): void } {
   ensureVarietyCss();
   prefs.rules ??= 'commander';
   prefs.events ??= true;
@@ -198,7 +202,7 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
   const refresh = () => {
     const cmd = prefs.rules !== 'classic';
     for (const e of commanderOnly) e.classList.toggle('vr-off', !cmd);
-    (tRules.querySelector('em') as HTMLElement).textContent = rulesSummary(prefs);
+    syncDynamic();
     renderDoctrine();
     renderMutators();
   };
@@ -230,7 +234,18 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
   };
   const evT = tp(picto('flag', 'ic'), tVar.html('rules.events'), tVar('rules.eventsTip'), prefs.events !== false, (v) => { prefs.events = v; refresh(); });
   commanderOnly.push(evT);
-  tp(picto('chart', 'ic'), tVar.html('rules.dynamic'), tVar('rules.dynamicTip'), !!prefs.dynamicDifficulty, (v) => { prefs.dynamicDifficulty = v; refresh(); });
+  // dynamic difficulty: follows the opponents' levels until the player chooses (then the choice is kept)
+  const dynDefault = () => !!ctx.dynamicDefault?.();
+  const dynOn = () => prefs.dynamicDifficulty ?? dynDefault();
+  let dynShown = dynOn();
+  const onDyn = (v: boolean) => { prefs.dynamicDifficulty = v; dynShown = v; refresh(); };
+  const dynT = tp(picto('chart', 'ic'), tVar.html('rules.dynamic'), tVar('rules.dynamicTip'), dynShown, onDyn);
+  function syncDynamic() {
+    (tRules.querySelector('em') as HTMLElement).textContent = rulesSummary(prefs, dynDefault());
+    if (dynOn() === dynShown) return;
+    dynShown = dynOn();
+    dynT.querySelector('.toggle')?.replaceWith(ctl.toggle(dynShown, onDyn));
+  }
   right.appendChild(toggles);
   // mutators
   const mut = h('div', 'vr-mut');
@@ -259,7 +274,7 @@ export function rulesTabs(prefs: RulesPrefs, ctl: Controls, ctx: {
     mut.appendChild(btns);
   };
   refresh();
-  return { tabs, rules, refresh };
+  return { tabs, rules, refresh, syncDynamic };
 }
 
 /** The mutator picker overlay: every mutator as a card, toggled on click; "Surprise me", "Clear", "Done". */
@@ -320,15 +335,15 @@ export function quickBattleSetup(o: { faction: Faction; color: number; quality: 
   try { skill = quickSkill(loadProfile().stats); } catch { /* storage unavailable */ }
   let rival: { name: string; opponent: GameSetup['opponents'][number] } | undefined;
   try {
-    const order = ['easy', 'normal', 'hard', 'brutal'];
     if ((seed % 100) < 35) {
       const store = loadRivals();
       ensureRoster(store);
       saveRivals(store);
-      const near = store.rivals.filter((r) => r.status === 'active' && Math.abs(order.indexOf(rivalDifficulty(r)) - order.indexOf(skill)) <= 1);
+      const near = store.rivals.filter((r) => r.status === 'active' && Math.abs(difficultyIndex(rivalDifficulty(r)) - difficultyIndex(skill)) <= 1);
       const r = near.length ? near[seed % near.length] : undefined;
       if (r) {
-        const opp = resolveRivalOpponent({ faction: 'random', difficulty: rivalDifficulty(r), rivalId: r.id });
+        // (never above the commander's level: rollQuickBattle caps it too)
+        const opp = resolveRivalOpponent({ faction: 'random', difficulty: rivalDifficulty(r), rivalId: r.id }, skill);
         if (opp.rival) rival = { name: callSign(r), opponent: { ...opp, faction: opp.faction } };
       }
     }

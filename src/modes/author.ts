@@ -6,7 +6,7 @@ import { VERSION } from '../config';
 import { SIM_VERSION } from '../sim/version';
 import { BUILDINGS } from '../data/rules';
 import type { GameSetup } from '../game';
-import type { AIDifficulty } from '../sim/ai';
+import { AI_DIFFICULTIES, type AIDifficulty } from '../sim/ai';
 import type { World } from '../sim/world';
 import { baseSetup } from '../replay/branch';
 import { TICK_HZ } from '../sim/types';
@@ -14,7 +14,7 @@ import type { ChallengeDef, ChallengeGoal, ChallengeSetup, StartView } from './t
 import { momentGoal, type Moment } from './moments';
 import { MODES_EN, fillEn } from './text';
 
-const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+const DIFFS = AI_DIFFICULTIES;
 
 export function newChallengeId(): string {
   return `c${Date.now().toString(36)}${Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, '0')}`;

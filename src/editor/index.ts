@@ -1054,7 +1054,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     if (n < 2) d.appendChild(el('div', 'ed-note', 'Skirmish needs at least 2 start positions.'));
     else {
       d.append(row('Play as', select(o.faction, [['allies', 'Allies'], ['soviet', 'Soviets']] as [Faction, string][], (v) => { o.faction = v; })),
-        row(`AI × ${n - 1}`, select(o.ai, [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['brutal', 'Brutal']] as [AIDifficulty, string][], (v) => { o.ai = v; })),
+        row(`AI × ${n - 1}`, select(o.ai, [['recruit', 'Recruit'], ['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['brutal', 'Brutal']] as [AIDifficulty, string][], (v) => { o.ai = v; })),
         row('Credits', select(o.credits, [[5000, '$5,000'], [10000, '$10,000'], [20000, '$20,000']] as [number, string][], (v) => { o.credits = v; })));
       if (!r.playable) d.appendChild(el('div', 'ed-note', `⚠ ${r.errors} validation error${r.errors === 1 ? '' : 's'} (see Check): the match may not play well.`));
       d.appendChild(el('div', 'foot')).appendChild(button(`${IC.play}<span>Start skirmish</span>`, () => { close(); void launch('skirmish', o); }, 'pri'));

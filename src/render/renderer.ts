@@ -314,7 +314,9 @@ class BloomPass extends Pass {
           s += texture2D(tSrc, vUv + vec2(-1.0, 1.0) * uTexel).rgb;
           s += texture2D(tSrc, vUv + vec2(1.0, 1.0) * uTexel).rgb;
           s /= 8.0;
-          if (uPrefilter > 0.5) s = pre(s);
+          // the bloom source: a NaN / Inf pixel would bloom into a white blob (min() keeps the 24 over a NaN on
+          // most GPUs); clamp too, for drivers that optimise isnan away
+          if (uPrefilter > 0.5) s = pre(any(isnan(s)) || any(isinf(s)) ? vec3(0.0) : clamp(s, 0.0, 65000.0));
           gl_FragColor = vec4(s, 1.0);
         }`,
       depthTest: false, depthWrite: false,

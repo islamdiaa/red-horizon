@@ -473,7 +473,7 @@ function plan(w: World, v: VarietyState, kind: BattleEventKind, rng: Rng): Battl
       for (const ai of w.ais) {
         const p = ai.player;
         if (p.defeated || ai.behaviour !== 'full') continue;
-        if (p.credits >= offer.price + 300 && rng.chance(0.35 + ai.d.skill * 0.4)) ev.aiHire![p.id] = w.tick + Math.round(rng.range(4, 40) * TICK_HZ);
+        if (p.credits >= offer.price + 300 && rng.chance((0.35 + ai.d.skill * 0.4) * (ai.d.events ?? 1))) ev.aiHire![p.id] = w.tick + Math.round(rng.range(4, 40) * TICK_HZ);
       }
       news(w, v, 'Mercenaries for hire', `A mercenary company offers ${offer.label} for $${offer.price.toLocaleString('en-US')}. The offer stands for 60 seconds.`, -1, -1, -1, 'event', { event: id, phase: 'offer' });
       return ev;
@@ -802,6 +802,8 @@ function aiEvents(w: World, v: VarietyState) {
     for (const ai of w.ais) {
       const p = ai.player;
       if (p.defeated || ai.behaviour !== 'full') continue;
+      // (easier levels sit most events out: a fixed share, decided per event and player)
+      if (((ev.id * 37 + p.id * 61) % 100) / 100 >= (ai.d.events ?? 1)) continue;
       if (ev.kind === 'convoy') {
         const trucks = ev.trucks!.map((id) => w.entities.get(id)).filter((u): u is Unit => u instanceof Unit && u.alive);
         if (!trucks.length) continue;
@@ -867,6 +869,8 @@ function dynamicTick(w: World, v: VarietyState) {
   else if (ratio < 0.77) level--;
   else if (ratio > 0.9 && ratio < 1.1) level -= Math.sign(level);
   level = Math.max(-DYN_MAX, Math.min(DYN_MAX, level));
+  // assist only against recruit and easy opponents: it eases off a struggling commander, never pushes harder
+  if (level > 0 && aiPlayers.every((a) => a.difficulty === 'recruit' || a.difficulty === 'easy')) level = 0;
   if (level === v.dd.level) return;
   const was = v.dd.level;
   v.dd.level = level;

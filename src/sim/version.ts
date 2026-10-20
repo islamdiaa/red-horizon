@@ -18,8 +18,10 @@
  *  1. Everything recorded before the stamp existed (no `sim` field).
  *  2. Masterpiece wave 2 balance pass: Allied AI (Longbows, artillery, Chronosphere, gap generator, cruisers, spies
  *     and thieves, build order), Commander doctrine / power / economy numbers, the bunker firing slits.
+ *  3. Difficulty overhaul: the Recruit level, the scaled-down skirmish levels (economy, tech, powers, events, derricks,
+ *     waves, defences, rebuilding: src/sim/ai.ts DIFF), assist-only dynamic difficulty against Recruit and Easy.
  */
-export const SIM_VERSION = 2;
+export const SIM_VERSION = 3;
 
 /** The version of records made before the stamp existed. */
 export const LEGACY_SIM_VERSION = 1;

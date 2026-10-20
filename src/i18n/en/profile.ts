@@ -92,7 +92,7 @@ export default strings('profile', {
     soviet: 'Soviet',
     allied: 'Allied',
     /** AI difficulty and climate, lower case in the history line. */
-    difficulty: { easy: 'easy', normal: 'normal', hard: 'hard', brutal: 'brutal' },
+    difficulty: { recruit: 'recruit', easy: 'easy', normal: 'normal', hard: 'hard', brutal: 'brutal' },
     climate: { temperate: 'temperate', winter: 'winter', desert: 'desert' },
     wave: 'Wave {n}',
     kills: 'Kills',

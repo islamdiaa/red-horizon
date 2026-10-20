@@ -111,8 +111,8 @@ type XpLine = 'combat' | 'victory' | 'victoryDiff' | 'victoryMany' | 'victoryDif
   | 'newStars' | 'daily' | 'streak' | 'dailyReplay' | 'dailyAttempt' | 'contracts' | 'medals' | 'kills';
 /** English filled in for text that is stored (match history titles): never the interface language. */
 const fillEn = (tpl: string, params: Params) => formatMessage(tpl, params, 'en');
-const DIFF_XP: Record<string, number> = { easy: 0.5, normal: 1, hard: 1.6, brutal: 2.5 };
-const DIFF_ORDER = ['easy', 'normal', 'hard', 'brutal'];
+const DIFF_XP: Record<string, number> = { recruit: 0.35, easy: 0.5, normal: 1, hard: 1.6, brutal: 2.5 };
+const DIFF_ORDER = ['recruit', 'easy', 'normal', 'hard', 'brutal'];
 const CLIMATES = ['temperate', 'winter', 'desert'];
 
 interface FireInfo { st: string; sk: string; vt: string; vk: string; vo: number }

@@ -1,6 +1,6 @@
 import { GAME_TITLE, TEAM_COLORS, VERSION } from '../config';
 import type { Faction } from '../data/rules';
-import type { AIDifficulty } from '../sim/ai';
+import { AI_DIFFICULTIES, type AIDifficulty } from '../sim/ai';
 import type { Quality, TimeOfDay } from '../render/renderer';
 import { formatTime } from '../core/util';
 import type { Game, GameSetup } from '../game'; // (types only: the engine loads after the menu)
@@ -18,7 +18,8 @@ import { ACTION_TEXT, ARIA_TEXT, CONTROLS_TEXT, GROUP_TEXT, SETTINGS_TEXT } from
 import { offlineContentRows } from './offline-setting';
 import { dailyPending, picto, rankBadge as commanderBadge } from '../meta';
 import { mountSessionCard } from './session-card'; // session goals on the main menu
-import { resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // rivals
+import { opponentLevel, resolveRivalOpponent, rivalChip, setOpponentKind } from './rivals'; // rivals
+import { dynamicDefault } from '../modes/difficulty';
 import { CURATED_MAPS, getMapDef, loadCuratedMap } from '../maps';
 import { decodeMapCode, encodeMapCode, generatorOptions, mapCodeForSetup, normaliseParams, type GenParams } from '../maps/code';
 import { mapPreviewUrl } from '../maps/preview';
@@ -480,7 +481,9 @@ export class Menus {
         r.appendChild(h('span', 'op-id', `<i style="--c:${hexColor(color)}"></i>${ICONS.cpu}<b>${tMenu.html('skirmish.aiName', { n: i + 1 })}</b>`));
         // a rival replaces the faction choice with its chip; "Rival" sits next to the difficulties
         r.appendChild(o.rivalId ? rivalChip(o, renderOpps, (k) => this.sound.play(k)) : seg<Faction | 'random'>([['allies', tCommon.html('faction.allies')], ['soviet', tMenu.html('skirmish.oppSoviet')], ['random', tCommon.html('random')]], o.faction, (v) => { o.faction = v; }, 'op-fac'));
-        r.appendChild(seg<AIDifficulty | 'rival'>([['easy', tCommon.html('difficulty.easy')], ['normal', tCommon.html('difficulty.normal')], ['hard', tCommon.html('difficulty.hard')], ['brutal', tCommon.html('difficulty.brutal')], ['rival', tMenu.html('skirmish.rival')]], o.rivalId ? 'rival' : o.difficulty, (v) => { const was = !!o.rivalId; setOpponentKind(o, v); r.dataset.diff = v; if (was !== !!o.rivalId) renderOpps(); }, 'op-diff'));
+        const diffSeg = seg<AIDifficulty | 'rival'>([...AI_DIFFICULTIES.map((d): [AIDifficulty, string] => [d, tCommon.html(`difficulty.${d}`)]), ['rival', tMenu.html('skirmish.rival')]], o.rivalId ? 'rival' : o.difficulty, (v) => { const was = !!o.rivalId; setOpponentKind(o, v); r.dataset.diff = v; if (was !== !!o.rivalId) renderOpps(); else vr?.syncDynamic(); }, 'op-diff');
+        diffSeg.querySelector<HTMLElement>('[data-v="recruit"]')?.setAttribute('title', tMenu('skirmish.recruitTip'));
+        r.appendChild(diffSeg);
         r.dataset.diff = o.rivalId ? 'rival' : o.difficulty;
         const x = h('button', 'op-x', ICONS.close);
         x.title = def ? tMenu('skirmish.mapFixesPlayers', { map: mapName(def), n: def.players }) : tMenu('skirmish.removeOpponent');
@@ -495,6 +498,7 @@ export class Menus {
         oppBox.appendChild(add);
       }
       oppCount.textContent = def ? tMenu('skirmish.oppCountFixed', { n: prefs.opponents.length }) : `${prefs.opponents.length} / 3`;
+      vr?.syncDynamic(); // (dynamic difficulty's default follows the opponents)
     };
     const forces = h('div', 'mp-section');
     const secHead = h('div', 'sec-title', `<span>${tMenu.html('skirmish.opponents')}</span>`);
@@ -596,6 +600,7 @@ export class Menus {
       grid, mode: modeField, buildup, faction: () => prefs.faction,
       mutatorContext: () => ({ climate: (prefs.mapId ? getMapDef(prefs.mapId)?.climate : undefined) ?? prefs.climate, faction: prefs.faction }),
       host: () => this.screen, setEsc: (fn) => { this.escAction = fn; },
+      dynamicDefault: () => dynamicDefault(prefs.opponents.map(opponentLevel)),
     });
     panel.append(vr.tabs, grid, vr.rules);
     renderOpps();
@@ -610,8 +615,9 @@ export class Menus {
       const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
       // a generated map is started from exactly the parameters its map code encodes
       const p = genParams();
+      const opponents = prefs.opponents.map((o) => resolveRivalOpponent({ ...o })); // rivals plan before the match
       const setup: GameSetup & AtmosphereSetup = {
-        faction: prefs.faction, color: prefs.color, opponents: prefs.opponents.map((o) => resolveRivalOpponent({ ...o })), // rivals plan before the match
+        faction: prefs.faction, color: prefs.color, opponents,
         mapSize: def ? def.size : p.size, water: p.water, trees: p.trees, ore: p.ore, credits: prefs.credits, startUnits: prefs.startUnits, fog: prefs.fog,
         timeOfDay: prefs.timeOfDay, quality: this.settings.quality, seed: def ? randomSeed() : p.seed,
         weather: prefs.weather, climate: def ? def.climate : p.climate, dayCycle: prefs.dayCycle, mapId: def?.id,
@@ -622,7 +628,7 @@ export class Menus {
         rules: prefs.rules === 'classic' ? 'classic' : 'commander',
         mutators: prefs.mutators?.length ? [...prefs.mutators] : undefined,
         events: prefs.rules === 'classic' ? undefined : prefs.events !== false,
-        dynamicDifficulty: prefs.dynamicDifficulty || undefined,
+        dynamicDifficulty: (prefs.dynamicDifficulty ?? dynamicDefault(opponents.map((o) => o.difficulty))) || undefined, // (default: on against Recruit / Easy only)
         doctrines: prefs.rules !== 'classic' && prefs.doctrine ? [prefs.doctrine] : undefined, // the player's pick (AIs choose their own)
       };
       try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }

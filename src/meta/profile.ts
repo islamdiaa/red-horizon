@@ -34,7 +34,7 @@ export function defaultStorage(): KV {
 }
 
 export type FactionKey = 'allies' | 'soviet';
-export type DiffKey = 'easy' | 'normal' | 'hard' | 'brutal';
+export type DiffKey = 'recruit' | 'easy' | 'normal' | 'hard' | 'brutal';
 
 export interface LifetimeStats {
   games: number;
@@ -125,7 +125,7 @@ export function defaultStats(): LifetimeStats {
     games: 0, wins: 0, losses: 0, skirmishes: 0, skirmishWins: 0, missions: 0, missionWins: 0, timePlayed: 0,
     kills: 0, structuresDestroyed: 0, unitsLost: 0, structuresLost: 0, unitsBuilt: 0, structuresBuilt: 0, harvested: 0, spent: 0,
     gamesByFaction: { allies: 0, soviet: 0 }, winsByFaction: { allies: 0, soviet: 0 },
-    gamesByDifficulty: { easy: 0, normal: 0, hard: 0, brutal: 0 }, winsByDifficulty: { easy: 0, normal: 0, hard: 0, brutal: 0 },
+    gamesByDifficulty: { recruit: 0, easy: 0, normal: 0, hard: 0, brutal: 0 }, winsByDifficulty: { recruit: 0, easy: 0, normal: 0, hard: 0, brutal: 0 }, // (older profiles: recruit filled in as 0)
     killsByUnit: {}, fastestWin: null, bestSurvivalWave: 0, bestSurvivalScore: 0, survivalRuns: 0, dailyPlayed: 0, dailyWins: 0,
   };
 }

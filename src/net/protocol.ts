@@ -137,7 +137,7 @@ const isStr = (v: unknown, max: number): v is string => typeof v === 'string' &&
 const KEY = /^[A-Za-z][A-Za-z0-9]{0,23}$/;
 const ID = /^[A-Za-z0-9_\-:.]{0,64}$/;
 const FACTION_PICKS = new Set(['allies', 'soviet', 'random']);
-const AI_LEVELS = new Set(['easy', 'normal', 'hard', 'brutal']);
+const AI_LEVELS = new Set(['recruit', 'easy', 'normal', 'hard', 'brutal']); // (= src/sim/ai.ts AI_DIFFICULTIES; a copy keeps the simulation out of the relay bundle)
 export const isCode = (v: unknown): v is string => typeof v === 'string' && v.length === CODE_LENGTH && [...v].every((c) => CODE_ALPHABET.includes(c));
 
 /**

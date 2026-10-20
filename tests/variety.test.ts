@@ -497,7 +497,7 @@ describe('variety: dynamic difficulty and Quick Battle', () => {
       assert.equal(a.opponents[0].difficulty, 'hard', 'at the skill level');
       assert.ok(a.quick && a.quick.map && a.quick.opponent, 'the roll is described');
     }
-    assert.equal(quickSkill(null), 'easy', 'a newcomer starts on easy');
+    assert.equal(quickSkill(null), 'recruit', 'a newcomer starts on recruit');
     assert.equal(quickSkill({ skirmishes: 10, gamesByDifficulty: { normal: 6, hard: 4 }, winsByDifficulty: { normal: 5, hard: 2 } }), 'hard', 'beats hard half the time');
     assert.equal(quickSkill({ skirmishes: 6, gamesByDifficulty: { hard: 5 }, winsByDifficulty: { hard: 4 } }), 'brutal', 'comfortable on hard: one up');
   });

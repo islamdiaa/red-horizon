@@ -36,6 +36,8 @@ export default strings('common', {
     sovietAdj: 'Soviet',
   },
   difficulty: {
+    // the easiest AI level, for a player's first battles
+    recruit: 'Recruit',
     easy: 'Easy',
     normal: 'Normal',
     hard: 'Hard',

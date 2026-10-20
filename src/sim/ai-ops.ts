@@ -194,7 +194,7 @@ export function manageExpansion(ai: AIController) {
   // (an expansion costs an MCV, a refinery and harvesters: about $7000 that only pays back in a long game, so a
   // commander without an eye for economy waits until the ore at home is nearly gone)
   const maxExp = Math.max(pers.economy >= 0.8 ? 3 : pers.economy >= 0.6 ? 1 : 0, homeOre < 12 && w.time > 900 && pers.economy >= 0.3 ? ai.expansions + 1 : 0);
-  if (!ai.tune.expandOn || ai.expansions >= Math.min(3, maxExp) || ai.d.skill < 0.3) return;
+  if (!ai.tune.expandOn || ai.expansions >= Math.min(3, maxExp, ai.d.expansions) || ai.d.skill < 0.3) return;
   if (w.time < ai.tune.expandAfter * trait(pers.economy, 1.6, 0.55) / (0.6 + ai.d.skill * 0.4)) return;
   if (w.tick - ai.lastExpandTry < TICK_HZ * 45 || w.tick - ai.lastDefend < TICK_HZ * 20) return;
   if (ai.count('proc') < 2 || !p.canBuild('mcv')) return;
@@ -346,7 +346,7 @@ export function harass(ai: AIController) {
     return;
   }
   // a new raid? (never during the build-up time)
-  if (!ai.tune.harassOn || ai.d.skill < 0.55 || pers.harass < 0.15 || w.time < 240 || ceasefireActive(w)) return;
+  if (!ai.tune.harassOn || !ai.d.raids || ai.d.skill < 0.55 || pers.harass < 0.15 || w.time < 240 || ceasefireActive(w)) return;
   const every = (ai.tune.harassEvery * trait(pers.harass, 2.5, 0.45)) / ai.d.skill;
   if (w.tick - ai.lastRaid < every * TICK_HZ) return;
   const target = raidTarget(ai, bx, by);

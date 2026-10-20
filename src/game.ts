@@ -14,6 +14,7 @@ import { Overlay } from './render/overlay';
 import { PlacementGhost } from './render/placement';
 import { renderThumbnails } from './render/thumbnails';
 import { createModel, createProjectileModel, listModelIds, prewarmModels } from './render/models';
+import { infantryVatMode, probeInfantryGpu } from './render/models/infantry-hd';
 import { setModelDetail } from './render/models/builder';
 import { hdModelsEnabled, hdReleaseAll, hdReleaseUploaded, hdRestoreTextures, hdStatus, hdTextures, onHdReady, setHdModels } from './render/models/hd'; // baked HD models
 import { registerDiagnostics } from './ui/a11y-diagnostics'; // battle status for bug reports
@@ -233,6 +234,7 @@ export class Game {
   hud: Hud | null = null;
   input: InputController | null = null;
   hints: Hints | null = null;
+  private hintsTick = -10;
   missionDef: MissionDef | null = null;
   missionHud: MissionHud | null = null;
   /** Result of a finished mission (stars, time, score). */
@@ -357,6 +359,7 @@ export class Game {
     this.canvas.id = 'game-canvas';
     document.body.prepend(this.canvas);
     this.gfx = new GameRenderer(this.canvas, map, { quality: setup.quality, timeOfDay: setup.timeOfDay, climate });
+    probeInfantryGpu(this.gfx.renderer); // can this GPU skin the HD infantry from their half-float VAT? (before any soldier exists)
     this.contextWatch = watchContextLoss(this.canvas, {
       onLost: () => { this.pausedBeforeLoss = this.paused; this.paused = true; },
       onRestored: () => { this.gfx.restoreAfterContextLoss(); void hdRestoreTextures(); this.paused = this.pausedBeforeLoss; this.last = performance.now(); }, // re-decode the closed HD atlases
@@ -405,6 +408,7 @@ export class Game {
         map: `${this.world.map.w}x${this.world.map.h}`, players: this.world.players.length, tick: this.world.tick, units: this.world.units.length,
         hd: hd.enabled ? `${hd.tier} ${hd.loaded.length} loaded / ${hd.pending.length} pending / ${hd.failed.length} failed, ${hd.textureMB} MB` : 'off',
         terrain: t ? `${t.state} (${t.climate}, ${Math.round(t.bytes / 1048576)} MB)` : '?',
+        infantry: infantryVatMode().mode, // HD infantry skinning: linear / nearest (frames step) / off (procedural)
       };
     }));
     this.walls = new WallRenderer(this.world, this.gfx.fog, this.local);
@@ -842,7 +846,7 @@ export class Game {
     this.missionHud?.update(dt);
     if (this.hud) {
       this.hud.update(dt);
-      if (this.world.tick % 10 === 0) this.hints?.update();
+      if (this.world.tick - this.hintsTick >= 10 || this.world.tick < this.hintsTick) { this.hintsTick = this.world.tick; this.hints?.update(); } // (every 10 ticks, however many a frame steps)
       this.minimapT -= dt;
       if (this.minimapT <= 0) {
         this.minimapT = 0.1;

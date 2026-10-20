@@ -20,7 +20,9 @@ import { doctrineDefences, doctrinePrefer } from './doctrine';
 import { econAI, econDocks, econPlacement, econReserve, econStructure } from './economy-ai'; // Commander economy
 import { alliedAir, alliedArtillery, alliedChrono, alliedSpies, alliedTools, coilPenalty } from './ai-allies'; // the Allied commander's own tools
 
-export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'brutal';
+export type AIDifficulty = 'recruit' | 'easy' | 'normal' | 'hard' | 'brutal';
+/** Every AI difficulty, easiest first (menus, Quick Battle, validation). */
+export const AI_DIFFICULTIES: readonly AIDifficulty[] = ['recruit', 'easy', 'normal', 'hard', 'brutal'];
 /** Mission behaviour: passive = holds position only; defensive = builds and defends, never attacks. */
 export type AIBehaviour = AIDifficulty | 'passive' | 'defensive';
 
@@ -34,21 +36,127 @@ export interface DiffParams {
   reaction: number;        // fraction of army sent to defend
   superweapons: boolean;
   /**
-   * 0..1: how much of the tactical toolbox the AI uses. Easy plays the classic straightforward AI (scouts late,
-   * no raids, no retreats); normal adds counter-composition, retreats, focus fire and occasional raids; hard and
+   * 0..1: how much of the tactical toolbox the AI uses. Recruit and easy play the classic straightforward AI (scouts
+   * late, no raids, no retreats); normal adds counter-composition, retreats, focus fire and occasional raids; hard and
    * brutal flank, harass often and time their superweapons.
    */
   skill: number;
   /** Seconds into the match before the first scout goes out. */
   scoutAt: number;
+  // --- how much of the economy it runs (skirmish; missions keep their scripted economies)
+  /** Refineries at most (build order, extra refineries, expansions) and Ore Trucks at most. */
+  maxRefs: number;
+  maxHarv: number;
+  /** MCV expansions to new ore fields and Commander mining outposts at most. */
+  expansions: number;
+  outposts: number;
+  /** Sends engineers for neutral tech structures (oil derricks and the like) and for the ones its enemies took. */
+  neutral: boolean;
+  /** 0..1: the share of battlefield events (convoys, airdrops, downed pilots, mercenaries) it takes part in. */
+  events: number;
+  // --- the Commander economy (economy-ai.ts) and Commander rules (ai-commander.ts)
+  /** Highest tech tier, a multiplier of its tier timing, research level per line and research levels in all at most, projects at once, Ore Processors, the structure upgrades it buys (null = any). */
+  maxTier: number;
+  tierPace: number;
+  research: number;
+  researchMax: number;
+  upgrades: readonly string[] | null;
+  projects: number;
+  processors: number;
+  /** Ore Purifier / Smelter, Logistics Centre and a second lab (the economy's multipliers); the harvesting research lines (Improved Harvesters, Chrono Logistics); bunkers at most. */
+  econPlus: boolean;
+  econResearch: boolean;
+  bunkers: number;
+  /** Plays a doctrine; highest commander-power tier it unlocks, how often it reaches for a ready power (0..1), and whether it uses the offensive ones (Barrage, Tesla Storm, Sabotage). */
+  doctrine: boolean;
+  powerTier: number;
+  powerUse: number;
+  offensivePowers: boolean;
+  /** The commander powers it may use at all (null = any), and the seconds it lets pass between two of them. */
+  powers: readonly string[] | null;
+  powerGap: number;
+  // --- how it fights
+  /** Hunts harvesters and refineries (raids, air strikes, wave targets); agents and mines (spies, thieves, minelayers); siege specials (demolition trucks, M.A.D. tanks). */
+  raids: boolean;
+  agents: boolean;
+  siege: boolean;
+  /** One wave's value at most, and the land-army value at which it stops adding combat units (credits). */
+  waveCap: number;
+  armyCap: number;
+  /** Seconds an intruder must have been at the base before the army answers, and before a lost structure is rebuilt. */
+  defendDelay: number;
+  rebuildDelay: number;
 }
 
-const DIFF: Record<AIDifficulty, DiffParams> = {
-  easy:   { buildSpeed: 0.65, income: 0.9, firstAttack: 600, waveValue: 3200, waveGrowth: 1200, defenses: 2, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150 },
-  normal: { buildSpeed: 0.95, income: 1.0, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70 },
-  hard:   { buildSpeed: 1.15, income: 1.15, firstAttack: 300, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true, skill: 0.85, scoutAt: 45 },
-  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true, skill: 1, scoutAt: 30 },
+const UNCAPPED = 1e9;
+/** What the full AI may use (hard and brutal; the easier levels below scale it down). */
+const FULL = {
+  maxRefs: UNCAPPED, maxHarv: UNCAPPED, expansions: 3, outposts: UNCAPPED, neutral: true, events: 1,
+  maxTier: 3, tierPace: 1, research: 2, researchMax: UNCAPPED, upgrades: null, projects: 3, processors: UNCAPPED, econPlus: true, econResearch: true, bunkers: 3,
+  doctrine: true, powerTier: 3, powerUse: 1, offensivePowers: true, powers: null, powerGap: 0,
+  raids: true, agents: true, siege: true, waveCap: UNCAPPED, armyCap: UNCAPPED, defendDelay: 0, rebuildDelay: 0,
 };
+
+/**
+ * The difficulty levels (simulation version 3: the difficulty overhaul, docs/BALANCE.md). Recruit and easy are
+ * scaled down everywhere: one or two refineries and few trucks, no expansions, outposts or derrick hunting, late and
+ * capped tech, no doctrine and at most Field Repair among the commander powers, small capped waves, no raids on
+ * harvesters, no agents or mines, no superweapons, slow reactions and slow rebuilding. Measured against scripted
+ * human stand-ins (tools/selfplay/standins.ts).
+ */
+const DIFF: Record<AIDifficulty, DiffParams> = {
+  recruit: {
+    buildSpeed: 0.5, income: 0.7, firstAttack: 900, waveValue: 1800, waveGrowth: 400, defenses: 1, reaction: 0.3, superweapons: false, skill: 0.1, scoutAt: 240,
+    maxRefs: 1, maxHarv: 2, expansions: 0, outposts: 0, neutral: false, events: 0,
+    maxTier: 1, tierPace: 2, research: 0, researchMax: 0, upgrades: [], projects: 0, processors: 0, econPlus: false, econResearch: false, bunkers: 0,
+    doctrine: false, powerTier: 0, powerUse: 0, offensivePowers: false, powers: [], powerGap: 120,
+    raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 4000, defendDelay: 15, rebuildDelay: 150,
+  },
+  easy: {
+    buildSpeed: 0.6, income: 0.75, firstAttack: 720, waveValue: 2500, waveGrowth: 700, defenses: 2, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150,
+    maxRefs: 2, maxHarv: 3, expansions: 0, outposts: 0, neutral: false, events: 0,
+    maxTier: 2, tierPace: 3, research: 1, researchMax: 1, upgrades: ['powr_turbine'], projects: 1, processors: 0, econPlus: false, econResearch: false, bunkers: 0,
+    doctrine: false, powerTier: 1, powerUse: 0.35, offensivePowers: false, powers: ['repair'], powerGap: 120,
+    raids: false, agents: false, siege: false, waveCap: 6000, armyCap: 8000, defendDelay: 6, rebuildDelay: 60,
+  },
+  normal: {
+    buildSpeed: 0.95, income: 1.0, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70,
+    ...FULL,
+    maxRefs: 3, maxHarv: 6, expansions: 1, outposts: 1, events: 0.6,
+    tierPace: 1.3, researchMax: 4, projects: 2, processors: 2, econPlus: false, bunkers: 2,
+    powerUse: 0.6, powerGap: 45, powers: ['recon', 'repair', 'funds', 'rally', 'elite', 'barrage', 'reinforce', 'aegis'], // (no Tesla Storm or Sabotage)
+    waveCap: 12000, armyCap: 30000, defendDelay: 2, rebuildDelay: 20,
+  },
+  hard: {
+    buildSpeed: 1.05, income: 1.05, firstAttack: 300, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true, skill: 0.85, scoutAt: 45,
+    ...FULL,
+    expansions: 2, outposts: 2, events: 0.8, tierPace: 1.1, processors: 3, powerUse: 0.8, powerGap: 30,
+  },
+  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true, skill: 1, scoutAt: 30, ...FULL },
+};
+
+/**
+ * Scripted missions (campaigns, special operations, co-op survival) keep the version-2 levels their balance was built
+ * on: the classic economy and timing, none of the skirmish caps.
+ */
+const MISSION_DIFF: Record<AIDifficulty, DiffParams> = {
+  recruit: DIFF.recruit,
+  easy: { buildSpeed: 0.65, income: 0.9, firstAttack: 600, waveValue: 3200, waveGrowth: 1200, defenses: 2, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150, ...FULL },
+  normal: { buildSpeed: 0.95, income: 1.0, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70, ...FULL },
+  hard: { buildSpeed: 1.15, income: 1.15, firstAttack: 300, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true, skill: 0.85, scoutAt: 45, ...FULL },
+  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true, skill: 1, scoutAt: 30, ...FULL },
+};
+
+/** A scripted mission (campaign, special operation, co-op, Conquest), not a skirmish-based mode runtime (King of the Hill, challenges). */
+export function scriptedMission(w: Pick<World, 'mission'>): boolean {
+  const id = w.mission?.def.id;
+  return !!id && id !== 'koth' && id !== 'challenge';
+}
+
+/** A difficulty's parameters (read-only; tools and tests). */
+export function difficultyParams(d: AIDifficulty, mission = false): Readonly<DiffParams> {
+  return (mission ? MISSION_DIFF : DIFF)[d] ?? DIFF.normal;
+}
 
 /**
  * [type, how many] goals in priority order. Power is handled separately.
@@ -92,11 +200,12 @@ const FIRST_WAVE_CAP = 1.3;
  * ceasefire doesn't build forever. `commit`: the share of the army (by value) the first wave after a timed
  * ceasefire throws at the enemy; the rest stays home. `min`: the smallest army that still opens with that wave.
  */
-// (easy and normal, balance pass: easy's grand wave after a 10-minute build-up was $8,200, twice its usual first
-// wave, too much for a newcomer; now about $4,500, and normal's about $9,000 instead of $10,500)
+// (version 3: recruit and easy grow small armies and open with under half of them; normal's grand wave is also capped
+// by its wave cap, $12,000)
 export const BUILDUP: Record<AIDifficulty, { cap: number; commit: number; min: number }> = {
-  easy: { cap: 10000, commit: 0.45, min: 2400 },
-  normal: { cap: 20000, commit: 0.65, min: 3000 },
+  recruit: { cap: 4000, commit: 0.4, min: 1500 },
+  easy: { cap: 7000, commit: 0.45, min: 2000 },
+  normal: { cap: 16000, commit: 0.6, min: 3000 },
   hard: { cap: 30000, commit: 0.85, min: 3500 },
   brutal: { cap: 40000, commit: 0.9, min: 3500 },
 };
@@ -137,7 +246,6 @@ export interface Expansion {
 }
 
 export class AIController {
-  d: DiffParams;
   personality: Personality;
   tune: AITuning;
   intel: AIIntel;
@@ -188,6 +296,12 @@ export class AIController {
   lastSpy = -9999;
   /** The spy on its way to the enemy Radar Dome (0 = none). */
   radarSpy = 0;
+  /** Tick an intruder was first seen at the base (-1 = none); structure types lost and not yet replaced (tick of the loss), and the most of each type it has stood. */
+  threatSince = -1;
+  /** Tick of its last commander power (the gap between two of them, ai-commander.ts). */
+  lastPower = -99999;
+  lostAt: Record<string, number> = {};
+  had: Record<string, number> = {};
   /** UI feed (rivals radio). */
   chatter: AIChatter[] = [];
   private foundSaid = false;
@@ -196,18 +310,30 @@ export class AIController {
     return this.p;
   }
 
+  /** The difficulty's parameters (scripted missions keep the version-2 levels: MISSION_DIFF). */
+  get d(): DiffParams {
+    return difficultyParams(this.difficulty, scriptedMission(this.world));
+  }
+
   /** Switch behaviour mid-game (missions). */
   setMode(mode: AIBehaviour) {
-    if (mode === 'passive' || mode === 'defensive') { this.behaviour = mode; return; }
-    this.behaviour = 'full';
-    this.difficulty = mode;
-    this.d = DIFF[mode];
+    const first = !this.modeSet;
+    this.modeSet = true;
+    if (mode === 'passive' || mode === 'defensive') {
+      this.behaviour = mode;
+      // (a mission AI that only ever gets a behaviour: the mission levels' economy, once, before the mission's setup)
+      if (!first || !scriptedMission(this.world)) return;
+    } else {
+      this.behaviour = 'full';
+      if (DIFF[mode]) this.difficulty = mode;
+    }
     this.p.buildSpeed = this.d.buildSpeed;
     this.p.incomeBias = this.d.income;
   }
+  private modeSet = false;
 
   constructor(public world: World, public p: Player, public difficulty: AIDifficulty, personality?: string | Personality | null) {
-    this.d = DIFF[difficulty];
+    if (!DIFF[difficulty]) this.difficulty = difficulty = 'normal'; // (unknown level from an old or hand-made record)
     this.personality = resolvePersonality(personality);
     this.tune = { ...DEFAULT_TUNING, ...(this.personality.tuning ?? {}) };
     this.intel = new AIIntel(world, p);
@@ -227,6 +353,11 @@ export class AIController {
   /** Skirmish-only tactics (missions are balanced around the classic AI). */
   get skirmish(): boolean {
     return !this.world.mission;
+  }
+
+  /** Plays the version-3 skirmish levels (everything but scripted missions, which keep MISSION_DIFF and their classic AI). */
+  get levelled(): boolean {
+    return !scriptedMission(this.world);
   }
 
   /** Build-up time (ceasefire.ts): no offensive action of any kind, only building and defending. */
@@ -266,6 +397,7 @@ export class AIController {
     }
     this.handleMcv();
     this.placeReadyStructure();
+    if (this.d.rebuildDelay > 0 && this.due(TICK_HZ * 2)) this.noteLosses();
     this.planStructures();
     this.planUnits();
     this.repairBase();
@@ -285,6 +417,19 @@ export class AIController {
     if (this.world.econ) econAI(this); // tiers, upgrades, research, bunker garrisons (Commander economy)
     aftermathAI(this); // builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
     if (this.chatter.length > 40) this.chatter.splice(0, this.chatter.length - 40);
+  }
+
+  /** Which structure types were lost (for the rebuild delay of the easier levels). */
+  private noteLosses() {
+    const now: Record<string, number> = {};
+    for (const b of this.world.buildings) if (b.alive && b.owner === this.p && !b.bt.wall && !b.bt.mine && b.bt.id !== 'fact') now[b.bt.id] = (now[b.bt.id] ?? 0) + 1;
+    for (const t of Object.keys(this.had).sort()) {
+      const n = now[t] ?? 0;
+      if (n < this.had[t]) { if (this.lostAt[t] === undefined) this.lostAt[t] = this.world.tick; }
+      else delete this.lostAt[t];
+    }
+    for (const [t, n] of Object.entries(now)) if (n > (this.had[t] ?? 0)) this.had[t] = n;
+    for (const t of Object.keys(this.lostAt)) if ((now[t] ?? 0) >= this.had[t]) delete this.lostAt[t];
   }
 
   say(kind: AIChatter['kind'], x?: number, y?: number) {
@@ -396,7 +541,7 @@ export class AIController {
     }
     if (p.ore > p.storage * 0.85 && p.storage > 0 && p.canBuild('silo') && this.count('silo') < 3) return 'silo';
     // keep enough refineries working the ore around the base
-    if (this.skirmish && this.count('proc') < this.tune.minRefs && this.world.time > this.tune.refAt && p.canBuild('proc') && this.oreCellsNear(18) >= 24) return 'proc';
+    if (this.skirmish && this.count('proc') < Math.min(this.tune.minRefs, this.d.maxRefs) && this.world.time > this.tune.refAt && p.canBuild('proc') && this.oreCellsNear(18) >= 24) return 'proc';
     // an expansion yard wants its refinery and a guard tower
     const ex = expansionStructure(this);
     if (ex) return ex;
@@ -426,13 +571,21 @@ export class AIController {
   }
 
   private defenceCap(): number {
-    return this.d.defenses + Math.round((this.personality.defence - 0.5) * 8) + (this.world.time > 900 ? 2 : 0) + (this.p.cmd ? doctrineDefences(this.p) : 0);
+    // (recruit and easy: a defensive personality adds no defences)
+    const taste = Math.round((this.personality.defence - 0.5) * 8);
+    const low = this.d.skill < 0.5 && this.levelled;
+    return this.d.defenses + (low ? Math.min(taste, 0) : taste) + (this.world.time > 900 ? (low ? Math.min(2, this.d.defenses - 1) : 2) : 0) + (this.p.cmd ? doctrineDefences(this.p) : 0);
   }
 
   private allowed(t: string): boolean {
     const pers = this.personality;
+    if (t === 'proc' && this.count('proc') >= this.d.maxRefs) return false;
+    // (easier levels take their time to replace what they lost)
+    const lost = this.lostAt[t];
+    if (lost !== undefined && this.world.tick - lost < this.d.rebuildDelay * TICK_HZ) return false;
     if (AIR_DEFENSE.has(t)) {
-      return this.intel.armyMix(600).air > 0 || this.world.time > 720 * trait(pers.defence, 1.4, 0.6);
+      // (recruit and easy: only once enemy aircraft have shown up)
+      return this.intel.armyMix(600).air > 0 || (this.d.skill >= 0.5 || !this.levelled) && this.world.time > 720 * trait(pers.defence, 1.4, 0.6);
     }
     if (DEFENSES.has(t)) {
       let n = 0;
@@ -446,6 +599,11 @@ export class AIController {
     }
     if ((t === 'hpad' || t === 'afld') && pers.air < 0.15 && this.world.time < 1200) return t === 'afld' && this.count('afld') < 1;
     if ((t === 'atek' || t === 'stek') && pers.tech < 0.3 && this.world.time < 720) return false;
+    if (this.d.skill < 0.5 && this.levelled) {
+      // (recruit and easy: one Tesla Coil at most, and no Tech Center, so no Mammoths, before minute 15)
+      if (t === 'tsla' && this.count('tsla') >= 1) return false;
+      if ((t === 'atek' || t === 'stek') && this.world.time < 900) return false;
+    }
     return true;
   }
 
@@ -535,7 +693,7 @@ export class AIController {
     const units = this.myUnits();
     const harvs = units.filter((u) => u.ut.harvester).length;
     const refs = this.count('proc') + (this.world.econ ? econDocks(this) : 0); // (mining outposts)
-    const wantHarv = Math.min(Math.round(refs * this.tune.harvPerRef), refs + this.tune.harvExtra + (pers.economy > 0.75 ? 1 : 0));
+    const wantHarv = Math.min(Math.round(refs * this.tune.harvPerRef), refs + this.tune.harvExtra + (pers.economy > 0.75 ? 1 : 0), this.d.maxHarv);
     const vq = p.queues.vehicle;
     const iq = p.queues.infantry;
     const queuedHarv = vq.items.filter((i) => i.type === 'harv').length;
@@ -556,6 +714,8 @@ export class AIController {
     if (this.expansion?.stage === 'build' && vq.items.some((i) => i.type === 'mcv')) return;
     // build-up time: the army grows to its cap for this difficulty, then the money goes into the base
     if (this.atBuildupCap(units)) return;
+    // (easier levels: an army this size is all they field)
+    if (this.d.armyCap < UNCAPPED && this.armyValue(units) >= this.d.armyCap) return;
     const inf = units.filter((u) => u.kind === 'infantry').length;
     const veh = units.filter((u) => u.kind === 'vehicle' && !u.ut.harvester && !u.ut.deploysInto).length;
     const canVeh = p.has('weap');
@@ -706,8 +866,8 @@ export class AIController {
       let aa = 0;
       for (const s of flak) if (s.owner === e.owner.id && Math.hypot(s.x - e.x, s.y - e.y) < 8) aa++;
       let score = Math.hypot(e.x - bx, e.y - by) * 0.3 + aa * 25;
-      if (e instanceof Unit && e.ut.harvester) score -= 20;
-      if (e instanceof Building && apparentType(e, this.p).id === 'proc') score -= 10;
+      if (this.d.raids && e instanceof Unit && e.ut.harvester) score -= 20;
+      if (this.d.raids && e instanceof Building && apparentType(e, this.p).id === 'proc') score -= 10;
       if (score < bestScore) { bestScore = score; best = e; }
     };
     for (const u of w.units) if (u.alive && this.p.isEnemy(u.owner) && this.intel.sees(u)) consider(u);
@@ -727,7 +887,10 @@ export class AIController {
       if (!relevant(u)) continue;
       if (Math.hypot(u.x - bx, u.y - by) < 13) { threat = u; break; }
     }
-    if (threat && w.tick - this.lastDefend > TICK_HZ * 4) {
+    // (easier levels notice an intruder late)
+    if (!threat) this.threatSince = -1;
+    else if (this.threatSince < 0) this.threatSince = w.tick;
+    if (threat && w.tick - this.threatSince >= this.d.defendDelay * TICK_HZ && w.tick - this.lastDefend > TICK_HZ * 4) {
       this.lastDefend = w.tick;
       const defenders = army.filter((u) => (!this.wave.has(u.id) || this.state !== 'attack') && !this.repairs.has(u.id) && u.id !== this.scout);
       const n = Math.ceil(defenders.length * Math.min(1, this.d.reaction * this.tune.reactionMul));
@@ -834,11 +997,12 @@ export class AIController {
         const target = this.pickAttackTarget();
         if (target) { this.launchWave(idle, target, bx, by); return; }
       }
-      const need = this.nextWaveValue * this.tune.waveMul * trait(pers.aggression, 1.45, 0.62);
+      const low = this.d.skill < 0.5 && this.levelled; // (recruit and easy: an aggressive personality attacks at most 15% sooner, and not with less, than the level does)
+      const need = Math.min(this.d.waveCap, this.nextWaveValue * Math.max(low ? 0.85 : 0, this.tune.waveMul * trait(pers.aggression, 1.45, 0.62)));
       // (normal and up) attack early when clearly stronger than the enemy army we have seen, hold when outmatched
       const smart = this.d.skill >= 0.6 && this.skirmish;
       const enemyArmy = smart ? this.intel.armyMix(180).total : 0;
-      const firstAt = this.d.firstAttack * trait(pers.aggression, 1.6, 0.55);
+      const firstAt = this.d.firstAttack * Math.max(low ? 0.85 : 0, trait(pers.aggression, 1.6, 0.55));
       // (never for the first wave: early sightings show only part of the enemy army)
       const strong = smart && this.waves > 0 && enemyArmy > 0 && value >= enemyArmy * this.tune.advantage && value >= this.d.waveValue * 0.6 && w.time >= firstAt;
       const outmatched = smart && value < enemyArmy * this.tune.holdRatio && value < need * 2;
@@ -954,6 +1118,17 @@ export class AIController {
         sum += u.ut.cost;
       }
     }
+    // (easier levels: a wave never grows past its cap; the rest stays home)
+    if (this.d.waveCap < UNCAPPED && wave.reduce((s, u) => s + u.ut.cost, 0) > this.d.waveCap) {
+      const byDist = wave.slice().sort((a, b) => Math.hypot(a.x - target[0], a.y - target[1]) - Math.hypot(b.x - target[0], b.y - target[1]) || a.id - b.id);
+      wave = [];
+      let sum = 0;
+      for (const u of byDist) {
+        if (sum >= this.d.waveCap) break;
+        wave.push(u);
+        sum += u.ut.cost;
+      }
+    }
     this.wave = new Set(wave.map((u) => u.id));
     this.waveStart = this.wave.size;
     this.waveValueStart = wave.reduce((s, u) => s + u.ut.cost * u.healthFrac, 0);
@@ -975,7 +1150,7 @@ export class AIController {
     if (this.flank.size) w.issue({ c: 'move', player: p.id, units: [...this.flank], x: this.flankX, y: this.flankY, attackMove: true });
     // (growth capped: a long war of attrition must not freeze the AI at home)
     this.nextWaveValue += this.d.waveGrowth * trait(this.personality.aggression, 1.3, 0.75);
-    if (this.skirmish) this.nextWaveValue = Math.min(this.nextWaveValue, this.d.waveValue + this.d.waveGrowth * 5);
+    if (this.skirmish) this.nextWaveValue = Math.min(this.nextWaveValue, this.d.waveValue + this.d.waveGrowth * 5, this.d.waveCap);
     this.say('attack', target[0], target[1]);
   }
 
@@ -1065,7 +1240,7 @@ export class AIController {
       if (this.world.players[s.owner]?.defeated) continue;
       let score = Math.hypot(s.x - bx, s.y - by);
       const bt = BUILDINGS[s.type];
-      if (s.type === 'proc' || bt?.factory) score -= 4;
+      if ((s.type === 'proc' && this.d.raids) || bt?.factory) score -= 4;
       // steer around fortified spots
       if (s.armed) score += 6;
       if (coilWise) score += coilPenalty(known, s);
@@ -1176,6 +1351,7 @@ export class AIController {
       raid: [...this.raid], raidX: this.raidX, raidY: this.raidY, raidStart: this.raidStart, raidValue: this.raidValue, lastRaid: this.lastRaid,
       expansion: this.expansion, escort: [...this.escort], expansions: this.expansions, lastExpandTry: this.lastExpandTry,
       nukeSince: this.nukeSince, chronoSince: this.chronoSince, spyTries: this.spyTries, lastSpy: this.lastSpy, radarSpy: this.radarSpy,
+      threatSince: this.threatSince, lostAt: { ...this.lostAt }, had: { ...this.had }, lastPower: this.lastPower,
     };
   }
 
@@ -1199,6 +1375,8 @@ export class AIController {
     this.expansions = s.expansions ?? 0; this.lastExpandTry = s.lastExpandTry ?? -9999;
     this.nukeSince = s.nukeSince ?? -1; this.chronoSince = s.chronoSince ?? -1;
     this.spyTries = s.spyTries ?? 0; this.lastSpy = s.lastSpy ?? -9999; this.radarSpy = s.radarSpy ?? 0;
+    this.lastPower = s.lastPower ?? -99999;
+    this.threatSince = s.threatSince ?? -1; this.lostAt = { ...(s.lostAt ?? {}) }; this.had = { ...(s.had ?? {}) };
   }
 }
 

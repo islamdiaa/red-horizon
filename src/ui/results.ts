@@ -22,7 +22,8 @@ import {
   ACH_BY_ID, achievementMetal, achievementTitle, insigniaSvg, isTiered, loadProfile, medalSvg, moneyShort, nextUnlock, picto, rankName, unlockContext, type MatchSummary,
 } from '../meta';
 import type { BattleReport, ReportSample } from '../meta/report';
-import { dt, fmtInt, fmtMoney } from '../i18n/core';
+import { dt, fmtInt, fmtMoney, fmtNum } from '../i18n/core';
+import { economyAdvice, economyFacts } from './coach';
 import { typeName } from '../i18n/names';
 import { UNITS } from '../data/rules';
 import tResults from '../i18n/en/results';
@@ -163,6 +164,15 @@ const CSS = `
 .rr-clip b { font-weight: 700; }
 .rr-clip:hover { color: #fff; border-color: rgba(255,90,60,.7); background: rgba(255,90,60,.2); }
 .rr-results .mom-offers { margin: 0; }
+/* economy tip */
+.rr-econ { display: flex; flex-direction: column; gap: .2rem; padding: .45rem .6rem; border-radius: .7rem; background: rgba(0,0,0,.2); border: 1px solid rgba(255,180,60,.22); font-size: .76rem; color: var(--text-2); animation: fadeUp .4s .5s var(--ease) both; }
+.rr-econ h5 { margin: 0; font-size: .58rem; font-weight: 700; letter-spacing: .26em; text-transform: uppercase; color: #ffcf6a; }
+.rr-econ b { color: var(--text); font-weight: 700; }
+.rr-econ p { margin: 0; display: flex; gap: .45rem; align-items: flex-start; color: var(--text); }
+.rr-econ p svg { flex-shrink: 0; margin-top: .1rem; color: #ffcf6a; }
+.rr-econ.good { border-color: rgba(77,255,154,.3); }
+.rr-econ.good h5, .rr-econ.good p svg { color: #8dffb0; }
+.rr-instant .rr-econ { animation: none; }
 /* buttons */
 .rr-btns { display: flex; gap: .6rem; justify-content: center; align-items: stretch; flex-wrap: wrap; }
 .rr-btns .btn-primary.rr-again { height: 3.4rem; min-width: 17rem; font-size: 1.15rem; letter-spacing: .3em; }
@@ -275,6 +285,24 @@ function battleReport(game: Game, report: BattleReport | null): HTMLElement {
   box.appendChild(charts);
   box.appendChild(el('div', 'rr-legend', players.map((p) => `<span><i style="background:${hexColor(p.color)}"></i>${esc(p.name)}${p === game.local ? ` <em>${tResults.html('report.youTag')}</em>` : ''}</span>`).join('')));
   return box;
+}
+
+/**
+ * Economy: what you and the strongest enemy harvested and the biggest armies you fielded, with one suggestion
+ * (ui/coach.ts economyAdvice). Skirmish-like matches, after a defeat or a close victory.
+ */
+function economyBlock(game: Game, won: boolean, report: BattleReport | null): HTMLElement | null {
+  const w = game.world, me = game.local;
+  if (w.mission || !report) return null;
+  const f = economyFacts({
+    samples: report.samples, me: me.id, foes: w.players.filter((o) => me.isEnemy(o)).map((o) => o.id), harvested: w.players.map((p) => p.stats.harvested),
+    won, time: w.time, faction: me.faction === 'soviet' ? 'soviet' : 'allies',
+  });
+  const adv = f ? economyAdvice(f) : null;
+  if (!f || !adv) return null;
+  const harvest = tResults.html(adv.ratio >= 1.1 ? 'econ.harvestBehind' : 'econ.harvest', { you: money(f.you.harvested), foe: money(f.foe.harvested), ratio: fmtNum(adv.ratio, 1) });
+  const army = tResults.html('econ.army', { you: money(f.you.peakArmy), foe: money(f.foe.peakArmy) });
+  return el('div', `rr-econ${adv.tip === 'won' ? ' good' : ''}`, `<h5>${tResults.html('econ.title')}</h5><div>${harvest} ${army}</div><p>${ICONS.bulb}<span>${tResults.html(`econ.tip.${adv.tip}`, { shift: tCommon('keys.shift') })}</span></p>`);
 }
 
 function scoreboard(game: Game): HTMLElement {
@@ -411,7 +439,8 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   // ---------------------------------------------------------------- battle report
   const rep = el('section', 'rr-col panel rr-report');
   rep.innerHTML = `<div class="rr-h">${picto('chart')}<span>${tResults.html('report.title')}</span><i class="sp"></i><small>${tResults.html('report.every', { n: 10 })}</small></div>`;
-  rep.append(battleReport(game, opts.report), scoreboard(game), mvpAndHighlights(game, won, opts.report, opts.recordClip ? (t, label, fileLabel) => { done(); opts.recordClip!(t, label, fileLabel); } : undefined)); // clips
+  const econ = economyBlock(game, won, opts.report);
+  rep.append(battleReport(game, opts.report), ...(econ ? [econ] : []), scoreboard(game), mvpAndHighlights(game, won, opts.report, opts.recordClip ? (t, label, fileLabel) => { done(); opts.recordClip!(t, label, fileLabel); } : undefined)); // clips
   grid.append(prog, rep);
   wrap.appendChild(grid);
   // ---------------------------------------------------------------- buttons

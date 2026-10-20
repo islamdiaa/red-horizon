@@ -23,7 +23,7 @@ import { prefetchOffline } from '../../platform/prefetch';
 import type { ModelAnimState, ModelInstance, RagdollRig } from './types';
 import { lodDistance, type ModelFaction } from './builder';
 import { BODY_SHARED_UNIFORMS, BodyVariant, getDamageTexture, getDetailTexture, registerLitMaterial, teamGlossUniform, teamUniform } from './materials';
-import { HD_IDLE_MS, HD_SHADOW_NB, hdIsOffscreen, hdModelsEnabled, hdNotifyReady, hdTier, pickSweep, registerHdExtension, type HdTier, type SweepItem } from './hd';
+import { HD_IDLE_MS, HD_SHADOW_NB, hdIsOffscreen, hdModelsEnabled, hdNotifyReady, hdTier, pickSweep, registerHdExtension, standInMaps, type HdTier, type SweepItem } from './hd';
 import { ClipLib, InfantryAnimator, TYPE_SET, type ClipInfo, type InfSet } from './infantry-hd-anim';
 
 const TEAM_GREY = 0.7;
@@ -95,7 +95,79 @@ export function readVat(g: Glb): { data: Float32Array; half: Uint16Array; width:
   for (let i = 0; i < n; i++) data[i] = THREE.DataUtils.fromHalfFloat(half[i]);
   return { data, half, width: meta.vat.width, height: meta.vat.height, meta };
 }
+
+/**
+ * Why a VAT can't skin soldiers (null: it can). Checked before a rig is used: a NaN / Inf texel or a clip outside
+ * the texture would collapse or explode the geometry into NaN pixels, which the TAA and the bloom then smear
+ * over the frame.
+ */
+export function vatProblem(v: { half: Uint16Array; width: number; height: number; meta: any }, maxTextureSize = Infinity): string | null {
+  const bones = v.meta?.bones?.length ?? 0;
+  if (!bones || v.width < bones * 3 || v.height < 1) return `bad layout ${v.width}x${v.height} for ${bones} bones`;
+  if (v.height > maxTextureSize || v.width > maxTextureSize) return `${v.width}x${v.height} exceeds the GPU's ${maxTextureSize}`;
+  for (const c of (v.meta.clips ?? []) as ClipInfo[]) {
+    if (!(c.row >= 0 && c.frames >= 1 && c.row + c.frames <= v.height)) return `clip ${c.name} outside the texture`;
+  }
+  const h = v.half;
+  for (let i = 0; i < h.length; i++) if ((h[i] & 0x7c00) === 0x7c00) return 'NaN / Inf texels';
+  return null;
+}
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * Give zero-length normals and tangents usable directions, in place (Int8 normalised attributes; returns the
+ * number of vertices fixed). The far LODs' decimation leaves slivers whose vertices carry (0, 0, 0) normals, and
+ * degenerate UVs give (0, 0, 0) tangents: normalize() of a zero vector is NaN on real GPUs (SwiftShader happens to
+ * hide it), and a NaN pixel turns black, spreads through the TAA neighbourhood and blooms into a white blob.
+ * A bad normal takes its faces' area-weighted normal (else up), a bad or parallel tangent any perpendicular.
+ */
+export function repairFrames(nrm: Int8Array, tan: Int8Array | null, pos: ArrayLike<number>, index: ArrayLike<number>): number {
+  const n = nrm.length / 3;
+  const badN = new Uint8Array(n);
+  let fixed = 0;
+  for (let i = 0; i < n; i++) {
+    const x = nrm[i * 3], y = nrm[i * 3 + 1], z = nrm[i * 3 + 2];
+    if (x * x + y * y + z * z < 64) { badN[i] = 1; fixed++; } // (shorter than 8 / 127: no direction left after quantisation)
+  }
+  if (fixed) {
+    const acc = new Float32Array(n * 3);
+    for (let t = 0; t + 2 < index.length; t += 3) {
+      const a = index[t], b = index[t + 1], c = index[t + 2];
+      if (!badN[a] && !badN[b] && !badN[c]) continue;
+      const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
+      const vx = pos[c * 3] - pos[a * 3], vy = pos[c * 3 + 1] - pos[a * 3 + 1], vz = pos[c * 3 + 2] - pos[a * 3 + 2];
+      const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+      for (const k of [a, b, c]) { acc[k * 3] += fx; acc[k * 3 + 1] += fy; acc[k * 3 + 2] += fz; }
+    }
+    for (let i = 0; i < n; i++) {
+      if (!badN[i]) continue;
+      let x = acc[i * 3], y = acc[i * 3 + 1], z = acc[i * 3 + 2];
+      const l = Math.hypot(x, y, z);
+      if (!(l > 1e-12)) { x = 0; y = 1; z = 0; } else { x /= l; y /= l; z /= l; }
+      nrm[i * 3] = Math.round(x * 127); nrm[i * 3 + 1] = Math.round(y * 127); nrm[i * 3 + 2] = Math.round(z * 127);
+    }
+  }
+  if (!tan) return fixed;
+  for (let i = 0; i < n; i++) {
+    const nx = nrm[i * 3] / 127, ny = nrm[i * 3 + 1] / 127, nz = nrm[i * 3 + 2] / 127;
+    const tx = tan[i * 4] / 127, ty = tan[i * 4 + 1] / 127, tz = tan[i * 4 + 2] / 127;
+    const cx = ny * tz - nz * ty, cy = nz * tx - nx * tz, cz = nx * ty - ny * tx;
+    const ok = tx * tx + ty * ty + tz * tz > 0.004 && cx * cx + cy * cy + cz * cz > 0.004;
+    if (ok && tan[i * 4 + 3] !== 0) continue;
+    if (!ok) {
+      // any direction perpendicular to the normal (the tangent-space normal map is flat-ish on these slivers)
+      const up = Math.abs(ny) < 0.9; // cross(n, a) with a = up, or +X for a normal that points up already
+      const ax = up ? 0 : 1, ay = up ? 1 : 0;
+      let px = -nz * ay, py = nz * ax, pz = nx * ay - ny * ax;
+      const l = Math.hypot(px, py, pz) || 1;
+      px /= l; py /= l; pz /= l;
+      tan[i * 4] = Math.round(px * 127); tan[i * 4 + 1] = Math.round(py * 127); tan[i * 4 + 2] = Math.round(pz * 127);
+    }
+    if (tan[i * 4 + 3] === 0) tan[i * 4 + 3] = 127; // (the bitangent sign: never 0)
+    if (!badN[i]) fixed++;
+  }
+  return fixed;
+}
 
 // ---------------------------------------------------------------------------------------------------------
 // Rigs (shared skeleton + clips + VAT) and templates (one per GLB)
@@ -164,6 +236,144 @@ const rigList: Rig[] = [];
 const releaseQueue: Template[] = [];
 let tierNow: HdTier = 'high';
 let restoring = 0;
+
+// ---------------------------------------------------------------------------------------------------------
+// GPU capabilities: skinning from a half-float texture in the vertex shader
+
+/** What the VAT crowd needs from the GPU. All of it is core WebGL 2, but drivers differ: it is checked once. */
+export interface VatCaps {
+  /** MAX_VERTEX_TEXTURE_IMAGE_UNITS (the VAT and the ragdoll pose texture). */
+  vertexTextures: number;
+  /** MAX_VERTEX_ATTRIBS (the lit crowd program uses 13). */
+  vertexAttribs: number;
+  /** MAX_TEXTURE_SIZE (the clip set is ~1000 rows tall). */
+  textureSize: number;
+  /**
+   * Reading a 2 x 1 RGBA16F texture between its texels in a vertex shader gave: 'linear' (filtered),
+   * 'nearest' (read, not filtered), 'none' (nothing read); null: the probe could not run (no verdict).
+   */
+  probe: 'linear' | 'nearest' | 'none' | null;
+}
+/** 'linear': frames interpolate; 'nearest': frames step (no half-float filtering); 'off': procedural infantry. */
+export type VatMode = 'linear' | 'nearest' | 'off';
+export const VAT_NEEDS = { vertexTextures: 2, vertexAttribs: 13 } as const;
+
+/** Pure: the VAT path a GPU gets, and why when it is not the full one (tests/infantry-hd-ready.test.ts). */
+export function vatModeFor(c: VatCaps): { mode: VatMode; why: string } {
+  if (c.vertexTextures < VAT_NEEDS.vertexTextures) return { mode: 'off', why: `${c.vertexTextures} vertex texture units` };
+  if (c.vertexAttribs < VAT_NEEDS.vertexAttribs) return { mode: 'off', why: `${c.vertexAttribs} vertex attributes` };
+  if (c.probe === 'none') return { mode: 'off', why: 'half-float textures read nothing in the vertex shader' };
+  if (c.probe === 'nearest') return { mode: 'nearest', why: 'no linear filtering of half-float textures in the vertex shader' };
+  return { mode: 'linear', why: '' };
+}
+
+/** Until a GPU was checked (thumbnails, preview pages): assume the WebGL 2 baseline. */
+let vatMode: VatMode = 'linear';
+let gpuCaps: VatCaps | null = null;
+
+/** Read the VAT capabilities (and run the sampling probe) on a renderer's context. */
+function readCaps(renderer: THREE.WebGLRenderer): VatCaps {
+  const gl = renderer.getContext() as WebGL2RenderingContext;
+  const num = (p: number) => Number(gl.getParameter(p)) || 0;
+  const c: VatCaps = { vertexTextures: num(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS), vertexAttribs: num(gl.MAX_VERTEX_ATTRIBS), textureSize: num(gl.MAX_TEXTURE_SIZE), probe: null };
+  if (c.vertexTextures >= VAT_NEEDS.vertexTextures) {
+    try {
+      c.probe = probeVatSampling(gl);
+    } catch {
+      c.probe = null;
+    } finally {
+      renderer.resetState(); // (raw GL calls: three's cached bindings are stale now)
+    }
+  }
+  return c;
+}
+
+/**
+ * A 2 x 1 RGBA16F texture, (0, 1, 0, 1) | (1, 1, 0, 1), read with textureLod in a vertex shader exactly between its
+ * texels and drawn as one point into a 1 x 1 RGBA8 target: red ~0.5 = filtered, 0 or 1 = nearest, green 0 = the
+ * fetch read nothing (an incomplete texture). The point not drawn at all (alpha 0) gives no verdict.
+ */
+function probeVatSampling(gl: WebGL2RenderingContext): VatCaps['probe'] {
+  const shader = (type: number, src: string) => {
+    const sh = gl.createShader(type)!;
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    return sh;
+  };
+  const vs = shader(gl.VERTEX_SHADER, '#version 300 es\nuniform highp sampler2D t;\nout vec4 c;\nvoid main() { c = textureLod(t, vec2(0.5, 0.5), 0.0); gl_Position = vec4(0.0, 0.0, 0.0, 1.0); gl_PointSize = 1.0; }');
+  const fs = shader(gl.FRAGMENT_SHADER, '#version 300 es\nprecision highp float;\nin vec4 c;\nout vec4 o;\nvoid main() { o = c; }');
+  const prog = gl.createProgram()!;
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  const tex = gl.createTexture();
+  const rt = gl.createTexture();
+  const fb = gl.createFramebuffer();
+  try {
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, rt);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rt, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) return null;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const one = 0x3c00;
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 2, 1, 0, gl.RGBA, gl.HALF_FLOAT, new Uint16Array([0, one, 0, one, one, one, 0, one]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.STENCIL_TEST, gl.SCISSOR_TEST, gl.CULL_FACE, gl.RASTERIZER_DISCARD]) gl.disable(cap);
+    gl.colorMask(true, true, true, true);
+    gl.viewport(0, 0, 1, 1);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    gl.uniform1i(gl.getUniformLocation(prog, 't'), 0);
+    gl.bindVertexArray(null);
+    gl.drawArrays(gl.POINTS, 0, 1);
+    const px = new Uint8Array(4);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    if (px[3] < 128) return null;
+    if (px[1] < 128) return 'none';
+    return px[0] > 64 && px[0] < 192 ? 'linear' : 'nearest';
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fb);
+    gl.deleteTexture(tex);
+    gl.deleteTexture(rt);
+    gl.deleteProgram(prog);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+  }
+}
+
+/**
+ * Check once per session, on the battle renderer before any soldier is created (game.ts), what the VAT path can
+ * do here: full, frame-stepped (nearest), or off (procedural infantry). Logs one warning when it is not the full one.
+ */
+export function probeInfantryGpu(renderer: THREE.WebGLRenderer): VatMode {
+  if (gpuCaps) return vatMode;
+  try {
+    gpuCaps = readCaps(renderer);
+  } catch {
+    return vatMode; // (no verdict: keep the baseline)
+  }
+  const { mode, why } = vatModeFor(gpuCaps);
+  vatMode = mode;
+  if (mode !== 'linear') {
+    console.warn(`[infantry-hd] ${why}: ${mode === 'off' ? 'using the procedural infantry' : 'animation frames step instead of blending'}`);
+    if (mode === 'nearest') for (const r of rigList) { r.tex.minFilter = r.tex.magFilter = THREE.NearestFilter; r.tex.needsUpdate = true; }
+  }
+  return mode;
+}
+
+/** The HD infantry status of this GPU (diagnostics, tests). */
+export function infantryVatMode(): { mode: VatMode; caps: VatCaps | null } {
+  return { mode: vatMode, caps: gpuCaps };
+}
 
 function url(file: string, hash?: string): string {
   return assetUrl(`models/infantry/${file}`) + (hash ? `?v=${hash}` : '');
@@ -274,13 +484,16 @@ if ( aW.y > 0.002 ) rhSkin += rhBone( aJ.y ) * aW.y;
 
 function buildRig(g: Glb): Rig {
   const v = readVat(g);
+  const bad = vatProblem(v, gpuCaps?.textureSize ?? Infinity);
+  if (bad) throw new Error(`clip set unusable: ${bad}`);
   const meta = v.meta;
   const bones: string[] = meta.bones;
   const index: Record<string, number> = {};
   bones.forEach((b, i) => (index[b] = i));
   const tex = new THREE.DataTexture(v.half, v.width, v.height, THREE.RGBAFormat, THREE.HalfFloatType);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter; // interpolates the frames (y); x is always sampled at texel centres
+  // linear filtering interpolates the frames (y; x is always sampled at texel centres); a GPU that can't filter
+  // half floats in the vertex shader steps from frame to frame instead (vatMode)
+  tex.minFilter = tex.magFilter = vatMode === 'nearest' ? THREE.NearestFilter : THREE.LinearFilter;
   tex.generateMipmaps = false;
   tex.flipY = false;
   tex.needsUpdate = true;
@@ -337,14 +550,19 @@ async function buildTemplate(en: Entry, buf: ArrayBuffer, rig: Rig, t: HdTier): 
   for (const mesh of j.meshes) {
     const prim = mesh.primitives[0];
     const dq = mesh.extras?.rh_dequant ?? { c: [0, 0, 0], s: 1 };
+    if (!(Number(dq.s) > 0 && Number.isFinite(Number(dq.s)) && [0, 1, 2].every((k) => Number.isFinite(Number(dq.c?.[k]))))) throw new Error('bad dequantisation');
     const pos = readAccessor(g, prim.attributes.POSITION);
     const P = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) for (let k = 0; k < 3; k++) P[i * 3 + k] = Math.max(-1, pos.array[i * 3 + k] / 32767) * dq.s + dq.c[k];
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
     const nrm = readAccessor(g, prim.attributes.NORMAL);
-    geo.setAttribute('normal', new THREE.BufferAttribute(nrm.array, 3, true));
     const tan = readAccessor(g, prim.attributes.TANGENT);
+    const idx = readAccessor(g, prim.indices);
+    for (let i = 0; i < idx.array.length; i++) if (idx.array[i] >= pos.count) throw new Error('index out of range');
+    if (!(nrm.array instanceof Int8Array) || !(tan.array instanceof Int8Array)) throw new Error('unexpected normal / tangent format');
+    repairFrames(nrm.array, tan.array, P, idx.array); // (the far LODs carry zero normals: NaN pixels on real GPUs)
+    geo.setAttribute('normal', new THREE.BufferAttribute(nrm.array, 3, true));
     geo.setAttribute('tangent', new THREE.BufferAttribute(tan.array, 4, true));
     const uv = readAccessor(g, prim.attributes.TEXCOORD_0);
     geo.setAttribute('uv', new THREE.BufferAttribute(uv.array, 2, true));
@@ -352,7 +570,6 @@ async function buildTemplate(en: Entry, buf: ArrayBuffer, rig: Rig, t: HdTier): 
     geo.setAttribute('aJ', new THREE.BufferAttribute(jn.array, 4, false));
     const wt = readAccessor(g, prim.attributes.WEIGHTS_0);
     geo.setAttribute('aW', new THREE.BufferAttribute(wt.array, 4, true));
-    const idx = readAccessor(g, prim.indices);
     geo.setIndex(new THREE.BufferAttribute(idx.array, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.2, 0), 0.6);
     geo.name = `inf-${en.key}-lod${mesh.extras?.lod ?? 0}`;
@@ -432,8 +649,12 @@ varying float vRhPh;`)
       .replace('#include <skinnormal_vertex>', `#include <skinnormal_vertex>
 vRhN = objectNormal;
 objectNormal = ( rhSkin * vec4( objectNormal, 0.0 ) ).xyz;
+// never normalise a zero vector (NaN on real GPUs: black pixels that bloom into white blobs)
+if ( !( dot( objectNormal, objectNormal ) >= 1e-12 ) ) objectNormal = vec3( 0.0, 1.0, 0.0 );
 #ifdef USE_TANGENT
 objectTangent = ( rhSkin * vec4( objectTangent, 0.0 ) ).xyz;
+vec3 rhTx = cross( objectNormal, objectTangent );
+if ( !( dot( rhTx, rhTx ) >= 1e-12 ) ) objectTangent = cross( objectNormal, abs( normalize( objectNormal ).y ) < 0.9 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ) );
 #endif`)
       .replace('#include <skinning_vertex>', `#include <skinning_vertex>
 vRhP = transformed;
@@ -468,7 +689,7 @@ float surfK = 1.0 - smoothstep( 0.05, 0.4, rhEmis );
 float uScorch = vRhState.x;
 diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vRhTeam.rgb, rhMask.r );
 diffuseColor.rgb *= mix( 0.3, 1.0, surfK );
-vec3 rhNn = normalize( vRhN );
+vec3 rhNn = vRhN * inversesqrt( max( dot( vRhN, vRhN ), 1e-12 ) );
 vec3 rhAn = abs( rhNn );
 vec2 rhBp = rhAn.x > rhAn.y && rhAn.x > rhAn.z ? vRhP.zy : ( rhAn.y > rhAn.z ? vRhP.xz : vRhP.xy );
 vec2 rhUv = rhBp * 6.0;
@@ -559,7 +780,7 @@ const INF_ON = typeof location === 'undefined' || new URLSearchParams(location.s
 
 /** Lazy loading: 'ready' (createModel gives HD now), 'pending' (loading; hd.ts readyVersion bumps when done), 'none'. */
 export function requestInfantryHd(type: string, fac: ModelFaction): 'ready' | 'pending' | 'none' {
-  if (!hdModelsEnabled() || !isHdInfantryType(type)) return 'none';
+  if (!hdModelsEnabled() || !isHdInfantryType(type) || vatMode === 'off') return 'none';
   if (!manifestP) {
     void loadManifest().then((ok) => { if (ok) { const en = entryFor(type, fac); if (en) void materialise(en); } });
     return 'pending';
@@ -575,7 +796,7 @@ export function requestInfantryHd(type: string, fac: ModelFaction): 'ready' | 'p
 
 /** Loading screen: the factions' common soldiers + the given (type, faction) pairs. Never rejects. */
 export async function preloadInfantryHd(factions: ModelFaction[], types: Iterable<[string, ModelFaction]> = []): Promise<void> {
-  if (!hdModelsEnabled() || !INF_ON || !(await loadManifest())) return;
+  if (!hdModelsEnabled() || !INF_ON || vatMode === 'off' || !(await loadManifest())) return;
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('hdlazy') === '1') return;
   const want = new Set<Entry>();
   for (const f of factions) for (const u of COMMON[f] ?? []) { const en = entryFor(u, f); if (en) want.add(en); }
@@ -599,6 +820,14 @@ export function infantryHdStatus(): { loaded: string[]; pending: string[]; faile
 
 // ---------------------------------------------------------------------------------------------------------
 // hd.ts lifecycle hooks
+
+/** Point a soldier material at a set of maps (its atlases, or the neutral stand-ins during a restore). */
+function bindMaps(m: THREE.MeshStandardMaterial, mp: Template['maps']): void {
+  m.map = mp.map;
+  m.roughnessMap = m.metalnessMap = m.aoMap = mp.orm;
+  m.normalMap = mp.normal;
+  (m.userData.infUniforms as { uMask: { value: THREE.Texture } }).uMask.value = mp.mask;
+}
 
 function dropTemplate(en: Entry): void {
   const t = en.tpl;
@@ -641,9 +870,13 @@ registerHdExtension({
     return n;
   },
   async restore() {
-    // a new GL context: re-decode the closed atlases from the GLB bytes (procedural stand-ins meanwhile: new
-    // instances render procedural until then; existing ones keep drawing once the textures are back)
+    // a new GL context: re-decode the closed atlases from the GLB bytes. Meanwhile new instances render
+    // procedural, and existing ones draw with hd.ts's neutral stand-ins (a closed atlas binds nothing: black
+    // soldiers and a warning every frame); the VATs keep their data and upload again by themselves.
+    for (const r of rigReady.values()) { r.tex.needsUpdate = true; r.dyn.tex.needsUpdate = true; }
     const list = [...entries.values()].filter((en) => en.tpl?.released && en.buf);
+    const stand = standInMaps();
+    for (const en of list) bindMaps(en.tpl!.mat, stand);
     restoring += list.length;
     await Promise.all(list.map(async (en) => {
       try {
@@ -659,6 +892,7 @@ registerHdExtension({
           tex.needsUpdate = true;
         }
         t.released = false;
+        bindMaps(t.mat, t.maps);
         releaseQueue.push(t);
       } catch {
         en.failed = true;
@@ -666,7 +900,6 @@ registerHdExtension({
         restoring--;
       }
     }));
-    for (const r of rigReady.values()) { r.tex.needsUpdate = true; r.dyn.tex.needsUpdate = true; }
   },
   releaseAll() {
     for (const en of entries.values()) if (en.tpl && en.refs === 0) dropTemplate(en);
@@ -1253,16 +1486,25 @@ function rigFrames(rig: Rig): RigFrames {
 }
 
 /**
+ * May a soldier be created on a loaded template now (pure; tests/infantry-hd-ready.test.ts)? Not on a GPU that
+ * can't skin from the VAT; not while a context restore re-decodes the atlases (they can't be bound yet); not
+ * in the thumbnails' own GL context once the atlases were uploaded and closed. (A loaded template has a valid
+ * clip set, positions, normals and all four atlases: buildTemplate throws otherwise, and the type stays procedural.)
+ */
+export function infantryDrawable(s: { mode: VatMode; restoring: number; offscreen: boolean; released: boolean }): boolean {
+  return s.mode !== 'off' && s.restoring <= 0 && !(s.offscreen && s.released);
+}
+
+/**
  * Wrap a freshly created procedural infantry instance (index.ts createModel) into its HD crowd instance, or return
  * null (HD off, not loaded, failed, or thumbnails while the atlases are already closed).
  */
 export function createInfantryHd(proc: ModelInstance, type: string, fac: ModelFaction, teamHex: number): ModelInstance | null {
-  if (!hdModelsEnabled() || !isHdInfantryType(type) || restoring > 0) return null;
+  if (!hdModelsEnabled() || !isHdInfantryType(type)) return null;
   const en = entryFor(type, fac);
   const t = en?.tpl;
-  if (!en || !t) return null;
   const offscreen = hdIsOffscreen();
-  if (offscreen && t.released) return null;
+  if (!en || !t || !infantryDrawable({ mode: vatMode, restoring, offscreen, released: t.released })) return null;
   try {
     const m = new HdInfantry(t, en, proc, teamHex, offscreen || !activeCrowd);
     en.refs++;

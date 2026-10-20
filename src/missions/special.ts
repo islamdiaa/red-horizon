@@ -7,7 +7,7 @@ import { BUILDINGS, UNITS, type Faction } from '../data/rules';
 import type { MissionDef, MissionRuntime } from '../sim/mission';
 import type { Unit } from '../sim/entities';
 import type { Player } from '../sim/player'; // co-op survival
-import type { AIDifficulty } from '../sim/ai';
+import { AI_DIFFICULTIES, type AIDifficulty } from '../sim/ai';
 import { DAILY_MODIFIERS, MODIFIER_BY_ID, dailyConfig, dailyVictoryScore, dayKey, type DailyConfig } from '../meta/daily';
 
 // =============================================================================
@@ -534,7 +534,7 @@ export const SURVIVALS: MissionDef[] = SURVIVAL_VARIANTS.map((v) => makeSurvival
 export type CoopAlly = { faction?: Faction; difficulty: AIDifficulty };
 const ALLY_NAMES = ['Gen. Hartmann', 'Col. Dubois'];
 const ALLY_COLORS = [0x3fa34d, 0x2aa8a8];
-const COOP_DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+const COOP_DIFFS: readonly AIDifficulty[] = AI_DIFFICULTIES; // (validation: the co-op picker offers Normal to Brutal allies)
 
 /** Mission id of a co-op survival run (records and retries key on it). */
 export function coopMissionId(variantId: string, allies: CoopAlly[]): string {

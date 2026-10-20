@@ -7,6 +7,7 @@ import type { Profile } from '../meta';
 import { coopMissionId, type SurvivalVariant } from '../missions/special';
 import { ensureModesCss } from './modes-css';
 import { esc } from './dom';
+import { isDifficulty } from '../modes/difficulty';
 import tLobby from '../i18n/en/lobby';
 import tCommon from '../i18n/en/common';
 
@@ -19,7 +20,7 @@ export interface CoopRecord { bestScore: number; bestWave: number; runs: number 
 export function loadCoop(): CoopPref {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return { allies: v.allies === 1 || v.allies === 2 ? v.allies : 0, difficulty: ['easy', 'normal', 'hard', 'brutal'].includes(v.difficulty) ? v.difficulty : 'hard' };
+    return { allies: v.allies === 1 || v.allies === 2 ? v.allies : 0, difficulty: isDifficulty(v.difficulty) ? v.difficulty : 'hard' };
   } catch {
     return { allies: 0, difficulty: 'hard' };
   }

@@ -4,8 +4,8 @@
 
 | Mode | |
 |---|---|
-| **Skirmish** | Up to 3 AI opponents on four difficulties, on generated or hand-made maps (temperate, winter or desert; land or sea). Options: King of the Hill, and a build-up ceasefire of 5–30 minutes or unlimited, during which the AI builds up and only defends. |
-| **Quick Battle** | One click from the main menu into a tuned random match. |
+| **Skirmish** | Up to 3 AI opponents on five difficulties (*Recruit*, for your first battles, then Easy, Normal, Hard and Brutal), on generated or hand-made maps (temperate, winter or desert; land or sea). Options: King of the Hill, and a build-up ceasefire of 5–30 minutes or unlimited, during which the AI builds up and only defends. |
+| **Quick Battle** | One click from the main menu into a tuned random match at your level (see [Quick Battle](#quick-battle)). |
 | **Campaigns** | 7 Allied and 7 Soviet missions with briefings, primary and optional objectives, radio transmissions and up to three stars each. |
 | **Boot Camp** | An interactive tutorial in nine drills. |
 | **Special operations** | *Wolfpack*, *Iron Coast*, and Survival in three climates, alone or with AI teammates. |
@@ -40,7 +40,21 @@
 - **Neutral tech structures.** Oil derricks, field hospitals, radar outposts and communication
   arrays, captured with engineers.
 - **Mutators.** 24 of them, such as *Golden Ore*, *Tank Rush*, *Lightning War* and *Night Ops*,
-  or let *Surprise me* pick. An optional dynamic difficulty keeps matches close.
+  or let *Surprise me* pick.
+- **Dynamic difficulty** keeps matches close. It is on by default when every AI is Recruit or Easy:
+  there it only eases off when you are struggling and never pushes harder. From Normal up it works
+  both ways. Once you flip the switch, your choice is kept.
+
+## Quick Battle
+
+- **Your level.** You start on Recruit. You move up one level once you have at least 3 wins at your
+  current level and win at least 60% of your games there. If you have already done that on a higher
+  level in regular skirmishes (say Hard), you go straight to the level above it.
+- **Recruit and Easy** roll exactly one mutator, always a newcomer-safe one: a weather or night
+  mutator, *Supply Drops*, *Veteran Corps*, *Heavy Metal* or *Big Guns*. Dynamic difficulty is on.
+  From Normal up, Quick Battle rolls one or two mutators from its wider pool.
+- **Rivals** never play above your level in Quick Battle, and at most one level above it in
+  skirmish, so a Recruit-level commander meets at most an Easy rival.
 
 ## Progression
 
@@ -53,7 +67,14 @@
   gameplay.
 - **Results screen.** After every match it shows XP and contract progress, battle charts (army
   value, income, kills), your MVP unit, the highlights, the next unlock, and *Play again*
-  (Enter) or *Rematch*.
+  (Enter) or *Rematch*. After a skirmish defeat or a close win, an *Economy* block compares your
+  harvest and peak army with the strongest enemy's, with one suggestion (for example, build a
+  second Ore Refinery, or put up defences before the first attack).
+- **Field manual hints** (*Settings › Gameplay*) coach you during a skirmish. They tell you when an
+  enemy earns far more than you, when you still have one Ore Refinery at 6:00, when your factories
+  stand idle with money in the bank, when your power has been low for a while, and when the first
+  enemy attack is coming and you have no defences. Each shows at most once a match, and never more
+  than one a minute.
 
 ## Armies and mechanics
 

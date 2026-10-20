@@ -32,6 +32,8 @@ export interface PlayerSample {
   /** Cumulative kills (units + structures) and losses. */
   kills: number;
   losses: number;
+  /** Defensive structures standing (armed, not walls): the results screen's economy tip. */
+  defences?: number;
 }
 
 export interface ReportSample {
@@ -153,12 +155,14 @@ export class BattleReport {
       if (i >= 0 && i < army.length) army[i] += u.ut.cost;
       if (u.owner === me && u.kills > 0) this.considerMvp(u);
     }
+    const defences = new Array<number>(w.players.length).fill(0);
+    for (const b of w.buildings) if (b.alive && !b.bt.wall && b.bt.primary && b.owner.id >= 0 && b.owner.id < defences.length) defences[b.owner.id]++;
     const base = this.samples[Math.max(0, this.samples.length - 6)];
     const dt = base ? Math.max(1, w.time - base.t) : 0;
     const players: PlayerSample[] = w.players.map((p, i) => {
       const h = p.stats.harvested;
       const income = base && dt ? Math.max(0, ((h - (base.players[i]?.harvested ?? 0)) / dt) * 60) : 0;
-      return { army: army[i], income: Math.round(income), harvested: Math.round(h), kills: p.stats.unitsKilled + p.stats.buildingsKilled, losses: p.stats.unitsLost + p.stats.buildingsLost };
+      return { army: army[i], income: Math.round(income), harvested: Math.round(h), kills: p.stats.unitsKilled + p.stats.buildingsKilled, losses: p.stats.unitsLost + p.stats.buildingsLost, defences: defences[i] };
     });
     this.samples.push({ t: w.time, players });
     try { this.onSample?.({ world: w, local: me.id, army: army[me.id] ?? 0 }); } catch (e) { console.warn('report sample', e); }

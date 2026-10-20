@@ -4,13 +4,15 @@
  *
  * Rolled: a good map (a curated two-player map or a generated battlefield with balanced parameters), climate, time
  * of day, the opponent (a rival, chosen by the menu, or an AI personality) at the commander's skill level,
- * Commander rules with battlefield events, and one or two Quick-Battle-friendly mutators.
+ * Commander rules with battlefield events, and one or two Quick-Battle-friendly mutators (exactly one, from the
+ * newcomer-safe pool, on Recruit and Easy, where dynamic difficulty is on too).
  */
 import { Rng } from '../core/rng';
 import type { Faction } from '../data/rules';
 import type { GameSetup, OpponentSetup } from '../game';
 import { CURATED_MAPS } from '../maps';
 import type { AIDifficulty } from '../sim/ai';
+import { AI_DIFFICULTIES, capDifficulty, isNewcomerLevel } from './difficulty';
 import { PERSONALITIES } from '../sim/ai-personality';
 import { MUTATOR_BY_ID, mutateSetup, normaliseMutators, surpriseMutators } from './mutators';
 import { MODES_EN, fillEn } from './text';
@@ -40,25 +42,30 @@ export interface QuickStats {
   winsByDifficulty?: Partial<Record<AIDifficulty, number>>;
 }
 
-const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+/** Wins (and win rate) at a level that count as having mastered it. */
+const PROMOTE_WINS = 3;
+const PROMOTE_RATE = 0.6;
 
 /**
- * The AI level that keeps a commander's matches close: a newcomer starts on easy, then the highest level they beat
- * at least half the time, one higher once they win there comfortably (three wins, 60%). Somebody who hasn't yet
- * beaten any level half the time stays on easy (a single lucky win doesn't promote them: Quick Battle is where new
- * players learn).
+ * The AI level that keeps a commander's matches close. A newcomer starts on Recruit and moves up one level at a
+ * time: the level above the highest one they have mastered (at least three wins there, at least 60% of their games
+ * at that level). Somebody who has mastered nothing yet stays on Recruit, however many games they have played (a
+ * lucky win or two doesn't promote them: Quick Battle is where new players learn). A commander who masters Hard in
+ * regular skirmishes goes straight to Brutal. Records from before Recruit existed (no recruit entries) work the same.
  */
 export function quickSkill(st: QuickStats | null | undefined): AIDifficulty {
-  if (!st || !(st.skirmishes ?? 0)) return 'easy';
+  if (!st || !(st.skirmishes ?? 0)) return 'recruit';
   let best = -1;
-  for (let i = 0; i < DIFFS.length; i++) {
-    const g = st.gamesByDifficulty?.[DIFFS[i]] ?? 0, w = st.winsByDifficulty?.[DIFFS[i]] ?? 0;
-    if (w >= 1 && w / Math.max(1, g) >= 0.5) best = i;
+  for (let i = 0; i < AI_DIFFICULTIES.length; i++) {
+    const g = st.gamesByDifficulty?.[AI_DIFFICULTIES[i]] ?? 0, w = st.winsByDifficulty?.[AI_DIFFICULTIES[i]] ?? 0;
+    if (w >= PROMOTE_WINS && w / Math.max(1, g, w) >= PROMOTE_RATE) best = i;
   }
-  if (best < 0) return 'easy';
-  const g = st.gamesByDifficulty?.[DIFFS[best]] ?? 0, w = st.winsByDifficulty?.[DIFFS[best]] ?? 0;
-  if (w >= 3 && w / Math.max(1, g) >= 0.6) best = Math.min(DIFFS.length - 1, best + 1);
-  return DIFFS[best];
+  return AI_DIFFICULTIES[Math.min(AI_DIFFICULTIES.length - 1, best + 1)];
+}
+
+/** A rival in Quick Battle never plays above the commander's skill level. */
+export function quickRivalLevel(rival: AIDifficulty, skill: AIDifficulty): AIDifficulty {
+  return capDifficulty(rival, skill);
 }
 
 export interface QuickOptions {
@@ -84,9 +91,11 @@ export function rollQuickBattle(seed: number, o: QuickOptions): GameSetup {
   const foe: Faction = rng.chance(0.75) ? (o.faction === 'allies' ? 'soviet' : 'allies') : o.faction;
   const pids = Object.keys(PERSONALITIES);
   const personality = pids[rng.int(0, pids.length - 1)];
-  const count = rng.chance(0.55) ? 1 : 2;
-  const mutators = surpriseMutators(rng.int(1, 1e9), { climate, faction: o.faction }, { count, quick: true });
-  const opponent: OpponentSetup = o.rival?.opponent ?? { faction: foe, difficulty: o.skill, personality };
+  // (Recruit and Easy: exactly one mutator, from the pool that never favours the AI over a newcomer)
+  const newcomer = isNewcomerLevel(o.skill);
+  const count = rng.chance(0.55) || newcomer ? 1 : 2;
+  const mutators = surpriseMutators(rng.int(1, 1e9), { climate, faction: o.faction }, { count, quick: true, newcomer });
+  const opponent: OpponentSetup = o.rival ? { ...o.rival.opponent, difficulty: quickRivalLevel(o.rival.opponent.difficulty, o.skill) } : { faction: foe, difficulty: o.skill, personality };
   const size = def ? def.size : rng.pick([80, 96, 96, 112]);
   const info: QuickInfo = {
     // (stored with the setup: English, translated by quickLines)
@@ -100,6 +109,7 @@ export function rollQuickBattle(seed: number, o: QuickOptions): GameSetup {
     credits: 10000, startUnits: rng.chance(0.6) ? 'light' : 'mcv', fog: true, timeOfDay: time, quality: o.quality,
     seed: mapSeed, weather: 'auto', climate, dayCycle: true, mapId: def?.id,
     rules: 'commander', events: true, mutators, quick: info,
+    dynamicDifficulty: newcomer, // (assist-only on these levels: it eases off for a struggling player, never pushes harder)
     doctrines: o.doctrine ? [o.doctrine] : undefined, // the player's doctrine (AIs choose their own)
   });
   info.time = setup.timeOfDay; // (Night Ops)

@@ -420,6 +420,8 @@ interface AIView {
   state?: string;
   stage?: string;
   wave?: Set<number>;
+  /** Difficulty (ai.ts): the easier levels field no siege specials. */
+  d?: { siege?: boolean };
   baseCenter(): [number, number];
   /** Build-up time: the army is as big as it gets until the ceasefire ends (ai.ts). */
   atBuildupCap?(): boolean;
@@ -466,6 +468,8 @@ function production(v: AIView, units: Unit[]) {
     let opts = entries.filter((e) => p.canBuild(e.id) && have(e.id) < e.max && aiWants(v, e.id));
     if (!opts.length) continue;
     // siege units (M.A.D. tank / demolition truck): one at a time, on top of the army share
+    if (v.d?.siege === false) opts = opts.filter((e) => !(e.managed && e.roles.includes('siege')));
+    if (!opts.length) continue;
     const siege = opts.filter((e) => e.managed && e.roles.includes('siege') && queue !== 'naval');
     if (siege.length && !entries.some((e) => e.managed && e.roles.includes('siege') && have(e.id) > 0)) opts = siege;
     else if (queue !== 'naval') {

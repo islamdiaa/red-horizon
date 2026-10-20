@@ -7,7 +7,7 @@
  * played by the AI (at the chosen difficulty) from then on; AI players stay AI.
  */
 import type { GameSetup } from '../game';
-import type { AIDifficulty } from '../sim/ai';
+import { AI_DIFFICULTIES, type AIDifficulty } from '../sim/ai';
 import { serializeWorld } from '../sim/save';
 import type { World } from '../sim/world';
 import type { BranchInfo, StartView } from '../modes/types';
@@ -15,7 +15,7 @@ import type { ReplayData, ReplaySetup } from './format';
 import { worldHash } from './hash';
 import { SIM_VERSION } from '../sim/version';
 
-const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+const DIFFS = AI_DIFFICULTIES;
 
 /** A deep, JSON-only copy of the world (a save game's world part). */
 export function snapshotWorld(world: World): unknown {

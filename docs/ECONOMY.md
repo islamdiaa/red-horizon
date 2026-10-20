@@ -117,4 +117,10 @@ The AI uses the same systems. Its personality and difficulty decide how:
 - **Tycoons** go economy first: Processors, a Purifier or Smelter, Mining Outposts and Improved Harvesters.
 - **Turtles** reinforce their defences and man their bunkers.
 - **Tech-minded** commanders climb the tiers early and research more.
-- **Easier AIs** start later and run fewer projects at once.
+- **Easier AIs** use less of it, whatever their personality ([Balance](BALANCE.md#difficulty-levels-simulation-version-3)):
+  - **Recruit** stays on Tier 1 with one refinery and two trucks, and uses no upgrades, research or commander powers.
+  - **Easy** reaches Tier 2 late (no Tier 3), researches one Level I line, buys only Turbines, uses only Field Repair
+    and builds no Processors, Purifiers, Smelters, outposts or bunkers.
+  - **Normal** caps itself at three refineries, two Processors and one outpost, and builds no Purifier, Smelter or
+    Logistics Centre.
+  - Below Normal, the AI leaves the oil derricks and the battlefield events to you.

@@ -15,7 +15,7 @@ import type { Player } from './player';
 import { pickWeapon } from './combat';
 import { TICK_HZ } from './types';
 import type { World } from './world';
-import type { AIDifficulty } from './ai';
+import { scriptedMission, type AIDifficulty } from './ai';
 import type { AIIntel } from './ai-intel';
 import { trait, type Personality } from './ai-personality';
 import { ceasefireActive, hostileTo, inHomeArea } from './ceasefire';
@@ -34,7 +34,9 @@ const minSea = (m: GameMap) => Math.max(150, m.w * m.h * 0.07);
 /** Water within this many cells of a base counts as its home waters. */
 const HOME_R = 15;
 /** Ships per difficulty. */
-const FLEET_CAP: Record<AIDifficulty, number> = { easy: 2, normal: 4, hard: 6, brutal: 8 };
+const FLEET_CAP: Record<AIDifficulty, number> = { recruit: 0, easy: 1, normal: 4, hard: 6, brutal: 8 };
+/** Scripted missions keep the version-2 fleets. */
+const MISSION_FLEET: Record<AIDifficulty, number> = { recruit: 2, easy: 2, normal: 4, hard: 6, brutal: 8 };
 
 interface SeaInfo {
   /** Body label per cell (-1 = not navigable water). */
@@ -323,7 +325,7 @@ export function aiNavalThink(world: World, p: Player, thinks: number, difficulty
     const q = p.queues.naval;
     const shared = sharedWaters(world, p, info).size > 0;
     const naval = ai?.personality.naval ?? 0.5;
-    let cap = Math.round(FLEET_CAP[difficulty] * trait(naval, 0.3, 2));
+    let cap = Math.round(((scriptedMission(world) ? MISSION_FLEET : FLEET_CAP)[difficulty] ?? 4) * trait(naval, 0.3, 2));
     if (p.faction === 'soviet' && naval < 0.8) cap = Math.min(cap, Math.max(2, enemy.ships.length + 1));
     else if (!shared) cap = Math.min(cap, 2 + enemy.ships.length);
     // one hull at a time, paid as it is built like the land queues (so the land army isn't starved)

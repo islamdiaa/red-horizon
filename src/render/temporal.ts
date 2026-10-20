@@ -76,6 +76,9 @@ export class TemporalPass extends Pass {
         // compress HDR so a few very bright pixels do not dominate the neighbourhood statistics
         vec3 tm(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
         vec3 itm(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-3); }
+        // a NaN / Inf pixel (a broken shader somewhere) must not enter the neighbourhood statistics or the
+        // history, where it would spread a little further every frame (clamp: drivers that skip isnan)
+        vec3 fin(vec3 c) { return any(isnan(c)) || any(isinf(c)) ? vec3(0.0) : clamp(c, 0.0, 65000.0); }
         // 5-tap Catmull-Rom history fetch (sharp, no extra blur from repeated bilinear resampling)
         vec3 historyAt(vec2 uv) {
           vec2 tex = 1.0 / uDstTexel;
@@ -96,18 +99,18 @@ export class TemporalPass extends Pass {
                  + texture2D(tHistory, vec2(tc3.x, tc12.y)).rgb * (w3.x * w12.y)
                  + texture2D(tHistory, vec2(tc12.x, tc3.y)).rgb * (w12.x * w3.y);
           float ws = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
-          return max(r / ws, 0.0);
+          return fin(r / ws);
         }
         void main() {
           vec2 cuv = vUv + uJitterUv;
-          vec3 cur = texture2D(tCurrent, cuv).rgb;
+          vec3 cur = fin(texture2D(tCurrent, cuv).rgb);
           // neighbourhood moments (render-resolution texels) and the closest depth (silhouettes reproject
           // with the foreground)
           vec3 m1 = vec3(0.0), m2 = vec3(0.0);
           float dmin = 1.0;
           for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
             vec2 o = vec2(float(x), float(y)) * uSrcTexel;
-            vec3 s = toYC(tm(texture2D(tCurrent, cuv + o).rgb));
+            vec3 s = toYC(tm(fin(texture2D(tCurrent, cuv + o).rgb)));
             m1 += s; m2 += s * s;
             if (x == 0 || y == 0) dmin = min(dmin, texture2D(tDepth, cuv + o).x);
           }

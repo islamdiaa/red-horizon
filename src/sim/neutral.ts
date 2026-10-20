@@ -208,7 +208,7 @@ export function aiNeutral(w: World, v: VarietyState) {
     if ((w.tick + k * 17) % (5 * TICK_HZ) !== 0) continue;
     const ai = w.ais[k];
     const p = ai.player;
-    if (p.defeated || ai.behaviour !== 'full') continue;
+    if (p.defeated || ai.behaviour !== 'full' || ai.d.neutral === false) continue; // (recruit and easy leave the derricks alone)
     const task = aiTask(v, p);
     const eng = task.engineer ? w.entities.get(task.engineer) : undefined;
     const target = task.target ? w.entities.get(task.target) : undefined;

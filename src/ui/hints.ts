@@ -4,7 +4,9 @@ import { ICONS } from './icons';
 import { esc } from './dom';
 import { fillKeys } from './keymap';
 import { ARIA_TEXT } from './a11y-strings';
+import { CoachWatch, IDLE_SECS, LOW_POWER_SECS, firstWaveIncoming, hasDefences, oreNearRefineries, refineryCount, secondRefineryDue } from './coach';
 import tHints from '../i18n/en/hints';
+import tCommon from '../i18n/en/common';
 
 type HintKey = Parameters<typeof tHints>[0];
 
@@ -25,22 +27,58 @@ const HINTS: Hint[] = [
   { text: 'steps.keys', done: (w) => w.time > 900 },
 ];
 
-/** Situational warnings: shown (above the tutorial steps) while `when` holds, at most once per match. */
+/**
+ * Situational warnings: shown (above the tutorial steps) while `when` holds, at most once per match (alerts that
+ * share a `group` count as one), and never sooner than ALERT_GAP seconds after the previous alert appeared.
+ */
 interface Alert {
-  text: HintKey;
-  when(w: World, p: Player): boolean;
+  text: HintKey | ((p: Player) => HintKey);
+  when(w: World, p: Player, c: CoachWatch): boolean;
+  group?: string;
+  /** Coaching: skirmish-like matches only (not campaign missions). */
+  coach?: boolean;
 }
 
-const hasDefences = (w: World, p: Player) => w.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && !!b.bt.primary);
+/** Seconds between two new alerts. */
+const ALERT_GAP = 60;
 
 const ALERTS: Alert[] = [
+  // coaching: the first enemy wave is coming and there is nothing to stop it (sooner than the general advice below)
+  {
+    text: (p) => (p.faction === 'soviet' ? 'alerts.attackSoviet' : 'alerts.attackAllies'),
+    group: 'defence',
+    coach: true,
+    when: (w, p) => !hasDefences(w, p) && firstWaveIncoming(w, p),
+  },
   {
     text: 'alerts.storage',
     when: (_w, p) => p.storage > 0 && p.ore >= p.storage - 1,
   },
   {
     text: 'alerts.defences',
+    group: 'defence',
     when: (w, p) => w.time > 210 && w.time < 600 && !hasDefences(w, p) && w.buildings.some((b) => b.alive && b.owner === p && b.bt.id === 'proc'),
+  },
+  // coaching: low power, idle factories, the economy
+  {
+    text: 'alerts.power',
+    coach: true,
+    when: (w, _p, c) => c.lowPowerFor(w) >= LOW_POWER_SECS,
+  },
+  {
+    text: 'alerts.idle',
+    coach: true,
+    when: (w, _p, c) => c.idleFor(w) >= IDLE_SECS,
+  },
+  {
+    text: 'alerts.refinery',
+    coach: true,
+    when: (w, p) => { const n = refineryCount(w, p); return secondRefineryDue(w.time, n, n === 1 ? oreNearRefineries(w, p) : 0); },
+  },
+  {
+    text: 'alerts.income',
+    coach: true,
+    when: (w, p, c) => c.enemyOutEarning(w, p),
   },
   // Commander economy (sim/economy.ts)
   {
@@ -61,6 +99,10 @@ export class Hints {
   /** Alerts already shown (index -> still showing). */
   private alertShown = new Map<number, boolean>();
   private alertIdx = -1;
+  /** Groups already shown, and when the last alert appeared (world seconds). */
+  private groupsShown = new Set<string>();
+  private lastAlert = -1e9;
+  private coach = new CoachWatch();
   enabled = true;
 
   constructor(parent: HTMLElement, private world: World, private local: Player) {
@@ -76,18 +118,25 @@ export class Hints {
 
   update() {
     if (!this.enabled) { this.show(-1); return; }
+    const w = this.world, p = this.local;
+    const coach = !w.mission && !p.defeated && !w.gameOver;
+    if (coach) this.coach.update(w, p);
     // a live situational alert takes priority over the tutorial
     if (this.alertIdx >= 0) {
-      if (this.alertShown.get(this.alertIdx) && ALERTS[this.alertIdx].when(this.world, this.local)) return;
+      if (this.alertShown.get(this.alertIdx) && ALERTS[this.alertIdx].when(w, p, this.coach)) return;
       this.alertShown.set(this.alertIdx, false);
       this.alertIdx = -1;
       this.idx = -2; // force the tutorial step to redraw
     }
-    for (let i = 0; i < ALERTS.length; i++) {
-      if (this.alertShown.has(i) || !ALERTS[i].when(this.world, this.local)) continue;
+    for (let i = 0; i < ALERTS.length && w.time - this.lastAlert >= ALERT_GAP; i++) {
+      const a = ALERTS[i];
+      if (this.alertShown.has(i) || (a.group && this.groupsShown.has(a.group)) || (a.coach && !coach) || !a.when(w, p, this.coach)) continue;
       this.alertShown.set(i, true);
+      if (a.group) this.groupsShown.add(a.group);
+      this.lastAlert = w.time;
       this.alertIdx = i;
-      this.render(`<span class="hint-k">${tHints.html('report')}</span><span class="hint-t">${tHints.html(ALERTS[i].text)}</span>`);
+      const key = typeof a.text === 'function' ? a.text(p) : a.text;
+      this.render(`<span class="hint-k">${tHints.html('report')}</span><span class="hint-t">${tHints.html(key, { shift: tCommon('keys.shift'), alt: tCommon('keys.alt') })}</span>`);
       return;
     }
     let next = -1;

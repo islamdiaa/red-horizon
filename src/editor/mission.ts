@@ -137,7 +137,7 @@ export interface CustomMissionSetup extends MissionSpec {
   id: string;
 }
 
-export const AI_MODES: AIMode[] = ['easy', 'normal', 'hard', 'brutal', 'defensive', 'passive'];
+export const AI_MODES: AIMode[] = ['recruit', 'easy', 'normal', 'hard', 'brutal', 'defensive', 'passive'];
 export const OBJECTIVE_KINDS: { kind: ObjectiveKind; label: string }[] = [
   { kind: 'destroyAll', label: 'Destroy all enemies' },
   { kind: 'destroy', label: 'Destroy a target' },

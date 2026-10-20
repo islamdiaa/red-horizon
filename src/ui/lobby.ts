@@ -12,6 +12,7 @@ import { ARIA_TEXT } from './a11y-strings';
 import type { GameSetup } from '../game';
 import type { Quality } from '../render/renderer';
 import { esc, el, hexColor } from './dom';
+import { AI_DIFFICULTIES, isDifficulty } from '../modes/difficulty';
 import { ICONS } from './icons';
 import { picto } from '../meta/art';
 import { NetClient } from '../net/client';
@@ -168,7 +169,7 @@ export function inviteFromHash(): string | null {
 }
 
 const factionLabel = (f: FactionPick) => (f === 'random' ? tCommon('random') : tCommon(`faction.${f}`));
-const aiLabel = (d: string | undefined) => tCommon(`difficulty.${d === 'easy' || d === 'hard' || d === 'brutal' ? d : 'normal'}`);
+const aiLabel = (d: string | undefined) => tCommon(`difficulty.${isDifficulty(d) ? d : 'normal'}`);
 const TERRAIN = [[0.15, 'low'], [0.4, 'normal'], [0.65, 'high']] as const;
 /** A multiplayer mode's name / description (net/settings.ts MODES, game data). */
 const modeName = (m: { id: string; name: string }) => dt('netmode', m.id, 'name', m.name);
@@ -436,7 +437,7 @@ class LobbyView {
     }
     if (!inMode) return `<div class="lob-slot closed" style="--c:#333"><i class="sw"></i><span class="tm"></span><div class="nm"><b>—</b><small>${tLobby.html('slot.unused')}</small></div></div>`;
     const kindSel = isHost && room.phase === 'lobby'
-      ? `<select data-slot="${i}">${[['open', tLobby('slot.open')], ['closed', tLobby('slot.closed')], ...(mode === '1v1' ? [] : (['easy', 'normal', 'hard', 'brutal'] as const).map((d) => [`ai:${d}`, tLobby('slot.ai', { level: aiLabel(d) })]))].map(([v, l]) => `<option value="${v}"${(sl.kind === 'ai' ? `ai:${sl.ai}` : sl.kind) === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`
+      ? `<select data-slot="${i}">${[['open', tLobby('slot.open')], ['closed', tLobby('slot.closed')], ...(mode === '1v1' ? [] : AI_DIFFICULTIES.map((d) => [`ai:${d}`, tLobby('slot.ai', { level: aiLabel(d) })]))].map(([v, l]) => `<option value="${v}"${(sl.kind === 'ai' ? `ai:${sl.ai}` : sl.kind) === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`
       : '';
     if (sl.kind === 'ai') {
       return `<div class="lob-slot" style="--c:${color}"><i class="sw"></i><span class="tm">${team}</span><div class="nm"><b>${tLobby.html('slot.aiCommander')}</b><small>${esc(aiLabel(sl.ai))}</small></div>

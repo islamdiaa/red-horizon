@@ -28,7 +28,7 @@ export default strings('variety', {
     events: 'Battlefield events',
     eventsTip: 'Every few minutes something happens: supply convoys, airdrops, downed pilots, storms, mercenaries, ore surges. Commander rules only.',
     dynamic: 'Dynamic difficulty',
-    dynamicTip: 'The AI economy and aggression flex within a band to keep the match close (shown in the HUD).',
+    dynamicTip: 'The AI economy and aggression flex within a band to keep the match close (shown in the HUD). Against Recruit and Easy it only eases off when you are struggling and never pushes harder; from Normal up it works both ways. On by default when every opponent is Recruit or Easy.',
   },
   mutators: {
     title: 'Mutators',

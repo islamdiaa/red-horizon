@@ -40,6 +40,7 @@ ship with the game.
 | `doctrine.ts` | Commander-rules balance: doctrines and commander powers | `node --import tsx tools/selfplay/doctrine.ts [--seeds 6] [--only mirror,cross,powers,comeback]` |
 | `economy.ts` | Commander economy sanity: what each personality builds, researches and upgrades, the economy on vs off, greed vs aggression | `node --import tsx tools/selfplay/economy.ts [--games 12] [--minutes 40] [--only usage,ablation,greed,pace]` |
 | `difficulty.ts` | Difficulty curve: each AI level against a passive player (first wave, contact, first loss, wipe-out) with and without build-up time, against a new-player stand-in, and economy vs rush under the mutators | `node --import tsx tools/selfplay/difficulty.ts [--games 8] [--size 96] [--only passive,ceasefire,novice,mutators] [--rules classic,commander]` |
+| `standins.ts` | Each AI level against human stand-ins (a scripted novice and casual player, and an experienced one: the frozen version-2 Normal AI with a human's economy), per ruleset and map size, with 95% intervals | `node --import tsx tools/selfplay/standins.ts [--games 12] [--diff recruit,easy,normal,hard,brutal] [--vs novice,casual,experienced] [--rules classic,commander] [--size 64,96] [--personality all] [--dynamic 1]` |
 | `optimize.ts` | Hill-climbing of the AI's tuning parameters | `node --import tsx tools/selfplay/optimize.ts [--iters 20] [--games 96] [--vs best\|legacy]` |
 | `inspect.ts` | Watches one match in the terminal (economy, army, AI decisions) | `node --import tsx tools/selfplay/inspect.ts [seed] [map] [p0] [p1] [minutes]` |
 | `campaign-compare.ts` | Campaign autopilots against the current AI and the legacy AI | `node --import tsx tools/selfplay/campaign-compare.ts [jitters=4] [missions] [minutes=40]` |
@@ -47,7 +48,9 @@ ship with the game.
 The other files are support code:
 - `lib.ts` is the harness core;
 - `pool.ts`, `worker.ts` and `worker-boot.mjs` are the worker pool;
-- `legacy/` is a frozen copy of an earlier AI, used as a fixed benchmark opponent.
+- `legacy/` is a frozen copy of an earlier AI, used as a fixed benchmark opponent;
+- `frozen/` is a frozen copy of the version-2 skirmish AI (the experienced stand-in), and `standin.ts` holds the scripted
+  novice and casual players. Both are yardsticks: don't tune them to the AI.
 
 ## QA suites (`tools/qa`)
 

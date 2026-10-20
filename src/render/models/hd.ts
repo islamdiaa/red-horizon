@@ -499,8 +499,8 @@ function bindMaps(m: THREE.MeshStandardMaterial, mp: HdTemplate['maps']): void {
 }
 
 let standIns: HdTemplate['maps'] | null = null;
-/** Neutral 1x1 maps (grey paint, matte, flat normal, no team / emission) shown while atlases re-decode. */
-function standInMaps(): HdTemplate['maps'] {
+/** Neutral 1x1 maps (grey paint, matte, flat normal, no team / emission) shown while atlases re-decode (also infantry-hd.ts). */
+export function standInMaps(): HdTemplate['maps'] {
   if (!standIns) {
     const px = (r: number, g: number, b: number, srgb = false) => {
       const t = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1);

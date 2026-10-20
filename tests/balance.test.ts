@@ -102,10 +102,10 @@ describe('bunker firing slits', () => {
 });
 
 describe('difficulty curve', () => {
-  test('Quick Battle keeps a struggling newcomer on easy until they beat it', () => {
-    assert.equal(quickSkill({ skirmishes: 10, gamesByDifficulty: { easy: 10 }, winsByDifficulty: { easy: 1 } }), 'easy', 'one lucky win in ten: still easy');
-    assert.equal(quickSkill({ skirmishes: 2, gamesByDifficulty: { easy: 2 }, winsByDifficulty: { easy: 1 } }), 'easy', 'half of two games: not yet');
-    assert.equal(quickSkill({ skirmishes: 4, gamesByDifficulty: { easy: 4 }, winsByDifficulty: { easy: 3 } }), 'normal', 'three wins of four: up to normal');
-    assert.equal(quickSkill({ skirmishes: 5, gamesByDifficulty: { normal: 5 }, winsByDifficulty: {} }), 'easy', 'never won: easy');
+  test('Quick Battle keeps a struggling newcomer on recruit until they master a level', () => {
+    assert.equal(quickSkill({ skirmishes: 10, gamesByDifficulty: { easy: 10 }, winsByDifficulty: { easy: 1 } }), 'recruit', 'one lucky win in ten: still recruit');
+    assert.equal(quickSkill({ skirmishes: 2, gamesByDifficulty: { easy: 2 }, winsByDifficulty: { easy: 1 } }), 'recruit', 'half of two games: not yet');
+    assert.equal(quickSkill({ skirmishes: 4, gamesByDifficulty: { easy: 4 }, winsByDifficulty: { easy: 3 } }), 'normal', 'three wins of four on easy: up to normal');
+    assert.equal(quickSkill({ skirmishes: 5, gamesByDifficulty: { normal: 5 }, winsByDifficulty: {} }), 'recruit', 'never won: recruit');
   });
 });

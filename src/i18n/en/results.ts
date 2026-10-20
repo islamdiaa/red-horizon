@@ -77,6 +77,24 @@ export default strings('results', {
     none: 'No kills on record',
     noneSub: 'Next time, take the fight to them',
   },
+  // economy comparison with the strongest enemy, and one suggestion (src/ui/coach.ts economyAdvice)
+  econ: {
+    title: 'Economy',
+    // {you} / {foe}: money harvested over the match; {ratio}: how many times more the enemy harvested ("2.6")
+    harvestBehind: 'You harvested [b]{you}[/b]; the enemy [b]{foe}[/b] ({ratio}×).',
+    harvest: 'You harvested [b]{you}[/b]; the enemy [b]{foe}[/b].',
+    // the highest army value each side fielded at any moment
+    army: 'Peak army: you [b]{you}[/b], the enemy [b]{foe}[/b].',
+    tip: {
+      income: 'The enemy out-earned you. Build a second Ore Refinery early and keep two Ore Trucks working for each refinery.',
+      // {shift}: the key name
+      army: 'Your income kept up but your army did not: keep every factory busy and spend your money ([kbd]{shift}[/kbd]-click a unit to queue five).',
+      defendAllies: 'You fell early. Before the first attack arrives, put a Pillbox or a Turret next to your Ore Refinery.',
+      defendSoviet: 'You fell early. Before the first attack arrives, put a Flame Tower or a Tesla Coil next to your Ore Refinery.',
+      close: 'A close fight. Keep your army together and attack-move into battle instead of sending units in a few at a time.',
+      won: 'Your economy held up and your army got the job done. Well fought, Commander.',
+    },
+  },
   highlights: {
     title: 'Highlights',
     quiet: 'A quiet battle.',

@@ -4,7 +4,7 @@
  * time limit) to save, play or export.
  */
 import type { Game } from '../game';
-import type { AIDifficulty } from '../sim/ai';
+import { AI_DIFFICULTIES, type AIDifficulty } from '../sim/ai';
 import { Building } from '../sim/entities';
 import { DT } from '../sim/types';
 import type { ReplayData } from '../replay/format';
@@ -36,7 +36,7 @@ export interface MomentPanelOptions {
   onClose(): void;
 }
 
-const DIFFS: AIDifficulty[] = ['easy', 'normal', 'hard', 'brutal'];
+const DIFFS = AI_DIFFICULTIES;
 const GOALS: ChallengeGoalKind[] = ['win', 'survive', 'destroy', 'protect', 'hold'];
 
 /** A target structure's label in the active language (modes/author.ts notableTargets writes it in English). */

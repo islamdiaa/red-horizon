@@ -59,6 +59,8 @@ export default strings('menu', {
     oppSoviet: 'Soviet',
     // opponent kind: a rival commander instead of a plain AI difficulty
     rival: 'Rival',
+    // tooltip of the Recruit difficulty (the easiest AI level)
+    recruitTip: 'For your first battles: a slow, small and forgiving opponent.',
     removeOpponent: 'Remove opponent',
     mapFixesPlayers: '{map} is a {n}-player map',
     addOpponent: 'Add opponent',

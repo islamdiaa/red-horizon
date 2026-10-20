@@ -33,6 +33,11 @@ export interface MutatorInfo {
   daily: boolean;
   /** Rolled by Quick Battle (fun, not punishing). */
   quick: boolean;
+  /**
+   * Safe for a newcomer: changes the look or helps both sides alike without favouring the AI's faster build-up and
+   * spending (the only pool Quick Battle draws from on Recruit and Easy).
+   */
+  newcomer?: boolean;
 }
 
 export interface MutatorContext {
@@ -42,15 +47,15 @@ export interface MutatorContext {
 
 /** Skirmish wording / grouping for the daily modifiers (everything else comes from DAILY_MODIFIERS). */
 const DAILY_SKIRMISH: Record<string, Partial<MutatorInfo>> = {
-  'night-ops': { excl: 'weather', quick: true },
-  blizzard: { excl: 'weather', quick: true },
-  sandstorm: { excl: 'weather', quick: true },
-  'storm-front': { excl: 'weather', quick: true },
+  'night-ops': { excl: 'weather', quick: true, newcomer: true },
+  blizzard: { excl: 'weather', quick: true, newcomer: true },
+  sandstorm: { excl: 'weather', quick: true, newcomer: true },
+  'storm-front': { excl: 'weather', quick: true, newcomer: true },
   'double-ore': { excl: 'ore', quick: true },
   'lean-times': { quick: false },
-  'credits-rain': { desc: '+$400 for every commander every 30 seconds, and crates fall from the sky.', quick: true },
+  'credits-rain': { desc: '+$400 for every commander every 30 seconds, and crates fall from the sky.', quick: true, newcomer: true },
   'glass-cannons': { desc: 'Every unit has 60% of its normal health: battles are short and brutal.', quick: true },
-  'veteran-start': { desc: 'Every unit fielded, on every side, arrives as a Veteran.', quick: true },
+  'veteran-start': { desc: 'Every unit fielded, on every side, arrives as a Veteran.', quick: true, newcomer: true },
   'fast-production': { excl: 'speed', quick: true },
   'no-radar': { desc: 'Radar Domes are banned for everyone, and with them all high technology.', quick: false },
   'tesla-only': { excl: 'defence', desc: 'Tesla Coils are the only ground defence anyone may build (anti-air sites still allowed).', quick: false },
@@ -65,11 +70,11 @@ const NEW_MUTATORS: MutatorInfo[] = [
   { id: 'golden-ore', name: 'Golden Ore', desc: 'Ore is worth three times as much. Expect huge armies.', icon: 'coin', group: 'economy', excl: 'ore', daily: false, quick: true },
   { id: 'mega-crates', name: 'Mega Crates', desc: 'Crates drop every 20 seconds: money crates pay double and unit crates bring two.', icon: 'crate', group: 'crates', daily: false, quick: true },
   { id: 'tank-rush', name: 'Tank Rush', desc: 'Light, medium, heavy, Mammoth and Tesla tanks cost 40% less.', icon: 'tank', group: 'army', daily: false, quick: true },
-  { id: 'heavy-metal', name: 'Heavy Metal', desc: 'Mammoth Tanks for both sides, straight from the War Factory.', icon: 'mammoth', group: 'tech', daily: false, quick: true },
+  { id: 'heavy-metal', name: 'Heavy Metal', desc: 'Mammoth Tanks for both sides, straight from the War Factory.', icon: 'mammoth', group: 'tech', daily: false, quick: true, newcomer: true },
   { id: 'fog-plus', name: 'Fog of War+', desc: 'Every unit and structure sees 35% less. Scout or be ambushed.', icon: 'eye', group: 'intel', excl: 'sight', daily: false, quick: true },
   { id: 'lightning-war', name: 'Lightning War', desc: 'Everything builds twice as fast, and superweapons and support powers charge twice as fast.', icon: 'lightning', group: 'tech', excl: 'speed', daily: false, quick: true },
   { id: 'glass-base', name: 'Glass Base', desc: 'Every structure has half its normal health.', icon: 'building', group: 'army', daily: false, quick: true },
-  { id: 'big-guns', name: 'Big Guns', desc: 'Every weapon reaches 30% further.', icon: 'crosshair', group: 'army', daily: false, quick: true },
+  { id: 'big-guns', name: 'Big Guns', desc: 'Every weapon reaches 30% further.', icon: 'crosshair', group: 'army', daily: false, quick: true, newcomer: true },
 ];
 
 export const MUTATORS: MutatorInfo[] = [
@@ -107,12 +112,13 @@ export function mutatorEligible(m: MutatorInfo, ctx: MutatorContext): boolean {
 
 /**
  * "Surprise me": `count` (default 2-3) compatible mutators, at most one per group, eligible for the climate and
- * faction. `quick` restricts the pool to the Quick Battle friendly ones. Deterministic for a seed.
+ * faction. `quick` restricts the pool to the Quick Battle friendly ones, `newcomer` to the newcomer-safe ones.
+ * Deterministic for a seed.
  */
-export function surpriseMutators(seed: number, ctx: MutatorContext, opts: { count?: number; quick?: boolean } = {}): string[] {
+export function surpriseMutators(seed: number, ctx: MutatorContext, opts: { count?: number; quick?: boolean; newcomer?: boolean } = {}): string[] {
   const rng = new Rng((seed ^ 0x2c1b3c6d) >>> 0);
   const count = opts.count ?? (rng.chance(0.5) ? 3 : 2);
-  const pool = rng.shuffle(MUTATORS.filter((m) => mutatorEligible(m, ctx) && (!opts.quick || m.quick)));
+  const pool = rng.shuffle(MUTATORS.filter((m) => mutatorEligible(m, ctx) && (!opts.quick || m.quick) && (!opts.newcomer || !!m.newcomer)));
   const out: string[] = [];
   const groups = new Set<string>();
   const excl = new Set<string>();

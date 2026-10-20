@@ -373,7 +373,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
         <div class="pf-h2">${picto('target')}<span>${tProfile.html('victories.title')}</span><i class="sp"></i></div>
         <div class="pf-bars">
           <div><h5>${tProfile.html('victories.byFaction')}</h5>${barRow(tProfile('victories.allies'), st.winsByFaction.allies, st.gamesByFaction.allies, '#5ab4ff', maxF)}${barRow(tProfile('victories.soviet'), st.winsByFaction.soviet, st.gamesByFaction.soviet, '#ff5a46', maxF)}</div>
-          <div><h5>${tProfile.html('victories.byDifficulty')}</h5>${barRow(tCommon('difficulty.easy'), st.winsByDifficulty.easy, st.gamesByDifficulty.easy, '#4dff9a', maxD)}${barRow(tCommon('difficulty.normal'), st.winsByDifficulty.normal, st.gamesByDifficulty.normal, '#5ab4ff', maxD)}${barRow(tCommon('difficulty.hard'), st.winsByDifficulty.hard, st.gamesByDifficulty.hard, '#ffb43c', maxD)}${barRow(tCommon('difficulty.brutal'), st.winsByDifficulty.brutal, st.gamesByDifficulty.brutal, '#ff4a3a', maxD)}</div>
+          <div><h5>${tProfile.html('victories.byDifficulty')}</h5>${barRow(tCommon('difficulty.recruit'), st.winsByDifficulty.recruit ?? 0, st.gamesByDifficulty.recruit ?? 0, '#7fd3ff', maxD)}${barRow(tCommon('difficulty.easy'), st.winsByDifficulty.easy, st.gamesByDifficulty.easy, '#4dff9a', maxD)}${barRow(tCommon('difficulty.normal'), st.winsByDifficulty.normal, st.gamesByDifficulty.normal, '#5ab4ff', maxD)}${barRow(tCommon('difficulty.hard'), st.winsByDifficulty.hard, st.gamesByDifficulty.hard, '#ffb43c', maxD)}${barRow(tCommon('difficulty.brutal'), st.winsByDifficulty.brutal, st.gamesByDifficulty.brutal, '#ff4a3a', maxD)}</div>
         </div>
 
       </div>

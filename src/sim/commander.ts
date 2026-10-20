@@ -248,7 +248,7 @@ export function initCommander(world: World, doctrines: (string | null | undefine
     const want = doctrines?.[p.id];
     let d = want === 'none' ? null : validDoctrine(want, p.faction);
     const ai = world.ais.find((a) => a.player === p);
-    if (!d && ai && want !== 'none') d = pickAIDoctrine(p.faction, ai.personality, seed, p.id);
+    if (!d && ai && want !== 'none' && ai.d.doctrine !== false) d = pickAIDoctrine(p.faction, ai.personality, seed, p.id); // (no doctrine below normal)
     const c = newPlayerCmd(d);
     attach(p, c);
     return c;

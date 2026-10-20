@@ -23,5 +23,16 @@ export default strings('hints', {
     defences: 'Enemy attack waves usually arrive within a few minutes. Cover your refinery with a [b]Pillbox[/b], [b]Turret[/b] or [b]Flame Tower[/b].',
     tier2: 'Your Construction Yard can climb to [b]Tier 2[/b]: select it and pick the upgrade. It opens the Research Lab, the Tech Centre, the Ore Purifier and more.',
     research: 'Your [b]Research Lab[/b] is idle: select it and open the [b]research tree[/b]. Research upgrades your whole army.',
+    // coaching (skirmish): an enemy's ore income is far above the player's
+    income: '[b]The enemy is earning far more than you.[/b] Build another [b]Ore Refinery[/b] and more [b]Ore Trucks[/b].',
+    // coaching: still one refinery around the 6-minute mark
+    refinery: 'Most commanders have [b]two Ore Refineries[/b] by now: each one with two Ore Trucks roughly doubles your income.',
+    // coaching: factories idle with money in the bank; {shift} and {alt} are key names
+    idle: 'Your factories are idle while you have money in the bank: keep units queued ([kbd]{shift}[/kbd]-click a unit to queue five, [kbd]{alt}[/kbd]-click to keep building it).',
+    // coaching: low power for a while
+    power: '[b]Low power[/b] slows production and shuts down defences. Build a [b]Power Plant[/b].',
+    // coaching: the first enemy wave is coming and the player has no defensive structure (Allied / Soviet wording)
+    attackAllies: '[b]An enemy attack is on its way[/b] and you have no defences: build a [b]Pillbox[/b] or [b]Turret[/b] near your base.',
+    attackSoviet: '[b]An enemy attack is on its way[/b] and you have no defences: build a [b]Flame Tower[/b] or [b]Tesla Coil[/b] near your base.',
   },
 });

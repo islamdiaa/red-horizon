@@ -25,13 +25,13 @@ function tierTimes(ai: AIController): [number, number] {
   const pers = ai.personality, skill = ai.d.skill;
   const t2 = 270 * trait(pers.tech, 1.7, 0.6) * trait(pers.aggression, 0.85, 1.35) * (1.45 - 0.45 * skill) * trait(pers.economy, 1.1, 0.9);
   const t3 = t2 + 330 * trait(pers.tech, 1.6, 0.7) * trait(pers.superweapons, 1.2, 0.85) * (1.4 - 0.4 * skill);
-  return [t2, t3];
+  return [t2 * ai.d.tierPace, t3 * ai.d.tierPace];
 }
 
 /** How many upgrade / research projects it runs at once. */
 function maxTasks(ai: AIController): number {
   const pers = ai.personality, skill = ai.d.skill;
-  return 1 + (skill >= 0.8 ? 1 : 0) + (pers.economy > 0.75 || pers.tech > 0.7 ? 1 : 0);
+  return Math.min(ai.d.projects, 1 + (skill >= 0.8 ? 1 : 0) + (pers.economy > 0.75 || pers.tech > 0.7 ? 1 : 0));
 }
 
 function tasks(ai: AIController): Building[] {
@@ -73,13 +73,13 @@ export function econAI(ai: AIController) {
   // tiers first
   if (yard) {
     const blocked = ai.goalList().some(([t, n]) => ai.count(t) < n && tierOf(t) > e.tier && p.prereqsMet(BUILDINGS[t] ?? UNITS[t]));
-    if (e.tier === 1 && (time >= t2 || (blocked && time >= t2 * 0.7)) && !upgradeIssue(w, p, yard, 'cy_t2')) return start(ai, yard, 'cy_t2');
-    if (e.tier === 2 && time >= t3 && !upgradeIssue(w, p, yard, 'cy_t3') && p.credits > 800) return start(ai, yard, 'cy_t3');
+    if (e.tier === 1 && ai.d.maxTier >= 2 && (time >= t2 || (blocked && time >= t2 * 0.7)) && !upgradeIssue(w, p, yard, 'cy_t2')) return start(ai, yard, 'cy_t2');
+    if (e.tier === 2 && ai.d.maxTier >= 3 && time >= t3 && !upgradeIssue(w, p, yard, 'cy_t3') && p.credits > 800) return start(ai, yard, 'cy_t3');
   }
   if (running.some((b) => b.task!.id === 'cy_t2' || b.task!.id === 'cy_t3')) return;
   // power: a turbine instead of another plant
   if (p.powerOut - p.powerUse < 60) {
-    const plant = ai.myBuildings().find((b) => (b.bt.id === 'powr' || b.bt.id === 'apwr') && !upgradeIssue(w, p, b, 'powr_turbine'));
+    const plant = (!ai.d.upgrades || ai.d.upgrades.includes('powr_turbine')) && ai.myBuildings().find((b) => (b.bt.id === 'powr' || b.bt.id === 'apwr') && !upgradeIssue(w, p, b, 'powr_turbine'));
     if (plant) return start(ai, plant, 'powr_turbine');
   }
   // easier commanders take their time: a research level every 8 minutes, an upgrade every 5
@@ -89,7 +89,7 @@ export function econAI(ai: AIController) {
   for (const b of ai.myBuildings()) installed += (b.upgrades?.length ?? 0) + ((b.hpBoost ?? 1) > 1 ? 1 : 0);
   // research at a free lab
   const lab = ai.myBuildings().find((b) => b.bt.id === 'rlab' && b.active && !b.task);
-  if (lab && p.credits > 600 && (!slow || levels < 1 + Math.floor(time / 480))) {
+  if (lab && p.credits > 600 && levels < ai.d.researchMax && (!slow || levels < 1 + Math.floor(time / 480))) {
     const pick = pickResearch(ai, lab);
     if (pick) { w.issue({ c: 'research', player: p.id, building: lab.id, tech: pick }); return; }
   }
@@ -111,6 +111,8 @@ function pickResearch(ai: AIController, lab: Building): string | null {
   for (const r of researchFor(p.faction)) {
     if (researchIssue(w, p, lab, r.id)) continue;
     const lv = (p.econ!.levels[r.id] ?? 0) + 1;
+    if (lv > ai.d.research) continue; // (easy: Level I only)
+    if (!ai.d.econResearch && (r.id === 'improved_harvesters' || r.id === 'chrono_logistics')) continue;
     let s = score(ai, r, army);
     if (SYNERGY[doctrine] === r.id) s += 3;
     if (lv === 2) s -= 1.5; // breadth first
@@ -169,10 +171,11 @@ function pickUpgrade(ai: AIController): [Building, string] | null {
     for (const id of Object.keys(UPGRADES)) {
       const u = UPGRADES[id];
       if (!u.hosts.includes(b.bt.id) || id === 'cy_t2' || id === 'cy_t3' || id === 'powr_turbine') continue;
+      if (ai.d.upgrades && !ai.d.upgrades.includes(id)) continue; // (easier levels: only a few)
       if (upgradeIssue(w, p, b, id)) continue;
       let s = 0;
       switch (id) {
-        case 'proc_processor': s = 4 + pers.economy * 4 - processors * (1.5 - pers.economy) + (procs >= 2 ? 1 : 0); break;
+        case 'proc_processor': if (processors >= ai.d.processors) continue; s = 4 + pers.economy * 4 - processors * (1.5 - pers.economy) + (procs >= 2 ? 1 : 0); break;
         case 'weap_assembly': s = 4 + pers.aggression * 2 + (1 - pers.infantry) * 1.5; break;
         case 'weap_armor': s = 3 + pers.tech * 2 + (1 - pers.infantry); break;
         case 'barr_training': s = 1 + pers.infantry * 6 - (b.primary ? 0 : 2); break;
@@ -199,20 +202,20 @@ export function econStructure(ai: AIController): string | null {
   // bunkers: defensive commanders put one or two on the approach early
   const bunkers = ai.count('bnkr');
   const wantBunkers = Math.round((pers.defence - 0.35) * 4 + (pers.infantry - 0.5) * 2);
-  if (bunkers < Math.min(3, wantBunkers) && time > 150 && can('bnkr') && ai.myUnits().some((u) => u.kind === 'infantry' && u.weapons.length)) return 'bnkr';
+  if (bunkers < Math.min(wantBunkers, ai.d.bunkers) && time > 150 && can('bnkr') && ai.myUnits().some((u) => u.kind === 'infantry' && u.weapons.length)) return 'bnkr';
   if (e.tier < 2) return null;
   // a research lab once the tier is in (tech-shy commanders a bit later)
-  if (ai.count('rlab') < 1 && time > tierTimes(ai)[0] + 30 * trait(pers.tech, 2.5, 0.5) && can('rlab')) return 'rlab';
+  if (ai.count('rlab') < 1 && ai.d.research > 0 && time > tierTimes(ai)[0] + 30 * trait(pers.tech, 2.5, 0.5) && can('rlab')) return 'rlab';
   // economy commanders: purifier / smelter once two refineries run
   const pur = p.faction === 'allies' ? 'purf' : 'smlt';
-  if (ai.count(pur) < 1 && ai.count('proc') >= 2 && pers.economy + skill * 0.3 >= 0.6 && can(pur) && p.powerOut - p.powerUse > 40) return pur;
+  if (ai.d.econPlus && ai.count(pur) < 1 && ai.count('proc') >= 2 && pers.economy + skill * 0.3 >= 0.6 && can(pur) && p.powerOut - p.powerUse > 40) return pur;
   // logistics centre for big armies
-  if (ai.count('lgst') < 1 && time > 480 * trait(pers.aggression, 1.4, 0.75) && (pers.aggression > 0.4 || pers.infantry > 0.6 || skill >= 0.85) && can('lgst')) return 'lgst';
+  if (ai.d.econPlus && ai.count('lgst') < 1 && time > 480 * trait(pers.aggression, 1.4, 0.75) && (pers.aggression > 0.4 || pers.infantry > 0.6 || skill >= 0.85) && can('lgst')) return 'lgst';
   // a forward mining outpost on a field in view, away from our docks
   const outposts = ai.count('mout');
-  if (outposts < Math.round(pers.economy * 3 + skill) && time > 300 && can('mout') && outpostSpot(ai)) return 'mout';
-  if (ai.count(pur) < 1 && can(pur) && time > 900 && p.powerOut - p.powerUse > 40) return pur;
-  if (ai.count('rlab') < 2 && e.tier >= 3 && pers.tech > 0.6 && skill >= 0.85 && can('rlab')) return 'rlab';
+  if (outposts < Math.min(ai.d.outposts, Math.round(pers.economy * 3 + skill)) && time > 300 && can('mout') && outpostSpot(ai)) return 'mout';
+  if (ai.d.econPlus && ai.count(pur) < 1 && can(pur) && time > 900 && p.powerOut - p.powerUse > 40) return pur;
+  if (ai.d.econPlus && ai.count('rlab') < 2 && e.tier >= 3 && pers.tech > 0.6 && skill >= 0.85 && can('rlab')) return 'rlab';
   return null;
 }
 

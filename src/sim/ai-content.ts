@@ -22,7 +22,7 @@ import { ceasefireActive } from './ceasefire';
 interface AIView {
   world: World;
   p: Player;
-  d: { superweapons: boolean; defenses: number; skill?: number };
+  d: { superweapons: boolean; defenses: number; skill?: number; agents?: boolean };
   thinks: number;
   difficulty: string;
   personality?: Personality;
@@ -48,6 +48,7 @@ export function contentAI(ai: unknown) {
   if (p.defeated) return;
   const due = (sec: number) => v.thinks % Math.max(1, Math.round((sec * TICK_HZ) / 10)) === 0;
   supportPowers(v, due);
+  if (v.d.agents === false) return; // (recruit and easy: no spies, thieves or minefields)
   if (due(3)) agents(v, due);
   if (due(3)) minelayers(v, due);
 }

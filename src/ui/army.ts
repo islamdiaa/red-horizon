@@ -674,6 +674,34 @@ export interface ArmyCore {
  * for its next unit), idle harvesters and refineries without one. `nagging()` drives the tab pulse; toasts are
  * throttled per kind (2 min) and overall (30 s). Game time, so pausing or game speed don't fake idleness.
  */
+/**
+ * Unit factory kinds standing idle right now, each with its factory's name (the primary one): an active factory of
+ * the kind, nothing queued, no production loop (a loop waiting for money is the player saving up) and at least
+ * `minCredits` and the price of the cheapest unit it can build in the bank. Shared by the idle watch below and the
+ * Field Manual's coaching alerts (ui/coach.ts).
+ */
+export function idleFactories(w: World, p: Player, minCredits = IDLE_MIN_CREDITS): Map<UnitKind, string> {
+  const cheapest = new Map<string, number>();
+  for (const id of p.buildOptions()) {
+    const k = unitKind(id);
+    if (!k || UNITS[id].harvester) continue;
+    cheapest.set(k, Math.min(cheapest.get(k) ?? Infinity, priceOf(p, id)));
+  }
+  const facNames = new Map<UnitKind, string>();
+  for (const b of w.buildings) {
+    if (!b.alive || b.owner !== p || !b.active || !b.bt.factory || b.bt.factory === 'building') continue;
+    const k = b.bt.factory as UnitKind;
+    if (!facNames.has(k) || b.primary) facNames.set(k, typeName(b.bt));
+  }
+  const out = new Map<UnitKind, string>();
+  for (const [kind, name] of facNames) {
+    const min = cheapest.get(kind) ?? Infinity;
+    const looping = p.repeat.some((id) => unitKind(id) === kind);
+    if (!looping && !p.queues[kind].items.length && min < Infinity && p.credits >= Math.max(min, minCredits)) out.set(kind, name);
+  }
+  return out;
+}
+
 export class IdleWatch {
   enabled = true;
   private state = new Map<UnitKind, { since: number; nag: boolean; toast: number }>();
@@ -706,33 +734,17 @@ export class IdleWatch {
     const { world: w, local: p } = this.host;
     if (!this.enabled || p.defeated || w.gameOver) { this.clear(); return; }
     const now = w.time;
-    // cheapest unit buildable now per factory kind
-    const cheapest = new Map<string, number>();
-    for (const id of p.buildOptions()) {
-      const k = unitKind(id);
-      if (!k || UNITS[id].harvester) continue;
-      cheapest.set(k, Math.min(cheapest.get(k) ?? Infinity, priceOf(p, id)));
-    }
-    const facNames = new Map<UnitKind, string>();
-    for (const b of w.buildings) {
-      if (!b.alive || b.owner !== p || !b.active || !b.bt.factory || b.bt.factory === 'building') continue;
-      const k = b.bt.factory as UnitKind;
-      if (!facNames.has(k) || b.primary) facNames.set(k, typeName(b.bt));
-    }
+    const idleNow = idleFactories(w, p);
     for (const kind of UNIT_KINDS) {
       let st = this.state.get(kind);
       if (!st) { st = { since: -1, nag: false, toast: -1e9 }; this.state.set(kind, st); }
-      const min = cheapest.get(kind) ?? Infinity;
-      // (a loop waiting for the money for its next unit is not idle: the player chose to save up)
-      const looping = p.repeat.some((id) => unitKind(id) === kind);
-      const idle = facNames.has(kind) && !looping && !p.queues[kind].items.length && min < Infinity && p.credits >= Math.max(min, IDLE_MIN_CREDITS);
-      if (!idle) { st.since = -1; st.nag = false; continue; }
+      if (!idleNow.has(kind)) { st.since = -1; st.nag = false; continue; }
       if (st.since < 0) st.since = now;
       if (now - st.since < IDLE_FACTORY_SECS) continue;
       st.nag = true;
       if (now - st.toast >= TOAST_EVERY_KIND && now - this.lastToast >= TOAST_EVERY_ANY) {
         st.toast = this.lastToast = now;
-        this.host.message(tArmy('msg.factoryIdle', { name: facNames.get(kind), money: money(p.credits) }));
+        this.host.message(tArmy('msg.factoryIdle', { name: idleNow.get(kind), money: money(p.credits) }));
       }
     }
     // harvesters standing idle, refineries without one
