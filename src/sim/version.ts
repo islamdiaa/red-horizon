@@ -24,8 +24,15 @@
  *     harvesting: src/sim/ai-engage.ts, ai-harvest.ts), AI reachability and intel fixes, save/load continuing the
  *     exact game, passengers no longer targetable, vehicles giving way to each other in head-on jams, units walled
  *     in by structures stepping out.
+ *  5. Gameplay round: units return fire while attacking unarmed targets, blocked moves retry (RA PATH_RETRY), formations
+ *     no longer wait on one laggard, service depots serve one vehicle at a time; Recruit and Easy field smaller, lighter
+ *     armies that grow over the match, Normal builds at 1.0 / earns 1.05, the Classic AI hunts, besieges and plays for
+ *     Tesla power, AI teammates help a human, refinery first when money is short (src/sim/ai*.ts, ai-team.ts); team-aware
+ *     start positions (starts.ts); campaign difficulty with Red Alert's handicaps and per-mission tuning (handicap.ts,
+ *     mission fixes in Allied 3, Iron Coast, Conquest captures, co-op waves, King of the Hill, the daily); surrender
+ *     (resign.ts).
  */
-export const SIM_VERSION = 4;
+export const SIM_VERSION = 5;
 
 /** The version of records made before the stamp existed. */
 export const LEGACY_SIM_VERSION = 1;

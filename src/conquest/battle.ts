@@ -14,7 +14,7 @@ import { Building, Unit } from '../sim/entities';
 import type { World } from '../sim/world';
 import { launchSortie } from '../sim/powers';
 import { MISSIONS } from '../missions';
-import { edgeNear, ground, hunt, huntWave, layout, nudgeEntries, quietSetup } from '../missions/common';
+import { edgeNear, ground, hunt, huntWave, layout, quietSetup } from '../missions/common';
 import type { Climate, Terrain } from './geo';
 import { ENEMY_POOLS, PERSONALITIES, type PersonalityId } from './data';
 import { BATTLE as T, BATTLE_LOCAL as TL } from '../i18n/en/conquest-battle'; // the English these battles emit
@@ -651,7 +651,6 @@ function coreAlive(m: MissionRuntime): { alive: number; total: number } {
 
 function updateBattle(m: MissionRuntime, S: BattleSpec) {
   if (m.ended) return;
-  nudgeEntries(m);
   if (m.after(2, 'intro')) intro(m, S);
   perks(m, S);
   waves(m, S);
@@ -678,6 +677,9 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
       const t = m.world.getEntity(m.flags.target) as Building | undefined;
       if (!t || !t.alive) { m.fail('capture'); m.lose(en(T.lose.target, { building: m.flags.targetName ?? T.commandPost })); break; }
       if (t.owner === m.human) { m.complete('capture'); say(m, hq(S), T.radio.captured); victory(m, S); break; }
+      // badly damaged: its crew abandons it and locks it down at capture strength, so an attack-move (or one heavy
+      // volley) can't wreck the objective by accident; only an engineer gets in
+      if (t.healthFrac <= 0.4) { t.hp = Math.min(t.hp, t.maxHp * 0.25 - 1); t.invulnerable = 2; } // (2 s: this check runs once a second)
       if (t.healthFrac <= 0.25 && m.once('weak')) { say(m, INTEL, T.radio.damaged); m.beacon(t.x, t.y); }
       break;
     }

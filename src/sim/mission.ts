@@ -11,6 +11,7 @@ import type { AIDifficulty } from './ai';
 import type { Projectile } from './combat';
 import { recalcPlayerEconomy } from './production';
 import { superBuilding, superChargeTime, type SuperKind } from './superweapons';
+import { assignHandicaps, isMissionLevel, type MissionLevel } from './handicap';
 import { DT, TICK_HZ } from './types';
 import type { World } from './world';
 
@@ -155,6 +156,41 @@ export class MissionRuntime {
   }
   private P(p: number | Player): Player {
     return typeof p === 'number' ? this.world.players[p] : p;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Difficulty (campaign level: RA's handicaps, sim/handicap.ts)
+  // ---------------------------------------------------------------------------
+  /** The campaign difficulty this mission is played at (kept in the flags, so saves carry it; Normal by default). */
+  get level(): MissionLevel {
+    const l = this.flags.__level;
+    return isMissionLevel(l) ? l : 'normal';
+  }
+  /**
+   * Set the level before the mission's setup (the scripts read `level` / `byLevel` there) and hand every side its
+   * handicap. Normal (or nothing) leaves the mission exactly as it was.
+   */
+  setLevel(level: MissionLevel | null | undefined) {
+    if (level && level !== 'normal' && isMissionLevel(level)) this.flags.__level = level;
+    else delete this.flags.__level;
+    this.applyLevel();
+  }
+  /** Re-attach the handicaps from the level and the current teams (after a save loads, after a team change). */
+  applyLevel() {
+    assignHandicaps(this.world.players, this.human, this.level);
+  }
+  /** A per-level value: `byLevel(normal, { recruit: …, easy: … })` (levels not listed take the Normal value). */
+  byLevel<T>(normal: T, levels: Partial<Record<MissionLevel, T>>): T {
+    const v = levels[this.level];
+    return v === undefined ? normal : v;
+  }
+  /** Easier than Normal (Recruit or Easy). */
+  get eased(): boolean {
+    return this.level === 'recruit' || this.level === 'easy';
+  }
+  /** Harder than Normal (Hard or Brutal). */
+  get tightened(): boolean {
+    return this.level === 'hard' || this.level === 'brutal';
   }
 
   /** Called by the world each tick. */
@@ -485,6 +521,7 @@ export class MissionRuntime {
   setTeam(p: number | Player, team: number) {
     const pl = this.P(p);
     pl.team = team;
+    if (this.flags.__level) this.applyLevel(); // a side that changes camp takes that camp's handicap
     for (const e of [...this.world.units, ...this.world.buildings] as Entity[]) {
       if (e.target && !e.owner.isEnemy(e.target.owner)) e.target = null;
     }

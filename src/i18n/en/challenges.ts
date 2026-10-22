@@ -89,6 +89,8 @@ export default strings('challenges', {
     mine: 'Your challenges',
     empty: '[b]No challenges yet.[/b] After a skirmish, the end screen suggests turning points of the match ("Make this a challenge"). In any replay, pause and press [b]Make a challenge[/b] to set a goal from that moment. Friends\' {ext} files can be imported above.',
     imported: 'Imported: {title}',
+    // importing a challenge whose card is already in the list (a built-in, or imported before): no second card
+    already: 'Already in your list: {title}',
     src: {
       moment: 'From your match',
       replay: 'From a replay',

@@ -1,6 +1,6 @@
 // Replays: a match left early is kept as a replay; watch it from the Replays screen at 8×, switch the player view
-// (another player, then the observer), take command at a moment and play the branch, which the Replays screen
-// then lists under its original.
+// (another player, then the observer), take command at a moment and play a short branch (the pause menu warns
+// while it would not be kept; an order keeps it), which the Replays screen then lists under its original.
 import { sleep } from '../lib.mjs';
 
 const P = '.main-screen:not(.leaving) .mm-panel';
@@ -67,13 +67,21 @@ export default async function replays(bot) {
   await bot.waitMatch();
   const br = await bot.g((g) => ({ branch: !!g.setup.branch, replay: !!g.setup.replay, tick: g.world.tick, hud: !!document.querySelector('#ui :is(#buildbar, #sidebar)') }));
   bot.check(br.branch && !br.replay && Math.abs(br.tick - at) < 200, 'Take command continues from that moment as a playable branch', { ...br, at });
-  // play the branch for a bit with real orders
+  // before any order, the pause menu says leaving now would not keep the branch (instead of dropping it silently)
+  await bot.pause();
+  const note = (await bot.page.locator('.pause-screen .pp-note').textContent().catch(() => '')).trim();
+  bot.check(/branch/i.test(note), 'the pause menu says an unplayed branch is not kept yet', note);
+  await bot.pauseAct('resume');
+  // play the branch briefly with real orders: a short branch with an order is kept (src/replay/recorder.ts)
   await bot.key('e');
   const sel = await bot.g((g) => g.selection.size);
   const f2 = (await bot.enemies()).units[0];
   if (f2) await bot.attackMove(f2.x, f2.y);
-  await bot.wait(40); // (a branch is kept once it is 30 s long: src/replay/recorder.ts MIN_TICKS)
+  await bot.wait(10);
   bot.check(sel > 0, 'the branch takes orders', `${sel} selected`);
+  await bot.pause();
+  bot.check(!await bot.sees('.pause-screen .pp-note'), 'after an order the pause menu no longer warns', await bot.page.locator('.pause-screen .pp-note').textContent().catch(() => ''));
+  await bot.pauseAct('resume');
   await bot.shot('branch');
   await bot.quitToMenu();
 
@@ -82,7 +90,7 @@ export default async function replays(bot) {
   await bot.waitFor('.rpl-list .rpl-btn.watch');
   await sleep(500);
   const tree = await bot.page.evaluate(() => [...document.querySelectorAll('.rpl-list .rpl-row, .rpl-list > *')].map((r) => ({ d: r.style.getPropertyValue('--d'), t: r.textContent.replace(/\s+/g, ' ').slice(0, 60) })));
-  bot.check(tree.filter((r) => r.d !== '').length >= 2 && tree.some((r) => +r.d > 0), 'Replays shows the branch under the original', tree);
+  bot.check(tree.filter((r) => r.d !== '').length >= 2 && tree.some((r) => +r.d > 0), 'Replays shows the short branch (10 s, with an order) under the original', tree);
   await bot.shot('replays-tree');
   await bot.key('Escape', 600);
   await bot.waitMenu();

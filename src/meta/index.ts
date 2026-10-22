@@ -34,6 +34,7 @@ import { dt, fmtInt, trSource, tx, type Params } from '../i18n/core';
 import { formatMessage } from '../i18n/format';
 import { typeName } from '../i18n/names';
 import tMeta, { RECORD_SRC } from '../i18n/en/meta';
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 export * from './achievements';
 export * from './ranks';
@@ -1038,7 +1039,7 @@ export function rankBadge(p: Profile = loadProfile()): string {
   }
   const rp = rankProgress(p.xp, p.faction);
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-  const name = esc(p.name);
+  const name = esc(playerName(p.name)); // (the default "Commander" in the interface language)
   const nextTxt = rp.next ? tMeta.html('badge.progress', { xp: fmtInt(p.xp), next: fmtInt(rp.next.xp) }) : tMeta.html('badge.max', { xp: fmtInt(p.xp) });
   return `<span class="rh-cmdr" title="${tMeta.html('badge.title')}">${insigniaSvg(rp.index, p.faction)}<span class="rh-cmdr-t"><small>${esc(rp.name)}</small><b>${name}</b>`
     + `<span class="rh-cmdr-bar"><i style="width:${(rp.frac * 100).toFixed(1)}%"></i></span><span class="rh-cmdr-x">${nextTxt}</span></span></span>`;

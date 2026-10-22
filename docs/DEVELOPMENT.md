@@ -113,22 +113,37 @@ The interface is translated into Russian, German, Spanish, Brazilian Portuguese,
   modules; the interface reads it through `dt()` and the helpers in `src/i18n/names.ts`.
   `tools/i18n/data-sources.ts` lists those tables for the translators.
 - **Text made by the simulation or mission scripts** stays English at the source: it is lockstep-networked, saved
-  and hashed. `sourceStrings()` registers that English, and the display calls `trSource(text)`.
+  and hashed. `sourceStrings()` registers that English, and the display calls `trSource(text)`. The campaign,
+  special-operations and naval missions' text is collected from the scripts by `tools/i18n/mission-text.ts` into
+  `src/i18n/en/missions.ts` (generated: re-run the tool after changing mission text; the test lists what is missing).
+  Built-in player names (the AI commanders, the default "Commander") are shown through `playerName()`
+  (`src/i18n/en/players.ts`); a name a player chose is shown as it is.
+- **The map editor** (`src/editor`) keeps ids in the files it saves (tools, symmetries, objective and trigger kinds);
+  the labels come from `src/i18n/en/editor.ts`. The defaults it fills into a new mission (player names, briefing,
+  objective texts) are written in the author's language; custom missions emit English in the simulation
+  (`src/i18n/en/editor-mission.ts`) like the built-in ones.
 - **Safety.** Translations are plain text, inserted with `textContent`, `esc()` or the `.html()` variants. The
   `.html()` variants escape everything and allow only the `[b] [i] [em] [strong] [kbd] [small] [br]` markers.
 - **Rules.** Never translate at module scope; look strings up when rendering.
 - **Format numbers, money and dates** with `fmtInt`, `fmtMoney`, `fmtDate` and `fmtRelative` (Intl).
 - **Fonts.** Latin uses Rajdhani. Cyrillic uses a 7.6 KB subset of Tektur. Chinese uses the system font, with a
   subset of Noto Sans SC as the fallback. Both fallbacks are rebuilt with `tools/fonts` (see `tools/README.md`).
+- **Keyboard shortcuts** match the key's label (`KeyboardEvent.key`: Z is Z on QWERTZ and AZERTY), falling back to its
+  position on non-Latin layouts (`src/ui/keymap.ts`); show key names with `common.keys.*` (German "Strg").
 - **Tests.** `tests/i18n.test.ts` checks that:
   - every key exists in every language;
   - placeholders and markup match the English, and no translation contains raw HTML;
   - every character is covered by the fonts;
   - the setting persists;
-  - no new hard-coded player-facing string appears in the UI files.
+  - no new hard-coded player-facing string appears in the UI files (`src/ui`, `src/editor` and a few more).
 
-To add a string, put it in the namespace module and translate it in each `locales/<lang>.json`.
-`node --import tsx tools/i18n/catalog.ts missing <lang>` lists what a language still lacks.
+  `tests/editor-i18n.test.ts` covers the editor in another language and `tests/i18n-missions.test.ts` the mission text.
+
+To add a string, put it in the namespace module and translate it in each `locales/<lang>.json` (append it next to
+related keys, or batch-insert with `node --import tsx tools/i18n/catalog.ts insert <lang> <batch.json>`, which changes
+nothing else in the file). `node --import tsx tools/i18n/catalog.ts missing <lang>` lists what a language still lacks.
+`tools/i18n/sweep.mjs` walks the running game in one language and lists the English still on screen and text that does
+not fit its box; `tools/i18n/mission-coverage.ts` plays every mission headlessly and checks the text it shows.
 
 ## HD models
 

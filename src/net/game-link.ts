@@ -102,6 +102,7 @@ export class GameLink implements NetLink {
   private muted = false;
   private offs: (() => void)[] = [];
   private disposed = false;
+  private endSeen = false;
   private names = new Map<number, string>();
 
   constructor(private game: Game, readonly client: NetClient, readonly start: MatchStart, private host: NetMatchHost) {
@@ -117,6 +118,13 @@ export class GameLink implements NetLink {
         const name = game.world.players[player]?.name ?? tNet('player.someone');
         this.line(tNet('chat.left', { name }), true);
         if (player === game.local.id) this.spectate();
+      },
+      onResign: (_tick, player) => {
+        const p = game.world.players[player];
+        const name = p?.name ?? tNet('player.someone');
+        if (player === game.local.id) { this.line(tNet('chat.youSurrendered'), true); this.spectate(!!p && !p.defeated); } // ("the AI commands your forces" only when it does)
+        else this.line(tNet(p && !p.defeated ? 'chat.surrenderedAi' : 'chat.surrendered', { name }), true); // (its side fights on under the AI, or conceded)
+        this.render();
       },
       onChange: () => this.render(),
     });
@@ -147,10 +155,28 @@ export class GameLink implements NetLink {
     this.session.issue(cmd);
   }
 
+  get canSurrender(): boolean {
+    const ls = this.session.ls;
+    return ls.status === 'live' && !ls.watching && !ls.surrendered;
+  }
+
+  /** Surrender (sim/resign.ts): our last command; we watch once it runs. */
+  surrender(): boolean {
+    return this.session.ls.resign();
+  }
+
   frame(dt: number, step: (fast: boolean) => void) {
     if (!this.sentLoaded) { this.sentLoaded = true; this.session.loaded(); }
     const was = this.session.catchingUp;
-    this.session.frame(dt, () => step(this.session.catchingUp), this.session.catchingUp ? 30 : 12);
+    this.session.frame(dt, () => {
+      const fast = this.session.catchingUp;
+      step(fast);
+      // the match ended on a tick run in catch-up mode (a slow machine, a tab back from the background): its events
+      // were skipped, but the end must still reach the game (the finale and the results screen)
+      const w = this.game.world;
+      if (fast && w.gameOver && !this.endSeen) w.events.push({ e: 'gameover', winnerTeam: w.winnerTeam });
+      if (w.gameOver) this.endSeen = true;
+    }, this.session.catchingUp ? 30 : 12);
     if (was && !this.session.catchingUp) this.caughtUp();
     if (this.game.speed !== 1 && !this.game.world.gameOver) this.game.speed = 1; // one pace for everybody
   }
@@ -164,9 +190,9 @@ export class GameLink implements NetLink {
     this.render();
   }
 
-  private spectate() {
+  private spectate(aiPlays = true) {
     if (this.game.input) this.game.input.spectator = true;
-    this.line(tNet('chat.watching'), true);
+    if (aiPlays) this.line(tNet('chat.watching'), true);
   }
 
   // ---------------------------------------------------------------------------------------------------------
@@ -182,10 +208,22 @@ export class GameLink implements NetLink {
     const key = `${cls}|${Math.round(myRtt / 5)}|${ls.delay}|${this.muted}|${c.state}`;
     if (this.chip.dataset.k !== key) {
       this.chip.dataset.k = key;
-      this.chip.innerHTML = `<i class="${cls}"></i><span>${c.state === 'open' ? tNet.html('chip.latency', { ms: Math.round(myRtt), delay: ls.delay * 50 }) : tNet.html('chip.offline')}</span>
-        <button data-a="chat" title="${esc(tNet('chip.chat'))}">${ICONS.people}</button><button data-a="mute" class="${this.muted ? 'on' : ''}" title="${esc(tNet(this.muted ? 'chip.unmute' : 'chip.mute'))}">${this.muted ? ICONS.eyeOff : ICONS.eye}</button>`;
-      (this.chip.querySelector('[data-a="chat"]') as HTMLElement).onclick = () => this.openChatInput();
-      (this.chip.querySelector('[data-a="mute"]') as HTMLElement).onclick = () => { this.muted = !this.muted; this.host.play('click'); this.render(); };
+      // the buttons are built once and only updated: rebuilt on every latency report, a press that spans an update
+      // (a slow device) lost its click (net lab: Safari never opened the chat)
+      if (!this.chip.firstChild) {
+        this.chip.innerHTML = `<i></i><span></span><button data-a="chat" title="${esc(tNet('chip.chat'))}">${ICONS.people}</button><button data-a="mute"></button>`;
+        (this.chip.querySelector('[data-a="chat"]') as HTMLElement).onclick = () => this.openChatInput();
+        (this.chip.querySelector('[data-a="mute"]') as HTMLElement).onclick = () => { this.muted = !this.muted; this.host.play('click'); this.render(); };
+      }
+      (this.chip.querySelector('i') as HTMLElement).className = cls;
+      (this.chip.querySelector('span') as HTMLElement).innerHTML = c.state === 'open' ? tNet.html('chip.latency', { ms: Math.round(myRtt), delay: ls.delay * 50 }) : tNet.html('chip.offline');
+      const mute = this.chip.querySelector('[data-a="mute"]') as HTMLElement;
+      if (mute.dataset.on !== String(this.muted)) {
+        mute.dataset.on = String(this.muted);
+        mute.className = this.muted ? 'on' : '';
+        mute.title = tNet(this.muted ? 'chip.unmute' : 'chip.mute');
+        mute.innerHTML = this.muted ? ICONS.eyeOff : ICONS.eye;
+      }
     }
     // one banner at a time, most important first
     let bk = '', html = '', btn: { label: string; fn: () => void } | null = null;
@@ -247,7 +285,10 @@ export class GameLink implements NetLink {
     f.onsubmit = (e) => {
       e.preventDefault();
       const text = inp.value.trim();
-      if (text) this.client.send({ t: 'chat', text });
+      if (text) {
+        const r = this.client.chat(text); // (while reconnecting: kept and sent when the connection is back)
+        if (r !== 'sent') { this.line(tNet(r === 'queued' ? 'chat.queued' : 'chat.dropped'), true); this.render(); }
+      }
       close();
     };
     inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); };

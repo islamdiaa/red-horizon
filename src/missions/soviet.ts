@@ -9,7 +9,7 @@ import type { Building, Unit } from '../sim/entities';
 import { BUILDINGS, UNITS } from '../data/rules';
 import {
   CAST, say, hunt, huntWave, addHunters, structures, layout, squad, edgeNear, ground, ids, entity, centroid, aiProfile,
-  nudgeEntries, quietSetup,
+  quietSetup,
 } from './common';
 
 const C = CAST;
@@ -71,12 +71,14 @@ const FIRST_SNOW: MissionDef = {
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'e3'], s, e, 1, 3);
     const v2 = squad(m, 0, ['v2rl'], s, e, -0.5, -2.5);
     m.flags.v2 = v2[0].id;
-    const [dome] = layout(m, 1, e, s, [['dome', 0, 0], ['powr', -2.5, 3], ['powr', -2.5, -3], ['tent', 2.5, 3.5], ['pbox', 5.5, 2], ['pbox', 5.5, -2], ['gun', 4.5, -5]]);
+    // (campaign difficulty: on the easy levels one pillbox and a lighter garrison hold the heights)
+    const guns: [string, number, number][] = m.eased ? [['pbox', 5.5, 0], ['gun', 4.5, -5]] : [['pbox', 5.5, 2], ['pbox', 5.5, -2], ['gun', 4.5, -5]];
+    const [dome] = layout(m, 1, e, s, [['dome', 0, 0], ['powr', -2.5, 3], ['powr', -2.5, -3], ['tent', 2.5, 3.5], ...guns]);
     m.flags.dome = dome?.id;
     const [w1, w2] = [m.toward(e, s, 7.5, -4), m.toward(e, s, 7.5, 4)];
     m.wall(1, 'sbag', Math.round(w1[0]), Math.round(w1[1]), Math.round(w2[0]), Math.round(w2[1]));
-    squad(m, 1, ['e1', 'e1', 'e1', 'e3', 'e3'], e, s, 3.5, 0);
-    squad(m, 1, ['1tnk', 'jeep'], e, s, 4, 5);
+    squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e1', 'e3', 'e3'], e, s, 3.5, 0);
+    squad(m, 1, m.eased ? ['jeep'] : ['1tnk', 'jeep'], e, s, 4, 5);
     squad(m, 1, ['e1', 'e1'], e, s, 1, -5);
     m.reveal(0, e.x, e.y, 4);
     m.objective('dome', 'Destroy the Allied radar dome');
@@ -86,7 +88,6 @@ const FIRST_SNOW: MissionDef = {
     m.startTimer('uplink', 330, 'Radar uplink');
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) {
       say(m, C.morozov, 'General Morozov. The snow will cover your approach and the radar will not. Take it down before it talks, Comrade.');
@@ -106,7 +107,7 @@ const FIRST_SNOW: MissionDef = {
       huntWave(m, 1, ['2tnk', '2tnk', '1tnk', '1tnk', 'e3', 'e3', 'e1', 'e1'], edgeNear(m, e.x, e.y + 20), [s.x, s.y]);
     }
     if (m.after(150, 'flank')) {
-      huntWave(m, 1, ['jeep', 'jeep', 'e1', 'e1', 'e1'], edgeNear(m, ...m.toward(s, e, 20, 18)), [s.x, s.y]);
+      huntWave(m, 1, m.eased ? ['jeep', 'e1', 'e1'] : ['jeep', 'jeep', 'e1', 'e1', 'e1'], edgeNear(m, ...m.toward(s, e, 20, 18)), [s.x, s.y]);
       say(m, C.orlova, 'Allied scouts on your flank. Your V2 is exposed, Comrade.');
     }
     hunt(m, 'hunters', 8);
@@ -165,20 +166,22 @@ const BRIDGEHEAD: MissionDef = {
     squad(m, 0, ['3tnk', '3tnk'], s, e, 3.5, 0);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'dog', 'dog', 'e6'], s, e, 2, 3.5);
     m.player(1).allowedTypes = new Set(['e1', 'e3', '1tnk', 'jeep']);
+    // (campaign difficulty: the easy levels face one pillbox and one turret, a smaller garrison with less money)
+    const guns: [string, number, number][] = m.eased ? [['pbox', 7, 0], ['gun', 6.5, 6]] : [['pbox', 7, 2], ['pbox', 7, -2.5], ['gun', 6.5, 6], ['gun', 6.5, -7]];
     layout(m, 1, e, s, [
       ['tent', 1, 3], ['weap', 1, -3.5], ['powr', -3, 1], ['powr', -2.5, -6], ['dome', -3.5, 5.5], ['fix', 4, -8],
-      ['pbox', 7, 2], ['pbox', 7, -2.5], ['gun', 6.5, 6], ['gun', 6.5, -7],
+      ...guns,
     ]);
     const [w1, w2] = [m.toward(e, s, 9, -3), m.toward(e, s, 9, 3)];
     m.wall(1, 'sbag', Math.round(w1[0]), Math.round(w1[1]), Math.round(w2[0]), Math.round(w2[1]));
-    squad(m, 1, ['2tnk', '1tnk', '1tnk', 'jeep'], e, s, 4, 0);
-    squad(m, 1, ['e1', 'e1', 'e1', 'e1', 'e3', 'e3'], e, s, 5, 4);
+    squad(m, 1, m.eased ? ['1tnk', 'jeep'] : ['2tnk', '1tnk', '1tnk', 'jeep'], e, s, 4, 0);
+    squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e1', 'e1', 'e3', 'e3'], e, s, 5, 4);
+    if (m.eased) m.player(1).cash = 300;
     m.objective('deploy', 'Deploy the MCV on the west bank');
     m.objective('army', 'Build a Barracks and an Ore Refinery');
     m.objective('town', 'Destroy the Allied garrison');
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) say(m, C.morozov, 'You are across, Comrade. Dig in before they notice. A bridgehead is a promise: keep it.');
     if (!m.isDone('deploy') && m.buildings(0, 'fact').length) {
@@ -191,12 +194,19 @@ const BRIDGEHEAD: MissionDef = {
       m.reveal(0, e.x, e.y, 9);
     }
     // Allied raids from the town
-    if (m.after(240, 'raid1')) huntWave(m, 1, ['e1', 'e1', 'e1', 'jeep'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
+    if (m.after(240, 'raid1')) huntWave(m, 1, m.eased ? ['e1', 'e1'] : ['e1', 'e1', 'e1', 'jeep'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
     if (m.after(480, 'raid2')) {
-      huntWave(m, 1, ['1tnk', '1tnk', 'e1', 'e1', 'e3'], edgeNear(m, ...m.toward(e, s, 20, -22)), [s.x, s.y]);
+      huntWave(m, 1, m.eased ? ['1tnk', 'e1', 'e1'] : ['1tnk', '1tnk', 'e1', 'e1', 'e3'], edgeNear(m, ...m.toward(e, s, 20, -22)), [s.x, s.y]);
       say(m, C.orlova, 'Allied tanks moving on your flank.');
     }
-    if (m.time > 600 && m.every(200, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['2tnk', '1tnk', 'e1', 'e1', 'e3', 'e3'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
+    if (m.eased) {
+      if (m.time > 900 && m.every(300, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['1tnk', 'e1', 'e1', 'e3'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
+    } else if (m.time > 600 && m.every(200, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['2tnk', '1tnk', 'e1', 'e1', 'e3', 'e3'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
+    // the easy levels: two more heavy tanks come over the pontoon bridge
+    if (m.eased && m.after(360, 'platoon')) {
+      m.reinforce(0, ['3tnk', '3tnk'], edgeNear(m, s.x, s.y), m.toward(s, e, 4), false);
+      say(m, C.morozov, 'Two more heavy tanks are across the bridge, Comrade. Armour first, infantry behind it: their pillboxes eat riflemen.');
+    }
     hunt(m, 'hunters', 10);
     // Kestrel
     const ready = (m.buildings(0).filter((b) => !b.bt.wall).length >= 6 && m.time > 300) || m.time > 480;
@@ -292,6 +302,8 @@ const THUNDERHEAD: MissionDef = {
     const s = m.start(0), e = m.start(1);
     // the raiders
     squad(m, 0, ['dog', 'dog', 'dog', 'dog'], s, e, 3, 1);
+    // (campaign difficulty: a raid with no factory feels the enemy's handicap in full; at Hard a second section rides along)
+    if (m.level === 'hard') squad(m, 0, ['dog', 'dog', 'e1', 'e1', 'e1'], s, e, 1, 4);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e1', 'e4', 'e4', 'e4', 'e2'], s, e, 1.5, -1);
     const eng = squad(m, 0, ['e6', 'e6'], s, e, 0, 2);
     m.flags.engineers = ids(eng);
@@ -311,7 +323,6 @@ const THUNDERHEAD: MissionDef = {
     m.objective('coilAlive', 'Keep Belinsky\'s Tesla Coil standing', false);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     const station = entity<Building>(m, m.flags.station);
     const coil = entity<Building>(m, m.flags.coil);
@@ -348,7 +359,11 @@ const THUNDERHEAD: MissionDef = {
     if (m.flags.holdStart && !m.isDone('hold')) {
       const t = m.time - m.flags.holdStart;
       const target = station ?? coil;
-      const waves: [number, string[], number][] = [
+      const waves: [number, string[], number][] = m.level === 'hard' ? [
+        // (campaign difficulty: at Hard each armoured wave brings one tank fewer, against the enemy's handicap)
+        [10, ['e1', 'e1', 'e1', 'e1', 'e3', 'jeep'], 0], [70, ['1tnk', 'e1', 'e1', 'e3', 'e6'], 1], [140, ['jeep', 'jeep', 'e1', 'e1', 'e1', 'e3', 'e3'], 2],
+        [200, ['2tnk', 'e1', 'e1', 'e6'], 0], [250, ['1tnk', 'e3', 'e3', 'e1'], 1],
+      ] : [
         [10, ['e1', 'e1', 'e1', 'e1', 'e3', 'jeep'], 0], [70, ['1tnk', '1tnk', 'e1', 'e1', 'e3', 'e6'], 1], [140, ['jeep', 'jeep', 'e1', 'e1', 'e1', 'e3', 'e3'], 2],
         [200, ['2tnk', '1tnk', 'e1', 'e1', 'e6'], 0], [250, ['2tnk', '1tnk', 'e3', 'e3', 'e1'], 1],
       ];
@@ -446,18 +461,19 @@ const IRON_ROAD: MissionDef = {
     m.flags.oasis = oasis;
     // ambushes in the passes
     const a1 = m.between(s, oasis, 0.45, 6), a2 = m.between(s, oasis, 0.8, -5);
-    squad(m, 1, ['e1', 'e1', 'e3', 'e3', 'jeep'], ground(m, a1[0], a1[1]), s);
-    squad(m, 1, ['e1', 'e1', 'e1', 'e3', '1tnk'], ground(m, a2[0], a2[1]), s);
+    squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e3', 'e3', 'jeep'], ground(m, a1[0], a1[1]), s);
+    squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e1', 'e3', '1tnk'], ground(m, a2[0], a2[1]), s);
     layout(m, 1, ground(m, a2[0], a2[1]), s, [['pbox', 2, 2]]);
-    // the airbase
-    aiProfile(m, 1, 'easy');
+    // the airbase (campaign difficulty: on the easy levels its commander plays at Recruit, behind fewer guns)
+    aiProfile(m, 1, m.eased ? 'recruit' : 'easy');
     m.player(1).allowedTypes = allExcept('mslo', 'pdox', 'atek', 'e7', 'proc', 'harv', 'arty');
     const ab = layout(m, 1, e, s, [
-      ['fact', 0, 0], ['powr', -3.5, 3], ['powr', -3.5, -3], ['powr', -1, 6.5], ['tent', 3.5, 3], ['weap', 3.5, -2.5], ['proc', 0, -7.5], ['dome', -3.5, -7.5],
-      ['hpad', -0.5, 10], ['hpad', 3, 10.5], ['gun', 8, 2], ['gun', 8, -3], ['pbox', 7, 6], ['agun', 5, -6], ['agun', 4, 8],
+      ['fact', 0, 0], ['powr', -3.5, 3], ['powr', -3.5, -3], ...(m.eased ? [] : [['powr', -1, 6.5]] as [string, number, number][]), ['tent', 3.5, 3], ['weap', 3.5, -2.5], ['proc', 0, -7.5], ['dome', -3.5, -7.5],
+      ['hpad', -0.5, 10], ...(m.eased ? [] : [['hpad', 3, 10.5]] as [string, number, number][]), ...(m.eased ? [['gun', 8, 0], ['agun', 5, -6]] as [string, number, number][] : [['gun', 8, 2], ['gun', 8, -3], ['pbox', 7, 6], ['agun', 5, -6], ['agun', 4, 8]] as [string, number, number][]),
     ]);
     for (const p of ab) if (p?.bt.id === 'proc') m.spawnUnit(1, 'harv', p.x, p.cy + p.h + 1);
-    squad(m, 1, ['2tnk', '1tnk', '1tnk', 'jeep', 'e1', 'e1', 'e1', 'e3', 'e3'], e, s, 5, 0);
+    squad(m, 1, m.eased ? ['1tnk', 'jeep', 'e1', 'e1', 'e3'] : ['2tnk', '1tnk', '1tnk', 'jeep', 'e1', 'e1', 'e1', 'e3', 'e3'], e, s, 5, 0);
+    if (m.eased) m.player(1).cash = 600;
     m.reveal(0, oasis[0], oasis[1], 5);
     m.objective('escort', 'Escort the MCV to the oasis');
     m.objective('deploy', 'Deploy the MCV');
@@ -465,7 +481,6 @@ const IRON_ROAD: MissionDef = {
     m.objective('fast', 'Reach the oasis within four minutes', false);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     const mcv = entity<Unit>(m, m.flags.mcv);
     const oasis = m.flags.oasis as [number, number];
@@ -480,7 +495,7 @@ const IRON_ROAD: MissionDef = {
       if (!m.isDone('escort')) m.complete('escort');
       if (m.state('fast') === 'active') m.complete('fast');
       say(m, C.morozov, near ? 'The base stands at the oasis. Build quickly: the airbase will have seen you.' : 'Not where I asked, but it will do. Build quickly: the airbase will have seen you.');
-      m.setAI(1, 'easy');
+      m.setAI(1, m.eased ? 'recruit' : 'easy');
     }
     if (!m.isDone('deploy') && !mcv && m.once('mcvLost')) {
       m.fail('escort');
@@ -573,7 +588,6 @@ const STOLEN_FIRE: MissionDef = {
     m.objective('kestrel', 'Kill Kestrel before she reaches the Chronosphere', false);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     const pd = entity<Building>(m, m.flags.pdox);
     if (m.after(1, 'hello')) {
@@ -601,7 +615,7 @@ const STOLEN_FIRE: MissionDef = {
     if (!m.isDone('capture') && pd && pd.owner === m.human) {
       m.complete('capture');
       pd.invulnerable = 0;
-      m.setHealth(pd, 0.7);
+      m.setHealth(pd, m.eased ? 1 : 0.7); // (campaign difficulty: on the easy levels Belinsky's team patches it up at once)
       say(m, C.belinsky, 'We have it! We HAVE it! My technicians are patching the housing. Now keep it. My team is four minutes out.');
       say(m, ROURKE_ENEMY, 'All units, this is Rourke. That device does not leave Norway. Retake it or destroy it.');
       m.objective('hold', 'Hold the Chronosphere until Belinsky\'s team arrives');
@@ -612,10 +626,10 @@ const STOLEN_FIRE: MissionDef = {
       const t = m.time - m.flags.holdStart;
       if (t > 30 && m.once('counter') && pd) {
         // the counterattack comes in from the fjord road
-        huntWave(m, 1, ['2tnk', '2tnk', '1tnk', '1tnk', 'e1', 'e1', 'e3', 'e3'], edgeNear(m, ...m.toward(pd, s, 26, 24)), [pd.x, pd.y]);
+        huntWave(m, 1, m.eased ? ['2tnk', '1tnk', 'e1', 'e1', 'e3'] : ['2tnk', '2tnk', '1tnk', '1tnk', 'e1', 'e1', 'e3', 'e3'], edgeNear(m, ...m.toward(pd, s, 26, 24)), [pd.x, pd.y]);
         say(m, C.orlova, 'Allied armour on the fjord road, heading for the device.');
       }
-      if (t > 60 && m.once('kestrelIn') && pd) {
+      if (t > m.byLevel(60, { recruit: 150, easy: 110 }) && m.once('kestrelIn') && pd) {
         const from = edgeNear(m, ...m.toward(pd, s, -14, -12));
         const k = m.spawnUnit(1, 'e7', from[0], from[1]);
         m.attack([k], pd);
@@ -624,7 +638,7 @@ const STOLEN_FIRE: MissionDef = {
         say(m, C.gromova, 'The bird is back. Release the dogs!');
         m.spawnGroup(0, ['dog', 'dog', 'dog', 'dog'], ...ground(m, pd.x, pd.y + 2));
       }
-      if (t > 140 && m.once('wave2') && pd) huntWave(m, 1, ['2tnk', '2tnk', '2tnk', 'e1', 'e1', 'e1', 'e3'], edgeNear(m, ...m.toward(pd, s, 26, -24)), [pd.x, pd.y]);
+      if (t > 140 && m.once('wave2') && pd) huntWave(m, 1, m.eased ? ['2tnk', '2tnk', 'e1', 'e1'] : ['2tnk', '2tnk', '2tnk', 'e1', 'e1', 'e1', 'e3'], edgeNear(m, ...m.toward(pd, s, 26, -24)), [pd.x, pd.y]);
       if (m.flags.kestrel && !m.alive(m.flags.kestrel) && m.state('kestrel') === 'active') {
         m.complete('kestrel');
         say(m, C.gromova, 'Got her! Well... the dogs got her. I will write them up for a medal.');
@@ -714,16 +728,17 @@ const IRON_CURTAIN: MissionDef = {
     const nb = layout(m, 2, nk, s, [
       ['fact', 0, 0], ['powr', -3, 3], ['powr', -3, -3], ['apwr', -1, 7], ['barr', 3.5, 2.5], ['weap', 3, -3], ['kenn', 5.5, 5], ['dome', -1, -7.5],
       ['tsla', 8, 0], ['tsla', 7, 5.5], ['ftur', 8.5, -4],
+      // (campaign difficulty: at Hard and Brutal Orlova has fortified her headquarters further)
+      ...(m.tightened ? [['tsla', 7, -6.5], ['ftur', 9, 3]] as [string, number, number][] : []),
     ]);
     m.flags.nkvdStart = nb.filter((b) => !!b).length;
-    squad(m, 2, ['3tnk', '3tnk', '3tnk', 'v2rl', 'e1', 'e1', 'e1', 'e2', 'e2', 'dog', 'dog'], nk, s, 6, 0);
+    squad(m, 2, [...['3tnk', '3tnk', '3tnk', 'v2rl', 'e1', 'e1', 'e1', 'e2', 'e2', 'dog', 'dog'], ...(m.tightened ? ['3tnk', '3tnk', 'v2rl'] : [])], nk, s, 6, 0);
     m.objective('protect', 'Protect the Iron Curtain while it charges');
     m.objective('use', 'Use the Iron Curtain on your armour', false);
     m.objective('allies', 'Destroy the Allied Rhine Army base', false);
     m.startTimer('charge', IC_CHARGE, 'Iron Curtain charge');
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), al = m.start(1), nk = m.start(2);
     const iron = entity<Building>(m, m.flags.iron);
     if (m.after(1, 'hello')) {
@@ -753,10 +768,11 @@ const IRON_CURTAIN: MissionDef = {
     }
     // Allied pressure
     for (const [t, types] of [[75, ['1tnk', 'jeep', 'e1', 'e1', 'e3']], [200, ['2tnk', '2tnk', 'arty', 'e1', 'e1', 'e3']], [400, ['2tnk', '2tnk', '1tnk', 'arty', 'e1', 'e1', 'e1', 'e3']], [540, ['2tnk', '2tnk', '2tnk', 'jeep', 'e3', 'e3', 'e1']]] as [number, string[]][]) {
-      if (m.after(t, 'wave' + t) && structures(m, 1).length) huntWave(m, 1, types, edgeNear(m, ...m.toward(al, s, 8, t % 360 > 100 ? 25 : -25)), iron ? [iron.x, iron.y] : [s.x, s.y]);
+      // (campaign difficulty: at Hard and Brutal each wave brings one more Medium Tank)
+      if (m.after(t, 'wave' + t) && structures(m, 1).length) huntWave(m, 1, m.tightened ? [...types, '2tnk'] : types, edgeNear(m, ...m.toward(al, s, 8, t % 360 > 100 ? 25 : -25)), iron ? [iron.x, iron.y] : [s.x, s.y]);
     }
     if (m.after(150, 'heli') && structures(m, 1, ['hpad']).length && iron) {
-      const helis = m.spawnGroup(1, ['heli'], ...edgeNear(m, al.x, al.y));
+      const helis = m.spawnGroup(1, m.tightened ? ['heli', 'heli'] : ['heli'], ...edgeNear(m, al.x, al.y));
       m.attack(helis, iron);
       say(m, C.orlova, 'Longbows inbound on the device. I suggest SAM sites, Comrade.');
     }
@@ -774,8 +790,8 @@ const IRON_CURTAIN: MissionDef = {
       m.objective('nkvd', 'Destroy Orlova\'s NKVD headquarters');
       m.camera(nk.x, nk.y);
     }
-    if (m.flags.coup && m.time > 330 && m.every(90, 'nkvdWave') && structures(m, 2).length) {
-      huntWave(m, 2, ['3tnk', 'e1', 'e1', 'e2', 'dog', 'dog'], ground(m, ...m.toward(nk, s, 8)), iron ? [iron.x, iron.y] : [s.x, s.y], 'nkvd');
+    if (m.flags.coup && m.time > 330 && m.every(m.tightened ? 70 : 90, 'nkvdWave') && structures(m, 2).length) {
+      huntWave(m, 2, m.level === 'brutal' ? ['3tnk', '3tnk', 'e1', 'e1', 'e2', 'dog', 'dog'] : ['3tnk', 'e1', 'e1', 'e2', 'dog', 'dog'], ground(m, ...m.toward(nk, s, 8)), iron ? [iron.x, iron.y] : [s.x, s.y], 'nkvd');
     }
     hunt(m, 'hunters', 10);
     hunt(m, 'nkvd', 8);
@@ -848,14 +864,16 @@ const RED_HORIZON: MissionDef = {
     for (const p of [1, 2]) m.player(p).allowedTypes = allExcept('mslo', 'proc', 'harv', 'pdox', 'e7');
     const hb = layout(m, 1, hq, center, [
       ['fact', 0, 0], ['pdox', -5, 1], ['atek', -2, -4], ['apwr', -4, 4.5], ['apwr', -1, 7.5], ['apwr', -6, -4], ['powr', 1.5, -8],
-      ['tent', 3.5, 3], ['weap', 3.5, -3], ['weap', 6, -8], ['proc', 0, 11.5], ['dome', -7, 7.5], ['hpad', 2, 10], ['fix', 5, 7.5],
-      ['gun', 9, 1], ['gun', 9, -4], ['gun', 8, 5.5], ['pbox', 10, -1.5], ['pbox', 10, 3.5], ['agun', 6, -11], ['agun', 7, 10],
+      ['tent', 3.5, 3], ['weap', 3.5, -3], ...(m.eased ? [] : [['weap', 6, -8]] as [string, number, number][]), ['proc', 0, 11.5], ['dome', -7, 7.5], ['hpad', 2, 10], ['fix', 5, 7.5],
+      // (campaign difficulty: on the easy levels Supreme HQ has half its guns and one war factory, and its commander plays a level lower)
+      ...(m.eased ? [['gun', 9, 1], ['pbox', 10, 3.5], ['agun', 6, -11]] : [['gun', 9, 1], ['gun', 9, -4], ['gun', 8, 5.5], ['pbox', 10, -1.5], ['pbox', 10, 3.5], ['agun', 6, -11], ['agun', 7, 10]]) as [string, number, number][],
     ]);
+    if (m.eased) aiProfile(m, 1, m.level === 'recruit' ? 'recruit' : 'easy');
     for (const p of hb) if (p?.bt.id === 'proc') m.spawnUnit(1, 'harv', p.x, p.cy + p.h + 1);
     m.flags.pdox = hb.find((b) => b?.bt.id === 'pdox')?.id;
     m.flags.hqStart = hb.filter((b) => !!b).length;
-    squad(m, 1, ['2tnk', '2tnk', '2tnk', '2tnk', '2tnk', '2tnk', 'arty', 'arty', 'arty', 'jeep'], hq, center, 7, 0);
-    squad(m, 1, ['e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e3', 'e3', 'medi', 'medi'], hq, center, 8, -4);
+    squad(m, 1, m.eased ? ['2tnk', '2tnk', '2tnk', 'arty', 'jeep'] : ['2tnk', '2tnk', '2tnk', '2tnk', '2tnk', '2tnk', 'arty', 'arty', 'arty', 'jeep'], hq, center, 7, 0);
+    squad(m, 1, m.eased ? ['e1', 'e1', 'e3', 'e3', 'medi'] : ['e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e3', 'e3', 'medi', 'medi'], hq, center, 8, -4);
     // Channel Guards
     const gb = layout(m, 2, gd, s, [
       ['fact', 0, 0], ['powr', -3.5, 3], ['powr', -3.5, -3], ['powr', -1, 6.5], ['tent', 3.5, 3], ['weap', 3.5, -2.5], ['dome', -1, -7],
@@ -870,7 +888,6 @@ const RED_HORIZON: MissionDef = {
     m.flags.mammoths = ids(m.units(0, '4tnk'));
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), hq = m.start(1);
     if (m.after(1, 'hello')) {
       say(m, C.morozov, 'Antwerp, Comrade. The last port, the last line, the last of them. Everything we have is behind you. Take it.');
@@ -911,12 +928,13 @@ const RED_HORIZON: MissionDef = {
     // the Chronosphere overload
     const pd = entity<Building>(m, m.flags.pdox);
     const hqLeft = structures(m, 1).length, gdLeft = structures(m, 2).length;
-    if (pd && !m.flags.overload && (hqLeft <= m.flags.hqStart * 0.6 || m.time > 1080)) {
+    // (campaign difficulty: on the easy levels the overload starts only once the HQ is badly hit, never on a clock)
+    if (pd && !m.flags.overload && (hqLeft <= m.flags.hqStart * 0.6 || (!m.eased && m.time > 1080))) {
       m.flags.overload = true;
       say(m, ROURKE_ENEMY, 'All Allied units: Operation Looking Glass is go. Saarinen, push it past the limit. Get the command staff out.');
       say(m, C.belinsky, 'They are overloading the Chronosphere! They mean to send their entire headquarters somewhere. If it fires, they escape and the war goes on!');
       m.objective('chrono', 'Destroy the Chronosphere before the overload completes');
-      m.startTimer('overload', 210, 'Chronosphere overload');
+      m.startTimer('overload', m.byLevel(210, { recruit: 420, easy: 330 }), 'Chronosphere overload'); // (campaign difficulty: the easy levels get more time)
       m.reveal(0, pd.x, pd.y, 4);
     }
     if (m.flags.overload && m.state('chrono') === 'active') {

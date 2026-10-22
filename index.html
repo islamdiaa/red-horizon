@@ -44,6 +44,8 @@
          (unicode-range); the CJK subset only where no system Chinese font comes first in the stack (tools/fonts) */
       @font-face { font-family: 'RH Cyrillic'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('/fonts/tektur-cyrillic.woff2') format('woff2'); unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
       @font-face { font-family: 'RH CJK'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('/fonts/noto-sans-sc-subset.woff2') format('woff2'); unicode-range: U+2E80-2FDF, U+3000-30FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF; }
+      /* the loading screen's words arrive with the player's language (src/ui/loading.ts): no empty tip box before */
+      #loading .ld-tip:has(.ld-tip-t:empty) { visibility: hidden; }
     </style>
   </head>
   <body>
@@ -61,12 +63,12 @@
           </svg>
         </div>
         <div class="ld-title">RED <span>HORIZON</span></div>
-        <div class="ld-sub">A Cold War Real-Time Strategy</div>
+        <div class="ld-sub"></div><!-- (text: src/ui/loading.ts, in the player's language) -->
       </div>
       <div class="ld-bottom">
-        <div class="ld-row"><span class="label">LOADING</span><span class="ld-pct"></span></div>
+        <div class="ld-row"><span class="label"></span><span class="ld-pct"></span></div>
         <div class="bar"><div></div></div>
-        <div class="ld-tip"><span class="ld-tip-k">Field tip</span><span class="ld-tip-t">Ore regrows over time — gem fields are worth twice as much as ore.</span></div>
+        <div class="ld-tip"><span class="ld-tip-k"></span><span class="ld-tip-t"></span></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

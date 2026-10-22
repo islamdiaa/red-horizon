@@ -5,6 +5,8 @@ import { castPortrait } from './campaign';
 import { esc } from './dom';
 import { ICONS } from './icons';
 import tMission from '../i18n/en/mission';
+import tCommon from '../i18n/en/common';
+import { takesLevel } from '../missions/progress';
 import { fmtInt, onLanguageChange, trSource } from '../i18n/core';
 
 const CSS = `
@@ -13,6 +15,7 @@ const CSS = `
   border-left: 3px solid rgb(var(--accent-rgb, 90,180,255)); border-radius: 10px; padding: 10px 12px 8px; backdrop-filter: blur(8px);
   font-family: var(--font, sans-serif); color: #dfe8f2; box-shadow: 0 8px 30px rgba(0,0,0,0.45); transition: opacity 0.4s; }
 .mh-obj h5 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.24em; color: rgb(var(--accent-rgb, 90,180,255)); font-weight: 700; }
+.mh-obj h5 .mh-lvl { float: right; font-size: 10px; letter-spacing: 0.16em; color: #9fb0c2; font-weight: 600; }
 .mh-row { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.3; margin: 5px 0; transition: all 0.4s; }
 .mh-row .bx { flex-shrink: 0; width: 14px; height: 14px; margin-top: 2px; border-radius: 3px; border: 1.5px solid rgba(255,255,255,0.45); position: relative; }
 .mh-row.secondary { font-size: 12.5px; opacity: 0.8; }
@@ -109,6 +112,8 @@ export class MissionHud {
   private srow: HTMLElement;
   private trowKey = '';
   private offLang: () => void;
+  /** Classic: keeps --mh-obj-b (the checklist's bottom edge) current, so the Field Manual (ui/hints.ts) sits under it. */
+  private objSize: ResizeObserver | null = null;
 
   constructor(private runtime: MissionRuntime, private sound: (k: 'tab' | 'ready_ping' | 'click') => void) {
     if (!document.getElementById('mh-style')) {
@@ -141,6 +146,13 @@ export class MissionHud {
     if (col && document.body.classList.contains('hud-modern')) col.prepend(this.obj);
     this.renderObjectives();
     this.offLang = onLanguageChange(() => { this.renderObjectives(); this.trowKey = ''; });
+    if (typeof ResizeObserver !== 'undefined') {
+      this.objSize = new ResizeObserver(() => {
+        const b = this.obj.getBoundingClientRect();
+        document.body.style.setProperty('--mh-obj-b', `${Math.round(b.height > 4 ? b.bottom : 0)}px`);
+      });
+      this.objSize.observe(this.obj);
+    }
   }
 
   handle(ev: MissionEvent) {
@@ -174,7 +186,9 @@ export class MissionHud {
     // objective and progress texts are the mission script's English: translated here
     const row = (o: Objective) => `<div class="mh-row ${o.primary ? '' : 'secondary'} ${o.state} ${o.id === flashId ? 'flash' : ''}"><span class="bx"></span><span class="tx">${esc(trSource(o.text))}</span>${o.progress ? `<span class="pg">${esc(trSource(String(o.progress)))}</span>` : ''}</div>`;
     const prim = list.filter((o) => o.primary), sec = list.filter((o) => !o.primary);
-    this.list.innerHTML = `<h5><span class="mh-ic">${ICONS.target}</span>${tMission.html('objectives')}</h5>${prim.map(row).join('')}${sec.length ? `<h5 class="opt" style="margin-top:8px">${tMission.html('optional')}</h5>${sec.map(row).join('')}` : ''}`;
+    // the campaign difficulty it is played at (missions that take one)
+    const lvl = takesLevel(this.runtime.def) ? `<span class="mh-lvl">${esc(tCommon(`difficulty.${this.runtime.level}`).toUpperCase())}</span>` : '';
+    this.list.innerHTML = `<h5><span class="mh-ic">${ICONS.target}</span>${tMission.html('objectives')}${lvl}</h5>${prim.map(row).join('')}${sec.length ? `<h5 class="opt" style="margin-top:8px">${tMission.html('optional')}</h5>${sec.map(row).join('')}` : ''}`;
   }
 
   update(dt: number) {
@@ -232,6 +246,8 @@ export class MissionHud {
 
   dispose() {
     this.offLang();
+    this.objSize?.disconnect();
+    document.body.style.removeProperty('--mh-obj-b');
     this.obj.remove();
     this.tx.remove();
     this.timer.remove();

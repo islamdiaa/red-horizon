@@ -9,9 +9,9 @@ import type { Feature, MapDef, Symmetry } from '../src/maps/format';
 import {
   EditorModel, addStart, bridgeAt, bridgeDefAt, moveStart, newDoc, newMapDef, resizeMap, setSymmetry, startRefs, strokeFeature, DEFAULT_BRUSH,
 } from '../src/editor/doc';
-import { checkMission, customMissionDef, defaultMission, type CustomMissionSetup, type MissionSpec } from '../src/editor/mission';
+import { customMissionDef, defaultMission, type CustomMissionSetup, type MissionSpec } from '../src/editor/mission';
 import { customMissionDefs, customMissionSetup, docToFile, parseRhMap, resetEditorStore, sanitizeMission, saveDoc } from '../src/editor/store';
-import { oreShares, validateMap, validateMission } from '../src/editor/validate';
+import { checkMission, oreShares, validateMap, validateMission } from '../src/editor/validate';
 import { CommandFeeder, CommandRecorder, hookStep } from '../src/replay/core';
 import { worldHash } from '../src/replay/hash';
 import { MissionRuntime } from '../src/sim/mission';

@@ -18,13 +18,13 @@ import type { TargetReticle } from '../render/reticle';
 import { bridgeAtCell } from '../sim/bridges';
 import { disguisedAs } from '../sim/infiltration';
 import { canCarry } from '../sim/naval';
-import { pickWeapon } from '../sim/combat';
 import { FORMATION_SHAPES } from '../sim/formation';
 import { chronoTarget } from '../sim/aftermath';
 import { T } from '../sim/map';
 import { canGarrison } from '../sim/economy'; // Commander economy: bunkers
 import { toggleFullscreen } from '../platform/fullscreen';
 import { FORMATION_INFO, OrderViz, injectCtrlStyles } from './orderui';
+import { attackCommands, attackMoveCommands } from './attack-orders'; // attack / attack-move clicks
 import { TouchController } from './touch';
 import { attachGamepad, gamepadFrame } from './gamepad';
 import { visualScale } from '../render/scale';
@@ -698,8 +698,14 @@ export class InputController {
           if (t) this.h.issue({ c: 'attack', player: local.id, units: units.map((u) => u.id), target: t.id, forced: true });
           else this.h.issue({ c: 'attackGround', player: local.id, units: units.map((u) => u.id), x: gx, y: gy });
         } else {
-          if (t && local.isEnemy(t.owner)) this.h.issue({ c: 'attack', player: local.id, units: units.map((u) => u.id), target: t.id });
-          else this.h.issue({ c: 'move', player: local.id, units: units.map((u) => u.id), x: gx, y: gy, attackMove: true, queue: e.shiftKey });
+          // an attack-move, also on an enemy: fight the way there (src/ui/attack-orders.ts)
+          const enemy = t && t.owner !== local && local.isEnemy(this.apparentOwner(t)) ? t : null;
+          const am = attackMoveCommands(local.id, units, enemy, gx, gy, e.shiftKey);
+          for (const c of am.cmds) this.h.issue(c);
+          this.marker(am.x, am.y, 'attack');
+          if (units.length) this.voice('attack', voiceOf(units[0]));
+          if (!e.shiftKey) this.setMode('normal');
+          return;
         }
         this.marker(gx, gy, 'attack');
         if (units.length) this.voice('attack', voiceOf(units[0]));
@@ -894,10 +900,7 @@ export class InputController {
     const voice = voiceOf(units[0]);
     if (t && t.owner !== local && local.isEnemy(this.apparentOwner(t))) {
       // whoever can't hurt the target (rifles vs aircraft, medics…) attack-moves there with the others
-      const able = units.filter((u) => canEngage(u, t));
-      const rest = units.filter((u) => !able.includes(u)).map((u) => u.id);
-      if (able.length) this.h.issue({ c: 'attack', player: local.id, units: able.map((u) => u.id), target: t.id });
-      if (rest.length) this.h.issue({ c: 'move', player: local.id, units: rest, x: t.x, y: t.y, attackMove: true });
+      for (const c of attackCommands(local.id, units, t)) this.h.issue(c);
       this.marker(t.x, t.y, 'attack');
       this.voice('attack', voice);
       return;
@@ -1360,10 +1363,6 @@ export class InputController {
 }
 
 /** Whether a selected unit can act on an enemy target with the attack command. */
-function canEngage(u: Unit, t: Entity): boolean {
-  if (t instanceof Building && (u.ut.engineer || u.ut.c4 || u.ut.spy || u.ut.thief)) return true;
-  return u.weapons.length > 0 && !u.ut.medic && !!pickWeapon(u, t);
-}
 
 /** Why a structure can't go where the player clicked. */
 function placementText(issue: PlacementIssue, wall: boolean, water = false): string {

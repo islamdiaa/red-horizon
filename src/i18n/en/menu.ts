@@ -62,6 +62,13 @@ export default strings('menu', {
     // tooltip of the Recruit difficulty (the easiest AI level)
     recruitTip: 'For your first battles: a slow, small and forgiving opponent.',
     removeOpponent: 'Remove opponent',
+    // an AI on the player's side (2 vs 2 with an AI ally): its name in the setup, "Ally 1"
+    allyName: 'Ally {n}',
+    // tooltips of the switch that puts an AI on the player's side
+    allyOn: 'Ally: fights on your side. Click to make it an opponent.',
+    allyOff: 'Make this AI your ally (it fights on your side)',
+    // the switch is off because at least one AI must be an enemy
+    allyNeedsEnemy: 'At least one AI must be an opponent',
     mapFixesPlayers: '{map} is a {n}-player map',
     addOpponent: 'Add opponent',
     oppCountFixed: '{n} · fixed by map',
@@ -142,7 +149,7 @@ export default strings('menu', {
   replays: {
     kicker: 'Archive',
     loading: 'Loading replays…',
-    note: 'Every skirmish is recorded automatically (campaign missions are not). Pause a replay and press Take command to play on from any moment: the branch is listed under it. The last {n} are kept on this device.',
+    note: 'Every skirmish of 30 seconds or more is recorded automatically (campaign missions are not). Pause a replay and press Take command to play on from any moment: the branch is listed under it. The last {n} are kept on this device.',
     importFile: 'Import file',
     imported: 'Imported: {map}, {date}',
     empty: 'No replays yet',
@@ -311,6 +318,10 @@ export default strings('menu', {
     saveFailed: 'Save failed',
     restart: 'Restart',
     leaveMatch: 'Leave match',
+    // under the buttons when leaving now would not keep a replay of the battle (src/replay/recorder.ts)
+    notKept: 'Too short to keep as a replay: battles are kept once they last 30 seconds.',
+    // the same for a branch taken from a replay ("take command")
+    notKeptBranch: 'This branch is kept as a replay once you give an order (or after 30 seconds).',
   },
   /** The end-of-match grade's title (by score). */
   rating: {

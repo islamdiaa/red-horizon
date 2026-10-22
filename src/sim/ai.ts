@@ -16,11 +16,12 @@ import { DEFAULT_TUNING, resolvePersonality, trait, type AITuning, type Personal
 import { canReach, expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
 import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
 import { commanderAI } from './ai-commander';
-import { doctrineDefences, doctrinePrefer } from './doctrine';
+import { costOf, doctrineDefences, doctrinePrefer } from './doctrine';
 import { econAI, econDocks, econPlacement, econReserve, econStructure } from './economy-ai'; // Commander economy
 import { alliedAir, alliedArtillery, alliedChrono, alliedSpies, alliedTools, coilPenalty } from './ai-allies'; // the Allied commander's own tools
-import { outmatchedWave, trackEnemy, waveNeeds } from './ai-engage'; // Classic: when to fight (normal and up)
+import { facingNear, outmatchedWave, powerTargets, trackEnemy, waveNeeds } from './ai-engage'; // Classic: when to fight (normal and up)
 import { guardHarvesters } from './ai-harvest'; // Classic: Ore Truck care (normal and up)
+import { helpMates, humanMates, matePush, spareMatesOre } from './ai-team'; // human teammates (version 5)
 
 export type AIDifficulty = 'recruit' | 'easy' | 'normal' | 'hard' | 'brutal';
 /** Every AI difficulty, easiest first (menus, Quick Battle, validation). */
@@ -85,6 +86,28 @@ export interface DiffParams {
   /** One wave's value at most, and the land-army value at which it stops adding combat units (credits). */
   waveCap: number;
   armyCap: number;
+  /**
+   * (recruit and easy) The army cap at the start of the match and how much it grows a minute, up to armyCap: the
+   * army grows over the match as a new player's does, instead of the whole starting bank turning into riflemen in the
+   * first three minutes (simulation version 5).
+   */
+  armyStart: number;
+  armyRamp: number;
+  /** Infantry at most before its first war factory stands. */
+  infOpening: number;
+  /** Aircraft and ships count toward the army cap too (recruit and easy). */
+  capAll: boolean;
+  /** Structures of a type at most (recruit and easy: one of each factory, no kennel...); null = the build order decides. */
+  maxOf: Readonly<Record<string, number>> | null;
+  /** Seconds into the match before its first ground defence (recruit and easy: a new player's first attacks meet an army, not a fortress). */
+  defenceAfter: number;
+  /** Structures at most, power plants aside (recruit and easy: a new player's base, not a city); UNCAPPED = no limit. */
+  maxStructures: number;
+  /** Cells in front of the construction yard (toward the enemy) where the army gathers between waves (negative: behind it). */
+  rallyAhead: number;
+  /** Unit types it never builds (recruit and easy: no artillery, heavies or specials), and combat vehicles at most. */
+  noUnits: readonly string[];
+  maxVehicles: number;
   /** Seconds an intruder must have been at the base before the army answers, and before a lost structure is rebuilt. */
   defendDelay: number;
   rebuildDelay: number;
@@ -97,7 +120,13 @@ const FULL = {
   maxTier: 3, tierPace: 1, research: 2, researchMax: UNCAPPED, upgrades: null, projects: 3, processors: UNCAPPED, econPlus: true, econResearch: true, bunkers: 3,
   doctrine: true, powerTier: 3, powerUse: 1, offensivePowers: true, powers: null, powerGap: 0,
   raids: true, agents: true, siege: true, waveCap: UNCAPPED, armyCap: UNCAPPED, defendDelay: 0, rebuildDelay: 0,
+  armyStart: UNCAPPED, armyRamp: 0, infOpening: UNCAPPED, capAll: false, maxOf: null, defenceAfter: 0, maxStructures: UNCAPPED, rallyAhead: 5, noUnits: [], maxVehicles: UNCAPPED,
 };
+
+/** Recruit and easy (version 5): one barracks, war factory, airfield and helipad; no kennel, decoys or gap generator. */
+const LOW_STRUCTURES: Readonly<Record<string, number>> = { tent: 1, barr: 1, weap: 1, afld: 1, hpad: 1, kenn: 0, facf: 0, weaf: 0, gap: 0 };
+/** Recruit and easy (version 5): no artillery, heavy or special units (V2s, howitzers, Mammoths, Tesla tanks and the like). */
+const LOW_UNITS: readonly string[] = ['v2rl', 'arty', '4tnk', 'ttnk', 'qtnk', 'ctnk', 'stnk', 'dtrk', 'mgg', 'mrj', 'shok', 'e7'];
 
 /**
  * The difficulty levels (simulation version 3: the difficulty overhaul, docs/BALANCE.md). Recruit and easy are
@@ -108,21 +137,23 @@ const FULL = {
  */
 const DIFF: Record<AIDifficulty, DiffParams> = {
   recruit: {
-    buildSpeed: 0.5, income: 0.7, firstAttack: 900, waveValue: 1800, waveGrowth: 400, defenses: 1, reaction: 0.3, superweapons: false, skill: 0.1, scoutAt: 240,
+    buildSpeed: 0.5, income: 0.7, firstAttack: 600, waveValue: 1000, waveGrowth: 300, defenses: 1, reaction: 0.3, superweapons: false, skill: 0.1, scoutAt: 240,
     maxRefs: 1, maxHarv: 2, expansions: 0, outposts: 0, neutral: false, events: 0,
     maxTier: 1, tierPace: 2, research: 0, researchMax: 0, upgrades: [], projects: 0, processors: 0, econPlus: false, econResearch: false, bunkers: 0,
     doctrine: false, powerTier: 0, powerUse: 0, offensivePowers: false, powers: [], powerGap: 120,
     raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 4000, defendDelay: 15, rebuildDelay: 150,
+    armyStart: 1200, armyRamp: 250, infOpening: 6, capAll: true, maxOf: LOW_STRUCTURES, defenceAfter: 600, maxStructures: 10, rallyAhead: -3, noUnits: LOW_UNITS, maxVehicles: 2,
   },
   easy: {
-    buildSpeed: 0.6, income: 0.75, firstAttack: 720, waveValue: 2500, waveGrowth: 700, defenses: 2, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150,
+    buildSpeed: 0.6, income: 0.75, firstAttack: 540, waveValue: 1800, waveGrowth: 700, defenses: 1, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150,
     maxRefs: 2, maxHarv: 3, expansions: 0, outposts: 0, neutral: false, events: 0,
     maxTier: 2, tierPace: 3, research: 1, researchMax: 1, upgrades: ['powr_turbine'], projects: 1, processors: 0, econPlus: false, econResearch: false, bunkers: 0,
     doctrine: false, powerTier: 1, powerUse: 0.35, offensivePowers: false, powers: ['repair'], powerGap: 120,
-    raids: false, agents: false, siege: false, waveCap: 6000, armyCap: 8000, defendDelay: 6, rebuildDelay: 60,
+    raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 6000, defendDelay: 6, rebuildDelay: 60,
+    armyStart: 1500, armyRamp: 300, infOpening: 8, capAll: true, maxOf: LOW_STRUCTURES, defenceAfter: 600, maxStructures: 12, rallyAhead: -3, noUnits: LOW_UNITS, maxVehicles: 4,
   },
   normal: {
-    buildSpeed: 0.95, income: 1.0, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70,
+    buildSpeed: 1.0, income: 1.05, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70,
     ...FULL,
     maxRefs: 3, maxHarv: 6, expansions: 1, outposts: 1, events: 0.6,
     tierPace: 1.3, researchMax: 4, projects: 2, processors: 2, econPlus: false, bunkers: 2,
@@ -335,6 +366,11 @@ export class AIController {
   estTick = 0;
   /** Classic (ai-engage.ts): tick an enemy force of real size (not a scout or a paradrop) was last seen at the base. */
   lastAssault = -99999;
+  /** Classic siege (version 5): the wave value the regrouped wave waits for before it goes in again (0 = no siege). */
+  siegeNeed = 0;
+  /** Team play (ai-team.ts): tick a human teammate's base was first seen under attack (-1 = none), and of the last help sent. */
+  mateThreat = -1;
+  lastMateHelp = -99999;
   /** UI feed (rivals radio). */
   chatter: AIChatter[] = [];
   private foundSaid = false;
@@ -371,6 +407,7 @@ export class AIController {
     this.tune = { ...DEFAULT_TUNING, ...(this.personality.tuning ?? {}) };
     this.intel = new AIIntel(world, p);
     this.intel.mapHack = !!this.tune.mapHack;
+    this.intel.powerAware = !!this.tune.proPower;
     p.buildSpeed = this.d.buildSpeed;
     p.incomeBias = this.d.income;
     this.nextWaveValue = this.d.waveValue;
@@ -421,6 +458,31 @@ export class AIController {
     return v;
   }
 
+  /** The level's army cap right now (recruit and easy: it grows over the match, armyStart + armyRamp a minute). */
+  armyCapNow(): number {
+    const d = this.d;
+    return Math.min(d.armyCap, d.armyStart + d.armyRamp * (this.world.time / 60));
+  }
+
+  /** What the level's army cap counts: the land army, and on the levels that count them (capAll) aircraft and ships. */
+  capValue(units: Unit[] = this.myUnits()): number {
+    let v = this.armyValue(units);
+    if (this.d.capAll) for (const u of units) if ((u.kind === 'aircraft' || u.kind === 'naval') && u.weapons.length && !u.ut.supportPlane) v += u.ut.cost;
+    return v;
+  }
+
+  /** The army has reached the level's cap (recruit, easy and normal): no more combat units for now. `extra`: ordered this think. */
+  atArmyCap(units?: Unit[], extra = 0): boolean {
+    if (this.d.armyCap >= UNCAPPED) return false;
+    let v = this.capValue(units) + extra;
+    // (recruit and easy: what is already in production counts too, so three factories at once don't overshoot it)
+    if (this.d.capAll) for (const q of [this.p.queues.infantry, this.p.queues.vehicle, this.p.queues.aircraft]) for (const it of q.items) {
+      const t = UNITS[it.type];
+      if (t && t.primary && !t.harvester && !t.deploysInto) v += t.cost;
+    }
+    return v >= this.armyCapNow();
+  }
+
   /** During the ceasefire: the army has reached its build-up size for this difficulty (land production pauses). */
   atBuildupCap(units?: Unit[]): boolean {
     return this.ceasefire && this.armyValue(units) >= BUILDUP[this.difficulty].cap;
@@ -453,6 +515,7 @@ export class AIController {
     }
     this.military();
     if (this.classicPro) guardHarvesters(this);
+    if (this.skirmish && this.behaviour === 'full') { const mates = humanMates(this); if (mates.length) spareMatesOre(this, mates); } // (a human teammate's ore is his)
     if (this.skirmish) harass(this);
     this.airStrikes();
     this.superweapons();
@@ -574,8 +637,20 @@ export class AIController {
     return goal ? goal[0] : null;
   }
 
+  /**
+   * Skirmish-based modes, version 5: no refinery yet and too little money for one after anything else (the $2,500 of Lean Times or
+   * the smallest starting bank, or a refinery lost late with an empty bank): the power plant it needs, then the
+   * refinery, before anything else. The opening used to put two power plants and a barracks first, and the refinery
+   * then waited half-paid forever with no income to finish it.
+   */
+  private refineryFirst(): boolean {
+    const p = this.p;
+    return this.levelled && this.count('proc') === 0 && p.credits < costOf(p, BUILDINGS.proc) + 1000 && this.allowed('proc');
+  }
+
   private nextStructure(): string | null {
     const p = this.p;
+    if (this.refineryFirst()) return p.canBuild('proc') ? 'proc' : p.canBuild('powr') && this.count('powr') === 0 ? 'powr' : null;
     // power first
     const surplus = p.powerOut - p.powerUse;
     const goal = this.goalList().find(([t, n]) => this.count(t) < n && p.canBuild(t) && this.allowed(t));
@@ -583,6 +658,12 @@ export class AIController {
     if (surplus < 20 || surplus - goalDrain < 0) {
       if (p.canBuild('apwr')) return 'apwr';
       if (p.canBuild('powr')) return 'powr';
+    }
+    // (recruit and easy: a small base; power plants above, and replacements for what was lost, still come)
+    if (this.d.maxStructures < UNCAPPED) {
+      let n = 0;
+      for (const b of this.world.buildings) if (b.alive && b.owner === p && !b.bt.wall && !b.bt.mine && b.bt.id !== 'powr' && b.bt.id !== 'apwr') n++;
+      if (n >= this.d.maxStructures) return null;
     }
     if (p.ore > p.storage * 0.85 && p.storage > 0 && p.canBuild('silo') && this.count('silo') < 3) return 'silo';
     // keep enough refineries working the ore around the base
@@ -625,8 +706,14 @@ export class AIController {
   private allowed(t: string): boolean {
     const pers = this.personality;
     if (t === 'proc' && this.count('proc') >= this.d.maxRefs) return false;
+    // (recruit and easy: one of each factory, whatever the personality's build order asks for)
+    const most = this.d.maxOf?.[t];
+    if (most !== undefined && this.count(t) >= most) return false;
     // (Classic, normal and up: the army first; extras and a second war factory once the money floats or the army is ahead)
-    if (this.classicPro && (PRO_EXTRAS.has(t) || (t === 'weap' && this.count('weap') >= 1)) && this.p.credits < BUILDINGS[t].cost * 0.8 &&
+    // (version 5, tune.proLean: in the first 15 minutes the tech centre, a third refinery and a second Tesla Coil wait
+    // the same way: a casual player who spends his money on tanks had twice the army of the Classic AI at minute 10)
+    const lean = this.tune.proLean > 0 && this.world.time < 900 && (t === 'stek' || t === 'atek' || (t === 'proc' && this.count('proc') >= 2) || (t === 'tsla' && this.count('tsla') >= 1));
+    if (this.classicPro && (PRO_EXTRAS.has(t) || lean || (t === 'weap' && this.count('weap') >= 1)) && this.p.credits < BUILDINGS[t].cost * 0.8 &&
       this.armyValue() < this.enemyEst * 1.2 + 3000) return false;
     // (easier levels take their time to replace what they lost)
     const lost = this.lostAt[t];
@@ -636,6 +723,7 @@ export class AIController {
       return this.intel.armyMix(600).air > 0 || (this.d.skill >= 0.5 || !this.levelled) && this.world.time > 720 * trait(pers.defence, 1.4, 0.6);
     }
     if (DEFENSES.has(t)) {
+      if (this.world.time < this.d.defenceAfter) return false;
       let n = 0;
       for (const b of this.myBuildings()) if (DEFENSES.has(b.bt.id)) n++;
       return n < this.defenceCap();
@@ -758,6 +846,8 @@ export class AIController {
     // (Classic, normal and up: the tanks take the money as it comes in, so the next structure on the list, tech and
     // defences included, keeps what it needs to start: nextStructure() waits for half its price)
     if (next && this.classicPro) reserve = Math.max(reserve, Math.min(nextCost, 2000) * 0.5 + 100);
+    // (short of money before the first refinery: the refinery's price stays in the bank, version 5)
+    if (this.refineryFirst()) reserve = Math.max(reserve, costOf(p, BUILDINGS.proc) + 100);
     const underThreat = this.world.tick - this.lastDefend < TICK_HZ * 10;
     if (this.world.econ && p.credits < reserve + econReserve(this) && !underThreat) return; // (saving for upgrades / research)
     if (p.credits < reserve && !underThreat) return;
@@ -765,8 +855,8 @@ export class AIController {
     if (this.expansion?.stage === 'build' && vq.items.some((i) => i.type === 'mcv')) return;
     // build-up time: the army grows to its cap for this difficulty, then the money goes into the base
     if (this.atBuildupCap(units)) return;
-    // (easier levels: an army this size is all they field)
-    if (this.d.armyCap < UNCAPPED && this.armyValue(units) >= this.d.armyCap) return;
+    // (easier levels: an army this size is all they field; recruit and easy grow it over the match)
+    if (this.atArmyCap(units)) return;
     const inf = units.filter((u) => u.kind === 'infantry').length;
     const veh = units.filter((u) => u.kind === 'vehicle' && !u.ut.harvester && !u.ut.deploysInto).length;
     const canVeh = p.has('weap');
@@ -781,30 +871,35 @@ export class AIController {
     // production with money to spare, or when the money floats.)
     const pro = this.classicPro;
     const proVeh = pro && canVeh;
+    // (recruit and easy: each factory checks the cap again, what the others just ordered included: orders take effect
+    // on the next tick)
+    let ordered = 0;
+    const room = () => !this.d.capAll || !this.atArmyCap(units, ordered);
+    const order = (t: string, count?: number) => { this.world.issue(count === undefined ? { c: 'build', player: p.id, type: t } : { c: 'build', player: p.id, type: t, count }); ordered += (UNITS[t]?.cost ?? 0) * (count ?? 1); };
     const vehicle = () => {
       // (build-up time: the army comes first, so a vehicle starts as soon as the reserve is covered)
-      if (!vq.items.length && p.credits > reserve + (this.ceasefire ? 0 : proVeh ? 100 : 500)) {
+      if (!vq.items.length && p.credits > reserve + (this.ceasefire ? 0 : proVeh ? 100 : 500) && room() && veh < this.d.maxVehicles) {
         const t = this.pick(this.mix(VEH_MIX[p.faction]));
-        if (t) this.world.issue({ c: 'build', player: p.id, type: t });
+        if (t) order(t);
       }
     };
     if (proVeh) vehicle();
     if (pro) infCap = (canVeh ? Math.min(infCap, veh * PRO_INF_PER_VEH + 4) : PRO_INF_OPENING) * trait(pers.infantry, 0.6, 2.5); // (a human-wave commander still fields his crowds)
     const infOk = !proVeh || (vq.items.length > 0 && p.credits > reserve + 300) || p.credits > reserve + 1200;
-    if (!iq.items.length && (!canVeh || inf < infCap) && (!pro || inf < infCap) && infOk) {
+    if (!iq.items.length && (canVeh ? inf < infCap : inf < this.d.infOpening) && (!pro || inf < infCap) && infOk && room()) {
       // (healers only in proportion to the infantry they can look after)
       const healers = units.filter((u) => u.ut.medic).length;
       const mix = this.mix(INF_MIX[p.faction]).map(([t, wt]): [string, number] => [t, this.skirmish && UNITS[t]?.medic && healers >= Math.max(1, inf * this.tune.medicCap) ? 0 : wt]);
       const t = this.pick(mix);
-      if (t) this.world.issue({ c: 'build', player: p.id, type: t, count: t === 'e1' ? 2 : 1 });
+      if (t) order(t, t === 'e1' ? 2 : 1);
     }
     if (!proVeh) vehicle();
     const aq = p.queues.aircraft;
     const air = units.filter((u) => u.kind === 'aircraft').length;
     const airCap = (2 + this.d.defenses / 2) * trait(pers.air, 0, 3);
-    if (!aq.items.length && p.credits > reserve + 1200 * trait(pers.air, 1.6, 0.5) && air < airCap) {
+    if (!aq.items.length && p.credits > reserve + 1200 * trait(pers.air, 1.6, 0.5) && air < airCap && room()) {
       const t = this.pick(this.mix(AIR_MIX[p.faction]));
-      if (t) this.world.issue({ c: 'build', player: p.id, type: t });
+      if (t) order(t);
     }
   }
 
@@ -856,7 +951,8 @@ export class AIController {
   }
 
   private pick(mix: [string, number][]): string | null {
-    const opts = mix.filter(([t, w]) => w > 0 && this.p.canBuild(t));
+    const ban = this.d.noUnits;
+    const opts = mix.filter(([t, w]) => w > 0 && this.p.canBuild(t) && !ban.includes(t));
     if (!opts.length) return null;
     const total = opts.reduce((s, [, w]) => s + w, 0);
     let r = this.world.rng.next() * total;
@@ -1027,7 +1123,7 @@ export class AIController {
     const army = this.army();
     const [bx, by] = this.baseCenter();
     const [ex, ey] = this.enemyDir();
-    const gx = bx + ex * 5, gy = by + ey * 5;
+    const gx = bx + ex * this.d.rallyAhead, gy = by + ey * this.d.rallyAhead;
 
     // set rally points for factories
     if (this.due(TICK_HZ * 5)) {
@@ -1048,6 +1144,9 @@ export class AIController {
 
     // --- defend the base (and, from normal up, outlying structures and harvesters)
     if (this.defend(army, bx, by)) return;
+    // --- human teammates (2v2, co-op): help when their base is attacked (version 5)
+    const mates = this.skirmish && !this.ceasefire ? humanMates(this) : [];
+    if (mates.length) helpMates(this, mates);
 
     // --- attack waves
     if (this.state === 'build') {
@@ -1061,6 +1160,11 @@ export class AIController {
           if (stray.length) w.issue({ c: 'move', player: p.id, units: stray, x: gx, y: gy });
         }
         return;
+      }
+      // a human teammate's army is at an enemy base: go with him (version 5)
+      if (mates.length && this.due(TICK_HZ * 2) && value >= Math.min(this.d.waveValue * 0.5, 1500)) {
+        const push = matePush(this, mates);
+        if (push) { this.launchWave(idle, push, bx, by); return; }
       }
       // the ceasefire is over: the army built up goes in, whatever the clock or the scouts say
       if (this.grandWave && value >= BUILDUP[this.difficulty].min) {
@@ -1129,7 +1233,14 @@ export class AIController {
     if (this.stage === 'gather') {
       const main = alive.filter((u) => !this.flank.has(u.id));
       const near = main.filter((u) => Math.hypot(u.x - this.stageX, u.y - this.stageY) < 7).length;
-      if (near >= main.length * 0.75 || w.tick - this.stageStart > TICK_HZ * 60) {
+      // (a siege, version 5: reinforcements keep joining until the wave outweighs what stopped it, two minutes at most)
+      let waiting = false;
+      if (this.siegeNeed > 0) {
+        if (this.due(TICK_HZ * 4)) this.reinforce();
+        waiting = main.reduce((s, u) => s + u.ut.cost * u.healthFrac, 0) < this.siegeNeed && w.tick - this.stageStart < TICK_HZ * 120;
+      }
+      if (!waiting && (near >= main.length * 0.75 || w.tick - this.stageStart > TICK_HZ * 60)) {
+        this.siegeNeed = 0;
         this.stage = 'assault';
         const t = this.pickAttackTarget(this.stageX, this.stageY) ?? this.stageTarget;
         this.stageTarget = t;
@@ -1147,6 +1258,9 @@ export class AIController {
       if (this.due(TICK_HZ * 2)) {
         retreatDamaged(this, alive, gx, gy);
         if (this.classicPro && outmatchedWave(this, alive)) {
+          // (version 5: stopped by defences rather than by an army, the wave holds at its staging point, out of their
+          // reach, and the rest of the army joins it there before it tries again)
+          if (this.siege(alive)) return;
           // (Classic, normal and up: a wave that meets more than it can beat comes home at once, before it is lost)
           this.state = 'build';
           this.flank.clear();
@@ -1239,6 +1353,7 @@ export class AIController {
     this.waveStart = this.wave.size;
     this.waveValueStart = wave.reduce((s, u) => s + u.ut.cost * u.healthFrac, 0);
     this.regroups = 0;
+    this.siegeNeed = 0;
     this.waves++;
     // gather at a staging point outside the enemy base first
     const k = 0.55;
@@ -1300,6 +1415,53 @@ export class AIController {
     for (const u of picked) this.flank.add(u.id);
   }
 
+  /**
+   * Classic, normal and up (tune.proSiege, version 5): a wave held up by defences rather than by an enemy army falls
+   * back to its staging point outside their reach and calls up the rest of the army, instead of going home; it goes
+   * in again once it outweighs what stopped it by the usual margin. Returns false when this wave has sieged enough,
+   * or an army is what stopped it.
+   */
+  private siege(alive: Unit[]): boolean {
+    const w = this.world;
+    // (only for a commander clearly ahead: against an army at home, holding outside its base strips our own base bare)
+    if (this.regroups >= this.tune.proSiege || !alive.length || this.armyValue() < this.enemyEst * 1.5) return false;
+    let cx = 0, cy = 0, v = 0;
+    for (const u of alive) { cx += u.x; cy += u.y; v += u.ut.cost * u.healthFrac; }
+    cx /= alive.length; cy /= alive.length;
+    const facing = facingNear(this, cx, cy);
+    const army = this.intel.strengthNear(cx, cy, 10, 8, false);
+    if (army > v * 0.5) return false;
+    this.regroups++;
+    this.lastFallback = w.tick;
+    this.stage = 'gather';
+    this.stageStart = w.tick;
+    this.siegeNeed = facing * 1.15;
+    this.flank.clear();
+    this.reinforce();
+    w.issue({ c: 'move', player: this.p.id, units: [...this.wave], x: this.stageX, y: this.stageY });
+    this.say('fallback', cx, cy);
+    return true;
+  }
+
+  /** The army at home (idle, or walking back to the rally point) joins the wave at its staging point. */
+  private reinforce() {
+    const [gx, gy] = this.rallyPoint();
+    const add: number[] = [];
+    for (const u of this.available()) {
+      if (this.wave.has(u.id)) continue;
+      if (u.order.type === 'idle' || u.order.type === 'guard' || (u.order.type === 'move' && Math.hypot(u.x - gx, u.y - gy) < 25)) { this.wave.add(u.id); add.push(u.id); }
+    }
+    this.waveStart = Math.max(this.waveStart, this.wave.size);
+    if (add.length) this.world.issue({ c: 'move', player: this.p.id, units: add, x: this.stageX, y: this.stageY });
+  }
+
+  /** The army's rally point in front of the base. */
+  rallyPoint(): [number, number] {
+    const [bx, by] = this.baseCenter();
+    const [ex, ey] = this.enemyDir();
+    return [bx + ex * this.d.rallyAhead, by + ey * this.d.rallyAhead];
+  }
+
   /** A wave outmatched by what it runs into falls back to its staging point and regroups with reinforcements. */
   private fallBack(alive: Unit[]): boolean {
     const w = this.world;
@@ -1342,9 +1504,12 @@ export class AIController {
     let best: [number, number] | null = null, bestScore = Infinity;
     const known = this.intel.knownStructures();
     const coilWise = this.tune.teslaOn && alliedTools(this); // (Allied AI: mind the coils' reach, ai-allies.ts)
+    // (Classic, version 5: the power plants a Tesla Coil base can't spare come first, whatever covers them)
+    const power = this.classicPro && this.tune.proPower ? powerTargets(this, known) : null;
     for (const s of known) {
       if (this.world.players[s.owner]?.defeated) continue;
       let score = Math.hypot(s.x - bx, s.y - by);
+      if (power?.has(s.id)) { score -= 12; if (score < bestScore) { bestScore = score; best = [s.x, s.y + s.h / 2 + 0.5]; } continue; }
       const bt = BUILDINGS[s.type];
       if ((s.type === 'proc' && this.d.raids) || bt?.factory) score -= 4;
       // steer around fortified spots
@@ -1361,6 +1526,9 @@ export class AIController {
       const score = Math.hypot(s.x - bx, s.y - by);
       if (score < bestScore) { bestScore = score; best = [s.x, s.y]; }
     }
+    // (version 5: an enemy still in the game whose last structures it has lost track of is searched for, the square
+    // of the map it has gone longest without seeing first; the waves used to sit at home until the time limit)
+    if (!best && this.skirmish && this.world.players.some((o) => o !== this.p && !o.defeated && this.p.isEnemy(o))) best = this.intel.huntPoint(bx, by);
     return best;
   }
 
@@ -1459,6 +1627,7 @@ export class AIController {
       nukeSince: this.nukeSince, chronoSince: this.chronoSince, spyTries: this.spyTries, lastSpy: this.lastSpy, radarSpy: this.radarSpy,
       threatSince: this.threatSince, lostAt: { ...this.lostAt }, had: { ...this.had }, lastPower: this.lastPower,
       enemyEst: this.enemyEst, estTick: this.estTick, lastAssault: this.lastAssault,
+      mateThreat: this.mateThreat, lastMateHelp: this.lastMateHelp, siegeNeed: this.siegeNeed,
     };
   }
 
@@ -1484,6 +1653,7 @@ export class AIController {
     this.spyTries = s.spyTries ?? 0; this.lastSpy = s.lastSpy ?? -9999; this.radarSpy = s.radarSpy ?? 0;
     this.lastPower = s.lastPower ?? -99999;
     this.enemyEst = s.enemyEst ?? 0; this.estTick = s.estTick ?? 0; this.lastAssault = s.lastAssault ?? -99999;
+    this.mateThreat = s.mateThreat ?? -1; this.lastMateHelp = s.lastMateHelp ?? -99999; this.siegeNeed = s.siegeNeed ?? 0;
     this.threatSince = s.threatSince ?? -1; this.lostAt = { ...(s.lostAt ?? {}) }; this.had = { ...(s.had ?? {}) };
   }
 }

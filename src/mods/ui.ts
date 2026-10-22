@@ -113,11 +113,20 @@ function htmlWith(html: (params: Record<string, string>) => string, markup: Reco
   return out;
 }
 
+/** Units and structures the bundled example mods add, by "table:id" -> their English name (filled once fetched). */
+const BUNDLED_ADDED = new Map<string, string>();
+
+/** An added type's name: in the interface language while it is a bundled example's own (the Rhino Tank), else as written. */
+function addedName(a: ModReport['added'][number]): string {
+  const name = a.name ?? a.id;
+  return (a.table === 'units' || a.table === 'buildings') && a.name && BUNDLED_ADDED.get(`${a.table}:${a.id}`) === a.name ? dt(ONE[a.table], a.id, 'name', a.name) : name;
+}
+
 function changeRows(r: ModReport): string {
   const tables = pristineTables();
   let html = '';
   if (r.added.length) {
-    html += `<h4>${tMods.html('changes.variants')}</h4>` + r.added.map((a) => `<div class="mods-row"><span class="who">${esc(a.name ?? a.id)}</span><span class="fld">${tMods.html('changes.copyOf', { id: a.id, name: nameOf(a.table, a.base, tables) })}</span><span class="val">${tMods.html(`table.${ONE[a.table]}`)}</span></div>`).join('');
+    html += `<h4>${tMods.html('changes.variants')}</h4>` + r.added.map((a) => `<div class="mods-row"><span class="who">${esc(addedName(a))}</span><span class="fld">${tMods.html('changes.copyOf', { id: a.id, name: nameOf(a.table, a.base, tables) })}</span><span class="val">${tMods.html(`table.${ONE[a.table]}`)}</span></div>`).join('');
   }
   for (const t of ['units', 'buildings', 'weapons', 'warheads'] as TableName[]) {
     const ch = r.changes.filter((c) => c.table === t);
@@ -182,6 +191,10 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
   document.body.appendChild(root);
   let selected: string | null = enabledModIds()[0] ?? installedMods()[0]?.id ?? null;
   let examples: ModFile[] = [];
+  // a bundled example's name and description in the interface language, while still the bundled English (an
+  // edited copy keeps its own text)
+  const modName = (m: ModFile): string => (examples.some((e) => e.id === m.id && e.name === m.name) ? dt('modExample', m.id, 'name', m.name) : m.name);
+  const modDesc = (m: ModFile): string => (examples.some((e) => e.id === m.id && (e.description ?? '') === (m.description ?? '')) ? dt('modExample', m.id, 'description', m.description ?? '') : m.description ?? '');
   let message: { text: string; bad: boolean } | null = null;
   let closed = false;
   const play = (k: 'click' | 'tab') => { try { opts.play?.(k); } catch { /* audio locked */ } };
@@ -228,8 +241,8 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
       const i = enabled.indexOf(m.id);
       return `<div class="mod-card ${m.id === selected ? 'sel' : ''} ${r.ok ? '' : 'bad'}" data-id="${esc(m.id)}">
         ${installed ? `<button class="mod-sw ${on ? 'on' : ''}" data-act="toggle" title="${esc(tMods(on ? 'card.disable' : 'card.enable'))}" ${r.ok ? '' : 'disabled'}><i></i></button>` : '<span></span>'}
-        <div><div class="nm">${esc(m.name)}<small>${esc(m.modVersion ? 'v' + m.modVersion : '')}${m.author ? ' · ' + esc(m.author) : ''}</small></div>
-          <div class="ds">${esc((m.description ?? '').slice(0, 160))}${(m.description ?? '').length > 160 ? '…' : ''}</div>
+        <div><div class="nm">${esc(modName(m))}<small>${esc(m.modVersion ? 'v' + m.modVersion : '')}${m.author ? ' · ' + esc(m.author) : ''}</small></div>
+          <div class="ds">${esc(modDesc(m).slice(0, 160))}${modDesc(m).length > 160 ? '…' : ''}</div>
           <div class="st ${r.ok ? '' : 'err'}">${r.ok ? (on ? tMods.html('card.changesActive', { n: r.changes.length + r.added.length, pos: String(i + 1) }) : tMods.html('card.changes', { n: r.changes.length + r.added.length })) : tMods.html('card.errors', { n: r.errors.length })}</div></div>
         <div class="side">${installed
           ? `${on && enabled.length > 1 ? `<span class="ord"><button data-act="up" ${i === 0 ? 'disabled' : ''} title="${esc(tMods('card.earlier'))}">▲</button><button data-act="down" ${i === enabled.length - 1 ? 'disabled' : ''} title="${esc(tMods('card.later'))}">▼</button></span>` : ''}
@@ -254,8 +267,8 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
           ${htmlWith((p) => tMods.html('screen.format', p), { format: `<code>${esc('{ "id", "name", "units": { "2tnk": { "cost": 600 } }, "scale": [ … ] }')}</code>` })}</div>
       </div>
       <div class="mods-panel mods-detail">
-        ${sel && selReport ? `<h2>${esc(sel.name.toUpperCase())}</h2><div class="by">${esc([sel.author, sel.modVersion ? 'v' + sel.modVersion : '', sel.id].filter(Boolean).join(' · ').toUpperCase())}</div>
-          <p>${esc(sel.description ?? '')}</p>${issues(selReport)}<div class="mods-changes">${changeRows(selReport)}</div>`
+        ${sel && selReport ? `<h2>${esc(modName(sel).toUpperCase())}</h2><div class="by">${esc([sel.author, sel.modVersion ? 'v' + sel.modVersion : '', sel.id].filter(Boolean).join(' · ').toUpperCase())}</div>
+          <p>${esc(modDesc(sel))}</p>${issues(selReport)}<div class="mods-changes">${changeRows(selReport)}</div>`
           : `<h2>${tMods.html('screen.activeSet')}</h2><div class="by">${tMods.html('screen.enabled', { n: enabled.length })}</div>`}
         ${enabled.length > 1 ? `<div class="mods-changes" style="flex:0 0 auto;max-height:30%"><h4>${tMods.html('screen.combined', { n: enabled.length })}</h4>${issues(all)}<div class="mods-row"><span class="who">${tMods.html('screen.combinedSummary', { changes: all.changes.length, added: all.added.length })}</span><span class="fld">${tMods.html('screen.hash')}</span><span class="val">${esc(modSetHash(enabled.map((id) => mods.find((m) => m.id === id)!).filter(Boolean)).slice(0, 12))}</span></div></div>` : ''}
       </div>`;
@@ -279,6 +292,11 @@ export function showMods(opts: { onBack: () => void; play?: (k: 'click' | 'tab')
     (root.querySelector('[data-act="back"]') as HTMLElement).onclick = back;
   };
   render();
-  void fetchExamples().then((ex) => { examples = ex; if (!selected && ex[0]) selected = ex[0].id; render(); });
+  void fetchExamples().then((ex) => {
+    examples = ex;
+    for (const m of ex) for (const a of checkMods([m]).added) if (a.name) BUNDLED_ADDED.set(`${a.table}:${a.id}`, a.name);
+    if (!selected && ex[0]) selected = ex[0].id;
+    render();
+  });
   return close;
 }

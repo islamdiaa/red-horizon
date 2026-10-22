@@ -34,6 +34,7 @@ import { loadProgress } from '../missions/progress';
 import { customMaps, isCustomMapId } from '../maps/custom'; // editor maps in the picker
 import { enabledModIds } from '../mods/store';
 import { activeModsChip } from '../mods';
+import { surrenderEntry } from '../net/surrender'; // MP: in-match surrender
 import { quickBattleSetup, rulesTabs } from './variety'; // rules tab, mutators, Quick Battle
 import { DOCTRINES, doctrinesFor, doctrineUnlocked } from '../sim/doctrine'; // Quick Battle doctrine
 import { LANGS, LANG_NAMES, dt, fmtDateTime, fmtMoney, fmtPct, languagePref, resolvePref, setLanguage, trSource, type LangPref } from '../i18n/core'; // interface language
@@ -58,7 +59,7 @@ export interface AtmosphereSetup {
 interface SkirmishPrefs {
   faction: Faction;
   color: number;
-  opponents: { faction: Faction | 'random'; difficulty: AIDifficulty; rivalId?: string }[]; // rival id
+  opponents: { faction: Faction | 'random'; difficulty: AIDifficulty; rivalId?: string; ally?: boolean }[]; // rival id; an AI ally
   mapSize: number;
   water: number;
   trees: number;
@@ -517,19 +518,28 @@ export class Menus {
       prefs.opponents.forEach((o, i) => {
         const color = TEAM_COLORS.find((c) => !used.has(c))!;
         used.add(color);
-        const r = h('div', 'opponent');
+        if (o.rivalId) o.ally = undefined; // (a rival is always an opponent)
+        const r = h('div', `opponent${o.ally ? ' ally' : ''}`);
         r.style.setProperty('--i', String(i));
-        r.appendChild(h('span', 'op-id', `<i style="--c:${hexColor(color)}"></i>${ICONS.cpu}<b>${tMenu.html('skirmish.aiName', { n: i + 1 })}</b>`));
+        r.appendChild(h('span', 'op-id', `<i style="--c:${hexColor(color)}"></i>${o.ally ? ICONS.people : ICONS.cpu}<b>${tMenu.html(o.ally ? 'skirmish.allyName' : 'skirmish.aiName', { n: i + 1 })}</b>`));
         // a rival replaces the faction choice with its chip; "Rival" sits next to the difficulties
         r.appendChild(o.rivalId ? rivalChip(o, renderOpps, (k) => this.sound.play(k)) : seg<Faction | 'random'>([['allies', tCommon.html('faction.allies')], ['soviet', tMenu.html('skirmish.oppSoviet')], ['random', tCommon.html('random')]], o.faction, (v) => { o.faction = v; }, 'op-fac'));
         const diffSeg = seg<AIDifficulty | 'rival'>([...AI_DIFFICULTIES.map((d): [AIDifficulty, string] => [d, tCommon.html(`difficulty.${d}`)]), ['rival', tMenu.html('skirmish.rival')]], o.rivalId ? 'rival' : o.difficulty, (v) => { const was = !!o.rivalId; setOpponentKind(o, v); r.dataset.diff = v; if (was !== !!o.rivalId) renderOpps(); else vr?.syncDynamic(); }, 'op-diff');
         diffSeg.querySelector<HTMLElement>('[data-v="recruit"]')?.setAttribute('title', tMenu('skirmish.recruitTip'));
         r.appendChild(diffSeg);
         r.dataset.diff = o.rivalId ? 'rival' : o.difficulty;
+        // the ally switch (2 vs 2 with an AI ally): at least one AI stays an opponent; a rival never fights for you
+        const ally = h('button', `op-ally${o.ally ? ' on' : ''}`, ICONS.people);
+        const lastFoe = !o.ally && prefs.opponents.filter((x) => !x.ally).length <= 1;
+        ally.disabled = !!o.rivalId || lastFoe;
+        ally.title = lastFoe ? tMenu('skirmish.allyNeedsEnemy') : tMenu(o.ally ? 'skirmish.allyOn' : 'skirmish.allyOff');
+        ally.setAttribute('aria-pressed', String(!!o.ally));
+        ally.onclick = () => { o.ally = !o.ally || undefined; renderOpps(); renderMap(); };
+        r.appendChild(ally);
         const x = h('button', 'op-x', ICONS.close);
         x.title = def ? tMenu('skirmish.mapFixesPlayers', { map: mapName(def), n: def.players }) : tMenu('skirmish.removeOpponent');
         x.disabled = prefs.opponents.length <= 1 || !!def;
-        x.onclick = () => { prefs.opponents.splice(i, 1); renderOpps(); renderMap(); };
+        x.onclick = () => { prefs.opponents.splice(i, 1); if (!prefs.opponents.some((y) => !y.ally)) prefs.opponents[0].ally = undefined; renderOpps(); renderMap(); };
         r.appendChild(x);
         oppBox.appendChild(r);
       });
@@ -641,7 +651,7 @@ export class Menus {
       grid, mode: modeField, buildup, faction: () => prefs.faction,
       mutatorContext: () => ({ climate: (prefs.mapId ? getMapDef(prefs.mapId)?.climate : undefined) ?? prefs.climate, faction: prefs.faction }),
       host: () => this.screen, setEsc: (fn) => { this.escAction = fn; },
-      dynamicDefault: () => dynamicDefault(prefs.opponents.map(opponentLevel)),
+      dynamicDefault: () => dynamicDefault(prefs.opponents.filter((o) => !o.ally).map(opponentLevel)), // (the opponents only, not an AI ally)
     });
     panel.append(vr.tabs, grid, vr.rules);
     renderOpps();
@@ -656,7 +666,7 @@ export class Menus {
       const def = prefs.mapId ? getMapDef(prefs.mapId) : undefined;
       // a generated map is started from exactly the parameters its map code encodes
       const p = genParams();
-      const opponents = prefs.opponents.map((o) => resolveRivalOpponent({ ...o })); // rivals plan before the match
+      const opponents: GameSetup['opponents'] = prefs.opponents.map((o) => ({ ...resolveRivalOpponent({ ...o }), ...(o.ally && !o.rivalId ? { ally: true } : {}) })); // rivals plan before the match; an AI ally
       const setup: GameSetup & AtmosphereSetup = {
         faction: prefs.faction, color: prefs.color, opponents,
         mapSize: def ? def.size : p.size, water: p.water, trees: p.trees, ore: p.ore, credits: prefs.credits, startUnits: prefs.startUnits, fog: prefs.fog,
@@ -669,7 +679,7 @@ export class Menus {
         rules: prefs.rules === 'classic' ? 'classic' : 'commander',
         mutators: prefs.mutators?.length ? [...prefs.mutators] : undefined,
         events: prefs.rules === 'classic' ? undefined : prefs.events !== false,
-        dynamicDifficulty: (prefs.dynamicDifficulty ?? dynamicDefault(opponents.map((o) => o.difficulty))) || undefined, // (default: on against Recruit / Easy only)
+        dynamicDifficulty: (prefs.dynamicDifficulty ?? dynamicDefault(opponents.filter((o) => !o.ally).map((o) => o.difficulty))) || undefined, // (default: on against Recruit / Easy only)
         doctrines: prefs.rules !== 'classic' && prefs.doctrine ? [prefs.doctrine] : undefined, // the player's pick (AIs choose their own)
       };
       try { localStorage.setItem(SETUP_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
@@ -1182,8 +1192,11 @@ export class Menus {
     mk('settings', tCommon('settings'), ICONS.gear, settings);
     mk('controls', tMenu('main.nav.controls'), ICONS.keyboard, () => this.showHelp(() => this.showPause(game)));
     if (!mp) mk('restart', tMenu('pause.restart'), ICONS.restart, () => { this.hide(); this.cb.restart(); });
+    surrenderEntry(game, mk, { open: () => this.open('sub-screen pause-screen'), setEsc: (fn) => { this.escAction = fn; }, back: () => this.showPause(game), done: resume }); // MP: surrender, with a confirmation (src/net/surrender.ts)
     mk(mp ? 'leave match' : 'quit to menu', tMenu(mp ? 'pause.leaveMatch' : 'pause.quitToMenu'), ICONS.exit, () => { this.hide(); this.cb.quit(); }, 'danger');
     panel.appendChild(list);
+    // leaving now would drop the replay (too short): say so instead of dropping it silently
+    if (game.recorder && !game.recorder.keeps) panel.appendChild(h('p', 'pp-note', `${ICONS.replay}<span>${P(game.setup.branch ? 'pause.notKeptBranch' : 'pause.notKept')}</span>`));
     s.appendChild(panel);
     this.escAction = resume;
   }

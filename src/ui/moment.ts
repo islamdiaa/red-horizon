@@ -24,6 +24,7 @@ import tMom from '../i18n/en/moment';
 import tCommon from '../i18n/en/common';
 import { fmtMoney, trSource } from '../i18n/core';
 import { typeName } from '../i18n/names';
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 export interface MomentPanelOptions {
   game: Game;
@@ -42,11 +43,16 @@ const GOALS: ChallengeGoalKind[] = ['win', 'survive', 'destroy', 'protect', 'hol
 /** A target structure's label in the active language (modes/author.ts notableTargets writes it in English). */
 function targetLabel(w: World, x: { key: string; ids: number[]; label: string }, owner: boolean): string {
   const [pid, type] = x.key.split(':');
+  if (type === 'all') { // "every structure" of a player
+    const name = tMom('target.count', { name: tMom('target.all'), n: x.ids.length });
+    const p = w.players[+pid];
+    return owner && p ? tMom('target.enemy', { name, player: playerName(p.name) }) : name;
+  }
   const def = BUILDINGS[type];
   if (!def) return owner ? x.label : x.label.replace(/ · .*$/, '');
   const name = x.ids.length > 1 ? tMom('target.count', { name: typeName(def), n: x.ids.length }) : typeName(def);
   const p = w.players[+pid];
-  return owner && p ? tMom('target.enemy', { name, player: p.name }) : name;
+  return owner && p ? tMom('target.enemy', { name, player: playerName(p.name) }) : name;
 }
 
 /** Marks where raw HTML goes into a translated .html() message (parameters are escaped). */
@@ -105,7 +111,7 @@ export function openMomentPanel(o: MomentPanelOptions): () => void {
         for (const u of w.units) if (u.alive && u.owner === p && u.weapons.length && !u.ut.harvester) army++;
         for (const b of w.buildings) if (b.alive && b.owner === p && b instanceof Building && !b.bt.wall) blds++;
         return `<button class="mo-pl${p.id === side ? ' on' : ''}${p.defeated ? ' dead' : ''}" data-side="${p.id}" ${p.defeated ? 'disabled' : ''} style="--c:${hexColor(p.color)}">
-          <span class="em">${factionEmblem(p.faction)}</span><b>${esc(p.name)}</b><small><span>${esc(fmtMoney(p.credits))}</span><span>${tMom.html('player.units', { n: army })}</span><span>${tMom.html('player.buildings', { n: blds })}</span></small>${p.isHuman ? `<em>${tMom.html('player.recorded')}</em>` : ''}</button>`;
+          <span class="em">${factionEmblem(p.faction)}</span><b>${esc(playerName(p.name))}</b><small><span>${esc(fmtMoney(p.credits))}</span><span>${tMom.html('player.units', { n: army })}</span><span>${tMom.html('player.buildings', { n: blds })}</span></small>${p.isHuman ? `<em>${tMom.html('player.recorded')}</em>` : ''}</button>`;
       }).join('')}</div>
       ${former.length ? `<div class="mx-sec">${tMom.html('former')}</div><div class="mx-row"><span class="mx-note">${tMom.html('formerNote', { names: SLOT }).replace(SLOT, former.map((id) => `<b>${esc(w.players[id].name)}</b>`).join(', '))}</span>
         ${DIFFS.map((k) => `<button class="mx-chip${ai === k ? ' on' : ''}" data-ai="${k}">${esc(tCommon(`difficulty.${k}`))}</button>`).join('')}</div>` : ''}

@@ -14,7 +14,9 @@ export function worldHash(world: World): string {
     a = Math.imul(a ^ (v | 0), 0x01000193);
     b = Math.imul(b ^ ((v | 0) + 0x9e3779b9), 0x01000193) ^ (b >>> 13);
   };
-  const num = (v: number) => { f64[0] = v; int(u32[0]); int(u32[1]); };
+  // (MP: a NaN's bits differ between engines - V8 on x86 makes 0xfff8... from 0/0-style operations, Firefox and Safari
+  // 0x7ff8... - so every NaN hashes as the canonical one, or a NaN in a hashed field would be a false desync)
+  const num = (v: number) => { if (v !== v) { int(0); int(0x7ff80000); return; } f64[0] = v; int(u32[0]); int(u32[1]); };
   const str = (s: string) => { for (let i = 0; i < s.length; i++) int(s.charCodeAt(i)); int(s.length); };
   const w = world as unknown as { rng: { s: number }; nextId: number; crates: { id: number; x: number; y: number }[] };
   int(world.tick);

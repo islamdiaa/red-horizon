@@ -39,7 +39,7 @@ PILOTS['wolfpack'] = (world, rt, s) => {
       if (sub.order.type === 'attack' && world.getEntity((sub.order as any).target)?.alive) continue;
       // ambush on the convoy route (mid-sea), strike transports that come within reach
       const t = nearestTo(transports, sub.x, sub.y);
-      if (t && Math.hypot(t.x - sub.x, t.y - sub.y) < (process.env.REACH ? +process.env.REACH : 14)) attack(world, [sub], t);
+      if (t && Math.hypot(t.x - sub.x, t.y - sub.y) < (process.env.REACH ? +process.env.REACH : 12)) attack(world, [sub], t);
       else {
         // follow the beacon: wait on the lane the current convoy group is taking
         const lx = rt.flags.laneX ?? rt.flags.midX, ly = rt.flags.laneY ?? rt.flags.midY;
@@ -47,7 +47,7 @@ PILOTS['wolfpack'] = (world, rt, s) => {
       }
     }
   }
-  if (every(world, s, 'build', 2) && p.canBuild('ss') && !p.queues.naval.items.length && p.credits > 1100) world.issue({ c: 'build', player: 0, type: 'ss' });
+  if (every(world, s, 'build', 2) && p.canBuild('ss') && !p.queues.naval.items.length && p.credits >= 950) world.issue({ c: 'build', player: 0, type: 'ss' });
 };
 
 // Iron Coast: the cruiser shells the objectives in order while destroyers and gunboats screen it.

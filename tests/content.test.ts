@@ -647,7 +647,9 @@ describe('AI use of the new content and determinism', () => {
     const world = skirmish({ seed: 77, size: 96, ai: ['hard', 'hard'] });
     const types = new Map<number, string>();
     const counts: Record<string, number> = {};
-    for (let t = 0; t < seconds(60 * 22); t++) {
+    // (32 minutes: since version 5 the Classic AI's tech centre waits for money or an army edge in the first 15
+    // minutes, so the Allied GPS goes up later: at 30.7 minutes on this seed)
+    for (let t = 0; t < seconds(60 * 32); t++) {
       world.step();
       for (const ev of world.events) {
         if (ev.e === 'infiltrate') counts.infiltrate = (counts.infiltrate ?? 0) + 1;

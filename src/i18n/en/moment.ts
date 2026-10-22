@@ -61,6 +61,8 @@ export default strings('moment', {
   target: {
     count: '{name} ({n})',
     enemy: '{name} · {player}',
+    // the whole base as one target (with target.count: "Every structure (12)")
+    all: 'Every structure',
   },
   titleHeading: 'Title',
   // the goal and the side the challenger plays

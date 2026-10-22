@@ -11,7 +11,8 @@ export type QueueKind = 'structure' | 'infantry' | 'vehicle' | 'aircraft' | 'nav
 export type Order =
   | { type: 'idle' }
   /** `formation`: id of the FormationGroup (formation.ts) steering the unit while in transit. */
-  | { type: 'move'; x: number; y: number; attackMove: boolean; started?: boolean; formation?: number }
+  /** `tries` / `near`: path retries left after being blocked on the way, and the closest the unit has come (unitlogic.ts move). */
+  | { type: 'move'; x: number; y: number; attackMove: boolean; started?: boolean; formation?: number; tries?: number; near?: number }
   | { type: 'attack'; target: number; forced: boolean; resume?: Order }
   | { type: 'attackGround'; x: number; y: number }
   | { type: 'harvest'; x?: number; y?: number }
@@ -86,7 +87,9 @@ export type Command =
   | { c: 'upgrade'; player: number; building: number; upgrade: string; cancel?: boolean }
   | { c: 'research'; player: number; building: number; tech: string; cancel?: boolean }
   /** Commander economy: the infantry in a bunker come out. */
-  | { c: 'evacuate'; player: number; building: number };
+  | { c: 'evacuate'; player: number; building: number }
+  /** Surrender (sim/resign.ts). */
+  | { c: 'resign'; player: number };
 
 /** How a unit picks fights: chase anything seen / engage in range and return (default) / never move / never fire unprompted. */
 export type Stance = 'aggressive' | 'guard' | 'hold' | 'passive';

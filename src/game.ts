@@ -44,7 +44,8 @@ import { setupScenario } from './debug';
 import { playIntro, nukeCinematic, nukeWarning, endingCinematic } from './cinematic';
 import { getMission } from './missions';
 import { MissionRuntime, type MissionDef } from './sim/mission';
-import { recordResult } from './missions/progress';
+import type { MissionLevel } from './sim/handicap'; // CAMP: campaign difficulty
+import { missionLevelFor, recordResult } from './missions/progress';
 import { MissionHud } from './ui/missionhud';
 import { SAVE_VERSION, deserializeWorld, serializeWorld, writeSave, type SaveData } from './sim/save';
 import { SIM_VERSION } from './sim/version';
@@ -77,6 +78,8 @@ import { conquestMission, type ConquestSetup } from './conquest/battle'; // conq
 import { applyNetRoster, type NetSetup } from './net/roster'; // multiplayer roster
 import { hookRecordedDrops } from './net/takeover';
 import tHud, { trSource } from './i18n/en/hud'; // interface strings
+import { playerName } from './i18n/en/players'; // built-in commander names, translated
+import { arrangeStarts } from './sim/starts';
 import type { NetLink } from './net/types';
 const _viewProbe = new THREE.Vector3(); // scratch for Game.inView
 
@@ -94,6 +97,8 @@ export interface OpponentSetup {
   personality?: string | Personality;
   /** A persistent rival (src/meta/rivals.ts): name, portrait and the counter-plan chosen before the match. */
   rival?: RivalRef;
+  /** On the player's team (skirmish 2 vs 2 with an AI ally, src/ui/menu.ts); default: an opponent. */
+  ally?: boolean;
 }
 
 export interface GameSetup {
@@ -121,6 +126,8 @@ export interface GameSetup {
   intro?: boolean;
   /** Mission id (campaign / survival / challenge); overrides map and players. */
   mission?: string;
+  /** CAMP: campaign difficulty for a fresh mission start (default: the player's pick for missions that take one; sim/handicap.ts). */
+  missionLevel?: MissionLevel;
   /** Resume from a saved game. */
   load?: SaveData;
   /** Curated skirmish map id (src/maps); used instead of the generated map. */
@@ -307,7 +314,7 @@ export class Game {
       const color = TEAM_COLORS.find((c) => !usedColors.has(c))!;
       usedColors.add(color);
       const faction = o.faction === 'random' ? rngFaction(i + 1) : o.faction;
-      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // rivals / personalities
+      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: o.ally ? 0 : i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // rivals / personalities; an AI ally shares the player's team (PLAY round 3)
     });
     if (def) {
       players.length = 0;
@@ -321,6 +328,7 @@ export class Game {
     if (!def) applyRoster(players, setup); // branch / challenge: the chosen player is human, the rest AI
     // shuffle start positions so the player isn't always bottom-left
     if (!setup.demo && !def && (setup.seed & 2)) map.startPositions.reverse();
+    if (!def) map.startPositions = arrangeStarts(map.startPositions, players.map((p) => p.team)); // teammates share a side (sim/starts.ts)
     this.world = new World({
       map, players, credits: def ? (def.credits ?? 5000) : setup.credits, startUnits: def ? 'none' : setup.startUnits,
       startUnitsPer: def ? def.players.map((_, i) => (i === 0 ? def.startUnits ?? 'none' : 'none')) : undefined,
@@ -343,6 +351,7 @@ export class Game {
       this.world.mission = rt;
       def.players.forEach((ps, i) => { if (i > 0 && ps.ai) rt.setAI(i, ps.ai); });
       if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
+      if (!setup.load) rt.setLevel(setup.missionLevel ?? missionLevelFor(def)); // CAMP: campaign difficulty (RA's handicaps, sim/handicap.ts) before the script's setup; a save restores its own
       if (!setup.load) def.setup(rt);
       if (setup.load) deserializeWorld(this.world, setup.load.world, rt);
       for (const p of this.world.players) { if (!setup.load) this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); } // (a save restores the fog exactly as it was: refreshing it here would change the resumed game)
@@ -438,7 +447,7 @@ export class Game {
     if (setup.load?.game) this.hours = setup.load.game.hours ?? this.hours;
     this.gfx.setTimeOfDay(this.hours);
 
-    const start = map.startPositions[0];
+    const start = (!def && map.startPositions[this.local.id]) || map.startPositions[0]; // MP: each player starts over their own base, not player 0's
     this.gfx.cam.jumpTo(start.x, start.y + 1);
     if (!setup.demo) {
       // cinematic drop-in from high altitude
@@ -509,7 +518,7 @@ export class Game {
         const warn = key === 'base_under_attack' || key === 'low_power' || key === 'nuke_warning' || key === 'insufficient_funds' || key === 'unit_lost' || key === 'structure_lost' || key === 'ceasefire_warning' || key === 'ceasefire_over';
         this.hud?.message(text, warn, undefined, !!this.hud && showSubtitle(text, { warn })); // captioned: the event log keeps it, no toast
       };
-      if (!this.world.mission) this.hints = new Hints(document.getElementById('ui')!, this.world, this.local);
+      this.hints = new Hints(document.getElementById('ui')!, this.world, this.local); // (missions: the battle alerts only)
       if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // rival radio + habit tracking (not in replay branches / challenges)
       if (this.world.commander) this.attachments.push(attachCommanderPanel(this)); // commander powers panel (Commander rules)
       if (this.world.mission) {
@@ -532,7 +541,7 @@ export class Game {
     if (!setup.demo && !setup.replay && !isWhatIf(setup)) { // branches / challenges are "what if" games: no progression
       meta.onGameStart({
         mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
-        difficulties: this.missionDef ? undefined : setup.opponents.map((o) => o.difficulty),
+        difficulties: this.missionDef ? undefined : setup.opponents.filter((o) => !o.ally).map((o) => o.difficulty), // (not an AI ally's)
         faction: this.local.faction, opponents: this.world.players.filter((p) => this.local.isEnemy(p)).length, seed: setup.seed,
         climate: map.climate, weather: this.wxSeq ? this.wxSeq[this.wxIdx]?.kind : setup.weather,
         rivals: this.missionDef ? 0 : setup.opponents.filter((o) => o.rival).length, // contracts: "beat a rival"
@@ -873,7 +882,7 @@ export class Game {
       if (this.endTimer <= 0) {
         this.endCine?.();
         this.endCine = null;
-        this.cb.onEnd(this, world.winnerTeam === this.local.team);
+        this.cb.onEnd(this, world.winnerTeam === this.local.team && !this.local.resigned); // (MP: who surrendered lost, whatever the team did; sim/resign.ts)
       }
     }
   }
@@ -1030,12 +1039,12 @@ export class Game {
         case 'eliminated':
           if (!demo) {
             const p = world.players[ev.player];
-            this.hud?.message(p === this.local ? tHud('msg.defeated') : tHud('msg.eliminated', { name: p.name }), p === this.local, p === this.local ? undefined : 'success');
+            this.hud?.message(p === this.local ? tHud('msg.defeated') : tHud('msg.eliminated', { name: playerName(p.name) }), p === this.local, p === this.local ? undefined : 'success');
           }
           break;
         case 'gameover':
           if (!demo) {
-            const won = world.winnerTeam === this.local.team;
+            const won = world.winnerTeam === this.local.team && !this.local.resigned; // (MP: surrendered = lost; sim/resign.ts)
             if (world.mission && this.missionDef) this.recordMission(world.mission); // KOTH / challenge runtimes keep no campaign record
             const summary = meta.onGameEnd({
               won, time: world.time, mode: this.missionDef ? 'mission' : 'skirmish', missionId: this.missionDef?.id,
@@ -1047,7 +1056,7 @@ export class Game {
             if (!(won && playVictoryFanfare())) this.audio.stinger(won ? 'victory' : 'defeat'); // equipped victory fanfare
             this.endTimer = 4.5;
             const reason = world.mission?.endReason; // KOTH / challenge reason (the mode's English: translated here)
-            const sub = this.missionDef ? tHud('end.operation', { name: this.missionDef.codename }) : reason != null ? trSource(reason) : tHud(won ? 'end.won' : 'end.lost');
+            const sub = this.missionDef ? tHud('end.operation', { name: trSource(this.missionDef.codename) }) : reason != null ? trSource(reason) : tHud(won ? 'end.won' : 'end.lost');
             this.endCine = endingCinematic(won, sub, this.gfx); // lens
             // slow-motion sweep to the final explosion
             this.speed = 0.35;
@@ -1115,7 +1124,7 @@ export class Game {
     const fast = !def.parTime || this.world.time <= def.parTime;
     const stars = won ? 1 + (fast ? 1 : 0) + (optionalOk ? 1 : 0) : 0;
     this.missionResult = { won, stars, time: this.world.time, score: rt.score };
-    recordResult(def.id, { won, stars, time: this.world.time, score: def.scored ? rt.score : undefined });
+    recordResult(def.id, { won, stars, time: this.world.time, score: def.scored ? rt.score : undefined, level: rt.level }); // CAMP: + the level it was won at
   }
 
   /** Feed the soundscape: time of day, weather, nearby water/forest, combat on and off screen, zoom. */

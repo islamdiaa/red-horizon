@@ -3,17 +3,17 @@
  * tick (before the world steps from it), so the takeover is part of the deterministic simulation. Replays of a
  * multiplayer match carry the drops (GameSetup.net.drops) and apply them the same way.
  */
-import { AIController } from '../sim/ai';
 import type { World } from '../sim/world';
+import { handToAI } from '../sim/resign';
 import { hookStep } from '../replay/core';
-import { TAKEOVER_AI, type NetSetup } from './roster';
+import type { NetSetup } from './roster';
 
-/** Hand player `index` to the AI (idempotent). */
+/** Hand player `index` to the AI (idempotent). A player who surrendered is out already (sim/resign.ts): their side
+ *  was handed over or destroyed then, so a later drop of their seat changes nothing. */
 export function aiTakeover(world: World, index: number) {
   const p = world.players[index];
-  if (!p || world.ais.some((a) => a.player === p)) return;
-  p.isHuman = false;
-  world.ais.push(new AIController(world, p, TAKEOVER_AI));
+  if (!p || p.resigned) return;
+  handToAI(world, p);
 }
 
 /** Replays: apply the recorded drops right before the world steps from their tick. Returns an unhook function. */

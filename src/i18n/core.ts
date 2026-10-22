@@ -181,6 +181,13 @@ function resolveParam(v: string): string {
   const k = sourceExact.get(v);
   if (k && table[k]) return unmark(table[k]);
   for (const r of sourceResolvers) { const t = r(v); if (t != null) return t; }
+  // a list the source joined ("Double Ore, Fast Production"): each name on its own
+  for (const sep of [', ', ' · ', ' and ']) {
+    if (!v.includes(sep)) continue;
+    const parts = v.split(sep);
+    const tr = parts.map(resolveParam);
+    if (tr.some((t, i) => t !== parts[i])) return sep === ' and ' ? fmtList(tr) : tr.join(sep);
+  }
   return v;
 }
 
@@ -196,13 +203,17 @@ export function trSource(text: string): string {
   const k = sourceExact.get(text);
   if (k) out = table[k] ? unmark(table[k]) : text;
   else {
+    let matched = false;
     for (const p of sourcePatterns) {
       const m = p.re.exec(text);
       if (!m) continue;
+      matched = true;
       const tr = table[p.key];
       if (tr) out = formatMessage(unmark(tr), Object.fromEntries(p.names.map((n, i) => [n, resolveParam(m[i + 1])])), lang);
       break;
     }
+    // a bare name the resolvers know (a structure type, a Conquest territory used as a code name...)
+    if (!matched) for (const r of sourceResolvers) { const t = r(text); if (t != null) { out = t; break; } }
   }
   if (sourceCache.size > 500) sourceCache.clear();
   sourceCache.set(text, out);

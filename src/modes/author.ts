@@ -39,6 +39,10 @@ export function challengeFromState(o: {
   setup: Partial<GameSetup>; state: unknown; view?: StartView; side: number; ai?: AIDifficulty; goal: ChallengeGoal; timeLimit: number;
   title: string; description?: string; par?: ChallengeDef['par']; source?: ChallengeDef['source'];
 }): ChallengeDef {
+  // the challenger takes a seat whose player may have surrendered (a multiplayer replay moment): they start fresh there,
+  // free to win or to surrender (as a branch does, src/replay/branch.ts; sim/resign.ts counts a resigned side as beaten)
+  const sp = (o.state as { players?: Record<string, unknown>[] } | null)?.players?.[o.side];
+  if (sp && sp.resigned) delete sp.resigned;
   return {
     v: 1, id: newChallengeId(), title: o.title.trim() || MODES_EN.speaker.challenge, description: o.description, createdAt: Date.now(), gameVersion: VERSION, sim: SIM_VERSION,
     setup: challengeBase(o.setup), state: o.state, view: o.view, side: o.side, ai: o.ai ?? sourceAI(o.setup), goal: o.goal, timeLimit: o.timeLimit,

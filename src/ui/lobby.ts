@@ -36,6 +36,7 @@ import tLobby from '../i18n/en/lobby';
 import tCommon from '../i18n/en/common';
 import '../i18n/en/net'; // registers net.start.* and the relay's messages (trSource)
 import { dt, fmtMoney, trSource, tx } from '../i18n/core';
+import { playerName } from '../i18n/en/players'; // a built-in name (the default callsign) in the interface language
 import { doctrineName, mutatorDesc, mutatorName } from '../i18n/names';
 import { reasonText } from '../net/game-link';
 
@@ -107,6 +108,10 @@ const CSS = `
 .lob-log { height: 8rem; overflow-y: auto; padding: .5rem .6rem; border-radius: .6rem; border: 1px solid var(--line); background: rgba(0,0,0,.3); display: flex; flex-direction: column; gap: .2rem; font-size: .9rem; user-select: text; }
 .lob-log .ln b { margin-right: .4rem; } .lob-log .sys { color: var(--muted); font-style: italic; }
 .lob-chat form { display: flex; gap: .4rem; } .lob-chat form input { flex: 1; }
+.lob-log .ln.pend { opacity: .6; font-style: italic; } .lob-log .ln.pend small { color: var(--warn); margin-left: .4rem; font-size: .75rem; letter-spacing: .08em; }
+.lob-rc { display: flex; align-items: center; gap: .7rem; border-color: rgba(var(--warn-rgb), .5) !important; background: rgba(var(--warn-rgb), .1) !important; color: var(--text) !important; }
+.lob-rc .spin { width: 1rem; height: 1rem; border-radius: 50%; border: 2px solid rgba(var(--warn-rgb), .3); border-top-color: var(--warn); animation: lobSpin 1s linear infinite; flex-shrink: 0; }
+@keyframes lobSpin { to { transform: rotate(360deg); } }
 .lob-foot { display: flex; align-items: center; gap: .7rem; }
 .lob-foot .why { flex: 1; text-align: right; color: var(--muted); font-size: .85rem; letter-spacing: .06em; }
 .lob-foot .btn-primary { height: 3rem; font-size: 1.05rem; padding: 0 1.6rem; min-width: 14rem; }
@@ -342,7 +347,8 @@ class LobbyView {
     this.offs.push(c.on((m) => this.onMessage(m)));
     this.offs.push(c.onState((s) => {
       if (s === 'closed') {
-        const reason = c.lastError?.msg ?? (c.endReason === 'kicked' ? tLobby('err.removed') : c.endReason && c.endReason !== 'left' ? tLobby('err.disconnected', { reason: reasonText(c.endReason) }) : '');
+        let reason = c.lastError?.msg ?? (c.endReason === 'kicked' ? tLobby('err.removed') : c.endReason && c.endReason !== 'left' ? tLobby('err.disconnected', { reason: reasonText(c.endReason) }) : '');
+        if (c.pendingChat.length && c.endReason !== 'left') reason = `${reason ? `${trSource(reason)} ` : ''}${tLobby('err.unsent', { n: c.pendingChat.length })}`; // (typed while reconnecting)
         if (client === c) client = null;
         saveSeat(null);
         this.error = reason;
@@ -424,17 +430,18 @@ class LobbyView {
     const issue = startIssue(room);
     const why = issue ? tx(`net.start.${issue.id}`, issue.map ? { name: mapName(issue.map), n: issue.map.players } : undefined) : null;
     const over = room.phase !== 'lobby';
+    const offline = c.state !== 'open'; // reconnecting: the seat waits on the relay a little while
     this.panel.innerHTML = `
       <div class="lob-head"><span class="mp-ic">${ICONS.people}</span><div><small>${tLobby.html('room.kicker', { who: tLobby(isHost ? 'room.youHost' : 'room.guest'), mode: (() => { const md = MODES.find((x) => x.id === s.mode); return md ? modeName(md) : s.mode; })() })}</small><h2>${tLobby.html('room.title')}</h2></div><i class="sp"></i>
         <div class="lob-code"><small style="font-size:.65rem;letter-spacing:.2em;color:var(--muted)">${tLobby.html('room.code')}</small><b data-code>${esc(room.code)}</b>
           <button class="lob-ib" data-a="copycode" title="${esc(tLobby('room.copyCode'))}">${ICONS.copy}</button><button class="btn" data-a="invite" style="height:2.2rem">${ICONS.copy}<span>${tLobby.html('room.copyInvite')}</span></button></div></div>
-      ${this.error ? `<div class="lob-err">${esc(trSource(this.error))}</div>` : ''}
+      ${offline ? `<div class="lob-err lob-rc" role="status"><span class="spin"></span><span>${tLobby.html('room.reconnecting')}</span></div>` : this.error ? `<div class="lob-err">${esc(trSource(this.error))}</div>` : ''}
       ${over ? `<div class="lob-err" style="border-color:rgba(var(--warn-rgb),.5);background:rgba(var(--warn-rgb),.1);color:var(--text)">${tLobby.html(isHost ? 'room.overHost' : 'room.overGuest')}</div>` : ''}
       <div class="lob-grid">
         <div class="lob-sec"><div class="lob-label">${tLobby.html('room.players')}</div><div class="lob-slots">${room.slots.map((sl, i) => this.slotHtml(room, sl, i, isHost)).join('')}</div>
           <div class="lob-sec lob-chat"><div class="lob-label">${tLobby.html('room.chat')} <button class="lob-ib${this.muteAll ? ' on' : ''}" data-a="muteall" title="${esc(tLobby(this.muteAll ? 'room.showChat' : 'room.muteAll'))}" style="width:1.8rem;height:1.8rem">${this.muteAll ? ICONS.eyeOff : ICONS.eye}</button></div>
             <div class="lob-log" data-log></div>
-            <form data-chat><input type="text" maxlength="160" placeholder="${esc(tLobby('room.chatPlaceholder'))}" autocomplete="off" spellcheck="false"><button class="btn" type="submit">${tLobby.html('room.send')}</button></form></div></div>
+            <form data-chat><input type="text" maxlength="160" placeholder="${esc(tLobby(offline ? 'room.chatOffline' : 'room.chatPlaceholder'))}" autocomplete="off" spellcheck="false"><button class="btn" type="submit">${tLobby.html('room.send')}</button></form></div></div>
         <div class="lob-sec"><div class="lob-label">${tLobby.html(isHost ? 'room.settings' : 'room.settingsByHost')}</div>${this.settingsHtml(room, isHost)}</div>
       </div>
       <div class="lob-foot"><button class="btn" data-a="leave">${ICONS.exit}<span>${tLobby.html('room.leave')}</span></button>
@@ -442,6 +449,8 @@ class LobbyView {
         ${isHost ? `<button class="btn-primary" data-a="start" ${why || over ? 'disabled' : ''}><span>${tLobby.html('room.start')}</span>${ICONS.arrowR}</button>`
           : `<button class="btn-primary" data-a="ready" ${over ? 'disabled' : ''}><span>${tLobby.html(me?.ready ? 'room.notReady' : 'room.ready')}</span>${ICONS.check}</button>`}</div>`;
     this.bind(room, isHost);
+    // nothing reaches the relay while reconnecting: only chat (kept and sent on resume) and Leave stay usable
+    if (offline) this.panel.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('.lob-slots select, .lob-slots button, [data-set], [data-mut], [data-a="start"], [data-a="ready"]').forEach((x) => { x.disabled = true; });
     this.renderChat();
     if (draft) {
       const inp = this.panel.querySelector('[data-chat] input') as HTMLInputElement;
@@ -470,7 +479,7 @@ class LobbyView {
       const state = !sl.connected ? `<span class="st off">${tLobby.html('slot.reconnecting')}</span>` : `<span class="st${sl.ready ? ' ready' : ''}">${tLobby.html(sl.ready ? 'slot.ready' : 'slot.notReady')}</span>`;
       const muted = this.muted.has(sl.seat!);
       return `<div class="lob-slot${mine ? ' me' : ''}" style="--c:${color}"><i class="sw"></i><span class="tm">${team}</span>
-        <div class="nm"><b>${esc(sl.name ?? tLobby('slot.defaultName'))}</b><small>${esc(tags || tLobby('slot.player'))}</small></div>
+        <div class="nm"><b>${esc(sl.name ? playerName(sl.name) : tLobby('slot.defaultName'))}</b><small>${esc(tags || tLobby('slot.player'))}</small></div>
         ${fac(sl.faction, mine ? 'data-me="faction"' : '', mine)}${doctrine}${state}
         ${!mine ? `<button class="lob-ib${muted ? ' on' : ''}" data-mute="${sl.seat}" title="${esc(tLobby(muted ? 'slot.unmute' : 'slot.mute'))}">${muted ? ICONS.eyeOff : ICONS.eye}</button>` : ''}
         ${isHost && !mine ? `<button class="lob-ib danger" data-kick="${sl.seat}" title="${esc(tLobby('slot.kick'))}">${ICONS.close}</button>` : ''}</div>`;
@@ -572,8 +581,10 @@ class LobbyView {
       const now = performance.now();
       if (now - this.lastChat < 900) { this.host.play('error'); return; } // (the relay limits too)
       this.lastChat = now;
-      c.send({ t: 'chat', text });
-      input.value = '';
+      const r = c.chat(text); // (while reconnecting: kept, shown as waiting, sent on resume)
+      if (r === 'dropped') { this.host.play('error'); this.chatLog.push({ seat: -1, name: '', text: tLobby('room.chatDropped'), sys: true }); }
+      else input.value = '';
+      this.renderChat();
     };
     input.onkeydown = (e) => e.stopPropagation();
   }
@@ -584,8 +595,10 @@ class LobbyView {
     const room = this.c?.room;
     const color = (seat: number) => { const i = room?.slots.findIndex((s) => s.seat === seat) ?? -1; return i >= 0 && i < MAX_SLOTS ? hexColor(SLOT_COLORS[i]) : '#ccc'; };
     const lines = this.muteAll ? [] : this.chatLog.filter((l) => !this.muted.has(l.seat));
-    log.innerHTML = lines.length
-      ? lines.map((l) => `<div class="ln"><b style="color:${color(l.seat)}">${esc(l.name)}</b>${esc(l.text)}</div>`).join('')
+    const me = this.c ? room?.slots.find((s) => s.seat === this.c!.seat)?.name ?? '' : '';
+    const pending = (this.c?.pendingChat ?? []).map((t) => `<div class="ln pend"><b style="color:${color(this.c!.seat)}">${esc(me)}</b>${esc(t)}<small>${tLobby.html('room.chatPending')}</small></div>`).join('');
+    log.innerHTML = lines.length || pending
+      ? lines.map((l) => (l.sys ? `<div class="sys">${esc(l.text)}</div>` : `<div class="ln"><b style="color:${color(l.seat)}">${esc(l.name)}</b>${esc(l.text)}</div>`)).join('') + pending
       : `<div class="sys">${tLobby.html(this.muteAll ? 'room.chatMuted' : 'room.noMessages')}</div>`;
     log.scrollTop = log.scrollHeight;
   }

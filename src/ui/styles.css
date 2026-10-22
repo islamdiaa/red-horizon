@@ -685,6 +685,7 @@ body.hide-fps .tb-fps { display: none; }
   box-shadow: 0 0.6rem 1.8rem rgba(0, 0, 0, 0.45), inset 3px 0 0 var(--accent);
 }
 .hint.on { display: flex; animation: hintIn 0.5s var(--spring) both; }
+body:not(.hud-modern) .hint { top: max(calc(var(--edge) + 3.05rem), calc(var(--mh-obj-b, 0px) + 0.6rem)); } /* (under a mission's checklist: ui/missionhud.ts) */
 .hint b { color: #fff; }
 .hint-ic { width: 2.1rem; height: 2.1rem; border-radius: 0.5rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--accent-hi); background: rgba(var(--accent-rgb), 0.18); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.35), 0 0 1rem rgba(var(--accent-rgb), 0.2); }
 .hint-body { display: flex; flex-direction: column; gap: 0.12rem; }
@@ -884,7 +885,13 @@ html:not([lang='en']) .mm-nav-btn .nb-label .rh-daily-pill { display: block; wid
 .colors .sw.on { transform: scale(1.12); box-shadow: 0 0 0 2px #0a0f15, 0 0 0 4px #fff, 0 0 1rem var(--c); }
 .mp-section { display: flex; flex-direction: column; gap: 0.55rem; }
 .opponents { display: flex; flex-direction: column; gap: 0.4rem; }
-.opponent { display: grid; grid-template-columns: 5.2rem 0.85fr 1.6fr 2.15rem; gap: 0.45rem; align-items: center; animation: fadeUp 0.35s var(--ease) both; animation-delay: calc(var(--i) * 50ms); }
+.opponent { display: grid; grid-template-columns: 5.2rem 0.85fr 1.6fr 2.15rem 2.15rem; gap: 0.45rem; align-items: center; animation: fadeUp 0.35s var(--ease) both; animation-delay: calc(var(--i) * 50ms); }
+/* an AI ally (2 vs 2 with an AI ally): the switch lights up, the name takes the ally colour */
+.op-ally { height: 2.15rem; border-radius: 0.45rem; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; transition: all 0.15s; }
+.op-ally:hover:not(:disabled) { color: #fff; border-color: rgba(var(--ok-rgb), 0.6); background: rgba(var(--ok-rgb), 0.16); }
+.op-ally.on { color: #fff; border-color: rgba(var(--ok-rgb), 0.75); background: rgba(var(--ok-rgb), 0.24); box-shadow: 0 0 0.7rem rgba(var(--ok-rgb), 0.3); }
+.op-ally:disabled { opacity: 0.25; cursor: default; }
+.opponent.ally .op-id b { color: rgb(var(--ok-rgb)); }
 .op-id { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; letter-spacing: 0.12em; color: var(--text-2); }
 .op-id svg { font-size: 0.95rem; color: var(--muted); }
 .op-id i { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
@@ -1124,9 +1131,9 @@ body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-heigh
 /* touch screens in the scrolling layouts (phones, portrait tablets): finger-sized menu controls (44 px) */
 @media (pointer: coarse) and (max-aspect-ratio: 1/1), (pointer: coarse) and (max-height: 600px) {
   .main-screen .mm-left .mm-nav .mm-nav-btn { height: auto; min-height: 44px; }
-  .main-screen .seg button, .main-screen .op-add, .main-screen .op-x, .main-screen .mr-change, .main-screen .vr-tab, .main-screen .mr-ib,
+  .main-screen .seg button, .main-screen .op-add, .main-screen .op-x, .main-screen .op-ally, .main-screen .mr-change, .main-screen .vr-tab, .main-screen .mr-ib,
   .screen .btn, .screen .pp-btn, .screen .btn-back { min-height: 44px; }
-  .main-screen .mr-ib, .main-screen .op-x { min-width: 44px; }
+  .main-screen .mr-ib, .main-screen .op-x, .main-screen .op-ally { min-width: 44px; }
 }
 /* narrow screens (phones in portrait): menu panels take the screen's width, settings and controls in one column */
 @media (max-width: 700px) {
@@ -1138,10 +1145,11 @@ body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-heigh
 @media (max-width: 600px) {
   .main-screen .mm-panel { padding: 1rem 0.8rem; }
   .main-screen .mp-grid { grid-template-columns: 1fr; }
-  .main-screen .opponent { grid-template-columns: 1fr 2.15rem; row-gap: 0.35rem; }
+  .main-screen .opponent { grid-template-columns: 1fr 2.15rem 2.15rem; row-gap: 0.35rem; }
   .main-screen .opponent > * { grid-column: 1 / -1; }
   .main-screen .opponent > .op-id { grid-column: 1; grid-row: 1; }
-  .main-screen .opponent > .op-x { grid-column: 2; grid-row: 1; }
+  .main-screen .opponent > .op-ally { grid-column: 2; grid-row: 1; }
+  .main-screen .opponent > .op-x { grid-column: 3; grid-row: 1; }
   .main-screen .fc-name { font-size: 1.15rem; letter-spacing: 0.16em; }
   .main-screen .fc-emblem { opacity: 0.35; }
   .main-screen .map-row { grid-template-columns: 3.6rem 1fr; }
@@ -1244,6 +1252,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .pp-map small { font-size: max(0.58rem, 8.5px); font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
 .pp-map b { color: #fff; letter-spacing: 0.1em; text-transform: uppercase; }
 .pp-map code { align-self: flex-start; margin-top: 0.15rem; }
+/* "too short to keep as a replay" under the pause menu's buttons */
+.pp-note { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.7rem 0 0; font-size: 0.78rem; line-height: 1.35; color: var(--muted); }
+.pp-note > svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.1rem; color: var(--accent); }
 .end-code { cursor: pointer; }
 
 /* --- replays screen --------------------------------------------------------------- */
@@ -1668,6 +1679,13 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   body.hud-modern { --mm-w: 12rem; --sel-w: 20rem; --card-w: 5.6rem; --card-h: 6.6rem; }
   body.hud-modern .rb-time .speed-ctl { display: none; }
 }
+/* small landscape windows (~800 px): the resource bar ran over the objectives panel; a compact economy readout
+   (as on phones: tier and income only), a slimmer power meter and objectives panel (portrait has its own layout) */
+@media (max-width: 1000px) and (min-aspect-ratio: 1/1) {
+  body.hud-modern #topright .ero-ore, body.hud-modern #topright .ero-harv, body.hud-modern #topright .ero-inc small, body.hud-modern #topright .ero-tier small { display: none; }
+  body.hud-modern #topright .power { min-width: 6.6rem; }
+  html body.hud-modern #topbar { width: 15rem; } /* (html: over the short-viewport width below) */
+}
 /* short viewports (720p-class): the bar and minimap give the map more height */
 @media (max-height: 820px) {
   body.hud-modern { --mm-w: 13rem; --card-w: 5.8rem; --card-h: 6.5rem; }
@@ -1725,9 +1743,11 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   #minimap-panel .radar .offline b { font-size: 0.8rem; letter-spacing: 0.14em; }
   #minimap-panel .radar .offline span { letter-spacing: 0.08em; }
 }
-/* portrait (phones and tablets held upright): resource bar across the top, objectives and the touch toolbar under
-   it on the left, the build bar across the bottom above the minimap and the selection panel */
-@media (pointer: coarse) and (max-aspect-ratio: 1/1) {
+/* portrait (phones and tablets held upright, and desktop windows narrower than they are tall): resource bar across
+   the top, objectives and the touch toolbar under it on the left, the build bar across the bottom above the minimap
+   and the selection panel. (Layout only: finger sizes stay under pointer: coarse; the landscape layout pushed the
+   resource bar off a narrow window and squeezed the build bar to nothing.) */
+@media (max-aspect-ratio: 1/1) {
   body.hud-modern { --mm-w: 10.5rem; --top-h: 3.2rem; --tbar-h: 3.6rem; }
   body.hud-modern #topright { left: var(--edge); right: var(--edge); justify-content: space-between; }
   body.hud-modern #topright .rb-res { flex: 1 1 auto; min-width: 0; }
@@ -1735,6 +1755,7 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   body.hud-modern #topright .power { min-width: 6.4rem; }
   body.hud-modern #topbar { top: calc(var(--edge) * 2 + var(--top-h)); width: min(21rem, calc(100vw - 2 * var(--edge))); }
   html body.hud-modern #touch-bar { top: calc(var(--edge) * 2 + var(--top-h) + var(--tl-h, 5rem) + 0.5rem); flex-direction: row; max-height: none; max-width: calc(100vw - 2 * var(--edge)); }
+  body.hud-modern .hint { top: calc(var(--edge) * 2 + var(--top-h) + var(--tl-h, 0px) + 0.5rem); left: var(--edge); max-width: min(30rem, calc(100vw - 2 * var(--edge))); }
   html body.hud-modern.touch-ui .hint { top: calc(var(--edge) * 2 + var(--top-h) + var(--tl-h, 0px) + var(--tbar-h) + 1rem); left: var(--edge); right: var(--edge); max-width: 30rem; }
   body.hud-modern .vr-strip { top: calc(var(--edge) * 2 + var(--top-h)); left: auto; right: var(--edge); transform: none; max-width: calc(100vw - 23rem); justify-content: flex-end; }
   /* bottom row: minimap left, selection right; the build bar spans the screen above them */
@@ -1745,8 +1766,8 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   #minimap-panel .radar .offline b { font-size: 0.8rem; letter-spacing: 0.14em; }
   #minimap-panel .radar .offline span { letter-spacing: 0.08em; }
 }
-/* phones upright: the resource bar wraps to two rows */
-@media (pointer: coarse) and (max-aspect-ratio: 1/1) and (max-width: 600px) {
+/* phones upright (and narrow portrait windows): the resource bar wraps to two rows */
+@media (max-aspect-ratio: 1/1) and (max-width: 600px) {
   body.hud-modern { --mm-w: 8.6rem; --top-h: 6.3rem; --tbar-h: 3.1rem; --card-w: 5rem; --card-h: 5.8rem; }
   body.hud-modern #topright { height: auto; flex-wrap: wrap; row-gap: 0.25rem; }
   body.hud-modern #topright .rb-btns .tb-btn { height: 2.75rem; }

@@ -2,7 +2,7 @@
 // defence in docs/MULTIPLAYER.md actually holds, and that a normal room keeps playing throughout.
 //
 //   node tools/net-lab/relay-robust.mjs [cases...] [--url ws://10.231.0.3:8787/relay/ws]
-//        [--http http://127.0.0.1:8801/relay/] [--container rh-lab-net-relay-1] [--out FILE]
+//        [--http http://127.0.0.1:8811/relay/] [--container rh-lab-net-relay-1] [--out FILE]
 // cases: malformed oversize msgflood codeguess impersonate replay cmdflood slowreader origin (default: all)
 import { WebSocket } from '../../server/node_modules/ws/wrapper.mjs';
 import { execFileSync } from 'node:child_process';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const DIRECT = arg('url', 'ws://10.231.0.3:8787/relay/ws');
-const HTTP = arg('http', 'http://127.0.0.1:8801/relay/');
+const HTTP = arg('http', 'http://127.0.0.1:8811/relay/');
 const CONTAINER = arg('container', 'rh-lab-net-relay-1');
 // reports: --out FILE, else $NETLAB_OUT, else tools/net-lab/out (git-ignored)
 const OUT_DIR = process.env.NETLAB_OUT || fileURLToPath(new URL('./out/', import.meta.url));

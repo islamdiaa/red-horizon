@@ -24,6 +24,8 @@ import { ceasefireActive, hostileTo, inHomeArea } from './ceasefire';
 export interface NavalAIView {
   personality: Personality;
   intel: AIIntel;
+  /** The AI level (ai.ts AIController): a level that fields no ships builds no yard either. */
+  difficulty?: AIDifficulty;
 }
 
 /**
@@ -256,6 +258,8 @@ export function aiNavalStructure(world: World, p: Player, ai?: NavalAIView): str
   if (p.yardsLost && world.tick - p.yardLostTick < TICK_HZ * 150) return null;
   if (p.yardsLost >= 3 && enemyNavy(world, p, ai).ships.some((u) => u.weapons.length)) return null;
   const naval = ai?.personality.naval ?? 0.5;
+  // (version 5: Recruit fields no ships, so a shipyard would be $650 thrown away)
+  if (ai?.difficulty && Math.round(((scriptedMission(world) ? MISSION_FLEET : FLEET_CAP)[ai.difficulty] ?? 4) * trait(naval, 0.3, 2)) <= 0) return null;
   let procs = 0;
   for (const b of world.buildings) if (b.alive && b.owner === p && b.bt.id === 'proc') procs++;
   if (procs < (naval >= 0.8 ? 1 : 2) && world.time < 600) return null;

@@ -18,6 +18,10 @@ const profileName = arg('profile', 'lan');
 const mode = arg('mode', '1v1');
 const churnS = Number(arg('churn', '150'));
 const FAST = process.argv.includes('--fast'); // churn only, no 1v1 hunt-down (determinism is proven by the hash agreement)
+// how a full 1v1 ends: 'hunt' (A hunts B down) or 'surrender' (B surrenders through the in-match menu)
+const END = arg('end', 'hunt');
+// seconds of B's link down while in the lobby (0 = none): B must show "reconnecting", chat typed meanwhile must arrive
+const LOBBY_OUTAGE = Number(arg('lobby-outage', '0'));
 // reports: --out, else $NETLAB_OUT, else tools/net-lab/out (git-ignored)
 const out = arg('out', process.env.NETLAB_OUT || fileURLToPath(new URL('./out/', import.meta.url)));
 const tag = arg('tag', `${profileName}-${mode}-${new Date().toISOString().slice(5, 16).replace(/[-:T]/g, '')}`);
@@ -202,6 +206,27 @@ try {
   await sleep(1200);
   const lc2 = await lobbyChat(A, B, 'you too');
   check('lobby chat both ways', lc1 >= 0 && lc2 >= 0, { msBA: lc1, msAB: lc2 });
+  if (LOBBY_OUTAGE > 0 && shapers[1] !== '-') {
+    // B's link dies in the lobby (no RST): B is told, what B types meanwhile waits and arrives after the resume
+    await shape(1, { both: { down: true }, label: `lobby outage ${LOBBY_OUTAGE}s` });
+    const t = Date.now();
+    let banner = -1;
+    try { await until(B, () => !!document.querySelector('.lob .lob-rc'), undefined, 20000); banner = Date.now() - t; } catch { /* */ }
+    await B.fill('.lob [data-chat] input', 'typed while offline');
+    await B.press('.lob [data-chat] input', 'Enter');
+    const pendingShown = await B.evaluate(() => !!document.querySelector('.lob-log .ln.pend'));
+    const startDisabled = await B.evaluate(() => !!document.querySelector('.lob [data-a="ready"]')?.disabled);
+    await sleep(Math.max(0, LOBBY_OUTAGE * 1000 - (Date.now() - t)));
+    await shape(1, { both: { ...LAN, ...(profile.link ?? {}) }, label: 'restored' });
+    const tr = Date.now();
+    let arrived = -1;
+    try { await until(A, () => [...document.querySelectorAll('.lob-log .ln')].some((l) => l.textContent.includes('typed while offline')), undefined, 60000); arrived = Date.now() - tr; } catch { /* */ }
+    const bannerGone = await until(B, () => !document.querySelector('.lob .lob-rc'), undefined, 30000).then(() => true, () => false);
+    report.lobbyOutage = { secs: LOBBY_OUTAGE, bannerAtMs: banner, pendingShown, readyDisabled: startDisabled, arrivedAfterRestoreMs: arrived, bannerGone };
+    check('lobby outage: B shows reconnecting', banner >= 0 && banner < 15000, report.lobbyOutage);
+    check('lobby outage: chat typed offline waits, then arrives', pendingShown && arrived >= 0, report.lobbyOutage);
+    check('lobby outage: back to normal', bannerGone, report.lobbyOutage);
+  }
   await B.click('.lob [data-a="ready"]');
   await until(A, () => { const b = document.querySelector('.lob [data-a="start"]'); return b && !b.disabled; }, undefined, 60000);
   report.lobbyMs = Date.now() - tLobby;
@@ -212,6 +237,18 @@ try {
   log('match running', report.startMs, 'ms after start');
   const info = await Promise.all(pages.map((p) => p.evaluate(instrument)));
   report.peers = { A: info[0], B: info[1] };
+  // every player starts looking at their own base, and team-mates share a side of the map (src/sim/starts.ts)
+  const home = await Promise.all(pages.map((p) => p.evaluate(() => {
+    const g = __game, w = g.world, me = g.local;
+    const at = (pl) => { const u = w.units.filter((x) => x.alive && x.owner === pl); return u.length ? { x: u.reduce((a, x) => a + x.x, 0) / u.length, y: u.reduce((a, x) => a + x.y, 0) / u.length } : null; };
+    const mine = at(me), d = (a, b) => (a && b ? Math.hypot(a.x - b.x, a.y - b.y) : -1);
+    const mates = w.players.filter((o) => o !== me && o.team === me.team).map((o) => d(mine, at(o)));
+    const foes = w.players.filter((o) => o.team !== me.team).map((o) => d(mine, at(o)));
+    return { cam: Math.round(d(mine, { x: g.gfx.cam.x, y: g.gfx.cam.y }) * 10) / 10, mates: mates.map(Math.round), foes: foes.map(Math.round), map: w.map.w };
+  })));
+  report.home = home;
+  check('start: each player looks at their own base', home.every((h) => h.cam >= 0 && h.cam < 12), home.map((h) => h.cam));
+  if (mode === '2v2') check('start: team-mates share a side (not in opposite corners)', home.every((h) => h.mates.every((m) => m >= 0 && m < Math.max(...h.foes) - 5)), home);
 
   // ---- deploy, then churn orders on both sides (with the profile's outage, if any, on its peer)
   await Promise.all(pages.map((p, i) => p.evaluate(orders, { phase: 'deploy', seed: 1 + i })));
@@ -284,7 +321,33 @@ try {
 
   // ---- the end: B gives up, A hunts B down (1v1); 2v2 just stops after the churn
   const bReplaced = report.outage?.after?.[1]?.watching;
-  if (mode === '1v1' && !bReplaced && !FAST) {
+  if (mode === '1v1' && !bReplaced && !FAST && END === 'surrender') {
+    // B surrenders through the in-match menu: Esc, Surrender, confirm
+    log('end phase: B surrenders');
+    await B.keyboard.press('Escape');
+    await B.waitForSelector('.pause-screen [data-act="surrender"]', { timeout: 60000 });
+    // pause rules: the menu does not pause a multiplayer match (for either player)
+    const t0 = await Promise.all(pages.map((p) => p.evaluate(() => __game.world.tick)));
+    await sleep(4000);
+    const t1 = await Promise.all(pages.map((p) => p.evaluate(() => __game.world.tick)));
+    check('pause rules: the match goes on behind the menu', t1[0] - t0[0] > 20 && t1[1] - t0[1] > 20, { ticksIn4s: [t1[0] - t0[0], t1[1] - t0[1]] });
+    await B.click('.pause-screen [data-act="surrender"]');
+    await B.waitForSelector('[data-act="confirm surrender"]', { timeout: 60000 });
+    const body = await B.textContent('.surrender-panel p');
+    await B.click('[data-act="confirm surrender"]');
+    await Promise.all(pages.map((p) => until(p, () => __game.world.gameOver, undefined, 120000)));
+    const ends = await Promise.all(pages.map((p) => p.evaluate(() => window.__nl.over ?? null)));
+    report.end = ends;
+    check('surrender: the match ended on both at the same tick with the same state', !!ends[0] && JSON.stringify(ends[0]) === JSON.stringify(ends[1]), ends);
+    const told = await until(A, () => [...document.querySelectorAll('.net-chat .ln')].some((l) => /surrender/i.test(l.textContent)), undefined, 30000).then(() => true, () => false);
+    check('surrender: the winner is told', told, { body });
+    try {
+      await Promise.all(pages.map((p) => until(p, () => !!document.querySelector('.end-screen'), undefined, 60000)));
+      const scr = await Promise.all(pages.map((p) => p.evaluate(() => ({ cls: document.querySelector('.end-screen')?.className ?? '', board: document.querySelector('.stats-table')?.textContent?.replace(/\s+/g, ' ') ?? '' }))));
+      check('surrender: results A won, B lost', /\bwin\b/.test(scr[0].cls) && /\blose\b/.test(scr[1].cls), scr.map((x) => x.cls));
+      report.scoreboard = scr.map((x) => x.board.slice(0, 300));
+    } catch (e) { check('surrender: results screens shown', false, String(e).slice(0, 200)); }
+  } else if (mode === '1v1' && !bReplaced && !FAST) {
     log('end phase');
     const tEnd = Date.now() + 420000;
     let j = 0;

@@ -148,7 +148,8 @@ export const WOLFPACK: MissionDef = {
     if (f.wave === 0 && m.every(3, 'ambush')) m.beacon(f.midX, f.midY);
     // --- convoy waves
     if (f.wave < WAVES.length && m.time >= 75 + f.wave * WAVE_GAP) {
-      const types = WAVES[f.wave];
+      // (campaign difficulty: at Brutal every group from the second on has one more gunboat)
+      const types = m.level === 'brutal' && f.wave >= 1 ? [...WAVES[f.wave], 'pt'] : WAVES[f.wave];
       const [ox, oy] = f.origins[f.wave % 2];
       const units = m.spawnGroup(1, types, ox, oy);
       const transports = units.filter((u) => u.type.id === 'lst');
@@ -193,7 +194,8 @@ export const WOLFPACK: MissionDef = {
     }
     f.convoys = alive;
     // keep the group together at convoy pace (escorts break formation to fight)
-    for (const u of m.livingUnits([...alive, ...(f.escorts ?? [])])) if (u.order.type === 'move') u.speedCap = CONVOY_SPEED;
+    // (the convoy's pace carries the campaign difficulty's speed handicap like any other ship: sim/handicap.ts)
+    for (const u of m.livingUnits([...alive, ...(f.escorts ?? [])])) if (u.order.type === 'move') u.speedCap = CONVOY_SPEED * (u.owner.hc?.ground ?? 1);
     if (m.every(10, 'escorts')) f.escorts = ids(m.livingUnits(f.escorts));
     // escorts break off to hunt any submarine they can see (surfaced to fire, or inside sonar range)
     if (m.every(2, 'escortHunt')) {
@@ -317,23 +319,45 @@ export const IRON_COAST: MissionDef = {
       say(m, COMMODORE, 'Commodore Ashby, Task Force Trident. The fortress is across the gulf. Bring the cruiser within twenty cells of a target and she will do the rest; just keep the submarines and the MiGs off her.');
     }
     if (m.after(60, 'subs')) say(m, COMMODORE, 'Sonar contacts: submarines in the gulf. Destroyers forward, gunboats on the flanks.');
-    // the fortress keeps sending boats and air raids while its sub pen and airfield stand
-    if (m.time > 55 && m.every(90, 'packs')) {
+    // the fortress keeps sending boats and air raids while its sub pen and airfield stand (campaign difficulty: on the
+    // easy levels smaller packs and raids, less often)
+    if (m.time > m.byLevel(55, { recruit: 120, easy: 90 }) && m.every(m.byLevel(90, { recruit: 150, easy: 120 }), 'packs')) {
       const pen = m.world.getEntity(f.pen);
       if (pen?.alive) {
-        const subs = m.spawnGroup(1, m.time > 300 ? ['ss', 'ss', 'ss'] : ['ss', 'ss'], pen.x, pen.y);
+        const subs = m.spawnGroup(1, m.eased ? (m.time > 300 && m.level === 'easy' ? ['ss', 'ss'] : ['ss']) : m.time > 300 ? ['ss', 'ss', 'ss'] : ['ss', 'ss'], pen.x, pen.y);
         m.move(subs, f.midX, f.midY, true);
       }
     }
-    if (m.time > 110 && m.every(100, 'raids')) {
+    if (m.time > m.byLevel(110, { recruit: 200, easy: 150 }) && m.every(m.byLevel(100, { recruit: 160, easy: 130 }), 'raids')) {
       const af = m.world.getEntity(f.afld);
-      const target = m.world.getEntity(f.cruiser) ?? m.nearest(m.army(0, false), af?.x ?? 0, af?.y ?? 0);
+      // (on the easy levels the jets go for the nearest ship, not straight for the flagship)
+      const target = (m.eased ? null : m.world.getEntity(f.cruiser)) ?? m.nearest(m.army(0, false), af?.x ?? 0, af?.y ?? 0);
       if (af?.alive && target?.alive) {
-        const jets = m.spawnGroup(1, ['mig', 'mig', 'mig'], af.x, af.y);
+        const jets = m.spawnGroup(1, m.eased ? (m.level === 'recruit' ? ['mig'] : ['mig', 'mig']) : ['mig', 'mig', 'mig'], af.x, af.y);
         m.attack(jets, target);
         say(m, CAST.eva, 'Enemy aircraft approaching.');
       }
     }
+    // only a cruiser out-ranges the coast: when the task force has none left, none on order and no money for one, the
+    // Admiralty sends a replacement (once at Normal, every time on the easy levels, never at Hard and Brutal), so the
+    // mission can't stall unwinnable
+    const human = m.human;
+    const cruisers = m.units(0, 'ca').length + human.queues.naval.items.filter((i) => i.type === 'ca').length;
+    if (!cruisers && human.credits < 2000 && m.buildings(0, 'syrd').length) {
+      f.noCruiser ??= m.time;
+      if (m.time - f.noCruiser > 45 && (m.eased || (!f.replaced && !m.tightened))) {
+        const yard = m.buildings(0, 'syrd')[0];
+        const ca = m.spawnUnit(0, 'ca', yard.x + 1.5, yard.y + 1.5);
+        if (m.eased) m.spawnGroup(0, ['dd', 'dd'], yard.x + 1.5, yard.y + 1.5); // (the easy levels: with two destroyers to screen her)
+        f.cruiser = ca.id;
+        f.replaced = (f.replaced ?? 0) + 1;
+        f.noCruiser = undefined;
+        say(m, COMMODORE, 'The Admiralty has released another cruiser to us. She is at the shipyard. Keep her screened this time.');
+      } else if (m.time - f.noCruiser > 45 && m.once('noGuns')) {
+        m.lose('The task force has lost its heavy guns: nothing left can reach the fortress.');
+        return;
+      }
+    } else f.noCruiser = undefined;
     for (const key of ['pen', 'afld', 'fact'] as const) {
       if (!m.isDone(key) && f[key] && !m.world.getEntity(f[key])?.alive) {
         m.complete(key);

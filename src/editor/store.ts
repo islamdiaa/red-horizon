@@ -13,6 +13,7 @@ import type { MissionDef } from '../sim/mission';
 import { AI_MODES, PORTRAITS, customMissionDef, type CustomMissionSetup, type MissionSpec } from './mission';
 import type { EditorDoc } from './doc';
 import { parseUntrustedJson, UntrustedInputError } from '../platform/untrusted';
+import { CM, DEFAULTS, english, tEdFile } from '../i18n/en/editor-mission';
 
 const DB = 'rh-editor';
 const STORE = 'docs';
@@ -189,25 +190,28 @@ export function fileName(doc: EditorDoc): string {
 export function parseRhMap(text: string): { doc: EditorDoc | null; errors: string[] } {
   let data: unknown;
   try { data = parseUntrustedJson(text, { maxChars: 4 << 20 }); } catch (e) {
-    return { doc: null, errors: [e instanceof UntrustedInputError ? e.message : 'Not a map file (invalid JSON).'] };
+    // (the untrusted-input limits: too large, or too many / too deeply nested entries)
+    return { doc: null, errors: [e instanceof UntrustedInputError ? tEdFile(e.code === 'tooLarge' ? 'tooLarge' : 'tooComplex') : tEdFile('invalidJson')] };
   }
   const o = data as Partial<RhMapFile> & Record<string, unknown>;
-  if (!o || typeof o !== 'object') return { doc: null, errors: ['Not a map file.'] };
+  if (!o || typeof o !== 'object') return { doc: null, errors: [tEdFile('notMap')] };
   let mapPart: unknown = o;
   let missionPart: unknown = null;
   if (o.format !== undefined || o.map !== undefined) {
-    if (o.format !== RHMAP_FORMAT) return { doc: null, errors: [`Unknown format "${String(o.format)}" (expected "${RHMAP_FORMAT}").`] };
-    if (typeof o.version !== 'number' || o.version > RHMAP_VERSION) return { doc: null, errors: [`Map file version ${String(o.version)} is newer than this build reads (${RHMAP_VERSION}).`] };
+    if (o.format !== RHMAP_FORMAT) return { doc: null, errors: [tEdFile('format', { format: String(o.format).slice(0, 40) })] };
+    if (typeof o.version !== 'number' || o.version > RHMAP_VERSION) return { doc: null, errors: [tEdFile('newer', { v: String(o.version).slice(0, 12), max: RHMAP_VERSION })] };
     mapPart = o.map;
     missionPart = o.mission ?? null;
   }
   const { def, errors } = checkMapDef(mapPart);
-  if (!def) return { doc: null, errors: errors.map((e) => 'Map ' + e) };
+  // (the checks name the broken field first: "size: a whole number ...", "features[3]: ...")
+  const field = (e: string) => (e.includes(':') ? e.slice(0, e.indexOf(':')) : e).slice(0, 40);
+  if (!def) return { doc: null, errors: errors.map((e) => tEdFile('badMap', { field: field(e) })) };
   def.id = newCustomId();
   let mission: MissionSpec | null = null;
   if (missionPart) {
     const m = sanitizeMission(missionPart);
-    if (Array.isArray(m)) return { doc: null, errors: m.map((e) => 'Mission ' + e) };
+    if (Array.isArray(m)) return { doc: null, errors: m.map((e) => tEdFile('badMission', { field: field(e) })) };
     mission = m;
   }
   const now = Date.now();
@@ -218,7 +222,7 @@ export function parseRhMap(text: string): { doc: EditorDoc | null; errors: strin
 export function sanitizeMission(x: unknown): MissionSpec | string[] {
   const errors: string[] = [];
   const o = x as Record<string, unknown>;
-  if (!o || typeof o !== 'object') return ['not an object'];
+  if (!o || typeof o !== 'object') return ['mission: not an object'];
   const str = (v: unknown, d = '') => (typeof v === 'string' ? v.slice(0, 2000) : d);
   const num = (v: unknown, d: number, lo = -1e9, hi = 1e9) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
   const optNum = (v: unknown, lo = -1e9, hi = 1e9) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined);
@@ -227,10 +231,10 @@ export function sanitizeMission(x: unknown): MissionSpec | string[] {
     if (!Array.isArray(v)) { errors.push(`${what}: expected a list`); return []; }
     return v;
   };
-  const players = arr(o.players, 'players').slice(0, 8).map((p) => {
+  const players = arr(o.players, 'players').slice(0, 8).map((p, i) => {
     const q = p as Record<string, unknown>;
     return {
-      name: str(q?.name, 'Player').slice(0, 40), faction: q?.faction === 'soviet' ? 'soviet' : 'allies', team: Math.round(num(q?.team, 0, 0, 7)),
+      name: str(q?.name, english(DEFAULTS.player, { n: i + 1 })).slice(0, 40), faction: q?.faction === 'soviet' ? 'soviet' : 'allies', team: Math.round(num(q?.team, 0, 0, 7)),
       ai: AI_MODES.includes(q?.ai as never) ? q.ai : 'normal', credits: Math.round(num(q?.credits, 5000, 0, 1e6)),
       startUnits: (['none', 'mcv', 'light', 'heavy'] as const).includes(q?.startUnits as never) ? q.startUnits : 'none',
     } as MissionSpec['players'][number];
@@ -279,7 +283,7 @@ export function sanitizeMission(x: unknown): MissionSpec | string[] {
   const lines = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string').map((s) => s.slice(0, 1000)).slice(0, 20) : []);
   if (errors.length) return errors;
   return {
-    title: str(o.title, 'Custom Operation').slice(0, 60), codename: str(o.codename, 'CUSTOM').slice(0, 30), location: str(o.location).slice(0, 60),
+    title: str(o.title, CM.title).slice(0, 60), codename: str(o.codename, CM.codename).slice(0, 30), location: str(o.location).slice(0, 60),
     briefing: lines(o.briefing), tips: lines(o.tips),
     timeOfDay: o.timeOfDay === 'dusk' || o.timeOfDay === 'night' ? o.timeOfDay : 'day', weather: str(o.weather, 'auto').slice(0, 10),
     dayCycle: o.dayCycle !== false, fog: o.fog !== false, parTime: Math.round(num(o.parTime, 0, 0, 36000)),

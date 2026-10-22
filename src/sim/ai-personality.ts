@@ -83,6 +83,18 @@ export interface AITuning {
   artyOn: number;
   /** Allied AI: wave targets weighed by the reach and price of the defences covering them (Tesla Coils above all). */
   teslaOn: number;
+  /**
+   * Classic, normal and up (version 5): a wave stopped by defences rather than by an army, while the commander is
+   * clearly ahead, holds outside their reach and calls up the rest of the army before it tries again, at most this
+   * many times, instead of going home (ai.ts siege).
+   */
+  proSiege: number;
+  /** Classic, normal and up: how many times its price a known defence counts when a wave that is clearly ahead weighs what it faces (ai-engage.ts facingNear; 2 = as strengthNear). */
+  proTowerW: number;
+  /** Classic, normal and up: in the first 15 minutes the tech centre, a third refinery and a second Tesla Coil wait like the other extras (1 = on). */
+  proLean: number;
+  /** Classic, normal and up: waves go for the power plants a Tesla Coil base can't spare, and dark coils count for nothing (1 = on). */
+  proPower: number;
 }
 
 /** Defaults (tuned with tools/selfplay/optimize.ts). */
@@ -128,6 +140,10 @@ export const DEFAULT_TUNING: AITuning = {
   spyOn: 1,
   artyOn: 1,
   teslaOn: 1,
+  proSiege: 2,
+  proTowerW: 1.5,
+  proLean: 1,
+  proPower: 1,
 };
 
 export interface Personality {

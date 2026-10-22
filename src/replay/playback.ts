@@ -32,6 +32,7 @@ import tReplay from '../i18n/en/replay';
 import tShare from '../i18n/en/share';
 import { fmtInt } from '../i18n/core';
 import { replayMapName } from './store';
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 export interface PlaybackHost {
   /** Start a new game from this setup (seeking backwards, watching again). */
@@ -467,9 +468,9 @@ export class ReplayPlayback {
       w.players.forEach((p, i) => {
         const row = el('button', 'rp-pl' + (i === this.view ? ' on' : '') + (i === this.hudPlayer && this.view < 0 ? ' hud' : ''));
         row.style.setProperty('--c', hexColor(p.color));
-        row.innerHTML = `<span class="rp-em">${factionEmblem(p.faction)}</span><span class="rp-nm"><b>${esc(p.name)}</b><small>${esc(this.data.players[i]?.ai ? tReplay('players.ai', { level: this.data.players[i].ai }) : tReplay('players.commander'))}</small></span>
+        row.innerHTML = `<span class="rp-em">${factionEmblem(p.faction)}</span><span class="rp-nm"><b>${esc(playerName(p.name))}</b><small>${esc(this.data.players[i]?.ai ? tReplay('players.ai', { level: this.data.players[i].ai }) : tReplay('players.commander'))}</small></span>
           <span class="rp-st" data-k="cr"></span><span class="rp-st" data-k="pw"></span><span class="rp-st" data-k="army"></span>`;
-        row.title = tReplay('players.viewAs', { name: p.name });
+        row.title = tReplay('players.viewAs', { name: playerName(p.name) });
         row.onclick = () => this.setView(i);
         row.addEventListener('mousedown', (e) => e.preventDefault());
         this.panel.appendChild(row);

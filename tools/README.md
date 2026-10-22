@@ -43,6 +43,9 @@ ship with the game.
 | `standins.ts` | Each AI level against human stand-ins (a scripted novice and casual player, and an experienced one: the frozen version-2 Normal AI with a human's economy), per ruleset and map size, with 95% intervals | `node --import tsx tools/selfplay/standins.ts [--games 12] [--diff recruit,easy,normal,hard,brutal] [--vs novice,casual,experienced] [--rules classic,commander] [--size 64,96] [--personality all] [--dynamic 1]` |
 | `optimize.ts` | Hill-climbing of the AI's tuning parameters | `node --import tsx tools/selfplay/optimize.ts [--iters 20] [--games 96] [--vs best\|legacy]` |
 | `inspect.ts` | Watches one match in the terminal (economy, army, AI decisions) | `node --import tsx tools/selfplay/inspect.ts [seed] [map] [p0] [p1] [minutes]` |
+| `levels.ts` | Each AI level where players meet it: Quick Battle rolls (maps, mutators, personalities, rivals, dynamic difficulty) and the skirmish menu's defaults, against the stand-ins (newcomer, novice, casual, experienced), with 95% intervals, how long the human's wins take and whether the AI looks alive | `node --import tsx tools/selfplay/levels.ts [--games 60] [--cond qb,custom] [--rules commander,classic] [--pairs targets\|all] [--patch JSON] [--tune k=v]` |
+| `teams.ts` | Team play and navies: a stand-in with an AI teammate in a 2v2 (help at the base, joined pushes, idle time, ore), free-for-alls (whom the AIs' waves go for), AI-vs-AI navies on sea maps | `node --import tsx tools/selfplay/teams.ts [--mode 2v2,ffa,naval] [--games 16] [--map archipelago]` |
+| `trace.ts` | One skirmish set up exactly as the game does (a Quick Battle roll or the `?autostart` setup) with snapshots of both sides: spending, units, structures, caps | `node --import tsx tools/selfplay/trace.ts [--qb 77 \| --autostart 77] [--diff recruit] [--vs newcomer\|ai:normal] [--at 3,7,15]` |
 | `campaign-compare.ts` | Campaign autopilots against the current AI and the legacy AI | `node --import tsx tools/selfplay/campaign-compare.ts [jitters=4] [missions] [minutes=40]` |
 
 The other files are support code:
@@ -75,6 +78,9 @@ server, or `QA_BASE`.
 | `stuck.ts` | Stuck detection in AI-vs-AI matches: movers without progress for 20 s, idle harvesters with ore left, an AI with money that builds nothing for 3 minutes, aircraft that never rearm, transports that never unload | `node --import tsx tools/qa/stuck.ts [--size 128] [--players 4] [--diff hard] [--minutes 45] [--water 0.4]` |
 | `crowd.ts` | A big army ordered across a bridge and back (or across open ground with `--flat`): arrival time and units without progress | `node --import tsx tools/qa/crowd.ts [--units 300] [--seed 4] [--flat]` |
 | `saveprof.ts` | Save cost on a big world: serialise, JSON, load, and the largest parts | `node --import tsx tools/qa/saveprof.ts [minutes=28] [size=128]` |
+| `waves.ts` | Attack waves across a Quick Battle map (the roll for `--seed`, or the `?autostart` setup): a spawned army attack-moving at the enemy yard, or (`--bot`) a stand-in's economy sending newcomer-style waves (`--once`: each wave ordered once; `--direct`: a click on a seen structure, i.e. an attack order). Reports stalled unit-seconds by cause, units idle mid-map, formations held back, and deaths by killer and place | `node --import tsx tools/qa/waves.ts [--seed 77] [--autostart] [--diff recruit] [--bot --once --human newcomer\|casual --every 75 --wave 5] [--direct] [-v]` |
+| `behave.ts` | Unit behaviour scenarios with numbers: entering structures from awkward spots, chokes and a bridge (30 / 60 units, human and AI, move and attack-move), Ore Trucks, a crowded rally point, aircraft rearming, an APC run, the service depot queue, an MCV on a blocked spot, unreachable orders, a fleet and a landing craft, return fire and threat priorities | `node --import tsx tools/qa/behave.ts [river\|enter\|choke\|harvest\|rally\|support\|naval\|guard\|all] [-v]` |
+| `pathprof.ts` | Path-search profile of a long AI match: searches per tick, nodes per search, blocked goals, queue length, tick times | `node --import tsx tools/qa/pathprof.ts [--size 128] [--players 4] [--diff brutal] [--minutes 40]` |
 | `ui.mjs` | UI checks with real mouse and keyboard input | `node tools/qa/ui.mjs` |
 | `ui_end.mjs` | End screen, quit, new game, restart and defeat | `node tools/qa/ui_end.mjs` |
 | `ui_sidebar.mjs` | Sidebar card states | `node tools/qa/ui_sidebar.mjs` |
@@ -122,9 +128,13 @@ instead. Every journey fails on console errors and Content-Security-Policy viola
 | `run.mjs` | Runs journeys against a URL (or serves a build), writes `report.json`, `summary.txt` and screenshots | `node tools/e2e/run.mjs [journey,...] [--url <url>] [--serve <dist>] [--browser chromium\|firefox\|webkit] [--cdp <url>] [--slow 2] [--realtime] [--size 1280x720] [--out <dir>]` |
 | `serve.mjs` | Serves a production build with the shipped security headers, cache rules and SPA fallback | `node tools/e2e/serve.mjs <dist> [port=5302] [host=127.0.0.1]` |
 | `builds.mjs` | Builds A, B and C (each differs only in its build id, like successive deploys) for the PWA update journey | `node tools/e2e/builds.mjs <outA> <outB> <outC>` |
+| `matrix.mjs` | The play matrix: the skill profiles play every mode at every level (Quick Battle, Classic 1 vs 1, 2 vs 2 with an AI ally, campaign mission 1 per side and level, co-op survival, Conquest, King of the Hill, a challenge, plus the replays, editor and abuse journeys), one game at a time. Per run: result, match length, first contact, money left idle, low power, the enemy at 7:00, the Field Manual hints shown, toasts and friction (clicks that did nothing, failed placements, softlocks). Writes `results.jsonl` (appended per cell) and `table.md`; `--lock` runs each cell in its own process under `flock` after `memguard.sh 6000` | `node tools/e2e/matrix.mjs [cell-pattern,...] [--serve <dist> \| --url <url>] [--lock /tmp/rh-lab/heavy.lock] [--profiles newcomer,casual] [--label before] [--out <dir>] [--list]` |
+| `matrix-compare.mjs` | Before/after table of two matrix runs | `node tools/e2e/matrix-compare.mjs <before/results.jsonl> <after/results.jsonl> [out.md]` |
+| `profiles.mjs` | The scripted players the matrix uses: *newcomer* (reads the Field Manual and does what it says, otherwise naive: infantry waves as soon as it has a group, no defences, no truck care), *casual* (a sensible base, two defences, tanks, attack-moves at a dozen units) and *experienced* (first-launch's winning play). Deterministic, not tuned to the AI | (imported by `matrix.mjs` and the journeys) |
+| `hudshot.mjs` | HUD layout check: starts a skirmish, resizes the window through the given sizes and reports panels off screen or overlapping, with screenshots | `node tools/e2e/hudshot.mjs <url> <outDir> [390x844,800x600,...] [--touch]` |
 
 Journeys (`tools/e2e/journeys/`): `first-launch` (fresh profile, Quick Battle on Recruit won through the UI, results,
-Play again), `skirmish-setup`, `campaign` (Boot Camp drills, mission 1 of each side, a special operation lost and
+Play again), `skirmish-setup`, `skirmish-ally` (2 vs 2 with an AI ally from the skirmish panel), `campaign` (Boot Camp drills, mission 1 of each side, a special operation lost and
 retried, the first Conquest battle), `saves`, `replays`, `editor`, `challenges` (daily, files, share links), `settings`,
 `pwa-update` (needs `--serve <A> --serve-b <B>,<C>`) and `abuse` (rapid clicks, Esc spam, focus loss, resizing).
 
@@ -177,6 +187,9 @@ Chromium (SwiftShader), so run `tools/assets/memguard.sh` first.
 | `i18n/catalog.ts coverage` | Keys translated per language | `node --import tsx tools/i18n/catalog.ts coverage` |
 | `i18n/catalog.ts missing` | The English a language still lacks, as flat JSON (optionally filtered by a key regex) | `node --import tsx tools/i18n/catalog.ts missing <lang> [out.json] [keyRegex]` |
 | `i18n/catalog.ts merge` | Merges translated batch files into `src/i18n/locales/<lang>.json` (sorted, known keys only) | `node --import tsx tools/i18n/catalog.ts merge <lang> <batch.json>...` |
+| `i18n/catalog.ts insert` | Like `merge`, but edits the file line by line: new keys go in at their sorted place, changed values are replaced on their line, nothing else moves (safe while other people append to the same file) | `node --import tsx tools/i18n/catalog.ts insert <lang> <batch.json>...` |
+| `i18n/sweep.mjs` | Walks the real interface in one language (main menu screens and their tabs, a match: HUD, selection, pause menu, results; the map editor with every tool and mission form) and lists the English still on screen (`english.txt`), text that does not fit its box (`clipped.txt`) and a screenshot per screen. Needs a running game (dev server or `tools/e2e/serve.mjs`) and a headless Chromium (heavy lock) | `node --import tsx tools/i18n/sweep.mjs --url http://127.0.0.1:5173/ --lang de [--only menu,game,editor] [--out dir]` |
+| `i18n/mission-text.ts` | Collects the text the mission scripts show (briefings, tips, debriefs, objectives, radio lines, timers, scores, defeat reasons, names) into `src/i18n/en/missions.ts` (source English, keys kept for unchanged text); `check` lists script text nothing registers (the test runs it) | `node --import tsx tools/i18n/mission-text.ts [check\|list]` |
 | `i18n/catalog.ts check` | Placeholder, plural, markup and raw-HTML problems in the translations | `node --import tsx tools/i18n/catalog.ts check [lang]` |
 | `i18n/catalog.ts prune` | Drops keys English no longer has | `node --import tsx tools/i18n/catalog.ts prune <lang>` |
 | `fonts/fetch.mjs` | Downloads the pinned OFL sources of the interface fallback fonts (`fonts/fonts.json`, google/fonts at a fixed commit, sha256-checked) into `~/.cache/red-horizon/fonts/` | `node tools/fonts/fetch.mjs` |
@@ -184,6 +197,8 @@ Chromium (SwiftShader), so run `tools/assets/memguard.sh` first.
 
 `subset.py` needs a Python with `fonttools==4.60.1 brotli==1.1.0`, for example
 `python3 -m venv ~/.cache/rh-fonts/venv && ~/.cache/rh-fonts/venv/bin/pip install fonttools==4.60.1 brotli==1.1.0`.
+Where that Python has no `ssl` module (pip cannot reach PyPI), download the two wheels with curl (PyPI's JSON API lists
+their URLs: `https://pypi.org/pypi/fonttools/4.60.1/json`) and install them with `pip install --no-index <wheels>`.
 
 ## Elsewhere
 

@@ -166,6 +166,8 @@ export function sanitizeCommand(raw: unknown, player: number): Command | null {
       case 'evacuate':
         need('building', int(r.building, 1));
         break;
+      case 'resign': // surrender (sim/resign.ts): nothing but the issuing seat's player
+        break;
       default: {
         // a command kind this build does not list: flat fields only (numbers, booleans, ids, id lists)
         if (!/^[A-Za-z][A-Za-z0-9]{0,23}$/.test(c)) return null;

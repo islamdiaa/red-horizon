@@ -26,6 +26,9 @@ import { MAP_DEFS } from '../../src/maps/defs';
 import { MODES } from '../../src/net/settings';
 import { BUILTINS } from '../../src/modes/builtins';
 import * as CQ from '../../src/conquest/data';
+import { REGIONS } from '../../src/conquest/geo';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export interface DataSource {
   /** The key prefix (dt()'s table argument). */
@@ -37,6 +40,12 @@ export interface DataSource {
 }
 
 const byId = <T extends { id: string }>(list: Iterable<T>) => () => [...list].map((x) => [x.id, x] as [string, unknown]);
+/** The example mods bundled in public/mods (index.json lists them), as [id, mod] pairs. */
+function exampleMods(): [string, unknown][] {
+  const dir = fileURLToPath(new URL('../../public/mods/', import.meta.url));
+  const idx = JSON.parse(fs.readFileSync(dir + 'index.json', 'utf8')) as { mods: string[] };
+  return idx.mods.map((f) => JSON.parse(fs.readFileSync(dir + f, 'utf8')) as { id: string }).map((m) => [m.id, m]);
+}
 const entries = (rec: Record<string, unknown>) => () => Object.entries(rec);
 
 export const DATA_SOURCES: DataSource[] = [
@@ -75,6 +84,13 @@ export const DATA_SOURCES: DataSource[] = [
   { table: 'conquestResource', rows: entries(CQ.RESOURCES), fields: ['name', 'desc'] },
   { table: 'conquestPersonality', rows: entries(CQ.PERSONALITIES), fields: ['name', 'desc'] },
   { table: 'conquestTitle', rows: byId(CQ.TITLES), fields: ['name', 'desc'] },
+  // Conquest's regions of 1953 Europe (a run's territories keep the region's id and English name)
+  { table: 'conquestRegion', rows: byId(REGIONS), fields: ['name'] },
+  // the example mods the Mods screen offers (public/mods; src/mods/ui.ts shows the translation while a mod's text is
+  // still the bundled English)
+  { table: 'modExample', rows: exampleMods, fields: ['name', 'description'] },
+  // ...and the unit types they add (shown through dt('unit', ...) like any unit when the mod is on)
+  { table: 'unit', rows: () => exampleMods().flatMap(([, m]) => Object.entries((m as { units?: Record<string, { clone?: string }> }).units ?? {}).filter(([, u]) => u.clone)), fields: ['name', 'description'] },
 ];
 
 /** Every [key, English] pair of one field path in a record. */

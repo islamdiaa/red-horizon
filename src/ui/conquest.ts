@@ -29,7 +29,7 @@ import tCq from '../i18n/en/conquest';
 import tCommon from '../i18n/en/common';
 import {
   doctrineDesc, doctrineName, kindDesc, kindName, monthYear, perkDesc, perkName, personalityDesc, personalityName, researchDesc, researchName,
-  resourceDesc, resourceName, titleDesc, titleName, trLog, trRun,
+  resourceDesc, resourceName, territoryName, titleDesc, titleName, trLog, trRun,
 } from '../conquest/i18n';
 
 export interface ConquestUiOptions {
@@ -330,7 +330,7 @@ function mapSvg(run: ConquestRun, selected: string | null): string {
   let ters = '', hatchE = '', hatchN = '';
   run.territories.forEach((t, k) => {
     const cls = `ter ${t.owner}${t.id === selected ? ' sel' : ''}${attackable.has(t.id) ? ' target' : ''}`;
-    ters += `<path class="${cls}" data-id="${t.id}" d="${g.paths[k]}" fill="rgb(${ownerRgb(run, t)})"><title>${esc(t.name)}</title></path>`;
+    ters += `<path class="${cls}" data-id="${t.id}" d="${g.paths[k]}" fill="rgb(${ownerRgb(run, t)})"><title>${esc(territoryName(t))}</title></path>`;
     if (t.owner === 'enemy') hatchE += g.paths[k];
     if (t.owner === 'neutral') hatchN += g.paths[k];
   });
@@ -388,7 +388,7 @@ function mapSvg(run: ConquestRun, selected: string | null): string {
     if (t.partisans && t.owner !== 'player') marks += pictoAt('flag', x - 15, y - 9, 11, '#8dffb0');
     if (run.superThreat?.territory === t.id) marks += `<circle class="pulse" cx="${x}" cy="${y}" r="9" fill="none" stroke="#ffd34d" stroke-width="2"/>${pictoAt('nuke', x - 16, y - 10, 13, '#ffd34d')}`;
     const stars = t.value >= 2 ? ' ' + '★'.repeat(t.value - 1) : '';
-    marks += `<text class="lbl${t.capital ? ' cap' : ''}" x="${x}" y="${y + (t.capital ? 24 : 19)}">${esc(t.name)}<tspan fill="#ffd34d">${stars}</tspan></text>`;
+    marks += `<text class="lbl${t.capital ? ' cap' : ''}" x="${x}" y="${y + (t.capital ? 24 : 19)}">${esc(territoryName(t))}<tspan fill="#ffd34d">${stars}</tspan></text>`;
   }
   const army = findTerritory(run, run.armyAt);
   if (army) {
@@ -504,7 +504,7 @@ function animateRows(root: HTMLElement) {
 
 function reportHtml(run: ConquestRun, rep: NonNullable<ConquestRun['report']>, goLabel: string): string {
   const title = tCq(rep.won ? (rep.action === 'defend' ? 'report.lineHeld' : 'report.victory') : rep.action === 'defend' ? 'report.territoryLost' : 'report.repulsed');
-  const territory = rep.name;
+  const territory = territoryName({ id: rep.territory, name: rep.name });
   const sub = tCq(rep.won ? (rep.captured ? 'report.captured' : 'report.defended') : rep.lost ? 'report.fallen' : 'report.failed', { territory });
   const rows: [string, string][] = [];
   rows.push([tCq('report.time'), tCq('report.timePar', { time: fmtT(rep.time), par: fmtT(rep.par) })]);
@@ -701,8 +701,8 @@ class ConquestScreen {
     const date = monthYear(run.turn);
     const inc = income(run);
     const hint = run.status !== 'active' ? tCq(run.status === 'won' ? 'map.hintWon' : 'map.hintOver')
-      : run.pending ? tCq('map.hintBattle', { territory: run.pending.spec.name })
-      : run.threat ? tCq('map.hintThreat', { territory: territory(run, run.threat.target).name })
+      : run.pending ? tCq('map.hintBattle', { territory: territoryName({ id: run.pending.spec.territory, name: run.pending.spec.name }) })
+      : run.threat ? tCq('map.hintThreat', { territory: territoryName(territory(run, run.threat.target)) })
       : tCq('map.hintChoose');
     root.innerHTML = `
       <div class="cq-panel cq-top">
@@ -783,7 +783,7 @@ class ConquestScreen {
     const run = this.run!;
     if (!run.threat) return '';
     const t = territory(run, run.threat.target);
-    return tCq(t.capital === 'player' ? 'confirm.threatCapital' : 'confirm.threat', { territory: t.name });
+    return tCq(t.capital === 'player' ? 'confirm.threatCapital' : 'confirm.threat', { territory: territoryName(t) });
   }
 
   /** After a state change: save, then walk through the pending screens (report, perks, event, summary). */
@@ -837,7 +837,7 @@ class ConquestScreen {
     if (run.pending) {
       const S = run.pending.spec;
       const save = battleSave(run);
-      return `<div class="cq-own" style="color:#ffcf8a">${esc(tCq('info.inProgress'))}</div><h2>${esc(tCq('info.battleOf', { territory: S.name }))}</h2>
+      return `<div class="cq-own" style="color:#ffcf8a">${esc(tCq('info.inProgress'))}</div><h2>${esc(tCq('info.battleOf', { territory: territoryName({ id: S.territory, name: S.name }) }))}</h2>
         <div class="cq-chips"><span class="cq-chip">${picto(KIND_INFO[S.kind].icon)}${esc(kindName(S.kind))}</span><span class="cq-chip">${picto('globe')}${esc(trRun(S.mapLabel))}</span><span class="cq-chip gold">${picto('coin')}${money(S.credits)}</span></div>
         <p class="cq-p">${esc(save ? tCq('info.saved', { when: fmtDateTime(save.savedAt), time: fmtT(save.game?.time ?? 0) }) : tCq('info.noSave'))}</p>
         <div class="cq-actions">${save ? `<button class="cq-btn pri" data-act="resume">${picto('play')}${esc(tCq('info.resume'))}</button>` : ''}<button class="cq-btn ${save ? '' : 'pri'}" data-act="restart">${picto('flag')}${esc(tCq(save ? 'info.restart' : 'info.deploy'))}</button><button class="cq-btn danger" data-act="withdraw">${esc(tCq('info.withdraw'))}</button></div>`;
@@ -846,17 +846,17 @@ class ConquestScreen {
     if (!t) {
       const inc = income(run);
       const opts = availableBattles(run).filter((b) => b.action === 'attack').length;
-      const threatT = run.threat ? territory(run, run.threat.target).name : '';
+      const threatT = run.threat ? territoryName(territory(run, run.threat.target)) : '';
       return `<div class="cq-own" style="color:rgb(var(--accent-rgb))">${esc(tCq('info.yourMove'))}</div><h2>${esc(monthYear(run.turn))}</h2>
-        ${run.threat ? `<div class="cq-cell wide" style="border-color:rgba(255,90,70,0.6);background:rgba(80,10,5,0.35)"><small style="color:#ffb0a0">${esc(tCq('info.counterattack'))}</small><b>${esc(tCq('info.route', { from: territory(run, run.threat.from).name, territory: threatT }))}</b>
+        ${run.threat ? `<div class="cq-cell wide" style="border-color:rgba(255,90,70,0.6);background:rgba(80,10,5,0.35)"><small style="color:#ffb0a0">${esc(tCq('info.counterattack'))}</small><b>${esc(tCq('info.route', { from: territoryName(territory(run, run.threat.from)), territory: threatT }))}</b>
           <p class="cq-p" style="margin:6px 0 8px">${esc(tCq('info.defendIt'))}</p><button class="cq-btn danger pri" data-act="defend">${picto('shield')}${esc(tCq('info.defendTerritory', { territory: threatT }))}</button></div>` : ''}
-        <p class="cq-p">${tCq.html('info.plan', { n: opts, capital: run.territories.find((x) => x.capital === 'enemy')!.name })}</p>
+        <p class="cq-p">${tCq.html('info.plan', { n: opts, capital: territoryName(run.territories.find((x) => x.capital === 'enemy')!) })}</p>
         <div class="cq-grid">
           <div class="cq-cell"><small>${esc(tCq('info.incomePerTurn'))}</small><b>${esc(inc.rp ? tCq('info.incomeRp', { money: money(inc.credits), rp: inc.rp }) : money(inc.credits))}</b></div>
           <div class="cq-cell"><small>${esc(tCq('info.territories'))}</small><b>${esc(tCq('info.ofTotal', { n: owned(run).length, total: run.territories.length }))}</b></div>
           <div class="cq-cell"><small>${esc(tCq('info.battlesWon'))}</small><b>${fmtInt(run.stats.battlesWon)}</b></div>
           <div class="cq-cell"><small>${esc(tCq('info.doctrines'))}</small><b>${fmtInt(run.perks.length)}</b></div>
-          ${run.superThreat ? `<div class="cq-cell wide" style="border-color:rgba(255,211,77,0.5)"><small style="color:#ffe08a">${esc(tCq('info.superThreat'))}</small><b>${esc(tCq('info.strikesIn', { territory: territory(run, run.superThreat.territory).name, n: run.superThreat.turns }))}</b></div>` : ''}
+          ${run.superThreat ? `<div class="cq-cell wide" style="border-color:rgba(255,211,77,0.5)"><small style="color:#ffe08a">${esc(tCq('info.superThreat'))}</small><b>${esc(tCq('info.strikesIn', { territory: territoryName(territory(run, run.superThreat.territory)), n: run.superThreat.turns }))}</b></div>` : ''}
         </div>`;
     }
     const owner = tCq(t.owner === 'player' ? (run.faction === 'allies' ? 'info.alliedTerritory' : 'info.sovietTerritory') : t.owner === 'enemy' ? (run.enemy === 'allies' ? 'info.alliedTerritory' : 'info.sovietTerritory') : 'info.neutralTerritory');
@@ -889,10 +889,10 @@ class ConquestScreen {
         </div>
         ${pers && P ? `<div class="cq-cmdr"><div class="cq-pt">${castPortrait(pers.commander, run.enemy === 'soviet' ? 'enemy' : 'commander')}</div><div><b>${esc(trRun(pers.commander))}</b><span class="pers">${picto(P.icon, 'mx-ic')} ${esc(personalityName(pers.personality))}</span><span>${esc(personalityDesc(pers.personality))}</span></div></div>` : t.owner === 'neutral' ? `<p class="cq-p">${esc(tCq('info.neutralPower'))}</p>` : ''}
         <div class="cq-actions">${opt ? `<button class="cq-btn pri" data-act="attack">${picto('crosshair')}${esc(tCq('info.planAttack'))}</button>`
-          : t.capital === 'enemy' && attackTargets(run).some((a) => a.target === t.id) ? `<span class="cq-p" style="color:#ffcf8a">${esc(tCq('info.capitalGate', { territory: t.name, n: capitalGate(run), held: owned(run).length }))}</span>`
+          : t.capital === 'enemy' && attackTargets(run).some((a) => a.target === t.id) ? `<span class="cq-p" style="color:#ffcf8a">${esc(tCq('info.capitalGate', { territory: territoryName(t), n: capitalGate(run), held: owned(run).length }))}</span>`
           : `<span class="cq-p" style="color:#8a99aa">${esc(tCq('info.notFront'))}</span>`}</div>`;
     }
-    return `<div class="cq-own" style="color:${ownColor}">${esc(owner)}</div><h2>${esc(t.name)}</h2><div class="cq-chips">${chips}</div>${body}`;
+    return `<div class="cq-own" style="color:${ownColor}">${esc(owner)}</div><h2>${esc(territoryName(t))}</h2><div class="cq-chips">${chips}</div>${body}`;
   }
 
   private climateFor(t: Territory): string {
@@ -968,7 +968,7 @@ class ConquestScreen {
     const lootPreview = S.kind === 'defend' ? 800 + 300 * t.value : Math.round((600 + 700 * t.value) * (run.perks.includes('plunder') ? 1.5 : 1));
     const m = this.modal(`
       <div class="cq-kick">${esc(S.kind === 'defend' ? tCq('preview.defence') : S.from ? tCq('preview.attackFrom', { from: S.from }) : tCq('preview.attack'))} · ${esc(monthYear(S.turn))}</div>
-      <h1>${esc(tCq('info.battleOf', { territory: S.name }))}</h1>
+      <h1>${esc(tCq('info.battleOf', { territory: territoryName({ id: S.territory, name: S.name }) }))}</h1>
       <h3>${esc(kindName(S.kind))} · ${esc(kindDesc(S.kind))}</h3>
       <div class="cq-cols">
         <div>

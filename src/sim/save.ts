@@ -290,6 +290,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     r.ended = s.mission.ended; r.won = s.mission.won; r.score = s.mission.score; r.hudTimerKey = s.mission.hudTimerKey;
     r.onceKeys = new Set(s.mission.onceKeys); r.everyT = new Map(s.mission.everyT); r.timers = new Map(s.mission.timers);
     mission.events.length = 0;
+    if (mission.flags.__level) mission.applyLevel(); // campaign difficulty: each side's handicap from the saved level (sim/handicap.ts)
   }
   loadCommander(w, s.commander, s.projectiles); // Commander rules state (none in Classic saves)
   if (s.econ || w.econ) loadEcon(w, s.econ); // Commander economy (none in Classic and older saves)

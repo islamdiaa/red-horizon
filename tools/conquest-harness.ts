@@ -12,6 +12,7 @@ import { UNITS } from '../src/data/rules';
 import type { Building, Entity, Unit } from '../src/sim/entities';
 import { loadCuratedMap } from '../src/maps';
 import { battleOutcome, conquestMission, isSeaBattle, type BattleMap, type BattleOutcome, type ConquestSetup } from '../src/conquest/battle';
+import { skillPilot, type Skill } from './campaign-players';
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d];
 
@@ -206,10 +207,12 @@ export interface HeadlessResult {
 }
 
 /** Run a conquest battle headless with the autopilot for its kind (pilot = 'idle' does nothing). */
-export function runConquestBattle(setup: ConquestSetup, minutes: number, pilot: 'auto' | 'idle' = 'auto', onTick?: (world: World, rt: MissionRuntime) => void): HeadlessResult & { world: World; rt: MissionRuntime } {
+export function runConquestBattle(setup: ConquestSetup, minutes: number, pilot: 'auto' | 'idle' | Skill = 'auto', onTick?: (world: World, rt: MissionRuntime) => void): HeadlessResult & { world: World; rt: MissionRuntime } {
   const { world, rt, def } = createConquestWorld(setup);
   (def as any).__strength = setup.battle.strength;
-  const p = pilot === 'auto' ? PILOTS[setup.battle.kind] : null;
+  // 'auto': the strike-force autopilot for the battle kind; 'newcomer' / 'casual': the human-like pilots (no head start)
+  const skill = pilot === 'newcomer' || pilot === 'casual' ? skillPilot(pilot) : null;
+  const p: ConquestPilot | null = pilot === 'auto' ? PILOTS[setup.battle.kind] : skill ? (w, r, st) => skill(w, r, st, () => {}) : null;
   const s: S = {};
   let error: string | undefined;
   try {

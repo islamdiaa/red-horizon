@@ -213,11 +213,22 @@ export async function exportChallenge(c: ChallengeDef) {
 
 /** Import a .rhchallenge.json file and store it (an id that exists is replaced). */
 export async function importChallengeFile(file: File): Promise<ChallengeDef> {
+  return (await importChallenge(file)).challenge;
+}
+
+/**
+ * Import a challenge file. `already` tells the list a card for it exists: a built-in (never stored again: an exported
+ * built-in comes back as itself) or one of the player's own with the same id (refreshed in place).
+ */
+export async function importChallenge(file: File): Promise<{ challenge: ChallengeDef; already: 'builtin' | 'stored' | null }> {
   if (file.size > 30 * 1024 * 1024) throw new Error(tModes('file.tooLarge'));
   const c = await decodeChallengeFile(await file.text());
-  const stored: ChallengeDef = BUILTINS[c.id] ? c : { ...c, source: { ...(c.source ?? { kind: 'import' }), kind: c.source?.kind ?? 'import' } };
+  if (BUILTINS[c.id]) return { challenge: BUILTINS[c.id].def, already: 'builtin' };
+  let known = false;
+  try { known = (await listChallenges()).some((x) => x.id === c.id); } catch { /* no storage */ }
+  const stored: ChallengeDef = { ...c, source: { ...(c.source ?? { kind: 'import' }), kind: c.source?.kind ?? 'import' } };
   await saveChallenge(stored);
-  return stored;
+  return { challenge: stored, already: known ? 'stored' : null };
 }
 
 export { BUILTIN_LIST };

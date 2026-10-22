@@ -63,10 +63,25 @@ export function factoriesFor(world: World, p: Player, typeId: string): Building[
   return out;
 }
 
-export function buildSeconds(world: World, p: Player, typeId: string): number {
+/**
+ * factoriesFor(...).length for updateProduction, remembered for the tick (every producing queue asks every tick, and
+ * each ask walked the whole structure list). Only for the production pass: structures can't appear, finish or go
+ * during it (later in the tick they can, so the AI and the HUD still count afresh).
+ */
+const facMemo = new WeakMap<World, { tick: number; len: number; src: Building[]; n: Map<string, number> }>();
+function factoryCount(world: World, p: Player, typeId: string): number {
+  let m = facMemo.get(world);
+  if (!m || m.tick !== world.tick || m.src !== world.buildings || m.len !== world.buildings.length) facMemo.set(world, (m = { tick: world.tick, len: world.buildings.length, src: world.buildings, n: new Map() }));
+  const key = p.id + ':' + typeId;
+  let n = m.n.get(key);
+  if (n === undefined) m.n.set(key, (n = factoriesFor(world, p, typeId).length));
+  return n;
+}
+
+export function buildSeconds(world: World, p: Player, typeId: string, factories?: number): number {
   const t = getType(typeId);
   let secs = (costOf(p, t) / 1000) * BUILD_SECONDS_PER_1000; // doctrine price (= t.cost under Classic rules)
-  const n = Math.min(4, Math.max(1, factoriesFor(world, p, typeId).length));
+  const n = Math.min(4, Math.max(1, factories ?? factoriesFor(world, p, typeId).length));
   secs /= 1 + 0.5 * (n - 1);
   if (p.lowPower) secs *= 1 + (1 - p.powerRatio) * 2;
   if (p.cmd) secs *= cmdTimeMul(p, t); // doctrine build time
@@ -104,7 +119,7 @@ export function updateProduction(world: World, p: Player) {
     const it = q.items[0];
     const t = getType(it.type);
     if (it.paused) continue;
-    const inc = DT / buildSeconds(world, p, it.type);
+    const inc = DT / buildSeconds(world, p, it.type, factoryCount(world, p, it.type));
     const step = Math.min(inc, 1 - it.progress);
     const pay = costOf(p, t) * step; // doctrine price (= t.cost under Classic rules)
     if (p.spend(pay)) {

@@ -33,6 +33,11 @@ import { footprintProblem, validateMap, validateMission, type Check, type MapRep
 import { View2D } from './view2d';
 import { View3D } from './view3d';
 import { area, button, check, el, esc, heading, num, row, select, text } from './forms';
+import tEd from '../i18n/en/editor'; // interface strings
+import tCommon from '../i18n/en/common';
+import { tDefault } from '../i18n/en/editor-mission';
+import { dt, fmtDate, fmtInt, fmtMoney, fmtNum, fmtPct, tx } from '../i18n/core';
+import { typeName } from '../i18n/names';
 
 export interface EditorOptions {
   quality: Quality;
@@ -42,7 +47,8 @@ export interface EditorOptions {
 }
 
 type ToolId = BrushKind | 'bridge' | 'start' | 'select' | 'structure' | 'unit' | 'erase';
-interface ToolDef { id: ToolId; label: string; color: string; icon?: string; group: string; key?: string; mission?: boolean }
+type ToolGroup = 'TERRAIN' | 'HEIGHT' | 'NATURE' | 'RESOURCES' | 'OBJECTS' | 'MISSION';
+interface ToolDef { id: ToolId; color: string; icon?: string; group: ToolGroup; key?: string; mission?: boolean }
 
 const svg = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 const IC = {
@@ -71,58 +77,54 @@ const IC = {
 };
 
 const TOOLS: ToolDef[] = [
-  { id: 'clear', label: 'Grass', color: '#6a9a48', group: 'TERRAIN', key: '1' },
-  { id: 'sand', label: 'Sand', color: '#d8bc84', group: 'TERRAIN', key: '2' },
-  { id: 'dirt', label: 'Dirt', color: '#8a6a44', group: 'TERRAIN', key: '3' },
-  { id: 'rock', label: 'Rock', color: '#8c867c', group: 'TERRAIN', key: '4' },
-  { id: 'water', label: 'Water', color: '#2e7fb0', group: 'TERRAIN', key: '5' },
-  { id: 'ford', label: 'Ford', color: '#c8b07a', group: 'TERRAIN', key: '6' },
-  { id: 'raise', label: 'Raise', color: '#e8eef4', icon: IC.raise, group: 'HEIGHT' },
-  { id: 'lower', label: 'Lower', color: '#9fb0c2', icon: IC.lower, group: 'HEIGHT' },
-  { id: 'forest', label: 'Forest', color: '#2f7a2c', group: 'NATURE', key: '7' },
-  { id: 'deforest', label: 'No trees', color: '#c6d8a0', icon: IC.noTree, group: 'NATURE' },
-  { id: 'ore', label: 'Ore', color: '#ffc23a', group: 'RESOURCES', key: '8' },
-  { id: 'gems', label: 'Gems', color: '#b46cff', group: 'RESOURCES', key: '9' },
-  { id: 'noore', label: 'No ore', color: '#c0a070', icon: IC.noOre, group: 'RESOURCES' },
-  { id: 'bridge', label: 'Bridge', color: '#ffd34d', icon: IC.bridge, group: 'OBJECTS', key: 'B' },
-  { id: 'start', label: 'Start', color: '#5ab4ff', icon: IC.start, group: 'OBJECTS', key: 'P' },
-  { id: 'select', label: 'Select', color: '#ffffff', icon: IC.select, group: 'MISSION', key: 'V', mission: true },
-  { id: 'structure', label: 'Structure', color: '#5ab4ff', icon: IC.structure, group: 'MISSION', key: 'S', mission: true },
-  { id: 'unit', label: 'Unit', color: '#58ff8a', icon: IC.unit, group: 'MISSION', key: 'U', mission: true },
-  { id: 'erase', label: 'Erase', color: '#ff4a3a', icon: IC.erase, group: 'MISSION', key: 'X', mission: true },
+  { id: 'clear', color: '#6a9a48', group: 'TERRAIN', key: '1' },
+  { id: 'sand', color: '#d8bc84', group: 'TERRAIN', key: '2' },
+  { id: 'dirt', color: '#8a6a44', group: 'TERRAIN', key: '3' },
+  { id: 'rock', color: '#8c867c', group: 'TERRAIN', key: '4' },
+  { id: 'water', color: '#2e7fb0', group: 'TERRAIN', key: '5' },
+  { id: 'ford', color: '#c8b07a', group: 'TERRAIN', key: '6' },
+  { id: 'raise', color: '#e8eef4', icon: IC.raise, group: 'HEIGHT' },
+  { id: 'lower', color: '#9fb0c2', icon: IC.lower, group: 'HEIGHT' },
+  { id: 'forest', color: '#2f7a2c', group: 'NATURE', key: '7' },
+  { id: 'deforest', color: '#c6d8a0', icon: IC.noTree, group: 'NATURE' },
+  { id: 'ore', color: '#ffc23a', group: 'RESOURCES', key: '8' },
+  { id: 'gems', color: '#b46cff', group: 'RESOURCES', key: '9' },
+  { id: 'noore', color: '#c0a070', icon: IC.noOre, group: 'RESOURCES' },
+  { id: 'bridge', color: '#ffd34d', icon: IC.bridge, group: 'OBJECTS', key: 'B' },
+  { id: 'start', color: '#5ab4ff', icon: IC.start, group: 'OBJECTS', key: 'P' },
+  { id: 'select', color: '#ffffff', icon: IC.select, group: 'MISSION', key: 'V', mission: true },
+  { id: 'structure', color: '#5ab4ff', icon: IC.structure, group: 'MISSION', key: 'S', mission: true },
+  { id: 'unit', color: '#58ff8a', icon: IC.unit, group: 'MISSION', key: 'U', mission: true },
+  { id: 'erase', color: '#ff4a3a', icon: IC.erase, group: 'MISSION', key: 'X', mission: true },
 ];
 const BRUSHES = new Set<ToolId>(['clear', 'sand', 'dirt', 'rock', 'water', 'ford', 'forest', 'deforest', 'ore', 'gems', 'noore', 'raise', 'lower']);
-const TOOL_HINT: Partial<Record<ToolId, string>> = {
-  clear: 'Open grass: carves away water, rock and trees.', sand: 'Sand (buildable).', dirt: 'Dirt roads and patches (buildable).',
-  rock: 'Cliffs and mountains: impassable.', water: 'Lakes, rivers and seas: impassable to ground units, sailed by ships.',
-  ford: 'Shallow crossing through water: passable sand at the waterline.', forest: 'Trees on open land at the chosen density.',
-  deforest: 'Removes trees only.', ore: 'Gold ore field (regrows).', gems: 'Gem field: worth double.', noore: 'Removes ore and gems only.',
-  raise: 'Raises the ground in a smooth hill (land only).', lower: 'Lowers the ground (never below the waterline).',
-  bridge: 'Click water to lay a bridge along the shortest span (Shift: other direction). Right-click a bridge to remove it.',
-  start: 'Drag a start to move it; click empty ground to add one (if the symmetry allows); right-click to remove.',
-  select: 'Click a placed unit or structure to edit it, drag to move it. Delete removes it.',
-  structure: 'Click to place a finished structure for the chosen player.', unit: 'Click to place a unit for the chosen player.',
-  erase: 'Click a placed unit or structure to remove it.',
-};
+/** A tool's name and hint in the interface language (src/i18n/en/editor.ts). */
+const toolLabel = (id: ToolId) => tEd(`tool.${id}.label`);
+const toolHint = (id: ToolId) => tEd(`tool.${id}.hint`);
 
 const SIZES = [64, 80, 96, 112, 128, 160, 192].filter((s) => s <= MAP_SIZE_MAX);
-const CLIMATES: [Climate, string][] = [['temperate', 'Temperate'], ['winter', 'Winter'], ['desert', 'Desert']];
-const SYMS = (Object.keys(SYMMETRY_INFO) as Symmetry[]).map((s) => [s, SYMMETRY_INFO[s].label] as [Symmetry, string]);
-const WEATHERS: [string, string][] = [['auto', 'Auto'], ['clear', 'Clear'], ['rain', 'Rain'], ['storm', 'Storm'], ['snow', 'Snow'], ['fog', 'Fog'], ['dust', 'Dust']];
+// option lists (labels looked up when shown; the documents keep the ids)
+const CLIMATES = (): [Climate, string][] => (['temperate', 'winter', 'desert'] as const).map((c) => [c, tEd(`climate.${c}`)]);
+const SYMS = (): [Symmetry, string][] => (Object.keys(SYMMETRY_INFO) as Symmetry[]).map((s) => [s, tEd(`sym.${s}.label`)]);
+const WEATHERS = (): [string, string][] => (['auto', 'clear', 'rain', 'storm', 'snow', 'fog', 'dust'] as const).map((w) => [w, tEd(`weather.${w}`)]);
+const GROUNDS = (islands: 'water' | 'waterNew'): [NonNullable<MapDef['ground']>, string][] => [['clear', tEd('ground.clear')], ['dirt', tEd('ground.dirt')], ['sand', tEd('ground.sand')], ['water', tEd(`ground.${islands}`)]];
+/** An AI level's name (passive / defensive included). */
+const aiName = (a: string) => (a === 'passive' ? tEd('mission.aiPassive') : tx(`common.difficulty.${a}`, undefined, a));
+const climateName = (c: string) => (c === 'temperate' || c === 'winter' || c === 'desert' ? tEd(`climate.${c}`) : c);
 
 /** Remembered between openings (returning from a playtest reopens the same document). */
 let session: { model: EditorModel; view: '2d' | '3d'; tool: ToolId; mode: 'terrain' | 'mission'; brush: BrushParams; hours: number; weather: string; tab: string } | null = null;
 
 const typeOptions = (kind: 'unit' | 'structure') => {
   const table = kind === 'unit' ? UNITS : BUILDINGS;
-  const groups: Record<string, [string, string][]> = { Allied: [], Soviet: [], Shared: [] };
+  const groups: Record<'allied' | 'soviet' | 'shared', [string, string][]> = { allied: [], soviet: [], shared: [] };
   for (const t of Object.values(table)) {
     if (kind === 'unit' && (t as { supportPlane?: boolean }).supportPlane) continue;
     if (kind === 'structure' && ((t as { mine?: string }).mine)) continue;
-    const g = t.owner.length > 1 ? 'Shared' : t.owner[0] === 'allies' ? 'Allied' : 'Soviet';
-    groups[g].push([t.id, t.name]);
+    const g = t.owner.length > 1 ? 'shared' : t.owner[0] === 'allies' ? 'allied' : 'soviet';
+    groups[g].push([t.id, typeName(t)]);
   }
-  return Object.entries(groups).filter(([, v]) => v.length).map(([group, items]) => ({ group, items: items.sort((a, b) => a[1].localeCompare(b[1])) }));
+  return (Object.keys(groups) as (keyof typeof groups)[]).filter((g) => groups[g].length).map((g) => ({ group: tEd(`typeGroup.${g}`), items: groups[g].sort((a, b) => a[1].localeCompare(b[1])) }));
 };
 
 export interface EditorHandle { close(): void }
@@ -136,7 +138,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   // ---------------------------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------------------------
-  const model = session?.model ?? new EditorModel(loadDraft() ?? newDoc(newMapDef({ name: 'Untitled map' })));
+  const model = session?.model ?? new EditorModel(loadDraft() ?? newDoc(newMapDef({ name: tEd('untitled') })));
   const ui = {
     view: session?.view ?? '2d' as '2d' | '3d',
     mode: session?.mode ?? 'terrain' as 'terrain' | 'mission',
@@ -180,7 +182,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   let v3: View3D | null = null;
   const hit = el('div', 'ed-hit');
   root.appendChild(hit);
-  const busy = el('div', 'ed-busy', 'UPDATING 3D VIEW…');
+  const busy = el('div', 'ed-busy', esc(tEd('busy')));
   root.appendChild(busy);
 
   const top = el('div', 'ed-panel ed-top');
@@ -205,30 +207,30 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   const nameInput = el('input', 'ed-name') as HTMLInputElement;
   nameInput.maxLength = 48;
   nameInput.spellcheck = false;
-  nameInput.onchange = () => { const v = nameInput.value.trim() || 'Untitled map'; model.edit((d) => { d.map.name = v; }); };
+  nameInput.onchange = () => { const v = nameInput.value.trim() || tEd('untitled'); model.edit((d) => { d.map.name = v; }); };
   nameInput.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') nameInput.blur(); };
   const dirtyDot = el('span', 'ed-dirty');
-  const undoB = button(IC.undo, () => doUndo(), '', 'Undo (Ctrl+Z)');
-  const redoB = button(IC.redo, () => doRedo(), '', 'Redo (Ctrl+Y)');
+  const undoB = button(IC.undo, () => doUndo(), '', tEd('top.undo'));
+  const redoB = button(IC.redo, () => doRedo(), '', tEd('top.redo'));
   const modeSeg = el('div', 'ed-seg');
-  const terrainB = button('Terrain', () => setMode('terrain'), '', 'Paint the map (M)');
-  const missionB = button('Mission', () => setMode('mission'), '', 'Place forces, objectives and triggers (M)');
+  const terrainB = button(esc(tEd('top.terrain')), () => setMode('terrain'), '', tEd('top.terrainTip'));
+  const missionB = button(esc(tEd('top.mission')), () => setMode('mission'), '', tEd('top.missionTip'));
   modeSeg.append(terrainB, missionB);
   const viewSeg = el('div', 'ed-seg');
-  const b2d = button('2D', () => setView('2d'), '', 'Top-down editing view (Tab)');
-  const b3d = button('3D', () => setView('3d'), '', 'The real game renderer (Tab)');
+  const b2d = button('2D', () => setView('2d'), '', tEd('top.view2dTip'));
+  const b3d = button('3D', () => setView('3d'), '', tEd('top.view3dTip'));
   viewSeg.append(b2d, b3d);
-  const brand = el('div', 'ed-brand', '<small>RED HORIZON</small><b>EDITOR</b>');
+  const brand = el('div', 'ed-brand', `<small>RED HORIZON</small><b>${esc(tEd('brand'))}</b>`);
   top.append(brand, nameInput, dirtyDot, el('span', 'ed-sep'), undoB, redoB, el('span', 'ed-sep'), modeSeg, viewSeg, el('span', 'ed-sp'),
-    button(`${IC.file}<span>New</span>`, () => newDialog(), '', 'New map'),
-    button(`${IC.open}<span>Open</span>`, () => libraryDialog(), '', 'Your maps and the curated maps'),
-    button(`${IC.save}<span>Save</span>`, () => void save(), '', 'Save to your library (Ctrl+S)'),
-    button(`${IC.up}<span>Import</span>`, () => fileInput.click(), '', 'Import a .rhmap.json file'),
-    button(`${IC.down}<span>Export</span>`, () => exportFile(), '', 'Download as .rhmap.json'),
-    button(`${SHARE_ICONS.link}<span>Copy link</span>`, () => void openShareDialog({ kind: 'map', title: model.doc.map.name, data: mapShareData(model.doc), exportFile, play: () => play('click') }), '', 'Share this map as a link (no upload: the map travels inside the link)'), // share links
+    button(`${IC.file}<span>${esc(tEd('top.new'))}</span>`, () => newDialog(), 'lbl', tEd('top.newTip')),
+    button(`${IC.open}<span>${esc(tEd('top.open'))}</span>`, () => libraryDialog(), 'lbl', tEd('top.openTip')),
+    button(`${IC.save}<span>${esc(tEd('top.save'))}</span>`, () => void save(), 'lbl', tEd('top.saveTip')),
+    button(`${IC.up}<span>${esc(tEd('top.import'))}</span>`, () => fileInput.click(), 'lbl', tEd('top.importTip')),
+    button(`${IC.down}<span>${esc(tEd('top.export'))}</span>`, () => exportFile(), 'lbl', tEd('top.exportTip')),
+    button(`${SHARE_ICONS.link}<span>${esc(tEd('top.link'))}</span>`, () => void openShareDialog({ kind: 'map', title: model.doc.map.name, data: mapShareData(model.doc), exportFile, play: () => play('click') }), 'lbl', tEd('top.linkTip')), // share links
     el('span', 'ed-sep'),
-    button(`${IC.play}<span>Playtest</span>`, () => playtestMenu(), 'pri', 'Play this map now'),
-    button(IC.x, () => exit(), '', 'Back to the main menu (Esc)'));
+    button(`${IC.play}<span>${esc(tEd('top.playtest'))}</span>`, () => playtestMenu(), 'pri', tEd('top.playtestTip')),
+    button(IC.x, () => exit(), '', tEd('top.exitTip')));
 
   // ---------------------------------------------------------------------------------------------
   // Tools and options
@@ -238,16 +240,16 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     let group = '';
     for (const t of TOOLS) {
       if (!!t.mission !== (ui.mode === 'mission')) continue;
-      if (t.group !== group) { group = t.group; tools.appendChild(el('h6', '', group)); }
-      const b = el('button', 'ed-tool' + (ui.tool === t.id ? ' on' : ''), `${t.icon ?? `<i style="background:${t.color}"></i>`}<span>${t.label}</span>${t.key ? `<kbd>${t.key}</kbd>` : ''}`);
-      b.title = `${t.label}${t.key ? ` (${t.key})` : ''}: ${TOOL_HINT[t.id] ?? ''}`;
+      if (t.group !== group) { group = t.group; tools.appendChild(el('h6', '', esc(tEd(`group.${t.group}`)))); }
+      const b = el('button', 'ed-tool' + (ui.tool === t.id ? ' on' : ''), `${t.icon ?? `<i style="background:${t.color}"></i>`}<span>${esc(toolLabel(t.id))}</span>${t.key ? `<kbd>${t.key}</kbd>` : ''}`);
+      b.title = t.key ? tEd('tool.tipKey', { label: toolLabel(t.id), key: t.key, hint: toolHint(t.id) }) : tEd('tool.tip', { label: toolLabel(t.id), hint: toolHint(t.id) });
       b.onclick = () => { setTool(t.id); play('tab'); };
       tools.appendChild(b);
     }
   };
 
   const slider = (label: string, value: number, min: number, max: number, step: number, set: (v: number) => void, fmt = (v: number) => String(v)) => {
-    const w = el('label', 'ed-opt', `<span>${label}</span>`);
+    const w = el('label', 'ed-opt', `<span>${esc(label)}</span>`);
     const r = el('input') as HTMLInputElement;
     r.type = 'range';
     r.min = String(min); r.max = String(max); r.step = String(step); r.value = String(value);
@@ -261,27 +263,27 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     optsBar.innerHTML = '';
     const t = ui.tool;
     if (BRUSHES.has(t)) {
-      optsBar.appendChild(slider('Size', ui.brush.radius, 0.5, 16, 0.5, (v) => { ui.brush.radius = v; }));
-      if (t !== 'raise' && t !== 'lower') optsBar.appendChild(slider('Rough', ui.brush.rough, 0, 1, 0.05, (v) => { ui.brush.rough = v; }, (v) => `${Math.round(v * 100)}%`));
-      if (t === 'forest') optsBar.appendChild(slider('Density', ui.brush.density, 0.05, 1, 0.05, (v) => { ui.brush.density = v; }, (v) => `${Math.round(v * 100)}%`));
-      if (t === 'ore' || t === 'gems') optsBar.appendChild(slider('Rich', ui.brush.rich, 0.4, 2, 0.1, (v) => { ui.brush.rich = v; }, (v) => `×${v.toFixed(1)}`));
-      if (t === 'raise' || t === 'lower') optsBar.appendChild(slider('Strength', ui.brush.amount, 0.1, 2, 0.05, (v) => { ui.brush.amount = v; }, (v) => v.toFixed(2)));
+      optsBar.appendChild(slider(tEd('opt.size'), ui.brush.radius, 0.5, 16, 0.5, (v) => { ui.brush.radius = v; }, (v) => fmtNum(v, 1)));
+      if (t !== 'raise' && t !== 'lower') optsBar.appendChild(slider(tEd('opt.rough'), ui.brush.rough, 0, 1, 0.05, (v) => { ui.brush.rough = v; }, (v) => fmtPct(v)));
+      if (t === 'forest') optsBar.appendChild(slider(tEd('opt.density'), ui.brush.density, 0.05, 1, 0.05, (v) => { ui.brush.density = v; }, (v) => fmtPct(v)));
+      if (t === 'ore' || t === 'gems') optsBar.appendChild(slider(tEd('opt.rich'), ui.brush.rich, 0.4, 2, 0.1, (v) => { ui.brush.rich = v; }, (v) => `×${fmtNum(Math.round(v * 10) / 10, 1)}`));
+      if (t === 'raise' || t === 'lower') optsBar.appendChild(slider(tEd('opt.strength'), ui.brush.amount, 0.1, 2, 0.05, (v) => { ui.brush.amount = v; }, (v) => fmtNum(v, 2)));
       if (model.doc.map.symmetry !== 'none') {
-        const c = check('Symmetric', !ui.brush.once, (v) => { ui.brush.once = !v; needsPaint = true; });
+        const c = check(tEd('opt.symmetric'), !ui.brush.once, (v) => { ui.brush.once = !v; needsPaint = true; });
         c.classList.add('ed-opt');
-        c.title = `On: every stroke is copied to all ${SYMMETRY_INFO[model.doc.map.symmetry].group} symmetric places (fair maps). Off: paint one copy only (decoration).`;
+        c.title = tEd('opt.symmetricTip', { n: SYMMETRY_INFO[model.doc.map.symmetry].group });
         optsBar.appendChild(c);
       }
     } else if (t === 'structure' || t === 'unit') {
-      const w = el('label', 'ed-opt', '<span>Type</span>');
+      const w = el('label', 'ed-opt', `<span>${esc(tEd('opt.type'))}</span>`);
       w.appendChild(select(ui.placeType[t], typeOptions(t), (v) => { ui.placeType[t] = v; }));
       optsBar.appendChild(w);
-      const p = el('label', 'ed-opt', '<span>Player</span>');
+      const p = el('label', 'ed-opt', `<span>${esc(tEd('opt.player'))}</span>`);
       const m = model.doc.mission;
       p.appendChild(select(ui.placePlayer, (m?.players ?? []).map((pl, i) => [i, `${i + 1} · ${pl.name}`] as [number, string]), (v) => { ui.placePlayer = v; }));
       optsBar.appendChild(p);
     }
-    optsBar.appendChild(el('span', 'ed-opt', `<span class="ed-hint">${esc(TOOL_HINT[t] ?? '')}</span>`));
+    optsBar.appendChild(el('span', 'ed-opt', `<span class="ed-hint">${esc(toolHint(t))}</span>`));
   };
 
   const setTool = (t: ToolId) => {
@@ -325,7 +327,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   const renderTop = () => {
     nameInput.value = model.doc.map.name;
     dirtyDot.classList.toggle('on', model.dirty);
-    dirtyDot.title = model.dirty ? 'Unsaved changes' : '';
+    dirtyDot.title = model.dirty ? tEd('dirty') : '';
     undoB.disabled = !model.canUndo;
     redoB.disabled = !model.canRedo;
     terrainB.classList.toggle('on', ui.mode === 'terrain');
@@ -342,8 +344,8 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     const tabs = el('div', 'ed-tabs');
     const errs = (report?.errors ?? 0) + missionChecks.filter((c) => c.level === 'error').length;
     const warns = (report?.warnings ?? 0) + missionChecks.filter((c) => c.level === 'warning').length;
-    for (const [id, label] of [['map', 'Map'], ['check', 'Check'], ['mission', 'Mission'], ['view', 'View']]) {
-      const b = el('button', 'ed-tab' + (ui.tab === id ? ' on' : ''), label + (id === 'check' && (errs || warns) ? `<span class="badge ${errs ? 'err' : ''}">${errs || warns}</span>` : ''));
+    for (const id of ['map', 'check', 'mission', 'view'] as const) {
+      const b = el('button', 'ed-tab' + (ui.tab === id ? ' on' : ''), esc(tEd(`tab.${id}`)) + (id === 'check' && (errs || warns) ? `<span class="badge ${errs ? 'err' : ''}">${errs || warns}</span>` : ''));
       b.onclick = () => { ui.tab = id; play('tab'); renderSide(); };
       tabs.appendChild(b);
     }
@@ -357,48 +359,48 @@ export function openEditor(opts: EditorOptions): EditorHandle {
 
   const mapTab = (body: HTMLElement) => {
     const d = model.doc.map;
-    body.append(heading('MAP'),
-      row('Name', text(d.name, (v) => { model.edit((x) => { x.map.name = v.trim() || 'Untitled map'; }); renderTop(); }, { max: 48 })),
-      row('Description', area(d.desc, (v) => model.edit((x) => { x.map.desc = v.slice(0, 400); }), 3)),
-      row('Author', text(d.author ?? '', (v) => model.edit((x) => { x.map.author = v.trim().slice(0, 40) || undefined; }), { max: 40 })),
-      row('Tags', text((d.tags ?? []).join(', '), (v) => model.edit((x) => { const t = v.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 6); x.map.tags = t.length ? t : undefined; }), { placeholder: 'e.g. River, 2v2' })));
-    body.append(heading('LAYOUT'));
-    const scaleBox = check('Scale content', true, () => {});
-    body.append(row('Size', select(d.size, SIZES.map((s) => [s, `${s} × ${s}`] as [number, string]), (v) => {
+    body.append(heading(tEd('map.heading')),
+      row(tEd('map.name'), text(d.name, (v) => { model.edit((x) => { x.map.name = v.trim() || tEd('untitled'); }); renderTop(); }, { max: 48 })),
+      row(tEd('map.desc'), area(d.desc, (v) => model.edit((x) => { x.map.desc = v.slice(0, 400); }), 3)),
+      row(tEd('map.author'), text(d.author ?? '', (v) => model.edit((x) => { x.map.author = v.trim().slice(0, 40) || undefined; }), { max: 40 })),
+      row(tEd('map.tags'), text((d.tags ?? []).join(', '), (v) => model.edit((x) => { const t = v.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 6); x.map.tags = t.length ? t : undefined; }), { placeholder: tEd('map.tagsHint') })));
+    body.append(heading(tEd('map.layout')));
+    const scaleBox = check(tEd('map.scale'), true, () => {});
+    body.append(row(tEd('map.size'), select(d.size, SIZES.map((s) => [s, `${s} × ${s}`] as [number, string]), (v) => {
       const scale = (scaleBox.querySelector('input') as HTMLInputElement).checked;
       const from = model.doc.map.size;
       model.edit((x) => { resizeMap(x.map, v, scale); if (x.mission) resizeMission(x.mission, from, v, scale); });
       fitView();
       renderSide();
     }), scaleBox));
-    body.append(row('Symmetry', select(d.symmetry, SYMS, (v) => { model.edit((x) => setSymmetry(x.map, v)); renderSide(); renderOpts(); })));
-    body.append(el('div', 'ed-note', `${d.players} player${d.players === 1 ? '' : 's'}: ${d.starts.length} authored start${d.starts.length === 1 ? '' : 's'} × ${SYMMETRY_INFO[d.symmetry].group}. ${d.symmetry === 'none' ? 'Free layout: you place every start; fairness is up to you (see Check).' : 'Every stroke, start and bridge is copied symmetrically, so the map is fair by construction.'}`));
-    body.append(row('Climate', select(d.climate, CLIMATES, (v) => { model.edit((x) => { x.map.climate = v; }); })));
-    body.append(row('Base ground', select(d.ground ?? 'clear', [['clear', 'Grassland'], ['dirt', 'Dirt'], ['sand', 'Sand'], ['water', 'Water (islands)']] as [string, string][], (v) => model.edit((x) => { x.map.ground = v === 'clear' ? undefined : v as MapDef['ground']; }))));
+    body.append(row(tEd('map.symmetry'), select(d.symmetry, SYMS(), (v) => { model.edit((x) => setSymmetry(x.map, v)); renderSide(); renderOpts(); })));
+    body.append(el('div', 'ed-note', esc(`${tEd('map.summary', { players: d.players, starts: d.starts.length, group: SYMMETRY_INFO[d.symmetry].group })} ${tEd(d.symmetry === 'none' ? 'map.free' : 'map.symmetric')}`)));
+    body.append(row(tEd('map.climate'), select(d.climate, CLIMATES(), (v) => { model.edit((x) => { x.map.climate = v; }); })));
+    body.append(row(tEd('map.ground'), select<string>(d.ground ?? 'clear', GROUNDS('water'), (v) => model.edit((x) => { x.map.ground = v === 'clear' ? undefined : v as MapDef['ground']; }))));
     const seed = num(d.seed, (v) => model.edit((x) => { x.map.seed = Math.round(v); }), { min: 0, max: 999999999 });
-    body.append(row('Noise seed', seed, button(IC.dice, () => { const s = Math.floor(Math.random() * 1e6); seed.value = String(s); model.edit((x) => { x.map.seed = s; }); }, '', 'New edge noise, forests and relief')));
-    body.append(row('Base area', num(d.clearRadius ?? 9.5, (v) => model.edit((x) => { x.map.clearRadius = v; }), { min: 6, max: 14, step: 0.5 })));
-    body.append(row('Rock relief', num(d.relief ?? 1, (v) => model.edit((x) => { x.map.relief = v; }), { min: 0, max: 3, step: 0.1 })));
-    body.append(row('Naval', check('Every base has shipyard water', !!d.naval, (v) => model.edit((x) => { x.map.naval = v || undefined; }))));
-    body.append(heading('CONTENT'));
-    body.append(el('div', 'ed-note', `${d.features.length} stroke${d.features.length === 1 ? '' : 's'} · ${(d.bridges ?? []).length} bridge${(d.bridges ?? []).length === 1 ? '' : 's'} · ${model.map().oreFieldCells.length} ore cells`));
-    body.append(el('div', 'row', ''), button('Clear all strokes', () => { if (confirm('Remove every painted stroke and bridge? (Undo brings them back.)')) model.edit((x) => { x.map.features = []; x.map.bridges = []; }); }, 'warn'));
+    body.append(row(tEd('map.seed'), seed, button(IC.dice, () => { const s = Math.floor(Math.random() * 1e6); seed.value = String(s); model.edit((x) => { x.map.seed = s; }); }, '', tEd('map.seedTip'))));
+    body.append(row(tEd('map.baseArea'), num(d.clearRadius ?? 9.5, (v) => model.edit((x) => { x.map.clearRadius = v; }), { min: 6, max: 14, step: 0.5 })));
+    body.append(row(tEd('map.relief'), num(d.relief ?? 1, (v) => model.edit((x) => { x.map.relief = v; }), { min: 0, max: 3, step: 0.1 })));
+    body.append(row(tEd('map.naval'), check(tEd('map.navalCheck'), !!d.naval, (v) => model.edit((x) => { x.map.naval = v || undefined; }))));
+    body.append(heading(tEd('map.content')));
+    body.append(el('div', 'ed-note', esc(tEd('map.contentNote', { strokes: d.features.length, bridges: (d.bridges ?? []).length, ore: model.map().oreFieldCells.length }))));
+    body.append(el('div', 'row', ''), button(esc(tEd('map.clearAll')), () => { if (confirm(tEd('map.clearAllConfirm'))) model.edit((x) => { x.map.features = []; x.map.bridges = []; }); }, 'warn'));
   };
 
   const checkTab = (body: HTMLElement) => {
     const r = report ?? validateMap(model.doc.map, model.map());
     const mapErr = r.errors;
     const v = el('div', 'ed-verdict ' + (mapErr ? 'bad' : 'ok'), mapErr
-      ? `✗ <div>Not playable in skirmish yet<small>${mapErr} error${mapErr === 1 ? '' : 's'} to fix${r.warnings ? `, ${r.warnings} warning${r.warnings === 1 ? '' : 's'}` : ''}.</small></div>`
-      : `✓ <div>Ready for skirmish<small>${r.warnings ? `${r.warnings} warning${r.warnings === 1 ? '' : 's'} worth a look.` : 'Passes every check the curated maps pass.'}</small></div>`);
+      ? `✗ <div>${esc(tEd('check.notPlayable'))}<small>${esc(r.warnings ? tEd('check.andWarnings', { errors: mapErr, warnings: r.warnings }) : tEd('check.errorsOnly', { errors: mapErr }))}</small></div>`
+      : `✓ <div>${esc(tEd('check.ready'))}<small>${esc(r.warnings ? tEd('check.warnings', { n: r.warnings }) : tEd('check.passes'))}</small></div>`);
     body.appendChild(v);
     const thumb = el('canvas', 'ed-thumb') as HTMLCanvasElement;
     drawMapPreview(thumb, model.map(), { size: 320 });
     body.appendChild(thumb);
     if (r.ore.length >= 2) {
-      body.appendChild(heading(`ORE PER PLAYER · ${Math.round(r.spread * 1000) / 10}% SPREAD`));
+      body.appendChild(heading(tEd('check.orePerPlayer', { spread: fmtPct(r.spread, 1) })));
       const hi = Math.max(1, ...r.ore.map((o) => o.total));
-      r.ore.forEach((o, k) => body.appendChild(el('div', 'ed-ore', `<i class="ed-dot" style="background:${PLAYER_COLORS[k % PLAYER_COLORS.length]}"></i><div class="bar"><b style="width:${(o.total / hi) * 100}%;background:${PLAYER_COLORS[k % PLAYER_COLORS.length]}"></b></div><span>${o.total}</span>`)));
+      r.ore.forEach((o, k) => body.appendChild(el('div', 'ed-ore', `<i class="ed-dot" style="background:${PLAYER_COLORS[k % PLAYER_COLORS.length]}"></i><div class="bar"><b style="width:${(o.total / hi) * 100}%;background:${PLAYER_COLORS[k % PLAYER_COLORS.length]}"></b></div><span>${fmtInt(o.total)}</span>`)));
     }
     const list = (title: string, checks: Check[]) => {
       body.appendChild(heading(title));
@@ -408,28 +410,28 @@ export function openEditor(opts: EditorOptions): EditorHandle {
         body.appendChild(it);
       }
     };
-    list('MAP CHECKS', r.checks);
-    if (model.doc.mission) list('MISSION CHECKS', missionChecks);
+    list(tEd('check.mapChecks'), r.checks);
+    if (model.doc.mission) list(tEd('check.missionChecks'), missionChecks);
   };
 
   const viewTab = (body: HTMLElement) => {
-    body.append(heading('PREVIEW'));
+    body.append(heading(tEd('view.preview')));
     const hours = el('label', 'ed-opt');
     const hr = el('input') as HTMLInputElement;
     hr.type = 'range'; hr.min = '0'; hr.max = '24'; hr.step = '0.25'; hr.value = String(ui.hours);
     const ho = el('output', '', fmtHour(ui.hours));
     hr.oninput = () => { ui.hours = +hr.value; ho.textContent = fmtHour(ui.hours); if (v3) { v3.opts.hours = ui.hours; v3.applyLook(); } };
     hours.append(hr, ho);
-    body.append(row('Time of day', hours));
-    body.append(row('Weather', select(ui.weather, WEATHERS, (v) => { ui.weather = v; if (v3) { v3.opts.weather = v as WeatherKind; v3.applyLook(); } })));
-    body.append(row('3D quality', select(opts.quality, [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] as [Quality, string][], (v) => { opts.quality = v; if (v3) { v3.opts.quality = v; v3.invalidate(); rebuild3dAt = 1; } })));
-    body.append(el('div', 'ed-note', 'Time of day, weather and climate show in the 3D view (Tab). The 3D view rebuilds itself shortly after you stop editing.'));
-    body.append(heading('2D VIEW'));
-    body.append(row('Grid', check('Cell grid when zoomed in', ui.grid, (v) => { ui.grid = v; needsPaint = true; })));
-    body.append(row('Guides', check('Symmetry axes', ui.guides, (v) => { ui.guides = v; needsPaint = true; })));
-    body.append(row('Camera', button('Fit map', () => { fitView(); }, '', 'Show the whole map')));
-    body.append(heading('KEYS'));
-    body.append(el('div', 'ed-note', `<kbd>1</kbd>–<kbd>9</kbd> brushes · <kbd>B</kbd> bridge · <kbd>P</kbd> start · <kbd>[</kbd> <kbd>]</kbd> brush size · <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Tab</kbd> 2D / 3D · <kbd>M</kbd> terrain / mission · <kbd>G</kbd> grid · <kbd>F</kbd> fit · right / middle drag pans, wheel zooms · 3D: <kbd>WASD</kbd> pan, <kbd>Q</kbd> <kbd>E</kbd> rotate.`));
+    body.append(row(tEd('view.time'), hours));
+    body.append(row(tEd('view.weather'), select(ui.weather, WEATHERS(), (v) => { ui.weather = v; if (v3) { v3.opts.weather = v as WeatherKind; v3.applyLook(); } })));
+    body.append(row(tEd('view.quality'), select(opts.quality, [['low', tEd('view.low')], ['medium', tEd('view.medium')], ['high', tEd('view.high')]] as [Quality, string][], (v) => { opts.quality = v; if (v3) { v3.opts.quality = v; v3.invalidate(); rebuild3dAt = 1; } })));
+    body.append(el('div', 'ed-note', esc(tEd('view.note'))));
+    body.append(heading(tEd('view.view2d')));
+    body.append(row(tEd('view.grid'), check(tEd('view.gridCheck'), ui.grid, (v) => { ui.grid = v; needsPaint = true; })));
+    body.append(row(tEd('view.guides'), check(tEd('view.guidesCheck'), ui.guides, (v) => { ui.guides = v; needsPaint = true; })));
+    body.append(row(tEd('view.camera'), button(esc(tEd('view.fit')), () => { fitView(); }, '', tEd('view.fitTip'))));
+    body.append(heading(tEd('view.keys')));
+    body.append(el('div', 'ed-note', tEd.html('view.keyList')));
   };
   const fmtHour = (h: number) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 
@@ -440,76 +442,76 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   };
   const tagOptions = (): [string, string][] => {
     const m = model.doc.mission!;
-    return [['', '— choose —'], ...m.placements.filter((p) => p.tag).map((p) => [p.tag!, `${p.tag} (${(p.kind === 'unit' ? UNITS[p.type] : BUILDINGS[p.type])?.name ?? p.type}, P${p.player + 1})`] as [string, string])];
+    return [['', tEd('mission.choose')], ...m.placements.filter((p) => p.tag).map((p) => [p.tag!, tEd('mission.tagOption', { tag: p.tag!, name: placementName(p), n: p.player + 1 })] as [string, string])];
   };
   const playerOptions = (from = 0): [number, string][] => model.doc.mission!.players.map((p, i) => [i, `${i + 1} · ${p.name}`] as [number, string]).slice(from);
-  const pickBtn = (label: string, fn: (x: number, y: number) => void) => button(`${IC.pin}<span>Pick</span>`, () => startPick(label, fn), '', 'Click on the map to choose the point');
+  const placementName = (p: Placement) => { const t = p.kind === 'unit' ? UNITS[p.type] : BUILDINGS[p.type]; return t ? typeName(t) : p.type; };
+  const pickBtn = (what: 'objectiveArea' | 'triggerArea' | 'arrival' | 'destination' | 'reveal', fn: (x: number, y: number) => void) => button(`${IC.pin}<span>${esc(tEd('mission.pick'))}</span>`, () => startPick(tEd(`pick.${what}`), fn), '', tEd('mission.pickTip'));
 
   const missionTab = (body: HTMLElement) => {
     const m = model.doc.mission;
     if (!m) {
-      body.append(heading('MISSION'), el('div', 'ed-note', 'Turn this map into a scripted mission: pre-placed bases and armies, objectives (destroy, survive, reach, protect, build), triggers with radio messages and reinforcements, and a briefing. Custom missions appear under Campaign → Special operations.'),
-        button('Add a mission layer', () => setMode('mission'), 'pri'));
+      body.append(heading(tEd('mission.heading')), el('div', 'ed-note', esc(tEd('mission.intro'))),
+        button(esc(tEd('mission.add')), () => setMode('mission'), 'pri'));
       return;
     }
     const starts = model.map().startPositions.length;
     // selected placement inspector
     if (ui.selected !== null && m.placements[ui.selected]) {
       const i = ui.selected, p = m.placements[i];
-      const t = p.kind === 'unit' ? UNITS[p.type] : BUILDINGS[p.type];
-      body.append(heading('SELECTED', button('Delete', () => { medit((mm) => { mm.placements.splice(i, 1); }); ui.selected = null; renderSide(); }, 'warn')));
+      body.append(heading(tEd('mission.selected'), button(esc(tEd('mission.delete')), () => { medit((mm) => { mm.placements.splice(i, 1); }); ui.selected = null; renderSide(); }, 'warn')));
       const card = el('div', 'ed-card sel');
-      card.append(row('Type', select(p.type, typeOptions(p.kind), (v) => medit((mm) => { mm.placements[i].type = v; }))),
-        row('Player', select(p.player, playerOptions(), (v) => medit((mm) => { mm.placements[i].player = v; }))),
-        row('Tag', text(p.tag ?? '', (v) => medit((mm) => { const s = v.trim().replace(/\s+/g, '-').slice(0, 30); mm.placements[i].tag = s || undefined; }, true), { placeholder: 'for objectives / triggers' })),
-        row('Health', num(Math.round((p.health ?? 1) * 100), (v) => medit((mm) => { mm.placements[i].health = v >= 100 ? undefined : v / 100; }), { min: 1, max: 100 })));
-      card.appendChild(el('div', 'ed-note', `${esc(t?.name ?? p.type)} at ${p.x.toFixed(1)}, ${p.y.toFixed(1)}`));
+      card.append(row(tEd('mission.type'), select(p.type, typeOptions(p.kind), (v) => medit((mm) => { mm.placements[i].type = v; }))),
+        row(tEd('mission.player'), select(p.player, playerOptions(), (v) => medit((mm) => { mm.placements[i].player = v; }))),
+        row(tEd('mission.tag'), text(p.tag ?? '', (v) => medit((mm) => { const s = v.trim().replace(/\s+/g, '-').slice(0, 30); mm.placements[i].tag = s || undefined; }, true), { placeholder: tEd('mission.tagHint') })),
+        row(tEd('mission.health'), num(Math.round((p.health ?? 1) * 100), (v) => medit((mm) => { mm.placements[i].health = v >= 100 ? undefined : v / 100; }), { min: 1, max: 100 })));
+      card.appendChild(el('div', 'ed-note', esc(tEd('mission.at', { name: placementName(p), x: fmtNum(p.x, 1), y: fmtNum(p.y, 1) }))));
       body.appendChild(card);
     }
     // briefing
-    body.append(heading('BRIEFING'),
-      row('Title', text(m.title, (v) => medit((mm) => { mm.title = v.slice(0, 60); }), { max: 60 })),
-      row('Codename', text(m.codename, (v) => medit((mm) => { mm.codename = v.toUpperCase().slice(0, 30); }), { max: 30 })),
-      row('Location', text(m.location, (v) => medit((mm) => { mm.location = v.slice(0, 60); }), { max: 60, placeholder: `Custom map · ${model.doc.map.name}` })),
-      row('Briefing', area(m.briefing.join('\n\n'), (v) => medit((mm) => { mm.briefing = v.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean).slice(0, 12); }), 5)),
-      row('Field notes', area((m.tips ?? []).join('\n'), (v) => medit((mm) => { mm.tips = v.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 8); }), 3)),
-      row('Par time', num(m.parTime ? Math.round(m.parTime / 60) : 0, (v) => medit((mm) => { mm.parTime = Math.round(v) * 60; }), { min: 0, max: 240, placeholder: 'minutes' })));
-    body.append(heading('CONDITIONS'),
-      row('Time of day', select(m.timeOfDay, [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] as [MissionSpec['timeOfDay'], string][], (v) => medit((mm) => { mm.timeOfDay = v; }))),
-      row('Weather', select(m.weather, WEATHERS, (v) => medit((mm) => { mm.weather = v; }))),
-      row('Options', check('Fog of war', m.fog, (v) => medit((mm) => { mm.fog = v; })), check('Day cycle', m.dayCycle, (v) => medit((mm) => { mm.dayCycle = v; }))));
+    body.append(heading(tEd('mission.briefing')),
+      row(tEd('mission.title'), text(m.title, (v) => medit((mm) => { mm.title = v.slice(0, 60); }), { max: 60 })),
+      row(tEd('mission.codename'), text(m.codename, (v) => medit((mm) => { mm.codename = v.toUpperCase().slice(0, 30); }), { max: 30 })),
+      row(tEd('mission.location'), text(m.location, (v) => medit((mm) => { mm.location = v.slice(0, 60); }), { max: 60, placeholder: tEd('mission.locationHint', { map: model.doc.map.name }) })),
+      row(tEd('mission.briefingText'), area(m.briefing.join('\n\n'), (v) => medit((mm) => { mm.briefing = v.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean).slice(0, 12); }), 5)),
+      row(tEd('mission.tips'), area((m.tips ?? []).join('\n'), (v) => medit((mm) => { mm.tips = v.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 8); }), 3)),
+      row(tEd('mission.parTime'), num(m.parTime ? Math.round(m.parTime / 60) : 0, (v) => medit((mm) => { mm.parTime = Math.round(v) * 60; }), { min: 0, max: 240, placeholder: tEd('mission.minutes') })));
+    body.append(heading(tEd('mission.conditions')),
+      row(tEd('mission.time'), select(m.timeOfDay, [['day', tEd('mission.day')], ['dusk', tEd('mission.dusk')], ['night', tEd('mission.night')]] as [MissionSpec['timeOfDay'], string][], (v) => medit((mm) => { mm.timeOfDay = v; }))),
+      row(tEd('mission.weather'), select(m.weather, WEATHERS(), (v) => medit((mm) => { mm.weather = v; }))),
+      row(tEd('mission.options'), check(tEd('mission.fog'), m.fog, (v) => medit((mm) => { mm.fog = v; })), check(tEd('mission.dayCycle'), m.dayCycle, (v) => medit((mm) => { mm.dayCycle = v; }))));
     // players
-    body.append(heading(`PLAYERS · ${m.players.length} / ${Math.min(starts, 6)}`, button('+ Add', () => {
-      if (m.players.length >= Math.min(starts, 6)) { toast(`The map has ${starts} start position${starts === 1 ? '' : 's'}: add starts in Terrain mode first.`, true); return; }
-      medit((mm) => { mm.players.push({ name: `Player ${mm.players.length + 1}`, faction: mm.players.length % 2 ? 'soviet' : 'allies', team: mm.players.length, ai: 'normal', credits: 5000, startUnits: 'none' }); }, true);
+    body.append(heading(tEd('mission.players', { n: m.players.length, max: Math.min(starts, 6) }), button(esc(tEd('mission.addItem')), () => {
+      if (m.players.length >= Math.min(starts, 6)) { toast(tEd('mission.tooManyPlayers', { n: starts }), true); return; }
+      medit((mm) => { mm.players.push({ name: tDefault('player', { n: mm.players.length + 1 }), faction: mm.players.length % 2 ? 'soviet' : 'allies', team: mm.players.length, ai: 'normal', credits: 5000, startUnits: 'none' }); }, true);
     })));
     m.players.forEach((p, i) => {
       const card = el('div', 'ed-card');
-      const h = el('div', 'ed-card-h', `<i class="ed-dot" style="background:${PLAYER_COLORS[i % PLAYER_COLORS.length]}"></i><span class="grow">${i + 1} · ${esc(p.name)}${i === 0 ? '<span class="ed-pill">YOU</span>' : ''}</span>`);
-      if (i > 0) h.appendChild(button('✕', () => { medit((mm) => { mm.players.splice(i, 1); mm.placements = mm.placements.filter((q) => q.player !== i).map((q) => ({ ...q, player: q.player > i ? q.player - 1 : q.player })); }, true); }, '', 'Remove player and their placements'));
+      const h = el('div', 'ed-card-h', `<i class="ed-dot" style="background:${PLAYER_COLORS[i % PLAYER_COLORS.length]}"></i><span class="grow">${i + 1} · ${esc(p.name)}${i === 0 ? `<span class="ed-pill">${esc(tEd('mission.you'))}</span>` : ''}</span>`);
+      if (i > 0) h.appendChild(button('✕', () => { medit((mm) => { mm.players.splice(i, 1); mm.placements = mm.placements.filter((q) => q.player !== i).map((q) => ({ ...q, player: q.player > i ? q.player - 1 : q.player })); }, true); }, '', tEd('mission.removePlayer')));
       card.appendChild(h);
-      card.append(row('Name', text(p.name, (v) => medit((mm) => { mm.players[i].name = v.slice(0, 40) || `Player ${i + 1}`; }, true), { max: 40 })),
-        row('Side', select(p.faction, [['allies', 'Allies'], ['soviet', 'Soviets']] as [Faction, string][], (v) => medit((mm) => { mm.players[i].faction = v; })),
-          select(p.team, Array.from({ length: 6 }, (_, k) => [k, `Team ${k + 1}`] as [number, string]), (v) => medit((mm) => { mm.players[i].team = v; }))),
-        row('Start', select(p.startUnits, [['none', 'Nothing'], ['mcv', 'MCV'], ['light', 'MCV + squad'], ['heavy', 'MCV + company']] as [MissionSpec['players'][number]['startUnits'], string][], (v) => medit((mm) => { mm.players[i].startUnits = v; })),
+      card.append(row(tEd('mission.name'), text(p.name, (v) => medit((mm) => { mm.players[i].name = v.slice(0, 40) || tDefault('player', { n: i + 1 }); }, true), { max: 40 })),
+        row(tEd('mission.side'), select(p.faction, [['allies', tCommon('faction.allies')], ['soviet', tCommon('faction.soviet')]] as [Faction, string][], (v) => medit((mm) => { mm.players[i].faction = v; })),
+          select(p.team, Array.from({ length: 6 }, (_, k) => [k, tEd('mission.team', { n: k + 1 })] as [number, string]), (v) => medit((mm) => { mm.players[i].team = v; }))),
+        row(tEd('mission.start'), select(p.startUnits, (['none', 'mcv', 'light', 'heavy'] as const).map((k) => [k, tEd(`mission.kit.${k}`)] as [MissionSpec['players'][number]['startUnits'], string]), (v) => medit((mm) => { mm.players[i].startUnits = v; })),
           num(p.credits, (v) => medit((mm) => { mm.players[i].credits = Math.round(v); }), { min: 0, max: 100000, step: 500 })));
-      if (i > 0) card.append(row('AI', select(p.ai, AI_MODES.map((a) => [a, a === 'passive' ? 'Passive (never attacks)' : a === 'defensive' ? 'Defensive' : a.charAt(0).toUpperCase() + a.slice(1)] as [string, string]), (v) => medit((mm) => { mm.players[i].ai = v as never; }))));
+      if (i > 0) card.append(row(tEd('mission.ai'), select(p.ai, AI_MODES.map((a) => [a, aiName(a)] as [string, string]), (v) => medit((mm) => { mm.players[i].ai = v as never; }))));
       body.appendChild(card);
     });
-    body.append(el('div', 'ed-note', `${m.placements.length} pre-placed unit${m.placements.length === 1 ? '' : 's'} / structure${m.placements.length === 1 ? '' : 's'} (Structure / Unit tools). Tag one (select it) to use it in objectives and triggers.`));
+    body.append(el('div', 'ed-note', esc(tEd('mission.placements', { n: m.placements.length }))));
     // objectives
-    body.append(heading('OBJECTIVES', button('+ Add', () => {
+    body.append(heading(tEd('mission.objectives'), button(esc(tEd('mission.addItem')), () => {
       const id = nextId('o', m.objectives.map((o) => o.id));
-      medit((mm) => { mm.objectives.push({ id, kind: 'destroyAll', text: 'Destroy all enemy forces', primary: true }); }, true);
+      medit((mm) => { mm.objectives.push({ id, kind: 'destroyAll', text: tDefault('objective.destroyAll'), primary: true }); }, true);
     })));
     m.objectives.forEach((o, i) => body.appendChild(objectiveCard(o, i)));
     // triggers
-    body.append(heading('TRIGGERS', button('+ Add', () => {
+    body.append(heading(tEd('mission.triggers'), button(esc(tEd('mission.addItem')), () => {
       const id = nextId('t', m.triggers.map((t) => t.id));
-      medit((mm) => { mm.triggers.push({ id, when: 'time', seconds: 60, actions: [{ kind: 'message', speaker: 'Battle Control', portrait: 'eva', text: 'Enemy reinforcements detected.' }] }); }, true);
+      medit((mm) => { mm.triggers.push({ id, when: 'time', seconds: 60, actions: [{ kind: 'message', speaker: tx('campaign.cast.eva'), portrait: 'eva', text: tDefault('message') }] }); }, true);
     })));
     m.triggers.forEach((t, i) => body.appendChild(triggerCard(t, i)));
-    body.append(heading('LAYER'), button('Remove mission layer', () => { if (confirm('Remove the mission (players, placements, objectives, triggers)? Undo brings it back.')) { model.edit((d) => { d.mission = null; }); setMode('terrain'); } }, 'warn'));
+    body.append(heading(tEd('mission.layer')), button(esc(tEd('mission.remove')), () => { if (confirm(tEd('mission.removeConfirm'))) { model.edit((d) => { d.mission = null; }); setMode('terrain'); } }, 'warn'));
   };
 
   const nextId = (prefix: string, used: string[]) => { let k = used.length + 1; while (used.includes(prefix + k)) k++; return prefix + k; };
@@ -517,46 +519,45 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   const objectiveCard = (o: ObjectiveSpec, i: number) => {
     const card = el('div', 'ed-card');
     const set = (fn: (x: ObjectiveSpec) => void, rerender = false) => medit((mm) => fn(mm.objectives[i]), rerender);
-    const h = el('div', 'ed-card-h', `<span class="grow">${o.primary ? '◆' : '◇'} ${esc(o.id)} · ${esc(OBJECTIVE_KINDS.find((k) => k.kind === o.kind)?.label ?? o.kind)}</span>`);
+    const h = el('div', 'ed-card-h', `<span class="grow">${o.primary ? '◆' : '◇'} ${esc(o.id)} · ${esc(OBJECTIVE_KINDS.includes(o.kind) ? tEd(`objective.kind.${o.kind}`) : o.kind)}</span>`);
     h.appendChild(button('✕', () => medit((mm) => { mm.objectives.splice(i, 1); }, true)));
     card.appendChild(h);
-    card.append(row('Kind', select(o.kind, OBJECTIVE_KINDS.map((k) => [k.kind, k.label] as [string, string]), (v) => set((x) => {
+    card.append(row(tEd('objective.kindLabel'), select(o.kind, OBJECTIVE_KINDS.map((k) => [k, tEd(`objective.kind.${k}`)] as [string, string]), (v) => set((x) => {
       x.kind = v as ObjectiveSpec['kind'];
-      const defaults: Record<string, string> = { destroyAll: 'Destroy all enemy forces', destroy: 'Destroy the target', survive: 'Hold out until help arrives', reach: 'Reach the extraction point', protect: 'Keep the convoy alive', build: 'Build a base' };
-      x.text = defaults[v] ?? x.text;
+      if (OBJECTIVE_KINDS.includes(x.kind)) x.text = tDefault(`objective.${x.kind}`);
       if (v === 'survive') x.seconds ??= 600;
       if (v === 'build') { x.type ??= 'powr'; x.count ??= 1; }
       if (v === 'reach') { const s = model.map().startPositions; const c = s[1] ?? { x: model.doc.map.size / 2, y: model.doc.map.size / 2 }; x.x ??= Math.round(c.x); x.y ??= Math.round(c.y); x.r ??= 4; }
     }, true))),
-    row('Text', text(o.text, (v) => set((x) => { x.text = v.slice(0, 200); }), { max: 200 })),
-    row('Type', check('Primary', o.primary, (v) => set((x) => { x.primary = v; }, true)), check('Hidden', !!o.hidden, (v) => set((x) => { x.hidden = v || undefined; }))));
-    if (o.kind === 'destroy' || o.kind === 'protect') card.append(row('Target', select(o.tag ?? '', tagOptions(), (v) => set((x) => { x.tag = v || undefined; }))));
-    if (o.kind === 'destroyAll') card.append(row('Whose', select(o.player ?? -1, [[-1, 'Every enemy'], ...playerOptions(1)] as [number, string][], (v) => set((x) => { x.player = v < 0 ? undefined : v; }))));
-    if (o.kind === 'survive') card.append(row('Minutes', num((o.seconds ?? 600) / 60, (v) => set((x) => { x.seconds = Math.round(v * 60); }), { min: 0.5, max: 180, step: 0.5 })));
-    if (o.kind === 'reach') card.append(row('Area', num(o.x, (v) => set((x) => { x.x = v; })), num(o.y, (v) => set((x) => { x.y = v; })), num(o.r ?? 4, (v) => set((x) => { x.r = v; }), { min: 1, max: 30 }), pickBtn('objective area', (x, y) => set((q) => { q.x = Math.round(x * 2) / 2; q.y = Math.round(y * 2) / 2; }, true))));
-    if (o.kind === 'build') card.append(row('Build', select(o.type ?? 'powr', typeOptions('structure'), (v) => set((x) => { x.type = v; })), num(o.count ?? 1, (v) => set((x) => { x.count = Math.round(v); }), { min: 1, max: 50 })));
+    row(tEd('objective.text'), text(o.text, (v) => set((x) => { x.text = v.slice(0, 200); }), { max: 200 })),
+    row(tEd('objective.type'), check(tEd('objective.primary'), o.primary, (v) => set((x) => { x.primary = v; }, true)), check(tEd('objective.hidden'), !!o.hidden, (v) => set((x) => { x.hidden = v || undefined; }))));
+    if (o.kind === 'destroy' || o.kind === 'protect') card.append(row(tEd('objective.target'), select(o.tag ?? '', tagOptions(), (v) => set((x) => { x.tag = v || undefined; }))));
+    if (o.kind === 'destroyAll') card.append(row(tEd('objective.whose'), select(o.player ?? -1, [[-1, tEd('objective.everyEnemy')], ...playerOptions(1)] as [number, string][], (v) => set((x) => { x.player = v < 0 ? undefined : v; }))));
+    if (o.kind === 'survive') card.append(row(tEd('objective.minutes'), num((o.seconds ?? 600) / 60, (v) => set((x) => { x.seconds = Math.round(v * 60); }), { min: 0.5, max: 180, step: 0.5 })));
+    if (o.kind === 'reach') card.append(row(tEd('objective.area'), num(o.x, (v) => set((x) => { x.x = v; })), num(o.y, (v) => set((x) => { x.y = v; })), num(o.r ?? 4, (v) => set((x) => { x.r = v; }), { min: 1, max: 30 }), pickBtn('objectiveArea', (x, y) => set((q) => { q.x = Math.round(x * 2) / 2; q.y = Math.round(y * 2) / 2; }, true))));
+    if (o.kind === 'build') card.append(row(tEd('objective.build'), select(o.type ?? 'powr', typeOptions('structure'), (v) => set((x) => { x.type = v; })), num(o.count ?? 1, (v) => set((x) => { x.count = Math.round(v); }), { min: 1, max: 50 })));
     return card;
   };
 
   const triggerCard = (t: TriggerSpec, i: number) => {
     const card = el('div', 'ed-card');
     const set = (fn: (x: TriggerSpec) => void, rerender = false) => medit((mm) => fn(mm.triggers[i]), rerender);
-    const h = el('div', 'ed-card-h', `<span class="grow">⚑ ${esc(t.id)} · ${esc(TRIGGER_WHENS.find((w) => w.kind === t.when)?.label ?? t.when)}</span>`);
+    const h = el('div', 'ed-card-h', `<span class="grow">⚑ ${esc(t.id)} · ${esc(TRIGGER_WHENS.includes(t.when) ? tEd(`trigger.when.${t.when}`) : t.when)}</span>`);
     h.appendChild(button('✕', () => medit((mm) => { mm.triggers.splice(i, 1); }, true)));
     card.appendChild(h);
-    card.append(row('When', select(t.when, TRIGGER_WHENS.map((w) => [w.kind, w.label] as [string, string]), (v) => set((x) => {
+    card.append(row(tEd('trigger.whenLabel'), select(t.when, TRIGGER_WHENS.map((w) => [w, tEd(`trigger.when.${w}`)] as [string, string]), (v) => set((x) => {
       x.when = v as TriggerSpec['when'];
       if (v === 'time') x.seconds ??= 60;
       if (v === 'area') { x.x ??= Math.round(model.doc.map.size / 2); x.y ??= Math.round(model.doc.map.size / 2); x.r ??= 5; }
     }, true))));
-    const objOpts = (): [string, string][] => [['', '— choose —'], ...model.doc.mission!.objectives.map((o) => [o.id, `${o.id}: ${o.text}`] as [string, string])];
-    if (t.when === 'time') card.append(row('After (min)', num((t.seconds ?? 60) / 60, (v) => set((x) => { x.seconds = Math.round(v * 60); }), { min: 0, max: 240, step: 0.25 })));
-    if (t.when === 'objectiveDone' || t.when === 'objectiveFailed') card.append(row('Objective', select(t.objective ?? '', objOpts(), (v) => set((x) => { x.objective = v || undefined; }))));
-    if (t.when === 'destroyed') card.append(row('Tag', select(t.tag ?? '', tagOptions(), (v) => set((x) => { x.tag = v || undefined; }))));
-    if (t.when === 'area') card.append(row('Area', num(t.x, (v) => set((x) => { x.x = v; })), num(t.y, (v) => set((x) => { x.y = v; })), num(t.r ?? 5, (v) => set((x) => { x.r = v; }), { min: 1, max: 30 }), pickBtn('trigger area', (x, y) => set((q) => { q.x = Math.round(x * 2) / 2; q.y = Math.round(y * 2) / 2; }, true))),
-      row('Whose units', select(t.player ?? 0, playerOptions(), (v) => set((x) => { x.player = v; }))));
+    const objOpts = (): [string, string][] => [['', tEd('mission.choose')], ...model.doc.mission!.objectives.map((o) => [o.id, `${o.id}: ${o.text}`] as [string, string])];
+    if (t.when === 'time') card.append(row(tEd('trigger.after'), num((t.seconds ?? 60) / 60, (v) => set((x) => { x.seconds = Math.round(v * 60); }), { min: 0, max: 240, step: 0.25 })));
+    if (t.when === 'objectiveDone' || t.when === 'objectiveFailed') card.append(row(tEd('trigger.objective'), select(t.objective ?? '', objOpts(), (v) => set((x) => { x.objective = v || undefined; }))));
+    if (t.when === 'destroyed') card.append(row(tEd('trigger.tag'), select(t.tag ?? '', tagOptions(), (v) => set((x) => { x.tag = v || undefined; }))));
+    if (t.when === 'area') card.append(row(tEd('trigger.area'), num(t.x, (v) => set((x) => { x.x = v; })), num(t.y, (v) => set((x) => { x.y = v; })), num(t.r ?? 5, (v) => set((x) => { x.r = v; }), { min: 1, max: 30 }), pickBtn('triggerArea', (x, y) => set((q) => { q.x = Math.round(x * 2) / 2; q.y = Math.round(y * 2) / 2; }, true))),
+      row(tEd('trigger.whoseUnits'), select(t.player ?? 0, playerOptions(), (v) => set((x) => { x.player = v; }))));
     t.actions.forEach((a, k) => card.appendChild(actionRow(a, i, k)));
-    card.append(row('', button('+ Action', () => set((x) => { x.actions.push({ kind: 'message', speaker: 'Battle Control', portrait: 'eva', text: '' }); }, true))));
+    card.append(row('', button(esc(tEd('trigger.addAction')), () => set((x) => { x.actions.push({ kind: 'message', speaker: tx('campaign.cast.eva'), portrait: 'eva', text: '' }); }, true))));
     return card;
   };
 
@@ -564,7 +565,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     const box = el('div', 'ed-card');
     const set = (fn: (x: TriggerAction) => void, rerender = false) => medit((mm) => fn(mm.triggers[ti].actions[k]), rerender);
     const h = el('div', 'ed-card-h', '<span class="grow">→</span>');
-    h.prepend(select(a.kind, TRIGGER_DOS.map((d) => [d.kind, d.label] as [string, string]), (v) => set((x) => {
+    h.prepend(select(a.kind, TRIGGER_DOS.map((d) => [d, tEd(`action.kind.${d}`)] as [string, string]), (v) => set((x) => {
       x.kind = v as TriggerAction['kind'];
       if (v === 'reinforce') { x.player ??= 0; x.units ??= ['e1', 'e1', 'e3', model.doc.mission!.players[x.player]?.faction === 'soviet' ? '3tnk' : '2tnk']; const N = model.doc.map.size; x.x ??= 1.5; x.y ??= N / 2; x.tx ??= N / 4; x.ty ??= N / 2; }
       if (v === 'credits') { x.player ??= 0; x.amount ??= 2000; }
@@ -573,18 +574,18 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     }, true)));
     h.appendChild(button('✕', () => medit((mm) => { mm.triggers[ti].actions.splice(k, 1); }, true)));
     box.appendChild(h);
-    if (a.kind === 'message') box.append(row('Speaker', text(a.speaker ?? '', (v) => set((x) => { x.speaker = v.slice(0, 40); })), select(a.portrait ?? 'eva', PORTRAITS.map((p) => [p, p] as [string, string]), (v) => set((x) => { x.portrait = v as never; }))),
-      row('Text', area(a.text ?? '', (v) => set((x) => { x.text = v.slice(0, 400); }), 2)));
-    if (a.kind === 'reinforce') box.append(row('Player', select(a.player ?? 0, playerOptions(), (v) => set((x) => { x.player = v; }))),
-      row('Units', text((a.units ?? []).join(', '), (v) => set((x) => { x.units = v.split(/[\s,]+/).map((s) => s.trim()).filter((s) => UNITS[s]).slice(0, 40); }, true), { placeholder: 'e1, e1, 2tnk …' })),
-      row('From', num(a.x, (v) => set((x) => { x.x = v; })), num(a.y, (v) => set((x) => { x.y = v; })), pickBtn('arrival point (map edge)', (x, y) => set((q) => { q.x = Math.round(x); q.y = Math.round(y); }, true))),
-      row('To', num(a.tx, (v) => set((x) => { x.tx = v; })), num(a.ty, (v) => set((x) => { x.ty = v; })), pickBtn('destination', (x, y) => set((q) => { q.tx = Math.round(x); q.ty = Math.round(y); }, true))));
-    if (a.kind === 'credits') box.append(row('Player', select(a.player ?? 0, playerOptions(), (v) => set((x) => { x.player = v; })), num(a.amount ?? 1000, (v) => set((x) => { x.amount = Math.round(v); }), { min: -100000, max: 100000, step: 500 })));
-    if (a.kind === 'reveal') box.append(row('Area', num(a.x, (v) => set((x) => { x.x = v; })), num(a.y, (v) => set((x) => { x.y = v; })), num(a.r ?? 8, (v) => set((x) => { x.r = v; }), { min: 1, max: 60 }), pickBtn('area to reveal', (x, y) => set((q) => { q.x = Math.round(x); q.y = Math.round(y); }, true))));
-    if (a.kind === 'objective') box.append(row('Show', select(a.objective ?? '', [['', '— hidden objective —'], ...model.doc.mission!.objectives.filter((o) => o.hidden).map((o) => [o.id, `${o.id}: ${o.text}`] as [string, string])], (v) => set((x) => { x.objective = v || undefined; }))));
-    if (a.kind === 'ai') box.append(row('Player', select(a.player ?? 1, playerOptions(1), (v) => set((x) => { x.player = v; })), select(a.mode ?? 'hard', AI_MODES.map((m) => [m, m] as [string, string]), (v) => set((x) => { x.mode = v as never; }))));
-    if (a.kind === 'attack') box.append(row('Player', select(a.player ?? 1, playerOptions(1), (v) => set((x) => { x.player = v; }))));
-    if (a.kind === 'lose') box.append(row('Reason', text(a.text ?? '', (v) => set((x) => { x.text = v.slice(0, 120); }))));
+    if (a.kind === 'message') box.append(row(tEd('action.speaker'), text(a.speaker ?? '', (v) => set((x) => { x.speaker = v.slice(0, 40); })), select(a.portrait ?? 'eva', PORTRAITS.map((p) => [p, tEd(`portrait.${p}`)] as [string, string]), (v) => set((x) => { x.portrait = v as never; }))),
+      row(tEd('action.text'), area(a.text ?? '', (v) => set((x) => { x.text = v.slice(0, 400); }), 2)));
+    if (a.kind === 'reinforce') box.append(row(tEd('action.player'), select(a.player ?? 0, playerOptions(), (v) => set((x) => { x.player = v; }))),
+      row(tEd('action.units'), text((a.units ?? []).join(', '), (v) => set((x) => { x.units = v.split(/[\s,]+/).map((s) => s.trim()).filter((s) => UNITS[s]).slice(0, 40); }, true), { placeholder: 'e1, e1, 2tnk …' })),
+      row(tEd('action.from'), num(a.x, (v) => set((x) => { x.x = v; })), num(a.y, (v) => set((x) => { x.y = v; })), pickBtn('arrival', (x, y) => set((q) => { q.x = Math.round(x); q.y = Math.round(y); }, true))),
+      row(tEd('action.to'), num(a.tx, (v) => set((x) => { x.tx = v; })), num(a.ty, (v) => set((x) => { x.ty = v; })), pickBtn('destination', (x, y) => set((q) => { q.tx = Math.round(x); q.ty = Math.round(y); }, true))));
+    if (a.kind === 'credits') box.append(row(tEd('action.player'), select(a.player ?? 0, playerOptions(), (v) => set((x) => { x.player = v; })), num(a.amount ?? 1000, (v) => set((x) => { x.amount = Math.round(v); }), { min: -100000, max: 100000, step: 500 })));
+    if (a.kind === 'reveal') box.append(row(tEd('action.area'), num(a.x, (v) => set((x) => { x.x = v; })), num(a.y, (v) => set((x) => { x.y = v; })), num(a.r ?? 8, (v) => set((x) => { x.r = v; }), { min: 1, max: 60 }), pickBtn('reveal', (x, y) => set((q) => { q.x = Math.round(x); q.y = Math.round(y); }, true))));
+    if (a.kind === 'objective') box.append(row(tEd('action.show'), select(a.objective ?? '', [['', tEd('action.hiddenObjective')], ...model.doc.mission!.objectives.filter((o) => o.hidden).map((o) => [o.id, `${o.id}: ${o.text}`] as [string, string])], (v) => set((x) => { x.objective = v || undefined; }))));
+    if (a.kind === 'ai') box.append(row(tEd('action.player'), select(a.player ?? 1, playerOptions(1), (v) => set((x) => { x.player = v; })), select(a.mode ?? 'hard', AI_MODES.map((m) => [m, aiName(m)] as [string, string]), (v) => set((x) => { x.mode = v as never; }))));
+    if (a.kind === 'attack') box.append(row(tEd('action.player'), select(a.player ?? 1, playerOptions(1), (v) => set((x) => { x.player = v; }))));
+    if (a.kind === 'lose') box.append(row(tEd('action.reason'), text(a.text ?? '', (v) => set((x) => { x.text = v.slice(0, 120); }))));
     return box;
   };
 
@@ -598,7 +599,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   const startPick = (label: string, fn: (x: number, y: number) => void) => {
     ui.pick = { label, fn };
     root.classList.add('picking');
-    ui.msg = `Click the map to set the ${label} (Esc cancels)`;
+    ui.msg = label;
     renderStatus();
   };
 
@@ -614,11 +615,16 @@ export function openEditor(opts: EditorOptions): EditorHandle {
       const x = Math.floor(ui.hover[0]), y = Math.floor(ui.hover[1]);
       if (map.inBounds(x, y)) {
         const i = map.idx(x, y);
-        const t = ['grass', 'water', 'rock', 'sand', 'dirt'][map.terrain[i]] ?? '?';
-        cell = `${x}, ${y} · ${t}${map.tree[i] ? ' · trees' : ''}${map.ore[i] ? ` · ${map.gems[i] ? 'gems' : 'ore'} ${map.ore[i]}` : ''}${map.bridgeAt[i] || map.bridges.some((b) => b.cells.some(([bx, by]) => bx === x && by === y)) ? ' · bridge' : ''} · h ${map.heightAt(x + 0.5, y + 0.5).toFixed(2)}`;
+        const t = (['grass', 'water', 'rock', 'sand', 'dirt'] as const)[map.terrain[i]];
+        const parts = [`${x}, ${y}`, t ? tEd(`cell.${t}`) : '?'];
+        if (map.tree[i]) parts.push(tEd('cell.trees'));
+        if (map.ore[i]) parts.push(tEd(map.gems[i] ? 'cell.gems' : 'cell.ore', { n: map.ore[i] }));
+        if (map.bridgeAt[i] || map.bridges.some((b) => b.cells.some(([bx, by]) => bx === x && by === y))) parts.push(tEd('cell.bridge'));
+        parts.push(tEd('cell.height', { h: fmtNum(map.heightAt(x + 0.5, y + 0.5), 2) }));
+        cell = parts.join(' · ');
       }
     }
-    status.innerHTML = `<span><b>${d.size}×${d.size}</b> · ${d.players}P · ${esc(SYMMETRY_INFO[d.symmetry].short)} · ${esc(d.climate)}</span><span>${cell}</span>${v3?.ready && ui.view === '3d' ? `<span>3D built in ${v3.lastBuild.toFixed(1)}s</span>` : ''}<span class="msg">${esc(ui.msg)}</span>`;
+    status.innerHTML = `<span><b>${d.size}×${d.size}</b> · ${esc(tEd('status.players', { n: d.players }))} · ${esc(tEd(`sym.${d.symmetry}.short`))} · ${esc(climateName(d.climate))}</span><span>${esc(cell)}</span>${v3?.ready && ui.view === '3d' ? `<span>${esc(tEd('status.built', { s: fmtNum(v3.lastBuild, 1) }))}</span>` : ''}<span class="msg">${esc(ui.msg)}</span>`;
   };
 
   // ---------------------------------------------------------------------------------------------
@@ -656,7 +662,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
       if (!bt) return;
       const cx = Math.round(p[0] - bt.size[0] / 2), cy = Math.round(p[1] - bt.size[1] / 2);
       const why = footprintProblem(model.map(), type, cx, cy, occupiedCells());
-      if (why) { flashMsg(`Can't place ${bt.name}: ${why}`); play('error'); return; }
+      if (why) { flashMsg(tEd('msg.cantPlace', { name: typeName(bt), why: tEd(`why.${why}`) })); play('error'); return; }
       pl = { kind, type, player, x: cx, y: cy };
     } else {
       if (!UNITS[type]) return;
@@ -712,13 +718,13 @@ export function openEditor(opts: EditorOptions): EditorHandle {
       if (ref) { ui.dragStart = ref; model.beginGroup(); return; }
       if (!inside(p)) return;
       if (!model.edit((d) => addStart(d.map, p[0], p[1]))) {
-        flashMsg(`${SYMMETRY_INFO[model.doc.map.symmetry].label}: at most ${maxAuthoredStarts(model.doc.map.symmetry)} authored start${maxAuthoredStarts(model.doc.map.symmetry) === 1 ? '' : 's'} (${MAX_PLAYERS} players). Drag a start to move it.`);
+        flashMsg(tEd('msg.tooManyStarts', { symmetry: tEd(`sym.${model.doc.map.symmetry}.label`), n: maxAuthoredStarts(model.doc.map.symmetry), max: MAX_PLAYERS }));
         play('error');
       } else play('click');
       renderSide();
     } else if (t === 'bridge') {
       const b = bridgeAt(model.map(), p[0], p[1], e.shiftKey ? (bridgeAt(model.map(), p[0], p[1])?.axis === 'x' ? 'y' : 'x') : undefined);
-      if (!b) { flashMsg('Bridges go across water with land at both ends (at most 14 cells).'); play('error'); return; }
+      if (!b) { flashMsg(tEd('msg.bridge')); play('error'); return; }
       model.edit((d) => { (d.map.bridges ??= []).push(b); });
       play('click');
     } else if (t === 'select' || t === 'erase') {
@@ -806,7 +812,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   const rightClick = (p: Pt) => {
     if (ui.tool === 'start') {
       const ref = nearestStart(model.doc.map, p[0], p[1], 3);
-      if (ref && !model.edit((d) => removeStart(d.map, ref))) { flashMsg('A map needs at least one authored start.'); play('error'); }
+      if (ref && !model.edit((d) => removeStart(d.map, ref))) { flashMsg(tEd('msg.needStart')); play('error'); }
       renderSide();
     } else if (ui.tool === 'bridge') {
       const k = bridgeDefAt(model.doc.map, model.map(), p[0], p[1]);
@@ -828,6 +834,19 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   // ---------------------------------------------------------------------------------------------
   // Keyboard
   // ---------------------------------------------------------------------------------------------
+  /**
+   * A letter key as the keyboard labels it (KeyboardEvent.key: Z is Z on QWERTZ and AZERTY too), or by position on a
+   * non-Latin layout (Cyrillic...), as the battle's key bindings do (src/ui/keymap.ts).
+   */
+  const isKey = (e: KeyboardEvent, letter: string) => {
+    const k = (e.key ?? '').toLowerCase();
+    return k === letter || (!/^[\x20-\x7e]$/.test(k) && e.code === `Key${letter.toUpperCase()}`);
+  };
+  /** The 3D view's pan keys (W A S D by their labels, the arrows), as the codes View3D tracks. */
+  const panCode = (e: KeyboardEvent): string | null => {
+    for (const l of 'wasd') if (isKey(e, l)) return `Key${l.toUpperCase()}`;
+    return e.code.startsWith('Arrow') ? e.code : null;
+  };
   const onKey = (e: KeyboardEvent) => {
     if (closed || root.querySelector('.ed-modal')) {
       if (e.key === 'Escape') root.querySelector<HTMLElement>('.ed-modal [data-close]')?.click();
@@ -836,10 +855,10 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     const tag = (e.target as HTMLElement)?.tagName;
     const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.code === 'KeyS') { e.preventDefault(); void save(); return; }
+    if (ctrl && isKey(e, 's')) { e.preventDefault(); void save(); return; }
     if (typing) return;
-    if (ctrl && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return; }
-    if (ctrl && e.code === 'KeyY') { e.preventDefault(); doRedo(); return; }
+    if (ctrl && isKey(e, 'z')) { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return; }
+    if (ctrl && isKey(e, 'y')) { e.preventDefault(); doRedo(); return; }
     if (ctrl) return;
     if (e.key === 'Escape') {
       if (ui.pick) { ui.pick = null; root.classList.remove('picking'); ui.msg = ''; renderStatus(); return; }
@@ -848,22 +867,28 @@ export function openEditor(opts: EditorOptions): EditorHandle {
       return;
     }
     if (e.key === 'Tab') { e.preventDefault(); setView(ui.view === '2d' ? '3d' : '2d'); return; }
-    if (ui.view === '3d' && v3 && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) { v3.keyDown(e.code); return; }
-    if (ui.view === '3d' && v3 && (e.code === 'KeyQ' || e.code === 'KeyE')) { v3.rotate(e.code === 'KeyQ' ? -1 : 1); return; }
-    if (e.key === '[' || e.key === ']') { ui.brush.radius = Math.max(0.5, Math.min(16, ui.brush.radius + (e.key === ']' ? 0.5 : -0.5))); renderOpts(); needsPaint = true; return; }
-    if (e.code === 'KeyM') { setMode(ui.mode === 'terrain' ? 'mission' : 'terrain'); return; }
-    if (e.code === 'KeyG') { ui.grid = !ui.grid; needsPaint = true; return; }
-    if (e.code === 'KeyF') { fitView(); return; }
+    const pan = ui.view === '3d' && v3 ? panCode(e) : null;
+    if (pan) { v3!.keyDown(pan); return; }
+    if (ui.view === '3d' && v3 && (isKey(e, 'q') || isKey(e, 'e'))) { v3.rotate(isKey(e, 'q') ? -1 : 1); return; }
+    // [ ]: by label, or by the US position where [ and ] need AltGr (QWERTZ, AZERTY...)
+    const bracket = e.key === '[' || e.key === ']' ? e.key : e.code === 'BracketLeft' ? '[' : e.code === 'BracketRight' ? ']' : null;
+    if (bracket) { ui.brush.radius = Math.max(0.5, Math.min(16, ui.brush.radius + (bracket === ']' ? 0.5 : -0.5))); renderOpts(); needsPaint = true; return; }
+    if (isKey(e, 'm')) { setMode(ui.mode === 'terrain' ? 'mission' : 'terrain'); return; }
+    if (isKey(e, 'g')) { ui.grid = !ui.grid; needsPaint = true; return; }
+    if (isKey(e, 'f')) { fitView(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && ui.selected !== null) { const i = ui.selected; medit((mm) => { mm.placements.splice(i, 1); }); ui.selected = null; renderSide(); return; }
-    const t = TOOLS.find((x) => x.key && x.key.toLowerCase() === e.key.toLowerCase() && !!x.mission === (ui.mode === 'mission'));
+    // (letters by label, as isKey; digits by label or position: AZERTY types & é " ... without Shift)
+    const t = TOOLS.find((x) => x.key && (/^\d$/.test(x.key) ? e.key === x.key || e.code === `Digit${x.key}` : isKey(e, x.key.toLowerCase())) && !!x.mission === (ui.mode === 'mission'));
     if (t) setTool(t.id);
   };
-  const onKeyUp = (e: KeyboardEvent) => v3?.keyUp(e.code);
+  const onKeyUp = (e: KeyboardEvent) => { const c = panCode(e); if (c) v3?.keyUp(c); v3?.keyUp(e.code); };
   const onBlur = () => v3?.clearKeys();
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
-  const onResize = () => { v2.resize(); v3?.resize(); needsPaint = true; };
+  /** Long labels (some languages) or a narrow window: the file buttons drop to their icons (the tooltips stay). */
+  const fitTop = () => { top.classList.remove('compact'); if (top.scrollWidth > top.clientWidth + 1) top.classList.add('compact'); };
+  const onResize = () => { v2.resize(); v3?.resize(); needsPaint = true; fitTop(); };
   window.addEventListener('resize', onResize);
 
   // ---------------------------------------------------------------------------------------------
@@ -893,10 +918,10 @@ export function openEditor(opts: EditorOptions): EditorHandle {
       await saveDoc(model.doc);
       model.dirty = false;
       renderTop();
-      if (!quiet) { toast(`Saved "${model.doc.map.name}"`); play('click'); }
+      if (!quiet) { toast(tEd('msg.saved', { name: model.doc.map.name })); play('click'); }
       return true;
     } catch (e) {
-      toast(`Could not save: ${(e as Error).message}`, true);
+      toast(tEd('msg.saveFailed', { error: (e as Error).message }), true);
       return false;
     }
   };
@@ -911,20 +936,20 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(`Exported ${fileName(model.doc)}`);
+    toast(tEd('msg.exported', { file: fileName(model.doc) }));
   };
 
   fileInput.onchange = async () => {
     const f = fileInput.files?.[0];
     fileInput.value = '';
     if (!f) return;
-    if (f.size > 8 * 1024 * 1024) { toast('File too large for a map.', true); return; }
+    if (f.size > 8 * 1024 * 1024) { toast(tEd('msg.tooLarge'), true); return; }
     const { doc, errors } = parseRhMap(await f.text());
     if (!doc) { toast(errors.slice(0, 4).join('\n'), true); play('error'); return; }
     confirmDiscard(() => {
       model.load(doc);
       afterLoad();
-      toast(`Imported "${doc.map.name}"${doc.mission ? ' with its mission' : ''}. Save it to keep it in your library.`);
+      toast(tEd(doc.mission ? 'msg.importedMission' : 'msg.imported', { name: doc.map.name }));
       model.dirty = true;
       renderTop();
     });
@@ -951,7 +976,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     const d = el('div', 'ed-panel ed-dlg ' + cls);
     m.appendChild(d);
     const close = () => m.remove();
-    const x = button(IC.x, close, 'x', 'Close (Esc)');
+    const x = button(IC.x, close, 'x', tEd('dialog.close'));
     x.dataset.close = '1';
     d.appendChild(x);
     m.onpointerdown = (e) => { if (e.target === m) close(); };
@@ -962,29 +987,29 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   const confirmDiscard = (then: () => void) => {
     if (!model.dirty) { then(); return; }
     const { d, close } = modal('sm');
-    d.append(el('div', 'kick', 'UNSAVED CHANGES'), el('h2', '', esc(model.doc.map.name)), el('div', 'ed-note', 'Save the current map before continuing?'));
+    d.append(el('div', 'kick', esc(tEd('dialog.unsaved'))), el('h2', '', esc(model.doc.map.name)), el('div', 'ed-note', esc(tEd('dialog.saveFirst'))));
     const foot = el('div', 'foot');
-    foot.append(button('Cancel', close), button('Discard', () => { close(); then(); }, 'warn'), button('Save', async () => { close(); if (await save()) then(); }, 'pri'));
+    foot.append(button(esc(tEd('dialog.cancel')), close), button(esc(tEd('dialog.discard')), () => { close(); then(); }, 'warn'), button(esc(tEd('dialog.save')), async () => { close(); if (await save()) then(); }, 'pri'));
     d.appendChild(foot);
   };
 
   const newDialog = () => {
     const { d, close } = modal('sm');
-    const o = { name: 'New map', size: 96, symmetry: 'rot2' as Symmetry, climate: 'temperate' as Climate, ground: 'clear' as NonNullable<MapDef['ground']> };
-    d.append(el('div', 'kick', 'MAP EDITOR'), el('h2', '', 'NEW MAP'),
-      row('Name', text(o.name, (v) => { o.name = v.trim() || 'New map'; })),
-      row('Size', select(o.size, SIZES.map((s) => [s, `${s} × ${s}`] as [number, string]), (v) => { o.size = v; })),
-      row('Symmetry', select(o.symmetry, SYMS, (v) => { o.symmetry = v; })),
-      row('Climate', select(o.climate, CLIMATES, (v) => { o.climate = v; })),
-      row('Ground', select(o.ground, [['clear', 'Grassland'], ['dirt', 'Dirt'], ['sand', 'Sand'], ['water', 'Islands in the sea']] as [NonNullable<MapDef['ground']>, string][], (v) => { o.ground = v; })),
-      el('div', 'ed-note', 'Symmetric maps are fair by construction: you paint once, the editor mirrors or rotates every stroke for the other players. Starter ore fields are laid out around every base.'));
+    const o = { name: tEd('newName'), size: 96, symmetry: 'rot2' as Symmetry, climate: 'temperate' as Climate, ground: 'clear' as NonNullable<MapDef['ground']> };
+    d.append(el('div', 'kick', esc(tEd('dialog.kicker'))), el('h2', '', esc(tEd('dialog.newTitle'))),
+      row(tEd('dialog.name'), text(o.name, (v) => { o.name = v.trim() || tEd('newName'); })),
+      row(tEd('dialog.size'), select(o.size, SIZES.map((s) => [s, `${s} × ${s}`] as [number, string]), (v) => { o.size = v; })),
+      row(tEd('dialog.symmetry'), select(o.symmetry, SYMS(), (v) => { o.symmetry = v; })),
+      row(tEd('dialog.climate'), select(o.climate, CLIMATES(), (v) => { o.climate = v; })),
+      row(tEd('dialog.ground'), select(o.ground, GROUNDS('waterNew'), (v) => { o.ground = v; })),
+      el('div', 'ed-note', esc(tEd('dialog.newNote'))));
     const foot = el('div', 'foot');
-    foot.append(button('Cancel', close), button('Create', () => {
+    foot.append(button(esc(tEd('dialog.cancel')), close), button(esc(tEd('dialog.create')), () => {
       close();
       confirmDiscard(() => {
         model.load(newDoc(newMapDef({ name: o.name, size: o.size, symmetry: o.symmetry, climate: o.climate, ground: o.ground })));
         afterLoad();
-        toast(`New ${o.size}×${o.size} map`);
+        toast(tEd('msg.newMap', { size: o.size }));
       });
     }, 'pri'));
     d.appendChild(foot);
@@ -992,7 +1017,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
 
   const libraryDialog = () => {
     const { d, close } = modal();
-    d.append(el('div', 'kick', 'LIBRARY'), el('h2', '', 'YOUR MAPS'));
+    d.append(el('div', 'kick', esc(tEd('library.kicker'))), el('h2', '', esc(tEd('library.title'))));
     const grid = el('div', 'ed-lib');
     const docs = listDocs();
     const card = (title: string, sub: string, pills: string, thumb: () => string, acts: [string, () => void, string?][], onOpen: () => void) => {
@@ -1000,21 +1025,21 @@ export function openEditor(opts: EditorOptions): EditorHandle {
       const img = c.querySelector('img') as HTMLImageElement;
       requestAnimationFrame(() => { try { img.src = thumb(); } catch { /* broken map */ } });
       const a = el('div', 'acts');
-      for (const [label, fn, cls] of acts) a.appendChild(button(label, fn, cls ?? ''));
+      for (const [label, fn, cls] of acts) a.appendChild(button(esc(label), fn, cls ?? ''));
       c.appendChild(a);
       c.onclick = onOpen;
       grid.appendChild(c);
     };
-    if (!docs.length) grid.appendChild(el('div', 'ed-note', 'No saved maps yet. Save (Ctrl+S) puts the current map here; saved maps with 2+ starts show up in the skirmish map picker.'));
+    if (!docs.length) grid.appendChild(el('div', 'ed-note', esc(tEd('library.empty'))));
     for (const doc of docs) {
-      const open = () => { close(); confirmDiscard(() => { model.load(JSON.parse(JSON.stringify(doc))); afterLoad(); toast(`Opened "${doc.map.name}"`); }); };
-      card(doc.map.name, `${doc.map.size}×${doc.map.size} · ${doc.map.players}P · ${new Date(doc.updatedAt).toLocaleDateString()}`, doc.mission ? '<span class="ed-pill gold">MISSION</span>' : '',
+      const open = () => { close(); confirmDiscard(() => { model.load(JSON.parse(JSON.stringify(doc))); afterLoad(); toast(tEd('msg.opened', { name: doc.map.name })); }); };
+      card(doc.map.name, tEd('library.facts', { size: doc.map.size, n: doc.map.players, date: fmtDate(doc.updatedAt) }), doc.mission ? `<span class="ed-pill gold">${esc(tEd('library.missionPill'))}</span>` : '',
         () => mapPreviewUrl(`ed:${doc.id}:${doc.updatedAt}`, () => buildMapSafe(doc.map), { size: 200 }),
-        [['Open', open, 'pri'], ['Copy', () => { const c = JSON.parse(JSON.stringify(doc)) as EditorDoc; c.id = c.map.id = newCustomId(); c.map.name += ' (copy)'; c.updatedAt = Date.now(); void saveDoc(c).then(() => { close(); libraryDialog(); }); }],
-          ['Delete', () => { if (confirm(`Delete "${doc.map.name}" from your library?`)) void deleteDoc(doc.id).then(() => { close(); libraryDialog(); }); }, 'warn']], open);
+        [[tEd('library.open'), open, 'pri'], [tEd('library.copy'), () => { const c = JSON.parse(JSON.stringify(doc)) as EditorDoc; c.id = c.map.id = newCustomId(); c.map.name = tEd('library.copyName', { name: c.map.name }).slice(0, 48); c.updatedAt = Date.now(); void saveDoc(c).then(() => { close(); libraryDialog(); }); }],
+          [tEd('library.delete'), () => { if (confirm(tEd('library.deleteConfirm', { name: doc.map.name }))) void deleteDoc(doc.id).then(() => { close(); libraryDialog(); }); }, 'warn']], open);
     }
     d.appendChild(grid);
-    d.appendChild(heading('REMIX A CURATED MAP'));
+    d.appendChild(heading(tEd('library.remix')));
     const g2 = el('div', 'ed-lib');
     g2.style.maxHeight = '30vh';
     for (const def of CURATED_MAPS) {
@@ -1023,16 +1048,16 @@ export function openEditor(opts: EditorOptions): EditorHandle {
         confirmDiscard(() => {
           const copy = JSON.parse(JSON.stringify(def)) as MapDef;
           copy.id = newCustomId();
-          copy.name = `${def.name} (remix)`;
+          copy.name = tEd('library.remixName', { name: mapName(def) }).slice(0, 48);
           copy.format = 1;
           model.load(newDoc(copy));
           afterLoad();
           model.dirty = true;
           renderTop();
-          toast(`Remixing "${def.name}": every feature is editable.`);
+          toast(tEd('msg.remixing', { name: mapName(def) }));
         });
       };
-      const c = el('div', 'ed-lib-card', `<img alt=""><div class="meta"><b>${esc(def.name)}</b><small>${def.size}×${def.size} · ${def.players}P · ${esc(def.climate)}</small></div>`);
+      const c = el('div', 'ed-lib-card', `<img alt=""><div class="meta"><b>${esc(mapName(def))}</b><small>${def.size}×${def.size} · ${esc(tEd('status.players', { n: def.players }))} · ${esc(climateName(def.climate))}</small></div>`);
       const img = c.querySelector('img') as HTMLImageElement;
       requestAnimationFrame(() => { img.src = mapPreviewUrl(`c:${def.id}`, () => buildMapSafe(def), { size: 200 }); });
       c.onclick = remix;
@@ -1041,6 +1066,8 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     d.appendChild(g2);
   };
 
+  /** A curated map's name in the interface language. */
+  const mapName = (def: MapDef) => dt('map', def.id, 'name', def.name);
   const buildMapSafe = (def: MapDef) => { const t = new EditorModel(newDoc(JSON.parse(JSON.stringify(def)))); return t.map(); };
 
   const playtestMenu = () => {
@@ -1049,22 +1076,23 @@ export function openEditor(opts: EditorOptions): EditorHandle {
     const r = report ?? validateMap(model.doc.map, map);
     const n = map.startPositions.length;
     const o = { faction: (model.doc.mission?.players[0]?.faction ?? 'allies') as Faction, ai: 'normal' as AIDifficulty, credits: 10000 };
-    d.append(el('div', 'kick', 'PLAYTEST'), el('h2', '', esc(model.doc.map.name.toUpperCase())));
-    d.appendChild(heading('SKIRMISH ON THIS MAP'));
-    if (n < 2) d.appendChild(el('div', 'ed-note', 'Skirmish needs at least 2 start positions.'));
+    d.append(el('div', 'kick', esc(tEd('playtest.kicker'))), el('h2', '', esc(model.doc.map.name.toUpperCase())));
+    d.appendChild(heading(tEd('playtest.skirmish')));
+    if (n < 2) d.appendChild(el('div', 'ed-note', esc(tEd('playtest.needStarts'))));
     else {
-      d.append(row('Play as', select(o.faction, [['allies', 'Allies'], ['soviet', 'Soviets']] as [Faction, string][], (v) => { o.faction = v; })),
-        row(`AI × ${n - 1}`, select(o.ai, [['recruit', 'Recruit'], ['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['brutal', 'Brutal']] as [AIDifficulty, string][], (v) => { o.ai = v; })),
-        row('Credits', select(o.credits, [[5000, '$5,000'], [10000, '$10,000'], [20000, '$20,000']] as [number, string][], (v) => { o.credits = v; })));
-      if (!r.playable) d.appendChild(el('div', 'ed-note', `⚠ ${r.errors} validation error${r.errors === 1 ? '' : 's'} (see Check): the match may not play well.`));
-      d.appendChild(el('div', 'foot')).appendChild(button(`${IC.play}<span>Start skirmish</span>`, () => { close(); void launch('skirmish', o); }, 'pri'));
+      d.append(row(tEd('playtest.playAs'), select(o.faction, [['allies', tCommon('faction.allies')], ['soviet', tCommon('faction.soviet')]] as [Faction, string][], (v) => { o.faction = v; })),
+        row(tEd('playtest.ai', { n: n - 1 }), select(o.ai, (['recruit', 'easy', 'normal', 'hard', 'brutal'] as const).map((a) => [a, tCommon(`difficulty.${a}`)] as [AIDifficulty, string]), (v) => { o.ai = v; })),
+        row(tEd('playtest.credits'), select(o.credits, [5000, 10000, 20000].map((c) => [c, fmtMoney(c)] as [number, string]), (v) => { o.credits = v; })));
+      if (!r.playable) d.appendChild(el('div', 'ed-note', esc(tEd('playtest.invalid', { n: r.errors }))));
+      d.appendChild(el('div', 'foot')).appendChild(button(`${IC.play}<span>${esc(tEd('playtest.start'))}</span>`, () => { close(); void launch('skirmish', o); }, 'pri'));
     }
-    d.appendChild(heading('MISSION'));
-    if (!model.doc.mission) d.appendChild(el('div', 'ed-note', 'No mission layer yet (switch to Mission mode to add one).'));
+    d.appendChild(heading(tEd('playtest.mission')));
+    if (!model.doc.mission) d.appendChild(el('div', 'ed-note', esc(tEd('playtest.noMission'))));
     else {
       const errs = missionChecks.filter((c) => c.level === 'error');
-      d.appendChild(el('div', 'ed-note', errs.length ? `⚠ ${errs.length} mission error${errs.length === 1 ? '' : 's'}: ${esc(errs[0].title)}` : `${esc(model.doc.mission.title)} · ${model.doc.mission.objectives.length} objective${model.doc.mission.objectives.length === 1 ? '' : 's'}, ${model.doc.mission.triggers.length} trigger${model.doc.mission.triggers.length === 1 ? '' : 's'}`));
-      d.appendChild(el('div', 'foot')).appendChild(button(`${IC.play}<span>Play mission</span>`, () => { close(); void launch('mission', o); }, errs.length ? '' : 'pri'));
+      const ms = model.doc.mission;
+      d.appendChild(el('div', 'ed-note', esc(errs.length ? tEd('playtest.missionErrors', { n: errs.length, first: errs[0].title }) : tEd('playtest.missionSummary', { title: ms.title, objectives: ms.objectives.length, triggers: ms.triggers.length }))));
+      d.appendChild(el('div', 'foot')).appendChild(button(`${IC.play}<span>${esc(tEd('playtest.play'))}</span>`, () => { close(); void launch('mission', o); }, errs.length ? '' : 'pri'));
     }
   };
 
@@ -1126,7 +1154,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
           const errs = report.errors + missionChecks.filter((c) => c.level === 'error').length;
           const warns = report.warnings + missionChecks.filter((c) => c.level === 'warning').length;
           const ck = tabs.children[1] as HTMLElement;
-          ck.innerHTML = 'Check' + (errs || warns ? `<span class="badge ${errs ? 'err' : ''}">${errs || warns}</span>` : '');
+          ck.innerHTML = esc(tEd('tab.check')) + (errs || warns ? `<span class="badge ${errs ? 'err' : ''}">${errs || warns}</span>` : '');
         }
       }
     }
@@ -1173,7 +1201,7 @@ export function openEditor(opts: EditorOptions): EditorHandle {
         // let the "updating" label paint before the (synchronous) rebuild
         requestAnimationFrame(() => setTimeout(() => {
           if (closed || !v3) return;
-          try { v3.rebuild(model.doc.map, `${model.version}|${opts.quality}`); v3.syncModels(model.doc.mission, true); } catch (e) { console.error('editor 3D view', e); toast('3D view failed to build (see console).', true); }
+          try { v3.rebuild(model.doc.map, `${model.version}|${opts.quality}`); v3.syncModels(model.doc.mission, true); } catch (e) { console.error('editor 3D view', e); toast(tEd('msg.failed3d'), true); }
           busy.classList.remove('on');
           renderStatus();
         }, 0));
@@ -1211,8 +1239,10 @@ export function openEditor(opts: EditorOptions): EditorHandle {
   renderSide();
   renderStatus();
   fitView();
+  fitTop();
+  void document.fonts?.ready.then(() => { if (!closed) fitTop(); });
   if (ui.view === '3d') { ui.view = '2d'; setView('3d'); } else v2.canvas.style.display = '';
-  void initEditorStore().then(() => { if (!closed && !getDoc(model.doc.id) && listDocs().length === 0) ui.msg = 'Tip: Open → remix a curated map to see how they are made.'; renderStatus(); });
+  void initEditorStore().then(() => { if (!closed && !getDoc(model.doc.id) && listDocs().length === 0) ui.msg = tEd('status.tip'); renderStatus(); });
   checksAt = 1;
   raf = requestAnimationFrame(frame);
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) (window as unknown as { __editor: unknown }).__editor = { model, ui, view3d: () => v3, focusOn };

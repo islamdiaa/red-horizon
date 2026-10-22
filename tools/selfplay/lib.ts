@@ -14,7 +14,8 @@ import { GameMap } from '../../src/sim/map';
 import { World, type PlayerSetup } from '../../src/sim/world';
 import { TICK_HZ } from '../../src/sim/types';
 import { Building, Unit, type Entity } from '../../src/sim/entities';
-import type { AIDifficulty } from '../../src/sim/ai';
+import type { Player } from '../../src/sim/player';
+import { AI_DIFFICULTIES, difficultyParams, type AIDifficulty } from '../../src/sim/ai';
 import type { Personality } from '../../src/sim/ai-personality';
 import { loadCuratedMap, getMapDef } from '../../src/maps';
 import { LegacyAIController } from './legacy/ai';
@@ -24,7 +25,11 @@ import { pickAIDoctrine } from '../../src/sim/commander';
 import { resolvePersonality } from '../../src/sim/ai-personality';
 import { ceasefireTicks } from '../../src/sim/ceasefire';
 import { applyModSet } from '../../src/mods/engine';
-import { withMutatorMods } from '../../src/modes/mutators';
+import { mutateSetup, varietyOptions, withEconFlag, withMutatorMods } from '../../src/modes/mutators';
+import { Probe, type NavalProbe, type TeamsProbe } from './probes';
+import { ceasefireForSetup } from '../../src/sim/ceasefire';
+import { arrangeStarts } from '../../src/sim/starts';
+import type { GameSetup } from '../../src/game';
 
 export type MapKind = 'land' | 'sea' | 'curated';
 
@@ -78,6 +83,48 @@ export interface MatchSpec {
   events?: boolean;
   /** Dynamic difficulty (src/sim/events.ts). */
   dynamic?: boolean;
+  /**
+   * A skirmish exactly as the game sets it up (a Quick Battle roll, the skirmish menu, a multiplayer roster): the map,
+   * climate, mutators, events, dynamic difficulty, build-up time and the opponents' levels and personalities come from
+   * here (the map / size / water / ore / trees / credits / startUnits / commander / ceasefire / mutators / events /
+   * dynamic fields above are ignored). Slot 0 is the human, played by `players[0]` (a stand-in); `players[i]` for the
+   * other slots only label them, unless they are stand-ins too (a human teammate or opponent).
+   */
+  setup?: SkirmishSetup;
+  /** Team per slot (2v2, co-op); default: every player on its own team (as a skirmish). */
+  teams?: number[];
+  /** Simulated minutes at which to record a snapshot of every player (MatchResult.trace). */
+  trace?: number[];
+  /** Extra measurements while the match plays (tools/selfplay/probes.ts): 'teams' or 'naval'. */
+  probe?: 'teams' | 'naval';
+}
+
+/** The GameSetup fields a skirmish World is built from (src/game.ts). */
+export type SkirmishSetup = Pick<GameSetup, 'faction' | 'opponents' | 'mapSize' | 'water' | 'trees' | 'ore' | 'credits' | 'startUnits' | 'fog' | 'seed' | 'timeOfDay'> &
+  Partial<Pick<GameSetup, 'climate' | 'mapId' | 'rules' | 'econ' | 'events' | 'mutators' | 'dynamicDifficulty' | 'ceasefire' | 'doctrines' | 'weather' | 'dayCycle'>>;
+
+/** One player at one moment (MatchSpec.trace). */
+export interface TraceSnap {
+  min: number;
+  credits: number;
+  harvested: number;
+  spent: number;
+  /** Credits from anything but ore (events, crates, mutators, powers, derricks): income - harvest. */
+  otherIncome: number;
+  /** Combat land army value (as the AI's army cap counts it) and unit count; aircraft and ships apart. */
+  army: number;
+  armyN: number;
+  air: number;
+  naval: number;
+  units: Record<string, number>;
+  structures: Record<string, number>;
+  defences: number;
+  buildSpeed: number;
+  incomeBias: number;
+  /** AI slots: waves launched so far, its state, dynamic difficulty level. */
+  waves?: number;
+  state?: string;
+  dyn?: number;
 }
 
 export interface PlayerResult {
@@ -112,6 +159,16 @@ export interface PlayerResult {
   cmdUses?: Record<string, number>;
   /** Commander economy (src/sim/economy.ts): tier reached, research levels, upgrades installed, minute Tier 2 / 3 arrived. */
   econ?: { tier: number; levels: Record<string, number>; upgrades: Record<string, number>; t2: number; t3: number; garrisoned: number };
+  /** AI slots: minute of its first attack wave and its first scout (-1 = never), waves launched, structures rebuilt. */
+  firstWaveMin?: number;
+  firstScoutMin?: number;
+  waves?: number;
+  /** Minute its first unit reached the enemy's base area (within 16 cells of an enemy construction yard; -1 = never). */
+  firstAtEnemyMin?: number;
+  /** Snapshots at MatchSpec.trace minutes. */
+  trace?: TraceSnap[];
+  /** AI slots: its radio chatter by kind (attack, fallback, broken, flank, harass, expand...). */
+  chatter?: Record<string, number>;
 }
 
 export interface MatchResult {
@@ -130,6 +187,11 @@ export interface MatchResult {
   msPerTick: number;
   /** Material score per player every 5 simulated minutes (comeback analysis). */
   samples?: { min: number; score: number[] }[];
+  /** Dynamic difficulty: the lowest and highest level it reached (sampled every 30 s; absent when off). */
+  dynRange?: [number, number];
+  /** MatchSpec.probe results. */
+  teams?: TeamsProbe;
+  naval?: NavalProbe;
 }
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d];
@@ -147,7 +209,10 @@ export interface RuleOverrides {
   patches?: [string, unknown][];
 }
 
-const PATCH_ROOTS: Record<string, Record<string, any>> = { RESEARCH, UPGRADES, DOCTRINES, POWERS, TIER_OF };
+// (DIFF: the live difficulty tables of src/sim/ai.ts, e.g. ['DIFF.recruit.firstAttack', 600]; MISSION.* the mission levels)
+const DIFF_LIVE = Object.fromEntries(AI_DIFFICULTIES.map((d) => [d, difficultyParams(d) as unknown as Record<string, unknown>]));
+const MISSION_LIVE = Object.fromEntries(AI_DIFFICULTIES.map((d) => [d, difficultyParams(d, true) as unknown as Record<string, unknown>]));
+const PATCH_ROOTS: Record<string, Record<string, any>> = { RESEARCH, UPGRADES, DOCTRINES, POWERS, TIER_OF, DIFF: DIFF_LIVE, MISSION: MISSION_LIVE };
 
 /** Apply rule overrides in place; returns a function that restores the originals. */
 export function applyRules(r?: RuleOverrides): () => void {
@@ -182,6 +247,7 @@ export function applyRules(r?: RuleOverrides): () => void {
 
 /** Build the world for a match, mirroring Game's skirmish setup (map, start shuffle, climate tweaks). */
 export function buildMatch(spec: MatchSpec): World {
+  if (spec.setup) return buildFromSetup(spec);
   const n = spec.players.length;
   let map;
   if (spec.map === 'curated') {
@@ -197,8 +263,10 @@ export function buildMatch(spec: MatchSpec): World {
     // (as the game: start positions are shuffled by the seed)
     if (spec.seed & 2) map.startPositions.reverse();
   }
+  // (as the game: teammates share a side; free-for-alls and 1v1 unchanged)
+  if (spec.teams) map.startPositions = arrangeStarts(map.startPositions, spec.players.map((_, i) => spec.teams![i] ?? i));
   const players: PlayerSetup[] = spec.players.map((ps, i) => ({
-    name: `P${i}`, faction: ps.faction, color: TEAM_COLORS[i], team: i, isHuman: !!ps.standin,
+    name: `P${i}`, faction: ps.faction, color: TEAM_COLORS[i], team: spec.teams?.[i] ?? i, isHuman: !!ps.standin,
     ai: ps.legacy || ps.standin ? undefined : ps.difficulty,
     personality: ps.legacy || ps.standin ? undefined : ps.personality,
   } as PlayerSetup));
@@ -216,16 +284,70 @@ export function buildMatch(spec: MatchSpec): World {
     ceasefireUntil: ceasefireTicks(spec.ceasefire), mutators: spec.mutators, events: spec.events, dynamicDifficulty: spec.dynamic,
   });
   for (const i of spec.commander?.noPowers ?? []) { const c = world.players[i]?.cmd; if (c) c.disabled = true; }
-  // legacy and experienced slots: the frozen controllers think in the slot order the world would give them
+  attachSlots(spec, world);
+  return world;
+}
+
+/** The setup a MatchSpec.setup match plays (mutators' conditions and the Commander economy flag, as game.ts). */
+function matchSetup(spec: MatchSpec): SkirmishSetup {
+  return withEconFlag(mutateSetup({ ...spec.setup! } as GameSetup));
+}
+
+/**
+ * A skirmish World built from a GameSetup step for step as src/game.ts builds it (map and climate, the player list
+ * with the opponents' levels and personalities, start shuffle, credits, build-up time, rules, mutators, events,
+ * dynamic difficulty, doctrines). Slot 0 is the human.
+ */
+function buildFromSetup(spec: MatchSpec): World {
+  const setup = matchSetup(spec);
+  const nPlayers = 1 + setup.opponents.length;
+  const curated = setup.mapId ? loadCuratedMap(setup.mapId) : null;
+  if (setup.mapId && !curated) throw new Error(`unknown curated map ${setup.mapId}`);
+  const climate = curated?.climate ?? (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
+  const map = curated ?? generateMap({
+    size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
+    water: climate === 'desert' && setup.water < 0.9 ? Math.min(setup.water, 0.2) : setup.water,
+    trees: climate === 'desert' ? setup.trees * 0.35 : climate === 'winter' ? Math.min(1, setup.trees * 1.2) : setup.trees,
+  });
+  map.climate = climate;
+  const rngFaction = (i: number): Faction => ((setup.seed >> i) & 1 ? 'allies' : 'soviet');
+  // (slot 0 is the human, unless players[0] is a plain AI spec: AI-only scenarios on a skirmish setup)
+  const p0 = spec.players[0], human0 = !p0 || !!p0.standin;
+  const players: PlayerSetup[] = [{ name: 'Commander', faction: setup.faction, color: TEAM_COLORS[0], team: spec.teams?.[0] ?? 0, isHuman: human0, ai: human0 ? undefined : p0.difficulty, personality: human0 ? undefined : p0.personality } as PlayerSetup];
+  setup.opponents.forEach((o, i) => {
+    const ps = spec.players[i + 1];
+    const human = !!ps?.standin;
+    const faction = ps?.faction ?? (o.faction === 'random' ? rngFaction(i + 1) : o.faction);
+    players.push({ name: `P${i + 1}`, faction, color: TEAM_COLORS[(i + 1) % TEAM_COLORS.length], team: spec.teams?.[i + 1] ?? (o.ally ? 0 : i + 1), isHuman: human, ai: human ? undefined : o.difficulty, personality: human ? undefined : o.personality } as PlayerSetup);
+  });
+  if (setup.seed & 2) map.startPositions.reverse(); // (as game.ts: curated maps too)
+  map.startPositions = arrangeStarts(map.startPositions, players.map((p) => p.team)); // teammates share a side (as game.ts)
+  // (stand-ins never open the doctrine picker; the experienced one picks the way the AI it is a copy of would)
+  const doctrines = setup.rules === 'commander' && spec.players.some((ps) => ps.standin)
+    ? players.map((pl, i) => spec.players[i]?.standin === 'experienced' ? pickAIDoctrine(pl.faction, resolvePersonality(spec.players[i].personality), setup.seed, i) : spec.players[i]?.standin ? 'none' : setup.doctrines?.[i])
+    : setup.doctrines;
+  const world = new World({
+    map, players, credits: setup.credits, startUnits: setup.startUnits, fog: setup.fog, seed: setup.seed,
+    ceasefireUntil: ceasefireForSetup(setup, false),
+    ...varietyOptions(setup, false),
+    doctrines: doctrines as (string | null)[] | undefined,
+  });
+  attachSlots(spec, world);
+  return world;
+}
+
+/** Legacy / experienced slots (frozen controllers, in the slot order the world would give them) and the scripted stand-ins. */
+function attachSlots(spec: MatchSpec, world: World) {
+  const n = world.players.length;
   if (spec.players.some((ps) => ps.legacy || ps.standin === 'experienced')) {
     const ais: any[] = [];
     for (let i = 0; i < n; i++) {
       const p = world.players[i], ps = spec.players[i];
-      if (ps.legacy) {
+      if (ps?.legacy) {
         const ai = new LegacyAIController(world, p, ps.difficulty as any);
         p.isHuman = false;
         ais.push(ai);
-      } else if (ps.standin === 'experienced') {
+      } else if (ps?.standin === 'experienced') {
         const ai = new FrozenAIController(world, p, 'normal', ps.personality);
         p.buildSpeed = 1; // (a human's economy, not the AI difficulty's)
         p.incomeBias = 1;
@@ -236,8 +358,7 @@ export function buildMatch(spec: MatchSpec): World {
     }
     world.ais = ais.filter(Boolean);
   }
-  standIns.set(world, spec.players.flatMap((ps, i) => (ps.standin === 'novice' || ps.standin === 'casual' ? [new StandIn(world, world.players[i], ps.standin, spec.seed)] : [])));
-  return world;
+  standIns.set(world, spec.players.flatMap((ps, i) => (ps?.standin && ps.standin !== 'experienced' && world.players[i] ? [new StandIn(world, world.players[i], ps.standin, spec.seed)] : [])));
 }
 
 /** The scripted stand-ins of a world built by buildMatch (they act between world steps). */
@@ -269,7 +390,8 @@ function materialScore(world: World, pid: number): number {
 /** Play one match to the end (or the time limit) and summarise it. */
 export function playMatch(spec: MatchSpec): MatchResult {
   const restore = applyRules(spec.rules);
-  const mods = spec.mutators?.length ? withMutatorMods(undefined, spec.mutators) : undefined;
+  const muts = spec.setup ? matchSetup(spec).mutators : spec.mutators;
+  const mods = muts?.length ? withMutatorMods(undefined, muts) : undefined;
   if (mods) applyModSet(mods); // (the mutators' rule changes, as Game applies them)
   try {
     return playMatchInner(spec);
@@ -288,9 +410,11 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     built: {}, structures: {}, killedValue: 0, lostValue: 0, killsByType: {}, lostByType: {}, harvested: 0, spent: 0, score: 0,
     firstKillMin: -1, powers: {},
   }));
+  const probe = spec.probe ? new Probe(world, spec.probe) : null;
   // losses / kills: wrap World.kill (every death goes through it)
   const kill = world.kill.bind(world);
   world.kill = (e: Entity, how = 'normal', killer?: Entity) => {
+    if (probe && e.alive && how !== 'sold' && (e instanceof Unit || e instanceof Building)) probe.onKill(e, killer instanceof Unit || killer instanceof Building ? killer : undefined);
     if (e.alive && how !== 'sold' && !(e instanceof Building && (e.bt.mine || e.bt.wall)) && !(e instanceof Unit && e.ut.supportPlane)) {
       const cost = e.type.cost;
       const victim = res[e.owner.id];
@@ -315,9 +439,36 @@ function playMatchInner(spec: MatchSpec): MatchResult {
   const seen = new Set<number>();
   const samples: { min: number; score: number[] }[] = [];
   const maxTicks = (spec.maxMinutes ?? 45) * 60 * TICK_HZ;
+  const credits0 = world.players.map((p) => p.credits);
+  const traceAt = new Set((spec.trace ?? []).map((m) => Math.round(m * 60 * TICK_HZ)));
+  const chatSeen: number[] = [];
+  let dynRange: [number, number] | undefined;
+  const yards = (pid: number) => world.buildings.filter((b) => b.alive && b.bt.id === 'fact' && world.players[pid].isEnemy(b.owner));
   for (let t = 1; t <= maxTicks; t++) {
     stepMatch(world);
+    probe?.step();
     if (t % (5 * 60 * TICK_HZ) === 0) samples.push({ min: t / (60 * TICK_HZ), score: world.players.map((p) => Math.round(materialScore(world, p.id))) });
+    if (t % (30 * TICK_HZ) === 1 && world.variety?.dyn) { const l = world.variety.dd.level; dynRange = dynRange ? [Math.min(dynRange[0], l), Math.max(dynRange[1], l)] : [l, l]; }
+    if (traceAt.has(t)) for (const p of world.players) (res[p.id].trace ??= []).push(snapshot(world, p, credits0[p.id]));
+    if (t % (5 * TICK_HZ) === 0) {
+      for (const p of world.players) {
+        const r = res[p.id];
+        const ai: any = world.ais.find((a) => a.player === p);
+        if (ai?.chatter) {
+          const from = chatSeen[p.id] ?? -1;
+          for (const c of ai.chatter) if (c.tick > from) (r.chatter ??= {})[c.kind] = ((r.chatter ??= {})[c.kind] ?? 0) + 1;
+          if (ai.chatter.length) chatSeen[p.id] = ai.chatter[ai.chatter.length - 1].tick;
+        }
+        if (ai && typeof ai.waves === 'number') {
+          if (ai.waves > 0 && r.firstWaveMin === undefined) r.firstWaveMin = world.time / 60;
+          if (ai.scout && r.firstScoutMin === undefined) r.firstScoutMin = world.time / 60;
+        }
+        if (r.firstAtEnemyMin === undefined) {
+          const ys = yards(p.id);
+          if (ys.length && world.units.some((u) => u.alive && u.owner === p && u.weapons.length && !u.ut.harvester && u.kind !== 'aircraft' && ys.some((y) => Math.hypot(y.x - u.x, y.y - u.y) < 16))) r.firstAtEnemyMin = world.time / 60;
+        }
+      }
+    }
     for (const ev of world.events) {
       if (ev.e === 'placed') {
         const b = world.entities.get(ev.id);
@@ -351,6 +502,11 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     r.harvested = Math.round(p.stats.harvested);
     r.spent = Math.round(p.stats.spent);
     r.score = Math.round(scores[p.id]);
+    const ai: any = world.ais.find((a) => a.player === p);
+    if (ai && typeof ai.waves === 'number') r.waves = ai.waves;
+    r.firstWaveMin ??= -1;
+    r.firstScoutMin ??= -1;
+    r.firstAtEnemyMin ??= -1;
     if (p.cmd) { r.doctrine = p.cmd.doctrine; r.cmdEarned = Math.round(p.cmd.earned * 10) / 10; r.cmdUses = { ...p.cmd.uses }; }
     if (p.econ) {
       const e = (r.econ ??= { tier: 1, levels: {}, upgrades: {}, t2: -1, t3: -1, garrisoned: 0 });
@@ -366,7 +522,34 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     id: spec.id, seed: spec.seed, map: spec.map === 'curated' ? spec.curated! : `${spec.map}${spec.size ?? 96}`,
     winnerTeam: world.gameOver ? world.winnerTeam : -1, leader: world.gameOver && world.winnerTeam >= 0 ? world.winnerTeam : leader,
     minutes: world.time / 60, timedOut: !world.gameOver, players: res, wallMs, msPerTick: wallMs / Math.max(1, world.tick),
-    samples,
+    samples, teams: probe?.teams, naval: probe?.naval, dynRange,
+  };
+}
+
+/** A player's state for MatchSpec.trace. */
+function snapshot(world: World, p: Player, credits0: number): TraceSnap {
+  const units: Record<string, number> = {}, structures: Record<string, number> = {};
+  let army = 0, armyN = 0, air = 0, naval = 0, defences = 0;
+  for (const u of world.units) {
+    if (!u.alive || u.owner !== p) continue;
+    units[u.ut.id] = (units[u.ut.id] ?? 0) + 1;
+    if (!u.weapons.length || u.ut.harvester || u.ut.deploysInto || u.ut.supportPlane) continue;
+    if (u.kind === 'aircraft') air += u.ut.cost;
+    else if (u.kind === 'naval') naval += u.ut.cost;
+    else if (!u.ut.medic) { army += u.ut.cost; armyN++; }
+  }
+  for (const b of world.buildings) {
+    if (!b.alive || b.owner !== p || b.bt.wall || b.bt.mine) continue;
+    structures[b.bt.id] = (structures[b.bt.id] ?? 0) + 1;
+    if (b.weapons.length) defences++;
+  }
+  const ai: any = world.ais.find((a) => a.player === p);
+  const income = p.credits + p.stats.spent - credits0;
+  return {
+    min: Math.round(world.time / 6) / 10, credits: p.credits, harvested: Math.round(p.stats.harvested), spent: Math.round(p.stats.spent),
+    otherIncome: Math.round(income - p.stats.harvested), army, armyN, air, naval, units, structures, defences,
+    buildSpeed: Math.round(p.buildSpeed * 100) / 100, incomeBias: Math.round(p.incomeBias * 100) / 100,
+    waves: ai?.waves, state: ai ? `${ai.state}/${ai.stage}` : undefined, dyn: world.variety?.dd?.level,
   };
 }
 

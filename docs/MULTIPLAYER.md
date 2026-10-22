@@ -13,8 +13,23 @@ tick. Multiplayer builds on that.
 
 - **Every client runs the whole simulation.** Nobody sends unit positions; players only exchange orders.
 - **Orders are scheduled ahead.** An order given at tick *T* runs at tick *T + delay*. The delay adapts to the
-  room's round-trip times and jitter, between 100 and 250 ms (2 to 5 ticks at 20 Hz). It rises at once when the
-  network gets worse and comes down a step at a time.
+  room's round-trip times and jitter, between 100 and 750 ms (2 to 15 ticks at 20 Hz):
+  - on a LAN or a good connection it stays at 100-200 ms;
+  - it covers round trips up to about 650 ms, so a far player keeps the match at full speed (beyond that the match
+    slows down rather than letting orders run late);
+  - it rises at once when the network gets worse and comes down by half the gap every 2 seconds;
+  - the first delay of a match comes from the round trips the lobby measured, so a far player does not stall the
+    first seconds.
+
+  The relay picks the delay and every client clamps it to the same bounds (`src/net/protocol.ts`).
+- **A slow machine does not hold the others up.** A client steps the simulation by the real time between its
+  frames (up to 12 ticks a frame), so one that draws only a few frames a second still keeps real time. It commits
+  once per frame, so it also commits further ahead (up to 8 ticks), and the others never wait for its next frame.
+  Its own orders then run up to a frame later, which it could not show any sooner. A page answers the relay's
+  heartbeats only between frames, so each answer carries the page's frame time and the relay takes half of it off
+  the round trip: the delay follows the network, not one slow page. The relay averages the median of the last three
+  answers, so one very late answer (a page that froze for a moment) does not move the delay, and it ignores the
+  answers of a page still building the match.
 - **The relay orders everything.** Each client sends its orders together with a commit: "nothing more from me for
   ticks up to *U*". Once every player has committed a tick, the relay closes it and sends its orders to everyone,
   in one order (tick, seat, arrival). A client steps from tick *T* only once *T* is closed. So all clients run
@@ -48,6 +63,16 @@ Multiplayer matches and ranked runs therefore use portable versions of the funct
 - they agree with the engine's own to within about one unit in the last place;
 - they produce bit-identical results in Node and Chromium (checked by `tests/browser/leaderboard.mjs`).
 
+Two details keep the production bundle and every engine on the same results:
+
+- **The minifier must not turn `Math.pow(a, b)` into `a ** b`.** `**` always runs the engine's own pow, so it
+  would bypass the portable version (a generated map's ore and the AI's counter weights would differ in the last
+  bit, and from the leaderboard server). The `keepMathPow` plugin in `vite.config.ts` keeps those calls in the
+  simulation's sources as calls. `tests/build-pow.test.ts` checks it, and checks that the simulation uses `**`
+  only for squares, which every engine computes exactly.
+- **A NaN hashes the same everywhere.** Engines store NaN with different bits: V8 on x86 makes `0xfff8...` from
+  operations like `0/0`, Firefox and Safari `0x7ff8...`. The world hash treats every NaN as the canonical one.
+
 The game switches to them while such a match runs, and so does the leaderboard server. New matches and runs
 record it in their setup (`dmath: true`), so their replays, branches and saves use them too, while older
 recordings without the field keep the engine's maths and replay exactly as they were played. Skirmishes, the campaign and the other single-player modes keep the engine's maths, so their simulation is
@@ -61,6 +86,10 @@ unchanged.
 - **Dropped connections reconnect.** The client retries with backoff and resumes its seat with its token. The
   relay keeps every closed order of the match. It sends the missing ones, and the client re-sends what never
   arrived.
+- **In the lobby too.** While the link is down, the lobby shows "Connection lost · Reconnecting" and disables what
+  needs the server (ready, start, settings). The relay keeps the seat for 20 s. Chat typed meanwhile, in the lobby
+  or in a match, is kept (up to four lines, shown as "waiting to send") and sent when the seat is resumed. If the
+  seat is lost, the lobby says how many messages were not sent.
 - **A dead link is noticed by the client itself.** A link can die without a reset (a pulled cable, a dead Wi-Fi),
   and TCP then reports nothing until it next has to deliver something. The relay pings every 2 s, so a client
   that hears nothing for 7 s shows "Connection lost · Reconnecting" and reconnects; a connection attempt that is
@@ -75,6 +104,26 @@ unchanged.
   progress. The takeover happens at the same tick on every client and is recorded in the replay.
 - **A hidden tab does not stop the match.** While it is in the background it keeps committing ahead (it issues
   nothing meanwhile), and it catches up when it is shown again.
+
+### Surrender
+
+The in-match menu (Esc) has **Surrender**, with a confirmation. As in Red Alert, it counts as a loss. It is a
+lockstep command (`src/sim/resign.ts`), so every client applies it at the same tick, and replays reproduce it.
+
+- **1 vs 1, free for all, or a team with no other human still playing:** the side concedes. Everything it owns is
+  destroyed, as in Red Alert. The other player wins, or the free for all goes on without them.
+- **A team with another human still playing (2 vs 2, co-op):** the side fights on, and the AI takes over the
+  surrendering player's units and structures. This is the fairer rule for the team: the team-mates did not choose to
+  give up, and blowing up a base in the middle of theirs (shared defences, power, refineries) would punish them. It
+  also matches what happens when a player leaves, so nobody gains by quitting instead of surrendering.
+- **The player who surrendered** watches the rest of the match and counts as beaten, whatever their team does. The
+  results screen marks them "surrendered".
+- **The relay stops waiting for that seat.** Closing the tab after surrendering never stalls the others, and no AI
+  takeover is scheduled for that seat.
+- If every human surrenders, the AIs finish the match at normal speed for whoever still watches.
+- **A skirmish** offers Surrender too, as a defeat.
+- **A ranked run** (Survival, the Daily Challenge, the built-in challenges) can be surrendered too. The run then ends
+  as a loss with the score so far, and the leaderboard server's re-simulation agrees.
 
 ### Modes and setup
 
@@ -273,10 +322,10 @@ does it.
 
 ## Known limits
 
-- **Other browsers.** The simulation's maths is portable, but mixed-browser matches are only tested between
-  Chromium and Node so far. Firefox and Safari are expected to agree, because the arithmetic they share is exactly
-  specified. A mismatch would show up as a desync (with the replay to study) or a rejected leaderboard run, never
-  as a silent difference.
+- **Other browsers.** Full matches have been played between Chromium, Firefox (SpiderMonkey) and WebKit
+  (JavaScriptCore), on Linux and on Windows (Direct3D 11), across machines, with no desync (the net lab,
+  `tools/net-lab/vm-match.sh`). Any engine difference left would show up as a desync (with the replay to study) or
+  a rejected leaderboard run, never as a silent difference.
 - **Restarted relay.** The relay keeps rooms and matches in memory, so a restart ends running matches. The
   leaderboards survive in their file.
 - **No moderation of callsigns** beyond the cleaning rules. The operator can edit or delete the leaderboard file.

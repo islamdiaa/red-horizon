@@ -8,6 +8,9 @@
  *   node --import tsx tools/i18n/catalog.ts check [lang]      placeholder / markup / HTML problems in translations
  *   node --import tsx tools/i18n/catalog.ts prune <lang>      drop keys English no longer has
  *   node --import tsx tools/i18n/catalog.ts merge <lang> <batch.json>...   merge translated batches into a locale
+ *   node --import tsx tools/i18n/catalog.ts insert <lang> <batch.json>...  the same, editing the file in place: new keys
+ *        go in at their sorted place, changed values are replaced on their line, nothing else moves (safe while
+ *        others append to the same file)
  */
 import fs from 'node:fs';
 import { collectDataEnglish } from './data-sources';
@@ -77,6 +80,35 @@ if (cmd === 'sync') {
   const sorted = Object.fromEntries(Object.keys(loc).sort().map((k) => [k, loc[k]]));
   fs.writeFileSync(path.join(LOCALE_DIR, `${l}.json`), JSON.stringify(sorted, null, 1) + '\n');
   console.log(`${l}: merged ${added}, skipped ${skipped} (unknown keys or empty), now ${Object.keys(sorted).length} keys`);
+} else if (cmd === 'insert') {
+  // line-wise: the file stays as it is (one `"key": "value",` per line) apart from the inserted / replaced lines
+  const l = lang(a1);
+  const en = await loadEnglish();
+  const file = path.join(LOCALE_DIR, `${l}.json`);
+  const text = fs.readFileSync(file, 'utf8');
+  const lines = text.replace(/\n$/, '').split('\n');
+  if (lines[0] !== '{' || lines[lines.length - 1] !== '}') throw new Error(`${file}: expected one key per line`);
+  const body = lines.slice(1, -1).map((ln) => ln.replace(/,$/, ''));
+  const keyOf = (ln: string) => JSON.parse(`{${ln}}`) as Record<string, string>;
+  const keys = body.map((ln) => Object.keys(keyOf(ln))[0]);
+  let added = 0, changed = 0, skipped = 0;
+  for (const f of process.argv.slice(4)) {
+    const batch = JSON.parse(fs.readFileSync(f, 'utf8')) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(batch)) {
+      if (!(k in en) || typeof v !== 'string' || !v.trim()) { skipped++; continue; }
+      const line = ` ${JSON.stringify(k)}: ${JSON.stringify(v)}`;
+      const at = keys.indexOf(k);
+      if (at >= 0) { if (body[at] !== line) { body[at] = line; changed++; } continue; }
+      let i = keys.findIndex((x) => x > k);
+      if (i < 0) i = keys.length;
+      keys.splice(i, 0, k);
+      body.splice(i, 0, line);
+      added++;
+    }
+  }
+  fs.writeFileSync(file, `{\n${body.join(',\n')}\n}\n`);
+  JSON.parse(fs.readFileSync(file, 'utf8')); // still valid
+  console.log(`${l}: inserted ${added}, replaced ${changed}, skipped ${skipped} (unknown keys or empty), now ${keys.length} keys`);
 } else if (cmd === 'prune') {
   const l = lang(a1);
   const en = await loadEnglish();
@@ -85,5 +117,5 @@ if (cmd === 'sync') {
   fs.writeFileSync(path.join(LOCALE_DIR, `${l}.json`), JSON.stringify(kept, null, 1) + '\n');
   console.log(`${l}: kept ${Object.keys(kept).length}, dropped ${Object.keys(loc).length - Object.keys(kept).length}`);
 } else {
-  console.log('usage: catalog.ts sync | en [out] | missing <lang> [out] | coverage | check [lang] | prune <lang>');
+  console.log('usage: catalog.ts sync | en [out] | missing <lang> [out] | coverage | check [lang] | merge <lang> <batch>... | insert <lang> <batch>... | prune <lang>');
 }

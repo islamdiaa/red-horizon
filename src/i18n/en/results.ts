@@ -66,6 +66,8 @@ export default strings('results', {
     harvested: 'Harvested',
     eliminated: '{faction} · eliminated',
     victor: '{faction} · victor',
+    // a player who surrendered (multiplayer, src/sim/resign.ts)
+    surrendered: '{faction} · surrendered',
   },
   mvp: {
     tag: 'MVP',
@@ -91,6 +93,10 @@ export default strings('results', {
       army: 'Your income kept up but your army did not: keep every factory busy and spend your money ([kbd]{shift}[/kbd]-click a unit to queue five).',
       defendAllies: 'You fell early. Before the first attack arrives, put a Pillbox or a Turret next to your Ore Refinery.',
       defendSoviet: 'You fell early. Before the first attack arrives, put a Flame Tower or a Tesla Coil next to your Ore Refinery.',
+      // most of the soldiers lost fell to enemy defences; {name} is the defence (Flame Tower, Pillbox...)
+      tanks: 'Most of the soldiers you lost fell to enemy defences ([b]{name}[/b]). Send tanks against defences and keep the infantry behind them.',
+      // many units died on a plain move order, walking past the enemy
+      attackMove: 'Many of your units died on a plain move order, walking past the enemy. Send armies with an attack-move ([kbd]{key:attackMove}[/kbd], then click): they fight everything on the way.',
       close: 'A close fight. Keep your army together and attack-move into battle instead of sending units in a few at a time.',
       won: 'Your economy held up and your army got the job done. Well fought, Commander.',
     },

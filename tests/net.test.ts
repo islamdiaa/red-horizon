@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { Match, replayExecuted, worldHash, type Peer } from './net-harness';
-import { NET_HASH_EVERY } from '../src/net/protocol';
+import { MAX_DELAY, NET_HASH_EVERY } from '../src/net/protocol';
 import { NetClient } from '../src/net/client';
 import { BUILD_FINGERPRINT } from '../src/net/fingerprint';
 import { dsin, dcos, datan2, dpow, dlog2, dhypot, dexp, dlog, withPortableMath, portableMathOn, exitPortableMath, enterPortableMath } from '../src/net/dmath';
@@ -91,7 +91,7 @@ describe('lockstep through the relay', () => {
     assert.ok(m.until(() => m.minTick() >= 2600, 120_000), 'kept playing');
     const after = a.session!.ls.delay;
     assert.ok(during > before, `delay grew under lag (${before} -> ${during} ticks)`);
-    assert.ok(during <= 5, 'capped at 250 ms');
+    assert.ok(during >= 8 && during <= MAX_DELAY, `covers the ~400 ms round trip (${during * 50} ms), within the cap`);
     assert.ok(after < during, `and came back down (${after})`);
     assert.ok(assertInSync(m.peers, 2600) >= 20, 'in sync throughout');
     assert.deepEqual(a.executed, b.executed, 'same command stream');

@@ -20,7 +20,7 @@ import { idleFactories } from '../src/ui/army';
 import type { ReportSample } from '../src/meta/report';
 import { building, powerUp, run, sandbox, seconds } from './helpers';
 
-const NEWCOMER_SAFE = ['night-ops', 'blizzard', 'sandstorm', 'storm-front', 'credits-rain', 'veteran-start', 'heavy-metal', 'big-guns'];
+const NEWCOMER_SAFE = ['night-ops', 'blizzard', 'sandstorm', 'storm-front', 'veteran-start', 'heavy-metal', 'big-guns']; // (version 5: Credits Rain left the pool)
 const stats = (games: Record<string, number>, wins: Record<string, number>, skirmishes = 1) => ({ skirmishes, gamesByDifficulty: games, winsByDifficulty: wins });
 
 describe('difficulty levels', () => {

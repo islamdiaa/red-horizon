@@ -18,6 +18,7 @@ import { CONTRACT_BY_ID, canReroll, contractDesc, contractReward, contractTitle,
 import { commanderLook } from '../meta/cosmetics'; // portrait, banner, title
 import { showLocker } from './locker';
 import { focusTrap } from './a11y'; // Tab stays inside the screen
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 type PlayKey = 'click' | 'tab' | 'hover';
 
@@ -334,7 +335,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
     const list = states
       .filter((s) => filter === 'all' || (filter === 'earned' ? s.tier > 0 : filter === 'locked' ? s.tier === 0 : !s.done && !s.secret && s.frac > 0))
       .sort((a, b) => (filter === 'progress' ? b.frac - a.frac : 0));
-    const ru = p.faction === 'soviet' ? rankTransliteration(rp.index) : '';
+    const ru = p.faction === 'soviet' && currentLang() !== 'ru' ? rankTransliteration(rp.index) : ''; // (in Russian the rank name already is the Russian word)
     const byRarity = (r: string) => states.filter((s) => s.tier > 0 && achievementRarity(s.def, s.tier - 1) === r).length;
 
     root.innerHTML = `
@@ -345,7 +346,7 @@ export function showProfile(opts: { onBack(): void; play(k: PlayKey): void }): (
           <div class="pf-id">
             <div class="pf-kick">${tProfile.html('cmd.kicker', { n: rp.index + 1, total: RANKS.length })}</div>
             <div class="pf-rank">${esc(rp.name)}</div>${ru ? `<div class="pf-ru">${esc(ru)}</div>` : ''}
-            <div class="pf-name" data-act="rename" title="${tProfile.html('cmd.rename')}"><span>${esc(p.name)}</span>${picto('pencil')}</div>${look.title ? `<div class="pf-title">${esc(look.title)}</div>` : ''}
+            <div class="pf-name" data-act="rename" title="${tProfile.html('cmd.rename')}"><span>${esc(playerName(p.name))}</span>${picto('pencil')}</div>${look.title ? `<div class="pf-title">${esc(look.title)}</div>` : ''}
             <div class="pf-cmdn">${picto('medal')}${fmt(p.commendations)}<small>${tProfile.html('cmd.commendations')}</small></div>
           </div>
         </div>

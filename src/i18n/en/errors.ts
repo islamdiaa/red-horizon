@@ -53,4 +53,12 @@ export default strings('errors', {
     stillWaiting: 'Still waiting for the GPU',
     reload: 'Reload game',
   },
+  // an imported file refused by the safety limits (src/platform/untrusted.ts): replays, mods, challenges, maps
+  file: {
+    notText: 'Not a text file.',
+    tooLarge: 'File too large ({mb} MB max).',
+    tooMany: 'The file has too many entries.',
+    tooDeep: 'The file is nested too deeply.',
+    tooBig: 'The file expands to more data than a challenge can hold.',
+  },
 });

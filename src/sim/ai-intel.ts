@@ -58,6 +58,8 @@ export type ArmyMix = Record<UnitClass, number> & { total: number };
 
 /** Seconds a sighting of a unit stays in the composition estimate. */
 const UNIT_MEMORY = 150;
+/** Edge (cells) of the squares the AI remembers having seen (huntPoint). */
+const HUNT_SQUARE = 8;
 
 export function unitClass(u: { ut: Unit['ut'] }): UnitClass {
   const t = u.ut;
@@ -77,8 +79,16 @@ export class AIIntel {
   /** Enemy units seen destroyed recently (for counter-attacks after a successful defence). */
   deaths: { tick: number; x: number; y: number; value: number }[] = [];
 
+  /**
+   * Tick each 8-cell square of the map was last in view (-1 = never): where to look for an enemy whose last structures
+   * it has lost track of (huntPoint, version 5). Null until the first update; saved with the AI.
+   */
+  seenAt: Int32Array | null = null;
+
   /** Experiments only (AITuning.mapHack): the classic all-seeing AI. */
   mapHack = false;
+  /** (AITuning.proPower, version 5) A Tesla Coil it sees standing dark for want of power is no threat (strengthNear). */
+  powerAware = false;
   /** Per known structure: known structures of the same owner within 8 cells (enemyBase); derived, rebuilt after update(). */
   private nearCache: Map<number, number> | null = null;
 
@@ -129,6 +139,7 @@ export class AIIntel {
   update() {
     const w = this.world, p = this.p, tick = w.tick;
     const radar = !this.omniscient && p.intel.radar.length > 0;
+    if (!this.omniscient) this.markSeen(tick);
     for (const b of w.buildings) {
       if (!b.alive || !p.isEnemy(b.owner) || b.bt.wall || b.bt.mine || b.buildAnim < 0.05) continue;
       if (!this.sees(b) && !(radar && this.onRadar(b))) continue;
@@ -205,11 +216,21 @@ export class AIIntel {
       }
     }
     if (structures) for (const s of this.structures.values()) {
-      if (!s.armed || Math.hypot(s.x - x, s.y - y) > r + s.range) continue;
+      if (!s.armed || Math.hypot(s.x - x, s.y - y) > r + s.range || this.dark(s)) continue;
       // static defences count double: they out-trade mobile units of the same price
       v += s.cost * 2;
     }
     return v;
+  }
+
+  /** A known defence that needs power (a Tesla Coil) seen standing dark right now (powerAware only). */
+  dark(s: KnownStructure): boolean {
+    if (!this.powerAware) return false;
+    // (scripted missions keep the AI they were balanced with)
+    const mission = this.world.mission?.def.id;
+    if (mission && mission !== 'koth' && mission !== 'challenge') return false;
+    const b = this.world.entities.get(s.id);
+    return b instanceof Building && b.alive && !!b.bt.requiresPower && !b.powered && this.sees(b);
   }
 
   knownStructures(): KnownStructure[] {
@@ -219,17 +240,21 @@ export class AIIntel {
   /** Enemy start positions a commander can read off the map, nearest first, minus the ones explored and empty. */
   candidateStarts(fromX: number, fromY: number): [number, number][] {
     const w = this.world, m = w.map, p = this.p;
-    const out: [number, number, number][] = [];
+    const out: [number, number, number, number][] = [];
     for (const s of m.startPositions) {
       // our own start (and an ally's base) is not a candidate
       if (Math.hypot(s.x - fromX, s.y - fromY) < 12) continue;
       if (w.buildings.some((b) => b.alive && b.owner.team === p.team && Math.hypot(b.x - s.x, b.y - s.y) < 10)) continue;
       const i = m.idx(Math.floor(s.x), Math.floor(s.y));
-      const known = [...this.structures.values()].some((k) => Math.hypot(k.x - s.x, k.y - s.y) < 14);
+      const known = [...this.structures.values()].some((o) => Math.hypot(o.x - s.x, o.y - s.y) < 14);
       if (p.explored[i] && !known) continue; // looked: nobody home
-      out.push([s.x, s.y, Math.hypot(s.x - fromX, s.y - fromY)]);
+      // (equally far starts, as on a symmetric four-player map, go round the map one way, version 5: each player looks
+      // at the neighbour on the same side of it, so neighbours don't all pick the same one. The list order used to send
+      // every equidistant scout, and so every low-level wave, at the first seat: the human's)
+      const vx = m.w / 2 - fromX, vy = m.h / 2 - fromY, side = vx * (s.y - fromY) - vy * (s.x - fromX);
+      out.push([s.x, s.y, Math.round(Math.hypot(s.x - fromX, s.y - fromY)), side > 0 ? 0 : 1]);
     }
-    out.sort((a, b) => a[2] - b[2]);
+    out.sort((a, b) => a[2] - b[2] || a[3] - b[3]);
     return out.map(([x, y]) => [x, y]);
   }
 
@@ -242,10 +267,22 @@ export class AIIntel {
     // (the cluster sizes don't depend on where we look from: counted once per update, not once per call)
     let cache = this.nearCache;
     if (!cache) {
+      // (structures bucketed by owner and 8-cell square, so each one only looks at its neighbours: the same counts as
+      // comparing every pair, without the quadratic cost in a late four-player game)
       cache = new Map();
+      const B = 8, key = (owner: number, bx: number, by: number) => (owner * 1024 + by + 1) * 1024 + bx + 1;
+      const buckets = new Map<number, KnownStructure[]>();
       for (const s of this.structures.values()) {
+        const k = key(s.owner, Math.floor(s.x / B), Math.floor(s.y / B));
+        const l = buckets.get(k);
+        if (l) l.push(s); else buckets.set(k, [s]);
+      }
+      for (const s of this.structures.values()) {
+        const bx = Math.floor(s.x / B), by = Math.floor(s.y / B);
         let near = 0;
-        for (const o of this.structures.values()) if (o.owner === s.owner && Math.hypot(o.x - s.x, o.y - s.y) < 8) near++;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          for (const o of buckets.get(key(s.owner, bx + dx, by + dy)) ?? []) if (Math.hypot(o.x - s.x, o.y - s.y) < 8) near++;
+        }
         cache.set(s.id, near);
       }
       this.nearCache = cache;
@@ -268,15 +305,46 @@ export class AIIntel {
     return v;
   }
 
-  saveState() {
-    return { s: [...this.structures.values()], u: [...this.units.values()], f: this.foundTick, d: this.deaths };
+  /** Squares of the map in view now (their centre cell visible). */
+  private markSeen(tick: number) {
+    const m = this.world.map, vis = this.p.visible, G = HUNT_SQUARE;
+    const gw = Math.ceil(m.w / G), gh = Math.ceil(m.h / G);
+    if (!this.seenAt || this.seenAt.length !== gw * gh) this.seenAt = new Int32Array(gw * gh).fill(-1);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      const cx = Math.min(m.w - 1, gx * G + (G >> 1)), cy = Math.min(m.h - 1, gy * G + (G >> 1));
+      if (vis[cy * m.w + cx]) this.seenAt[gy * gw + gx] = tick;
+    }
   }
 
-  loadState(st: { s?: KnownStructure[]; u?: SeenUnit[]; f?: number; d?: AIIntel['deaths'] } | undefined) {
+  /**
+   * Where to look for an enemy whose structures it no longer knows of (its last buildings hidden somewhere, a base
+   * moved by MCV): the centre of the land square it has gone longest without seeing, the nearest of those first.
+   * Null with nothing to search (no fog, or every square in view).
+   */
+  huntPoint(fromX: number, fromY: number): [number, number] | null {
+    const m = this.world.map, G = HUNT_SQUARE, seen = this.seenAt;
+    if (!seen || this.omniscient) return null;
+    const gw = Math.ceil(m.w / G), gh = Math.ceil(m.h / G);
+    let best: [number, number] | null = null, bestT = Infinity, bestD = Infinity;
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      const cx = Math.min(m.w - 1, gx * G + (G >> 1)), cy = Math.min(m.h - 1, gy * G + (G >> 1));
+      if (!m.passable(cx, cy)) continue;
+      const t = seen[gy * gw + gx], d = Math.hypot(cx + 0.5 - fromX, cy + 0.5 - fromY);
+      if (t < bestT || (t === bestT && d < bestD)) { bestT = t; bestD = d; best = [cx + 0.5, cy + 0.5]; }
+    }
+    return best && bestT < this.world.tick - TICK_HZ * 20 ? best : null;
+  }
+
+  saveState() {
+    return { s: [...this.structures.values()], u: [...this.units.values()], f: this.foundTick, d: this.deaths, h: this.seenAt ? [...this.seenAt] : undefined };
+  }
+
+  loadState(st: { s?: KnownStructure[]; u?: SeenUnit[]; f?: number; d?: AIIntel['deaths']; h?: number[] } | undefined) {
     this.structures = new Map((st?.s ?? []).map((s) => [s.id, { ...s }]));
     this.nearCache = null;
     this.units = new Map((st?.u ?? []).map((s) => [s.id, { ...s }]));
     this.foundTick = st?.f ?? -1;
+    this.seenAt = Array.isArray(st?.h) ? Int32Array.from(st!.h) : null;
     this.deaths = (st?.d ?? []).map((d) => ({ ...d }));
   }
 }

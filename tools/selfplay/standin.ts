@@ -3,6 +3,12 @@
  * real people of three skill levels do, through the same commands the UI sends (no AI hooks, no world.ais slot, so
  * none of the AI-only conveniences in src/sim/events.ts or src/sim/neutral.ts help them).
  *
+ *  - newcomer:    a first-time RTS player (modelled on the UI bot's first naive player, tools/e2e, and on how new players
+ *                 play their first skirmishes): the opening the first-launch tutorial teaches (power, refinery,
+ *                 barracks, power, war factory) built slowly, one refinery and its free Ore Truck, mostly riflemen
+ *                 and a few light vehicles, no defences, no repairs, no commander powers, harvesters left alone,
+ *                 money often idle; from minute 5 every small group it has at home is sent across the map
+ *                 (attack-move on the enemy base) as soon as it has one, and the groups never come back;
  *  - novice:      a slow build with one refinery and two Ore Trucks, power only once it runs out, one pillbox, factories
  *                 often idle, a few small attack-moves late in the game, slow and partial reaction to raids;
  *  - casual:      a sensible build with two refinery lines (two trucks each), defences, power planned ahead, factories
@@ -22,7 +28,9 @@ import { TICK_HZ } from '../../src/sim/types';
 import type { World } from '../../src/sim/world';
 import { POWERS, TIER_COST, powerReady, tierOpen } from '../../src/sim/commander';
 
-export type StandInLevel = 'novice' | 'casual' | 'experienced';
+export type StandInLevel = 'newcomer' | 'novice' | 'casual' | 'experienced';
+/** The scripted levels (the experienced stand-in is the frozen AI, lib.ts). */
+export type ScriptedLevel = Exclude<StandInLevel, 'experienced'>;
 
 interface Profile {
   /** Seconds of attention between actions. */
@@ -70,9 +78,49 @@ interface Profile {
   processor: boolean;
   /** Sets factory rally points in front of the base. */
   rally: boolean;
+  /**
+   * Sends every idle group at home as soon as it is worth `attackValue` (and `attackEvery` has passed since the last
+   * one), whether or not the earlier groups are still out there (the newcomer); otherwise one wave at a time.
+   */
+  trickle?: boolean;
 }
 
-const PROFILES: Record<'novice' | 'casual', Profile> = {
+const PROFILES: Record<ScriptedLevel, Profile> = {
+  newcomer: {
+    every: 6,
+    build: {
+      allies: [['powr', 1], ['proc', 1], ['tent', 1], ['powr', 2], ['weap', 1]],
+      soviet: [['powr', 1], ['proc', 1], ['barr', 1], ['powr', 2], ['weap', 1]],
+    },
+    dawdle: 30,
+    planPower: false,
+    lowPowerFor: 60,
+    trucksPerRef: 1,
+    maxTrucks: 1,
+    truckCheck: 240,
+    produceEvery: 12,
+    queueDepth: 4,
+    onePerLook: false,
+    reserve: 0,
+    inf: { allies: [['e1', 80], ['e3', 20]], soviet: [['e1', 75], ['e2', 25]] },
+    veh: { allies: [['1tnk', 60], ['jeep', 40]], soviet: [['3tnk', 100]] },
+    infPerVeh: 3,
+    firstAttack: 300,
+    attackValue: 700,
+    attackGrowth: 0,
+    attackEvery: 75,
+    keepHome: 0,
+    retreatAt: 0,
+    defendDelay: 25,
+    defendShare: 0.5,
+    repairs: false,
+    silos: false,
+    powers: [],
+    t2At: 0,
+    processor: false,
+    rally: false,
+    trickle: true,
+  },
   novice: {
     every: 4,
     build: {
@@ -163,7 +211,7 @@ export class StandIn {
   private seen = new Map<number, [number, number]>();
   private rallied = new Set<number>();
 
-  constructor(public world: World, public p: Player, public level: 'novice' | 'casual', seed: number) {
+  constructor(public world: World, public p: Player, public level: ScriptedLevel, seed: number) {
     this.pr = PROFILES[level];
     this.rng = new Rng((seed ^ Math.imul(p.id + 7, 0x2545f491)) >>> 0);
     // (attention is staggered per player, like two people at two keyboards)
@@ -410,6 +458,7 @@ export class StandIn {
 
   private attack() {
     const w = this.world, p = this.p, pr = this.pr;
+    if (pr.trickle) { this.trickle(); return; }
     const wave = this.waveUnits();
     if (wave.length) {
       if (pr.retreatAt > 0 && wave.length <= Math.max(1, this.waveSize * pr.retreatAt)) {
@@ -441,6 +490,25 @@ export class StandIn {
     this.lastWave = w.tick;
     this.waves++;
     w.issue({ c: 'move', player: p.id, units: send.map((u) => u.id), x: tx, y: ty, attackMove: true });
+  }
+
+  /** The newcomer: every group that gathers at home goes across the map, the earlier ones push on wherever they are. */
+  private trickle() {
+    const w = this.world, p = this.p, pr = this.pr;
+    const out = this.waveUnits();
+    const idle = out.filter((u) => u.order.type === 'idle' && !u.target);
+    if (idle.length) {
+      const [tx, ty] = this.nextTarget(idle[0].x, idle[0].y);
+      w.issue({ c: 'move', player: p.id, units: idle.map((u) => u.id), x: tx, y: ty, attackMove: true });
+    }
+    if (w.time < pr.firstAttack || w.tick - this.lastWave < pr.attackEvery * TICK_HZ) return;
+    const home = this.army().filter((u) => !this.wave.has(u.id) && (u.order.type === 'idle' || u.order.type === 'guard'));
+    if (home.reduce((s, u) => s + u.ut.cost, 0) < pr.attackValue + this.waves * pr.attackGrowth) return;
+    for (const u of home) this.wave.add(u.id);
+    this.lastWave = w.tick;
+    this.waves++;
+    const [tx, ty] = this.enemyHome();
+    w.issue({ c: 'move', player: p.id, units: home.map((u) => u.id), x: tx, y: ty, attackMove: true });
   }
 
   private nextTarget(x: number, y: number): [number, number] {
@@ -503,7 +571,7 @@ export class StandIn {
 }
 
 /** Unit ids a stand-in level builds (for reports). */
-export function standInUnits(level: 'novice' | 'casual', faction: Faction): string[] {
+export function standInUnits(level: ScriptedLevel, faction: Faction): string[] {
   const pr = PROFILES[level];
   return [...pr.inf[faction], ...pr.veh[faction]].map(([t]) => t).filter((t) => UNITS[t]);
 }

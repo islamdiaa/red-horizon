@@ -4,15 +4,16 @@
 
 | Mode | |
 |---|---|
-| **Skirmish** | Up to 3 AI opponents on five difficulties (*Recruit*, for your first battles, then Easy, Normal, Hard and Brutal), on generated or hand-made maps (temperate, winter or desert; land or sea). Options: King of the Hill, and a build-up ceasefire of 5–30 minutes or unlimited, during which the AI builds up and only defends. |
+| **Skirmish** | Up to 3 AI opponents on five difficulties (*Recruit*, for your first battles, then Easy, Normal, Hard and Brutal), on generated or hand-made maps (temperate, winter or desert; land or sea). Any AI but one can be switched to your side (the handshake button on its row), for example a 2 vs 2 with an AI ally. Options: King of the Hill, and a build-up ceasefire of 5–30 minutes or unlimited, during which the AI builds up and only defends. |
 | **Quick Battle** | One click from the main menu into a tuned random match at your level (see [Quick Battle](#quick-battle)). |
-| **Campaigns** | 7 Allied and 7 Soviet missions with briefings, primary and optional objectives, radio transmissions and up to three stars each. |
+| **Multiplayer** | Up to four players through your own server: 1 vs 1, 2 vs 2, free for all, or co-op against the AI ([MULTIPLAYER.md](MULTIPLAYER.md)). **Surrender** is in the in-match menu (Esc) and counts as a loss: your side concedes, or, if a team-mate still plays, the AI takes over your forces. Skirmishes and ranked runs offer it too. |
+| **Campaigns** | 7 Allied and 7 Soviet missions with briefings, primary and optional objectives, radio transmissions and up to three stars each, on five difficulties (see [Campaign difficulty](#campaign-difficulty)). |
 | **Boot Camp** | An interactive tutorial in nine drills. |
 | **Special operations** | *Wolfpack*, *Iron Coast*, and Survival in three climates, alone or with AI teammates. |
 | **Conquest** | A seeded roguelite campaign across Europe. Every territory is a real battle; veterans, research, perks and doctrines carry over between battles. |
 | **Daily Challenge** | One seeded battle per day, with modifiers, a score and a streak. |
 | **Challenges** | Turn any moment of a replay into a "can you win from here?" challenge file. |
-| **Replays** | Every skirmish is recorded. Watch at 1–8× speed from any player's view, or take command of any side at any moment and play on as a new branch. |
+| **Replays** | Every skirmish of 30 seconds or more is recorded. Watch at 1–8× speed from any player's view, or take command of any side at any moment and play on as a new branch (kept once you give it an order; the pause menu says when leaving would not keep a replay). |
 
 ## Skirmish rules: Commander or Classic
 
@@ -56,6 +57,33 @@
 - **Rivals** never play above your level in Quick Battle, and at most one level above it in
   skirmish, so a Recruit-level commander meets at most an Easy rival.
 
+## Campaign difficulty
+
+The campaign briefing has a **Difficulty** picker: Recruit, Easy, Normal, Hard and Brutal. It applies to the Allied
+and Soviet campaigns, *Wolfpack*, *Iron Coast* and custom missions. Survival and the Daily Challenge keep one level so
+their leaderboards compare; co-op survival has its allies' own setting, and Conquest its run's difficulty.
+
+- **How it works.** As in Red Alert's campaign, each level handicaps your side and the enemy's: firepower, rate of
+  fire, speed, and build cost and time. The briefing lists the exact numbers for the level you pick.
+
+  | Level | Your forces | The enemy |
+  |---|---|---|
+  | Recruit (Red Alert's Easy) | +20% firepower, +25% rate of fire, +20% speed, −20% build cost and time | −20% firepower, −17% rate of fire, −20% speed |
+  | Easy | as usual | −20% firepower, −17% rate of fire, −20% speed |
+  | Normal | as usual | as usual |
+  | Hard | as usual | +20% firepower, +25% rate of fire, +20% speed, −20% build cost and time |
+  | Brutal (Red Alert's Hard) | −20% firepower, −17% rate of fire, −20% speed | +20% firepower, +25% rate of fire, +20% speed, −20% build cost and time |
+
+- **The missions adapt too.** On Recruit and Easy some missions field fewer defences and smaller raids, give you more
+  time or send you reinforcements. On Hard and Brutal some send more against you. Normal plays every mission as
+  designed.
+- **When to change it.** You can change the level between missions, or before a retry. A new commander starts on
+  Easy; once you have won a campaign mission the picker starts on Normal until you choose another level. Your choice
+  is remembered.
+- **Records.** The briefing shows the hardest level you have won each mission at, the mission screen shows the level
+  you are playing at, and the debrief shows it too. Stars, medals and unlocks don't depend on the level: every level
+  completes the mission. Saved games keep their level.
+
 ## Progression
 
 - **Ranks and medals.** XP, 15 ranks per faction, 52 medals (some hidden) and lifetime
@@ -69,12 +97,18 @@
   value, income, kills), your MVP unit, the highlights, the next unlock, and *Play again*
   (Enter) or *Rematch*. After a skirmish defeat or a close win, an *Economy* block compares your
   harvest and peak army with the strongest enemy's, with one suggestion (for example, build a
-  second Ore Refinery, or put up defences before the first attack).
+  second Ore Refinery, put up defences before the first attack, send tanks against the defences
+  your infantry kept dying to, or attack-move instead of plain moves).
 - **Field manual hints** (*Settings › Gameplay*) coach you during a skirmish. They tell you when an
   enemy earns far more than you, when you still have one Ore Refinery at 6:00, when your factories
-  stand idle with money in the bank, when your power has been low for a while, and when the first
-  enemy attack is coming and you have no defences. Each shows at most once a match, and never more
-  than one a minute.
+  stand idle with money in the bank, when your power has been low for a while, when the first
+  enemy attack is coming and you have no defences, when your last Ore Truck is gone, when your
+  infantry keeps dying to enemy defences (tanks are the answer), when units die on plain move orders
+  (use attack-move), when your attacks are beaten one small group at a time, and when a structure
+  stays badly damaged. Each shows at most once a match and for under a minute, never more than one
+  a minute, and a click dismisses it. Campaign missions get the battle and base-keeping ones (infantry
+  against defences, attack-move, attacking together, power, idle factories, Ore Trucks, repairs), and
+  only advice the mission lets you follow; the economy race and the build-order steps are skirmish-only.
 
 ## Armies and mechanics
 
@@ -93,6 +127,8 @@
   - MCV deployment and adjacency placement; selling and repairing.
   - Engineers capture buildings and rebuild bridges, and Tanya plants C4.
   - Tanks crush infantry, transports carry troops, and aircraft rearm on pads.
+  - Vehicles sent to a service depot take turns on its pad and leave fully repaired.
+  - Units busy with a structure return fire when something armed shoots them, then carry on.
   - Fog of war shows "ghosts" of enemy buildings as you last saw them.
 - **Espionage and superweapons.**
   - Spies, gap generators, radar jammers, camouflaged pillboxes and decoys.

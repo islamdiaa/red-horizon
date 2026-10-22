@@ -24,14 +24,16 @@ import {
 import type { BattleReport, ReportSample } from '../meta/report';
 import { dt, fmtInt, fmtMoney, fmtNum } from '../i18n/core';
 import { economyAdvice, economyFacts } from './coach';
+import { fillKeys } from './keymap'; // (the attack-move tip names the player's key)
 import { typeName } from '../i18n/names';
-import { UNITS } from '../data/rules';
+import { BUILDINGS, UNITS } from '../data/rules';
 import tResults from '../i18n/en/results';
 import tCommon from '../i18n/en/common';
 import tMeta from '../i18n/en/meta';
 import { commanderLook } from '../meta/cosmetics';
 import { showLocker } from './locker';
 import { SHARE_ICONS } from '../share/dialog'; // clip button icon
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 export interface ResultsCallbacks {
   playAgain(): void;
@@ -274,7 +276,7 @@ function battleReport(game: Game, report: BattleReport | null): HTMLElement {
   const players = game.world.players;
   const times = samples.map((s) => s.t);
   const series = (pick: (p: ReportSample['players'][number]) => number): Series[] => players.map((p, i) => ({
-    name: p === game.local ? tResults('report.you', { name: p.name }) : p.name, color: hexColor(p.color), me: p === game.local, values: samples.map((s) => (s.players[i] ? pick(s.players[i]) : 0)),
+    name: p === game.local ? tResults('report.you', { name: playerName(p.name) }) : playerName(p.name), color: hexColor(p.color), me: p === game.local, values: samples.map((s) => (s.players[i] ? pick(s.players[i]) : 0)),
   }));
   const charts = el('div', 'rr-charts');
   charts.append(
@@ -283,7 +285,7 @@ function battleReport(game: Game, report: BattleReport | null): HTMLElement {
     lineChart(tResults('report.kills'), '', times, series((p) => p.kills), (v) => fmt(v)),
   );
   box.appendChild(charts);
-  box.appendChild(el('div', 'rr-legend', players.map((p) => `<span><i style="background:${hexColor(p.color)}"></i>${esc(p.name)}${p === game.local ? ` <em>${tResults.html('report.youTag')}</em>` : ''}</span>`).join('')));
+  box.appendChild(el('div', 'rr-legend', players.map((p) => `<span><i style="background:${hexColor(p.color)}"></i>${esc(playerName(p.name))}${p === game.local ? ` <em>${tResults.html('report.youTag')}</em>` : ''}</span>`).join('')));
   return box;
 }
 
@@ -298,11 +300,12 @@ function economyBlock(game: Game, won: boolean, report: BattleReport | null): HT
     samples: report.samples, me: me.id, foes: w.players.filter((o) => me.isEnemy(o)).map((o) => o.id), harvested: w.players.map((p) => p.stats.harvested),
     won, time: w.time, faction: me.faction === 'soviet' ? 'soviet' : 'allies',
   });
-  const adv = f ? economyAdvice(f) : null;
+  const lessons = game.hints?.lessons() ?? null;
+  const adv = f ? economyAdvice(f, lessons) : null;
   if (!f || !adv) return null;
   const harvest = tResults.html(adv.ratio >= 1.1 ? 'econ.harvestBehind' : 'econ.harvest', { you: money(f.you.harvested), foe: money(f.foe.harvested), ratio: fmtNum(adv.ratio, 1) });
   const army = tResults.html('econ.army', { you: money(f.you.peakArmy), foe: money(f.foe.peakArmy) });
-  return el('div', `rr-econ${adv.tip === 'won' ? ' good' : ''}`, `<h5>${tResults.html('econ.title')}</h5><div>${harvest} ${army}</div><p>${ICONS.bulb}<span>${tResults.html(`econ.tip.${adv.tip}`, { shift: tCommon('keys.shift') })}</span></p>`);
+  return el('div', `rr-econ${adv.tip === 'won' ? ' good' : ''}`, `<h5>${tResults.html('econ.title')}</h5><div>${harvest} ${army}</div><p>${ICONS.bulb}<span>${fillKeys(tResults.html(`econ.tip.${adv.tip}`, { shift: tCommon('keys.shift'), name: lessons?.defence && BUILDINGS[lessons.defence] ? typeName(BUILDINGS[lessons.defence]) : '' }))}</span></p>`);
 }
 
 function scoreboard(game: Game): HTMLElement {
@@ -310,9 +313,9 @@ function scoreboard(game: Game): HTMLElement {
   const rows = game.world.players.map((p) => {
     const kills = p.stats.unitsKilled + p.stats.buildingsKilled;
     const faction = tCommon(p.faction === 'soviet' ? 'faction.sovietAdj' : 'faction.alliesAdj');
-    const sub = p.defeated ? tResults('board.eliminated', { faction }) : p.team === game.world.winnerTeam ? tResults('board.victor', { faction }) : faction;
+    const sub = p.resigned ? tResults('board.surrendered', { faction }) : p.defeated ? tResults('board.eliminated', { faction }) : p.team === game.world.winnerTeam ? tResults('board.victor', { faction }) : faction;
     return `<tr class="${p === me ? 'me' : ''}${p.defeated ? ' dead' : ''}" style="--c:${hexColor(p.color)}">
-      <td><span class="pl"><i></i><span><b>${esc(p.name)}</b><small>${esc(sub)}</small></span></span></td>
+      <td><span class="pl"><i></i><span><b>${esc(playerName(p.name))}</b><small>${esc(sub)}</small></span></span></td>
       <td>${fmt(p.stats.unitsBuilt)}</td><td>${fmt(p.stats.unitsLost)}</td><td>${fmt(kills)}</td><td>${fmt(p.stats.buildingsLost)}</td><td>${money(Math.round(p.stats.harvested))}</td></tr>`;
   }).join('');
   const t = el('table', 'stats-table');
@@ -387,7 +390,7 @@ export function showResults(s: HTMLElement, game: Game, won: boolean, opts: Resu
   prog.innerHTML = `<div class="rr-h">${picto('chevrons')}<span>${tResults.html('record.title')}</span><i class="sp"></i><span class="rr-skip">${tResults.html('record.skip', { key: tCommon('keys.enter') })}</span></div>
     <div class="rr-svc" style="--banner:${look.banner}">
       <div class="rr-por">${look.portrait}</div>
-      <div class="rr-who"><small>${esc(sum ? sum.rankName : '')}</small><b>${esc(profile.name)}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
+      <div class="rr-who"><small>${esc(sum ? sum.rankName : '')}</small><b>${esc(playerName(profile.name))}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
       <div class="rr-xpn">${sum ? '+<span data-xp>0</span>' : '—'}<small>${tMeta.html('xpUnit')}</small></div>
       <div class="rr-rank"><span class="ins">${sum ? insigniaSvg(sum.rankBefore, sum.faction === 'soviet' ? 'soviet' : 'allies') : ''}</span>
         <div class="rr-bw"><div class="rn"><span data-rn>${esc(rankBefore || (sum?.rankName ?? tResults('record.unranked')))}</span><small>${sum ? (sum.nextName ? `${fmt(sum.intoAfter)} / ${fmt(sum.spanAfter)}` : tResults.html('record.max')) : ''}</small></div>

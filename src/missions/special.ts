@@ -515,7 +515,11 @@ function makeSurvival(v: SurvivalVariant, allies: CoopAlly[] = []): MissionDef {
       // waves. It is driven with direct orders (see orderMove), which the command queue would drop.
       m.player(1).defeated = true;
       if (n) {
-        Object.assign(m.flags, { allies: n, budgetMul: 1 + 0.55 * n, coopScore, waveTargets: [] });
+        // the waves grow with each ally by what that ally can hold: a Normal ally added less than the 55% the waves used
+        // to grow by, so a newcomer with one survived fewer waves than alone (tools/campaign-levels.ts --missions coop)
+        const share: Record<string, number> = { recruit: 0.2, easy: 0.25, normal: 0.3, hard: 0.42, brutal: 0.55 };
+        const budgetMul = 1 + allies.reduce((sum, a) => sum + (share[a.difficulty] ?? 0.55), 0);
+        Object.assign(m.flags, { allies: n, budgetMul, coopScore, waveTargets: [] });
         for (let i = 0; i < n; i++) spawnKit(m, 2 + i, 'light');
       }
       m.startTimer('wave', 100, 'First wave');
@@ -656,6 +660,20 @@ function dailyUpdate(m: MissionRuntime) {
   const cfg = dailyConfig(m.flags.day ?? currentDailyDay());
   const has = (id: string) => cfg.modifiers.includes(id);
   if (has('glass-cannons') && m.world.tick % 5 === 0) glassCap(m);
+  // Lean Times: a commander who built power and a barracks first can no longer afford the refinery (its price sits
+  // half-paid in the queue) and the whole day freezes, the computer commanders included. Command advances what is
+  // missing for one refinery, once per commander, to anyone stuck without one.
+  if (has('lean-times') && m.time > 90 && m.every(10, 'creditLine')) {
+    for (const p of m.world.players) {
+      if (p.defeated || p.id < 0 || m.flags['creditLine' + p.id] || m.buildings(p, 'proc').length || m.units(p, 'harv').length || !p.has('fact')) continue;
+      const queued = p.queues.structure.items.find((it) => it.type === 'proc');
+      const need = (queued ? BUILDINGS.proc.cost - queued.paid : BUILDINGS.proc.cost) - p.credits;
+      if (need <= 0) continue;
+      m.flags['creditLine' + p.id] = true;
+      p.cash += Math.ceil(need);
+      if (p === m.human) m.say('Command', 'Command has advanced you the price of an Ore Refinery. Without ore there is no war: build it first.', 'commander');
+    }
+  }
   if (has('veteran-start') && m.every(1, 'vet')) {
     let max = m.flags.vetMax;
     for (const u of m.world.units) {

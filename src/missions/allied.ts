@@ -10,7 +10,7 @@ import { BUILDINGS, UNITS } from '../data/rules';
 import {
   CAST, say, wave, hunt, huntWave, addHunters, structures, layout, squad, edgeNear, ground, ids, unitsOf, entity,
   whereIs, escort, centroid, aiProfile, compass,
-  nudgeEntries, quietSetup,
+  quietSetup,
 } from './common';
 
 const C = CAST;
@@ -50,6 +50,7 @@ const GREY_DAWN: MissionDef = {
     'Deploy the MCV with D (or click it again). Build a Power Plant first.',
     'An Ore Refinery comes with a free Ore Truck. Ore is money.',
     'Rocket Soldiers kill tanks, Riflemen kill infantry. Flame towers roast anything on foot.',
+    'You cannot build tanks yet. Keep your two Light Tanks alive: flame towers hardly scratch them, so they lead the assault.',
     'Engineers capture enemy structures that are below a quarter of their strength.',
   ],
   map: { size: 72, seed: 7203, players: 2, water: 0.3, trees: 0.6, ore: 0.7, climate: 'temperate', hour: 6.7, dayCycle: true, weather: 'fog' },
@@ -70,13 +71,15 @@ const GREY_DAWN: MissionDef = {
     m.spawnUnit(0, 'mcv', s.x, s.y, Math.atan2(e.y - s.y, e.x - s.x));
     squad(m, 0, ['1tnk', '1tnk', 'jeep'], s, e, 3.5, 0);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e6'], s, e, 2, 3.5);
-    // the outpost
-    const [barr] = layout(m, 1, e, s, [['barr', 1, 0], ['powr', -2, 3.5], ['powr', -2.5, -3], ['kenn', 2, 4], ['ftur', 6.5, 2.5], ['ftur', 6.5, -2.5]]);
+    // the outpost (campaign difficulty: the easy levels face one flame tower, Recruit a smaller garrison, with less money for recruits)
+    const towers: [string, number, number][] = m.eased ? [['ftur', 6.5, 0]] : [['ftur', 6.5, 2.5], ['ftur', 6.5, -2.5]];
+    const [barr] = layout(m, 1, e, s, [['barr', 1, 0], ['powr', -2, 3.5], ['powr', -2.5, -3], ['kenn', 2, 4], ...towers]);
     const [w1x, w1y] = m.toward(e, s, 9, -5), [w2x, w2y] = m.toward(e, s, 9, -1.5);
     m.wall(1, 'barb', Math.round(w1x), Math.round(w1y), Math.round(w2x), Math.round(w2y));
     squad(m, 1, ['3tnk'], e, s, 4.5, 0);
     squad(m, 1, ['e1', 'e1', 'e2', 'e2'], e, s, 3.5, -3);
-    squad(m, 1, ['e1', 'e1', 'dog', 'dog'], e, s, 3.5, 3);
+    if (m.level !== 'recruit') squad(m, 1, ['e1', 'e1', 'dog', 'dog'], e, s, 3.5, 3);
+    if (m.eased) m.player(1).cash = 300;
     m.flags.barracks = barr?.id;
     m.objective('deploy', 'Deploy the MCV to establish a base');
     m.objective('refinery', 'Build an Ore Refinery');
@@ -84,7 +87,6 @@ const GREY_DAWN: MissionDef = {
     m.objective('capture', 'Capture the Soviet barracks with an Engineer', false);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) say(m, C.rourke, 'Morning, Commander. Rourke here. The Fulda line broke at midnight and you are what is left of it. Deploy that MCV and dig in.');
     if (!m.isDone('deploy') && m.buildings(0, 'fact').length) {
@@ -93,15 +95,16 @@ const GREY_DAWN: MissionDef = {
     }
     if (!m.isDone('refinery') && m.buildings(0, 'proc').length) {
       m.complete('refinery');
-      say(m, C.brandt, 'Major Brandt, Intelligence. Their outpost sits on the north-east ridge: two flame towers on the approach, one heavy tank. Rockets for the tank, and keep your riflemen out of the fire.');
+      say(m, C.brandt, m.eased ? 'Major Brandt, Intelligence. Their outpost sits on the north-east ridge: a flame tower on the approach, one heavy tank. Rockets for the tank, and keep your riflemen out of the fire.' : 'Major Brandt, Intelligence. Their outpost sits on the north-east ridge: two flame towers on the approach, one heavy tank. Rockets for the tank, and keep your riflemen out of the fire.');
       m.reveal(0, e.x, e.y, 8);
+      m.beacon(e.x, e.y); // (a marker on the objective: where to send everything)
     }
     if (m.after(150, 'morozov')) {
       say(m, C.morozov, 'To the Allied commander in the valley: this is Arkady Morozov. I will be in Paris by summer. Do try to make it interesting.');
       say(m, C.brandt, 'That was Morozov himself, on an open channel. He likes an audience. Let us not give him one.');
     }
-    if (m.after(210, 'raid1')) {
-      huntWave(m, 1, ['e1', 'e1', 'e1', 'dog', 'dog'], ground(m, e.x, e.y), [s.x, s.y]);
+    if (m.after(m.byLevel(210, { recruit: 300, easy: 240 }), 'raid1')) {
+      huntWave(m, 1, m.byLevel(['e1', 'e1', 'e1', 'dog', 'dog'], { recruit: ['e1', 'e1', 'dog'], easy: ['e1', 'e1', 'e1', 'dog'] }), ground(m, e.x, e.y), [s.x, s.y]);
       say(m, C.brandt, 'Dogs and riflemen coming down the ridge road. A pillbox or two will discourage them.');
     }
     // --- the supply column (new optional objective)
@@ -128,8 +131,8 @@ const GREY_DAWN: MissionDef = {
           m.remove(t);
           if (m.once('convoyArrived')) {
             m.fail('convoy');
-            m.give(1, 1500);
-            squad(m, 1, ['e1', 'e1', 'e2', '3tnk'], e, s, 3);
+            m.give(1, m.eased ? 300 : 1500);
+            squad(m, 1, m.eased ? ['e1', 'e1'] : ['e1', 'e1', 'e2', '3tnk'], e, s, 3);
             say(m, C.brandt, 'The column made it through. Their outpost just got fresh men and fuel.');
           }
         } else if (t.order.type !== 'move' && !t.orderQueue.length) {
@@ -142,12 +145,26 @@ const GREY_DAWN: MissionDef = {
       }
     }
     if (m.after(450, 'raid2')) {
-      huntWave(m, 1, ['3tnk', 'e1', 'e1', 'e1', 'e2', 'e2'], edgeNear(m, e.x, 0), [s.x, s.y]);
-      say(m, C.brandt, 'Heavy tank and infantry moving on your base from the north road!');
+      // (the easy levels: infantry only; the heavy tanks come at Normal)
+      if (m.eased) {
+        huntWave(m, 1, ['e1', 'e1', 'e1', 'e2'], edgeNear(m, e.x, 0), [s.x, s.y]);
+        say(m, C.brandt, 'Infantry moving on your base from the north road!');
+      } else {
+        huntWave(m, 1, ['3tnk', 'e1', 'e1', 'e1', 'e2', 'e2'], edgeNear(m, e.x, 0), [s.x, s.y]);
+        say(m, C.brandt, 'Heavy tank and infantry moving on your base from the north road!');
+      }
     }
-    if (m.time > 600 && m.every(170, 'raidN') && structures(m, 1).length) {
+    if (m.eased) {
+      // the easy levels: a small raid every four minutes from 15:00, a heavy tank with it from 25:00
+      if (m.time > 900 && m.every(240, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['e1', 'e1', 'dog', ...(m.time > 1500 ? ['3tnk'] : [])], edgeNear(m, e.x, 0), [s.x, s.y]);
+    } else if (m.time > 600 && m.every(170, 'raidN') && structures(m, 1).length) {
       const n = Math.min(4, Math.floor((m.time - 600) / 170));
       huntWave(m, 1, ['e1', 'e1', 'e2', 'dog', ...(n >= 1 ? ['3tnk'] : []), ...(n >= 3 ? ['3tnk', 'e2'] : [])], edgeNear(m, e.x, 0), [s.x, s.y]);
+    }
+    // the easy levels: a light tank platoon joins (tanks are what burns down flame towers)
+    if (m.eased && m.after(m.byLevel(330, { recruit: 270 }), 'platoon')) {
+      m.reinforce(0, m.byLevel(['1tnk', '1tnk'], { recruit: ['1tnk', '1tnk', '1tnk'] }), edgeNear(m, s.x, s.y), m.toward(s, e, 4), false);
+      say(m, C.rourke, 'Commander, a light tank platoon got through to you. Tanks shrug off those flame towers: put them in front of your infantry.');
     }
     hunt(m);
     // optional capture
@@ -246,7 +263,6 @@ const KASSEL: MissionDef = {
     m.startTimer('dawn', KASSEL_HOLD, 'First light');
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     const yard = entity<Building>(m, m.flags.yard);
     if (m.after(1, 'hello')) {
@@ -254,10 +270,12 @@ const KASSEL: MissionDef = {
       say(m, C.brandt, 'Columns converging from the north and east. They will come in waves, and they will get heavier as the night goes on.');
     }
     const spawns = [ground(m, e.x, e.y), edgeNear(m, m.mapW * 0.45, 0), edgeNear(m, m.mapW, m.mapH * 0.5)];
+    // (campaign difficulty: at Hard and Brutal every wave from the third on brings one more heavy tank, Brutal one more again)
     for (const w of KASSEL_WAVES) {
       if (m.after(w.t, 'wave' + w.t)) {
         const target = yard ?? s;
-        const units = huntWave(m, 1, w.types, spawns[w.from], [target.x, target.y]);
+        const extra = m.tightened && w.t >= 165 ? (m.level === 'brutal' ? ['3tnk', '3tnk'] : ['3tnk']) : [];
+        const units = huntWave(m, 1, [...w.types, ...extra], spawns[w.from], [target.x, target.y]);
         if (w.types.includes('4tnk')) {
           m.flags.mammoth = units.find((u) => u.ut.id === '4tnk')?.id;
           m.objective('mammoth', 'Destroy the Mammoth Tank', false);
@@ -376,14 +394,14 @@ const KESTREL_NEST: MissionDef = {
     m.flags.coils = ids([t1, t2].filter((b): b is Building => !!b));
     m.flags.stockade = stockade?.id;
     m.flags.plants = ids(ps.filter((b): b is Building => !!b));
-    // garrison
+    // garrison (campaign difficulty: the easy levels post fewer guards and no dogs, which kill Kestrel in one bite)
     const psC = centroid(ps.filter((b): b is Building => !!b));
-    squad(m, 1, ['e1', 'e1', 'e1', 'dog', 'dog'], psC, s, 3.5, 0);
-    squad(m, 1, ['e2', 'e2'], psC, s, 1, 4);
+    squad(m, 1, m.byLevel(['e1', 'e1', 'e1', 'dog', 'dog'], { recruit: ['e1', 'e1'], easy: ['e1', 'e1', 'e1'], brutal: ['e1', 'e1', 'e1', 'e1', 'dog', 'dog', 'dog'] }), psC, s, 3.5, 0);
+    if (m.level !== 'recruit') squad(m, 1, m.byLevel(['e2', 'e2'], { easy: ['e2'] }), psC, s, 1, 4);
     squad(m, 1, ['3tnk'], e, s, 22, 8);
-    squad(m, 1, ['e1', 'e1', 'e2', 'e2', 'e4'], e, s, 11, 0);
-    if (stockade) squad(m, 1, ['e1', 'e1', 'dog'], [stockade.x, stockade.y], s, 2.5, 0);
-    const pat = squad(m, 1, ['e1', 'e1', 'dog'], e, s, 18, 5);
+    squad(m, 1, m.byLevel(['e1', 'e1', 'e2', 'e2', 'e4'], { recruit: ['e1', 'e1'], easy: ['e1', 'e1', 'e2'] }), e, s, 11, 0);
+    if (stockade) squad(m, 1, m.byLevel(['e1', 'e1', 'dog'], { recruit: ['e1'], easy: ['e1', 'e1'] }), [stockade.x, stockade.y], s, 2.5, 0);
+    const pat = squad(m, 1, m.byLevel(['e1', 'e1', 'dog'], { recruit: ['e1'], easy: ['e1', 'e1'], brutal: ['e1', 'e1', 'e1', 'dog', 'dog'] }), e, s, 18, 5);
     m.flags.patrol = ids(pat);
     const [b1, b2] = [m.toward(e, s, 21.5, -5), m.toward(e, s, 21.5, 5)];
     m.wall(1, 'barb', Math.round(b1[0]), Math.round(b1[1]), Math.round(b2[0]), Math.round(b2[1]));
@@ -396,7 +414,6 @@ const KESTREL_NEST: MissionDef = {
     m.objective('coils', 'Demolish both Tesla Coils', false);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     const kestrel = entity<Unit>(m, m.flags.kestrel);
     if (m.after(1, 'hello')) {
@@ -430,7 +447,7 @@ const KESTREL_NEST: MissionDef = {
       m.flags.site = site;
       m.reveal(0, site[0], site[1], 3);
       m.objective('techs', 'Kill the technicians before the backup generator starts');
-      m.startTimer('backup', 60, 'Backup generator');
+      m.startTimer('backup', m.byLevel(60, { recruit: 120, easy: 90, brutal: 45 }), 'Backup generator');
     }
     if (m.flags.techs && m.objectives.find((o) => o.id === 'techs')?.state === 'active') {
       if (!m.livingUnits(m.flags.techs).length) {
@@ -455,6 +472,8 @@ const KESTREL_NEST: MissionDef = {
     }
     // the lab
     const lab = entity<Building>(m, m.flags.lab);
+    // (its blast doors hold until an engineer is inside: stray fire from an attack-move can't wreck the objective)
+    if (lab && lab.owner !== m.human) lab.invulnerable = 1;
     if (!m.isDone('lab')) {
       if (lab && lab.owner === m.human) {
         m.complete('lab');
@@ -469,10 +488,10 @@ const KESTREL_NEST: MissionDef = {
         m.flags.lz = lz;
         m.reveal(0, lz[0], lz[1], 4);
         m.objective('extract', 'Get Kestrel to the extraction clearing');
-        m.startTimer('lz', 165, 'Helicopter leaves');
+        m.startTimer('lz', m.byLevel(165, { recruit: 240, easy: 200 }), 'Helicopter leaves');
         // the alarm: armour rolls in behind the compound and gives chase
         const behind = m.toward({ x: lz[0], y: lz[1] }, lab, m.dist(lz, lab) + 14);
-        huntWave(m, 1, ['3tnk', '3tnk', 'e1', 'e1', 'e1', 'dog', 'dog'], edgeNear(m, behind[0], behind[1]), [lab.x, lab.y]);
+        huntWave(m, 1, m.byLevel(['3tnk', '3tnk', 'e1', 'e1', 'e1', 'dog', 'dog'], { recruit: ['e1', 'e1', 'e1'], easy: ['3tnk', 'e1', 'e1', 'e1'] }), edgeNear(m, behind[0], behind[1]), [lab.x, lab.y]);
         m.camera(lab.x, lab.y);
       } else if (!lab) {
         m.fail('lab');
@@ -591,7 +610,6 @@ const LOOKING_GLASS: MissionDef = {
     m.progress('board', '0 / 3');
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) {
       say(m, C.brandt, 'Soviet paratroopers are all over the plateau. Get Saarinen and his people into the APCs and run for the harbour. The Home Guard is holding a boat.');
@@ -739,7 +757,6 @@ const DRY_SEASON: MissionDef = {
     m.reveal(0, mid[0], mid[1], 8);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) {
       say(m, C.brandt, 'Six ore trucks working a mining camp in the middle of the plain, two heavy tanks riding shotgun. Their main base is in the far corner and well defended. You do not need the base. You need the trucks.');
@@ -855,10 +872,11 @@ const MIDNIGHT: MissionDef = {
     // the fortress cannot build power, refineries, vehicles or aircraft: what it has is what you face (plus infantry)
     m.player(1).allowedTypes = allExcept('mslo', 'iron', '4tnk', '3tnk', 'v2rl', 'harv', 'mcv', 'afld', 'hpad', 'mig', 'yak', 'hind', 'powr', 'apwr', 'proc', 'silo', 'weap');
     aiProfile(m, 1, 'easy', 'defensive');
-    // the fortress core
+    // the fortress core (campaign difficulty: on the easy levels the coils were never finished, and one flame tower guards the gate)
+    const coils: [string, number, number][] = m.eased ? [['ftur', 12, 0]] : [['tsla', 10, 0], ['tsla', 9, -5.5], ['ftur', 12, 3], ['ftur', 12, -3]];
     const built = layout(m, 1, e, s, [
       ['fact', 0, 0], ['mslo', -5, -1], ['proc', 3, -7.5], ['barr', 4, 2.5], ['weap', 3, -2.5], ['dome', -2, 3], ['stek', -2, -4], ['kenn', 6, 4.5],
-      ['tsla', 10, 0], ['tsla', 9, -5.5], ['ftur', 12, 3], ['ftur', 12, -3], ['sam', 7, -10], ['sam', 5, 8],
+      ...coils, ['sam', 7, -10], ['sam', 5, 8],
     ]);
     // the generator yard on the flank
     const yard = layout(m, 1, e, s, [['apwr', 3, 13], ['apwr', 6.5, 16.5], ['apwr', -0.5, 16.5], ['apwr', 3, 20], ['ftur', 9.5, 13], ['ftur', 8, 20]]);
@@ -866,10 +884,11 @@ const MIDNIGHT: MissionDef = {
     m.flags.silo = silo?.id;
     m.flags.yard = ids(yard.filter((b): b is Building => !!b && b.bt.id !== 'ftur'));
     for (const p of built) if (p?.bt.id === 'proc') m.spawnUnit(1, 'harv', p.x, p.cy + p.h + 1);
-    squad(m, 1, ['3tnk', '3tnk', '3tnk', 'v2rl'], e, s, 8, -2);
-    squad(m, 1, ['3tnk', 'v2rl'], e, s, 3, -9);
-    squad(m, 1, ['e1', 'e1', 'e1', 'e2', 'e2', 'e3', 'dog', 'dog'], e, s, 7, 4);
+    squad(m, 1, m.eased ? ['3tnk', 'v2rl'] : ['3tnk', '3tnk', '3tnk', 'v2rl'], e, s, 8, -2);
+    if (!m.eased) squad(m, 1, ['3tnk', 'v2rl'], e, s, 3, -9);
+    squad(m, 1, m.eased ? ['e1', 'e1', 'e2', 'e3'] : ['e1', 'e1', 'e1', 'e2', 'e2', 'e3', 'dog', 'dog'], e, s, 7, 4);
     squad(m, 1, ['e1', 'e1', 'e2', 'e4'], e, s, 8, 15);
+    if (m.eased) m.player(1).cash = 500;
     m.setSuperCharge(1, 'nuke', -100000);
     m.flags.left = LAUNCH_SECONDS;
     m.objective('silo', 'Destroy the Missile Silo before launch');
@@ -881,11 +900,12 @@ const MIDNIGHT: MissionDef = {
     m.reveal(0, yc.x, yc.y, 4);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) {
       say(m, C.rourke, 'Twenty minutes, Commander. I will not insult you with a speech. Get to that silo.');
-      say(m, C.brandt, 'The generator yard is on the fortress flank. Kill the power and the coils go dark, and the launch sequence slows to a crawl.');
+      say(m, C.brandt, m.eased
+        ? 'One piece of luck: the fortress Tesla Coils were never finished, only a flame tower guards the gate. The generator yard is on the flank: kill the power and the launch sequence slows to a crawl.'
+        : 'The generator yard is on the fortress flank. Kill the power and the coils go dark, and the launch sequence slows to a crawl.');
     }
     const silo = entity<Building>(m, m.flags.silo);
     // scripted launch countdown: a quarter speed while the fortress is low on power
@@ -919,6 +939,11 @@ const MIDNIGHT: MissionDef = {
       m.win();
       return;
     }
+    // the easy levels: a second armoured column lands at eight minutes
+    if (m.eased && m.after(480, 'column')) {
+      m.reinforce(0, ['2tnk', '2tnk', '2tnk', 'arty'], edgeNear(m, s.x, s.y), m.toward(s, e, 5), false);
+      say(m, C.rourke, 'Commander, a second armoured column has landed behind you: three Mediums and a gun. Use them on that silo.');
+    }
     // Kestrel joins
     if (m.after(240, 'kestrel')) {
       const [x, y] = ground(m, ...m.toward(s, e, 6, -3));
@@ -931,14 +956,18 @@ const MIDNIGHT: MissionDef = {
       say(m, C.brandt, 'We have lost Kestrel\'s signal.');
     }
     // raids from the fortress while the countdown runs
-    for (const [t, types] of [[240, ['e1', 'e1', 'e1', 'e2', 'e2', 'dog', 'dog']], [520, ['3tnk', 'v2rl', 'e1', 'e1', 'e1', 'e3']], [840, ['3tnk', '3tnk', 'e1', 'e1', 'e2', 'e4']]] as [number, string[]][]) {
+    const raids = m.byLevel<[number, string[]][]>([[240, ['e1', 'e1', 'e1', 'e2', 'e2', 'dog', 'dog']], [520, ['3tnk', 'v2rl', 'e1', 'e1', 'e1', 'e3']], [840, ['3tnk', '3tnk', 'e1', 'e1', 'e2', 'e4']]], {
+      recruit: [[300, ['e1', 'e1', 'e2']], [600, ['e1', 'e1', 'e1', 'e3']], [900, ['3tnk', 'e1', 'e1']]],
+      easy: [[270, ['e1', 'e1', 'e1', 'e2', 'dog']], [560, ['3tnk', 'e1', 'e1', 'e3']], [880, ['3tnk', 'e1', 'e1', 'e2', 'e4']]],
+    });
+    for (const [t, types] of raids) {
       if (m.after(t, 'raid' + t) && structures(m, 1).length) huntWave(m, 1, types, edgeNear(m, ...m.toward(e, s, 14, t === 450 ? 16 : -16)), [s.x, s.y]);
     }
     // counterattack when the silo is first hit or at ten minutes
     if (!m.flags.counter && silo && (silo.hp < silo.maxHp || m.time > 660)) {
       m.flags.counter = true;
       say(m, C.morozov, 'You want my missile, Commander? Then come and take it. I will send you an escort.');
-      huntWave(m, 1, ['3tnk', '3tnk', 'v2rl', 'e1', 'e1', 'e1', 'e2', 'e2'], edgeNear(m, ...m.toward(e, s, 20, -24)), [s.x, s.y]);
+      huntWave(m, 1, m.byLevel(['3tnk', '3tnk', 'v2rl', 'e1', 'e1', 'e1', 'e2', 'e2'], { recruit: ['3tnk', 'e1', 'e1', 'e1'], easy: ['3tnk', '3tnk', 'e1', 'e1', 'e2'] }), edgeNear(m, ...m.toward(e, s, 20, -24)), [s.x, s.y]);
     }
     hunt(m, 'hunters', 10);
     // power plants optional
@@ -1042,7 +1071,6 @@ const DAWNBREAK: MissionDef = {
     m.revealAll(0);
   },
   update(m) {
-    nudgeEntries(m);
     const s = m.start(0);
     if (m.after(1, 'hello')) {
       say(m, C.rourke, 'This is it, Commander. Everything Morozov has left is in this valley. So is everything we have.');

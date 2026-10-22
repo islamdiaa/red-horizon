@@ -14,6 +14,8 @@ export const RELAY_TEXT = sourceStrings('net.relay', RELAY_ERRORS);
 export const VERIFY_TEXT = sourceStrings('net.verify', VERIFY_REASONS);
 /** Leaderboard submission / route errors. */
 export const SUBMISSION_TEXT = sourceStrings('net.submit', SUBMISSION_ERRORS);
+/** Why a mission run ended after a surrender (src/sim/resign.ts SURRENDERED: the simulation's English). */
+export const RESIGN_TEXT = sourceStrings('net.resign', { surrendered: 'Surrendered' });
 
 export default strings('net', {
   chip: {
@@ -44,6 +46,27 @@ export default strings('net', {
     placeholder: 'Message to everyone · Enter to send',
     left: '{name} left the match. The AI takes over.',
     watching: 'You are watching: the AI commands your forces.',
+    // surrender (src/sim/resign.ts): a player whose side conceded, or whose team fights on with the AI
+    surrendered: '{name} surrendered.',
+    surrenderedAi: '{name} surrendered. The AI takes over their forces.',
+    youSurrendered: 'You surrendered.',
+    // chat typed while reconnecting (src/net/client.ts keeps up to four lines)
+    queued: 'Not sent yet: reconnecting. It goes out when the connection is back.',
+    dropped: 'Not sent: the connection is down.',
+  },
+  // the in-match menu's Surrender entry and its confirmation (src/net/surrender.ts)
+  surrender: {
+    button: 'Surrender',
+    kicker: 'Surrender',
+    title: 'Surrender the battle?',
+    // 1v1, free for all, skirmish: the side concedes
+    bodyConcede: 'Your forces are destroyed and the battle counts as a defeat.',
+    // a team game where a human team-mate still plays
+    bodyTeam: 'Your team fights on: the AI takes over your forces. The battle counts as a defeat for you.',
+    // a ranked run (Survival, the Daily Challenge)
+    bodyRun: 'The run ends here as a defeat. Your score so far counts.',
+    confirm: 'Surrender',
+    cancel: 'Keep fighting',
   },
   player: {
     // a player whose name is not known

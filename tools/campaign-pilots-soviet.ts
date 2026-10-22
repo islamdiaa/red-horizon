@@ -66,12 +66,13 @@ PILOTS['soviet-03'] = (world, rt, s, log) => {
     const dogs = fighters.filter((u) => u.ut.dog);
     const rest = fighters.filter((u) => !u.ut.dog);
     const hold = rt.toward(station, st, 10);
-    if (guards.length) {
+    if (guards.length && fighters.length) {
       // the dogs go in first; flamers would roast them in the melee
       const splash = rest.filter((u) => u.ut.id === 'e4' || u.ut.id === 'e2');
       const front = fighters.filter((u) => !splash.includes(u));
-      attackMove(world, front, guards[0].x, guards[0].y);
-      const lagR = splash.filter((u) => Math.hypot(u.x - hold[0], u.y - hold[1]) > 3);
+      // (once the dogs and riflemen are gone, the flamers and grenadiers go in themselves)
+      attackMove(world, front.length ? front : splash, guards[0].x, guards[0].y);
+      const lagR = front.length ? splash.filter((u) => Math.hypot(u.x - hold[0], u.y - hold[1]) > 3) : [];
       if (lagR.length) moveTo(world, lagR, hold[0], hold[1]);
       void dogs;
       const lag = engs.filter((u) => Math.hypot(u.x - hold[0], u.y - hold[1]) > 2);
@@ -154,6 +155,9 @@ PILOTS['soviet-05'] = (world, rt, s, log) => {
     const engs = world.units.filter((u) => u.alive && u.owner.id === 0 && u.ut.engineer);
     const guards = enemyUnitsNear(world, pd.x, pd.y, 7);
     if (engs.length && guards.length < 3) attack(world, engs.slice(0, 2), pd);
+    // the engineers were lost: train new ones (otherwise the device sits locked down forever)
+    const p0 = world.players[0];
+    if (!engs.length && p0.canBuild('e6') && !p0.queues.infantry.items.some((i) => i.type === 'e6')) world.issue({ c: 'build', player: 0, type: 'e6' });
   }
 };
 

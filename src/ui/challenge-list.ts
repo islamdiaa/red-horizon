@@ -4,7 +4,7 @@
  */
 import { BUILTIN_LIST } from '../modes/builtins';
 import { challengeClock } from '../modes/challenge';
-import { deleteChallenge, exportChallenge, importChallengeFile, listChallenges, loadBests, saveChallenge, FILE_EXT, type ChallengeBest } from '../modes/store';
+import { deleteChallenge, exportChallenge, importChallenge, listChallenges, loadBests, saveChallenge, FILE_EXT, type ChallengeBest } from '../modes/store';
 import type { ChallengeDef, ChallengeResult } from '../modes/types';
 import { formatTime } from '../core/util';
 import { picto } from '../meta';
@@ -95,15 +95,25 @@ export function openChallengeList(o: ChallengeListOptions): () => void {
     file.value = '';
     if (!f) return;
     try {
-      const c = await importChallengeFile(f);
-      note.textContent = tChallenges('list.imported', { title: trSource(c.title) });
+      const { challenge: c, already } = await importChallenge(f);
+      // a challenge that is already in the list (a built-in, or one imported before) gets no second card: say so and show it
+      note.textContent = already ? tChallenges('list.already', { title: trSource(c.title) }) : tChallenges('list.imported', { title: trSource(c.title) });
       note.classList.remove('bad');
-      void render();
+      void render().then(() => showCard(c.id));
     } catch (e) {
       note.textContent = (e as Error).message;
       note.classList.add('bad');
       play('error');
     }
+  };
+
+  /** Bring a card into view and flash it (the challenge just imported, or the one it already was). */
+  const showCard = (id: string) => {
+    const cardEl = Array.from(body.querySelectorAll<HTMLElement>('.chx-card')).find((x) => x.dataset.id === id);
+    if (!cardEl) return;
+    cardEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    cardEl.animate?.([{ boxShadow: '0 0 0 0 rgba(255, 211, 77, 0)' }, { boxShadow: '0 0 0 3px rgba(255, 211, 77, .9), 0 0 1.4rem rgba(255, 211, 77, .55)' }, { boxShadow: '0 0 0 0 rgba(255, 211, 77, 0)' }], { duration: 1600, iterations: 2, easing: 'ease-in-out' });
+    cardEl.querySelector<HTMLElement>('[data-a="play"]')?.focus({ preventScroll: true });
   };
 
   const render = async () => {

@@ -57,7 +57,8 @@ describe('touch: phone and portrait HUD', () => {
     assert.match(b, /\.main-screen \.mm-panel \{ position: relative;[^}]*max-height: none/, 'the setup panel is not a squeezed sticky box');
   });
   test('portrait screens stack the build bar above the minimap and the selection', () => {
-    const b = block('@media (pointer: coarse) and (max-aspect-ratio: 1/1) {');
+    // (any pointer: a desktop window narrower than it is tall needs the same layout, round 3)
+    const b = block('@media (max-aspect-ratio: 1/1) {\n  body.hud-modern { --mm-w: 10.5rem;');
     assert.match(b, /#topright \{ left: var\(--edge\); right: var\(--edge\);/, 'the resource bar spans the top');
     assert.match(b, /#buildbar \{ left: var\(--edge\); right: var\(--edge\);/, 'the build bar spans the bottom');
     assert.match(b, /#touch-bar \{[^}]*flex-direction: row/, 'the touch toolbar is a row under the objectives');

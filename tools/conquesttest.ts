@@ -1,5 +1,6 @@
 // Headless Conquest battles with autopilots.
-//   node --import tsx tools/conquesttest.ts [kind|all] [seed=7] [faction=allies] [minutes=25] [-v]
+//   node --import tsx tools/conquesttest.ts [kind|all] [seed=7] [faction=allies] [minutes=25] [-v] [--pilot auto|newcomer|casual] [--difficulty easy|normal|hard]
+// --pilot newcomer --difficulty easy plays each battle like a newcomer (tools/campaign-players.ts), with no head start.
 import { resolveBattle } from '../src/conquest/run';
 import { BATTLE_KINDS, type BattleKind } from '../src/conquest/battle';
 import { runConquestBattle } from './conquest-harness';
@@ -14,11 +15,14 @@ if (isMain) {
   const faction = (process.argv[4] ?? 'allies') as 'allies' | 'soviet';
   const minutes = +(process.argv[5] ?? 25);
   const kinds = arg === 'all' ? BATTLE_KINDS : [arg as BattleKind];
+  const opt = (k: string) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : undefined; };
+  const pilot = (opt('pilot') ?? 'auto') as 'auto' | 'newcomer' | 'casual';
+  const difficulty = opt('difficulty') as 'easy' | 'normal' | 'hard' | undefined;
   for (const kind of kinds) {
     const t0 = performance.now();
-    const { run, setup } = runWithBattle(seed, faction, kind);
+    const { run, setup } = runWithBattle(seed, faction, kind, 'vanguard', difficulty);
     const S = setup.battle;
-    const r = runConquestBattle(setup, minutes);
+    const r = runConquestBattle(setup, minutes, pilot);
     const ms = performance.now() - t0;
     console.log(`${kind.padEnd(8)} ${S.name.padEnd(12)} ${S.mapLabel.padEnd(20)} str ${S.strength} ${S.ai.padEnd(6)} ${S.personality.padEnd(11)} → ${r.error ? 'ERROR' : r.ended ? (r.won ? 'WIN ' : 'LOSE') : 'TIMEOUT'} ${Math.floor(r.time / 60)}:${String(Math.floor(r.time % 60)).padStart(2, '0')} ${r.reason ?? ''} | ${r.objectives.join(' ')} [${(ms / 1000).toFixed(1)}s]`);
     if (r.error) console.log(r.error);

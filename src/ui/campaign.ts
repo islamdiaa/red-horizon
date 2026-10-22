@@ -4,7 +4,8 @@
  */
 import { campaignMissions } from '../missions';
 import { focusTrap } from './a11y'; // Tab stays inside the screen
-import { isUnlocked, loadProgress, type MissionRecord } from '../missions/progress';
+import { isUnlocked, loadLevel, loadProgress, saveLevel, takesLevel, type MissionRecord } from '../missions/progress';
+import { MISSION_LEVELS, levelSummary, type MissionLevel } from '../sim/handicap';
 import { MissionRuntime, type MissionDef, type Objective, type Portrait } from '../sim/mission';
 import { BUILDINGS, UNITS } from '../data/rules';
 import { formatTime } from '../core/util';
@@ -102,6 +103,17 @@ const CSS = `
 .cmp-tips div { font-size: 13px; color: #b8c8d8; margin: 4px 0; padding-left: 14px; position: relative; line-height: 1.4; }
 .cmp-tips div::before { content: ''; position: absolute; left: 0; top: 6px; width: 6px; height: 6px; transform: rotate(45deg); background: rgb(var(--accent-rgb, 90,180,255)); }
 .cmp-tech { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* campaign difficulty picker (Red Alert's handicaps) */
+.cmp-lvl { margin-top: 10px; }
+.cmp-lvl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+.cmp-lvl-head h4 { margin: 0; font-size: 11px; letter-spacing: .26em; color: rgb(var(--accent-rgb, 90,180,255)); }
+.cmp-lvl-head span { font-family: var(--mono, monospace); font-size: 11px; letter-spacing: .12em; color: #ffd34d; }
+.cmp-lvl .seg button { height: 32px; font-size: 13px; }
+.cmp-lvl-desc { margin-top: 6px; font-size: 12.5px; line-height: 1.4; color: #b8c8d8; min-height: 2.8em; }
+.cmp-lvl-desc b { color: #dfe8f2; font-weight: 600; }
+.cmp-lvl-desc .up { color: #9fe8b0; }
+.cmp-lvl-desc .down { color: #ffb0a0; }
+.cmp-sp .rec small { display: block; font-size: 10px; letter-spacing: .14em; color: #9fb0c2; text-align: right; }
 .cmp-tech h4 { width: 100%; }
 .cmp-chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: #d4e0ec; letter-spacing: .04em; }
 .cmp-foot { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
@@ -440,6 +452,52 @@ function newTech(def: MissionDef, missions: MissionDef[]): string[] {
 }
 
 // =====================================================================================================
+// Campaign difficulty (sim/handicap.ts): the picker on the briefing, remembered for the next mission
+// =====================================================================================================
+const levelName = (l: MissionLevel) => tCommon(`difficulty.${l}`);
+
+/** The handicap of a level in words: "You: +20% firepower ... · Enemy: −20% firepower ...". */
+function levelDesc(l: MissionLevel): string {
+  const sides = levelSummary(l);
+  const sign = (n: number) => (n > 0 ? `+${n}%` : `${n < 0 ? '−' : ''}${Math.abs(n)}%`);
+  const part = (good: boolean, text: string) => `<span class="${good ? 'up' : 'down'}">${esc(text)}</span>`;
+  const lines = sides.map((h) => {
+    const stats: string[] = [];
+    if (h.firepower) stats.push(part(h.firepower > 0, tCampaign('level.firepower', { n: sign(h.firepower) })));
+    if (h.rof) stats.push(part(h.rof > 0, tCampaign('level.rof', { n: sign(h.rof) })));
+    if (h.speed) stats.push(part(h.speed > 0, tCampaign('level.speed', { n: sign(h.speed) })));
+    if (h.cost) stats.push(part(h.cost < 0, tCampaign('level.cost', { n: sign(h.cost) })));
+    // for the enemy, stronger is worse news: flip the colours
+    const html = h.side === 'enemy' ? stats.map((x) => x.replace(/class="(up|down)"/, (_, c) => `class="${c === 'up' ? 'down' : 'up'}"`)).join(' · ') : stats.join(' · ');
+    return `<b>${esc(tCampaign(h.side === 'you' ? 'level.you' : 'level.enemy'))}:</b> ${html}`;
+  });
+  return `${esc(tCampaign(`level.about.${l}`))}${lines.length ? '<br>' + lines.join('<br>') : ''}`;
+}
+
+function levelPicker(r: MissionRecord | undefined): string {
+  const cur = loadLevel();
+  const i = MISSION_LEVELS.indexOf(cur);
+  return `<div class="cmp-lvl">
+    <div class="cmp-lvl-head"><h4 id="cmp-lvl-h">${esc(tCampaign('level.title'))}</h4>${r?.completed && r.level ? `<span>${esc(tCampaign('level.wonOn', { level: levelName(r.level).toUpperCase() }))}</span>` : ''}</div>
+    <div class="seg" role="radiogroup" aria-labelledby="cmp-lvl-h" style="--n:${MISSION_LEVELS.length}"><span class="seg-thumb" style="transform:translateX(${i * 100}%)"></span>
+      ${MISSION_LEVELS.map((l) => `<button type="button" role="radio" data-level="${l}" class="${l === cur ? 'on' : ''}" aria-checked="${l === cur}"><span>${esc(levelName(l))}</span></button>`).join('')}
+    </div>
+    <div class="cmp-lvl-desc" aria-live="polite">${levelDesc(cur)}</div>
+  </div>`;
+}
+
+/** Show a newly picked level in place (no re-render: the briefing keeps typing). */
+function showLevel(root: HTMLElement, l: MissionLevel) {
+  const box = root.querySelector<HTMLElement>('.cmp-lvl');
+  if (!box) return;
+  box.querySelectorAll<HTMLButtonElement>('[data-level]').forEach((b) => { const on = b.dataset.level === l; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+  const thumb = box.querySelector<HTMLElement>('.seg-thumb');
+  if (thumb) thumb.style.transform = `translateX(${MISSION_LEVELS.indexOf(l) * 100}%)`;
+  const desc = box.querySelector<HTMLElement>('.cmp-lvl-desc');
+  if (desc) desc.innerHTML = levelDesc(l);
+}
+
+// =====================================================================================================
 // Campaign screen
 // =====================================================================================================
 /** Campaign / special-ops mission select with a theatre map and briefings. */
@@ -503,7 +561,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
           const r = prog[m.id];
           const isOpen = open(m);
           return `<div class="cmp-sp ${selected?.id === m.id ? 'sel' : ''} ${isOpen ? '' : 'locked'}" data-id="${m.id}"><div><b>${esc(mTitle(m))}</b><span>${esc(mLocation(m).toUpperCase())}</span></div>
-            ${isOpen ? `<div class="rec">${m.scored ? (r?.bestScore ? esc(tCampaign('map.best', { score: fmtInt(r.bestScore) })) : '') : r?.completed ? starsHtml(r.stars) : ''}</div>` : `<span class="lk">${IC.lock}</span>`}</div>`;
+            ${isOpen ? `<div class="rec">${m.scored ? (r?.bestScore ? esc(tCampaign('map.best', { score: fmtInt(r.bestScore) })) : '') : r?.completed ? starsHtml(r.stars) + (r.level && takesLevel(m) ? `<small>${esc(levelName(r.level).toUpperCase())}</small>` : '') : ''}</div>` : `<span class="lk">${IC.lock}</span>`}</div>`;
         }).join('') : `<div class="cmp-empty">${esc(tCampaign('map.noSpecials'))}</div>`}</div>`
       : theatreSvg(tab, missions, prog, order, selected?.id ?? null, unlockAll);
     root.innerHTML = `
@@ -537,6 +595,13 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
     root.querySelectorAll<HTMLElement>('.cmp-sp').forEach((el) => (el.onclick = () => pick(el.dataset.id)));
     (root.querySelector('[data-act="back"]') as HTMLElement | null)?.addEventListener('click', back);
     (root.querySelector('[data-act="deploy"]') as HTMLElement | null)?.addEventListener('click', deploy);
+    root.querySelectorAll<HTMLButtonElement>('.cmp-lvl [data-level]').forEach((b) => (b.onclick = () => {
+      const l = b.dataset.level as MissionLevel;
+      if (l === loadLevel()) return;
+      saveLevel(l);
+      opts.play('click');
+      showLevel(root, l);
+    }));
     startTypewriter();
   };
 
@@ -547,7 +612,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
     return `<div class="cmp-panel cmp-brief">
       <div class="kick"><span class="cmp-kick">${esc(tCampaign('brief.kick', { kind }))}</span>${r?.completed ? starsHtml(r.stars) : ''}</div>
       <h1>${esc(mTitle(m).toUpperCase())}</h1>
-      <h3>${esc(tCampaign('brief.operation', { name: m.codename }))}</h3>
+      <h3>${esc(tCampaign('brief.operation', { name: trSource(m.codename) }))}</h3>
       <div class="cmp-meta"><span>${IC.pin}${esc(mLocation(m).toUpperCase())}</span>${m.date ? `<span>${IC.clock}${esc(mDate(m, m.date).toUpperCase())}</span>` : ''}${m.parTime ? `<span>${IC.flag}${esc(tCampaign('brief.par', { time: formatTime(m.parTime) }))}</span>` : ''}</div>
       <div class="cmp-speaker">
         <div class="cmp-pt">${portraitSvg(who.name, who.portrait)}</div>
@@ -555,10 +620,11 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
           <div class="cmp-text" title="${esc(tCampaign('brief.skip'))}">${m.briefing.map((p) => `<p data-full="${esc(trSource(p))}"></p>`).join('')}</div>
         </div>
         <div class="cmp-wm">${t === 'soviet' ? IC.star : t === 'allies' ? IC.shield : IC.target}</div>
-        <div class="cmp-stamp">${esc(tCampaign('brief.stamp', { stamp: t === 'soviet' ? tCampaign('brief.sovietSecret') : tCampaign('brief.eyesOnly'), codename: m.codename }))}</div>
+        <div class="cmp-stamp">${esc(tCampaign('brief.stamp', { stamp: t === 'soviet' ? tCampaign('brief.sovietSecret') : tCampaign('brief.eyesOnly'), codename: trSource(m.codename) }))}</div>
       </div>
       ${m.tips?.length ? `<div class="cmp-tips"><h4>${esc(tCampaign('brief.tips'))}</h4>${m.tips.map((x) => `<div>${esc(trSource(x))}</div>`).join('')}</div>` : ''}
       ${tech.length ? `<div class="cmp-tech"><h4>${esc(tCampaign('brief.tech'))}</h4>${tech.map((x) => `<span class="cmp-chip">${esc(x)}</span>`).join('')}</div>` : ''}
+      ${takesLevel(m) ? levelPicker(r) : ''}
       <div class="cmp-foot">
         <div class="cmp-rec">${r?.completed ? `${starsHtml(r.stars)}<span>${esc(tCampaign('brief.bestTime', { time: r.bestTime ? formatTime(r.bestTime) : '--:--' }))}</span>` : r?.bestScore ? `<span>${esc(tCampaign('brief.bestScore', { score: fmtInt(r.bestScore) }))}</span>` : `<span>${esc(tCampaign('brief.notAttempted'))}</span>`}</div>
         <button class="cmp-btn sec" data-act="back">${esc(tCommon('back'))}</button>
@@ -642,7 +708,7 @@ export function showDebrief(
   root.innerHTML = `
     <div class="cmp-panel dbf-card">
       <div class="dbf-top">
-        <div class="kick">${esc(tCampaign('debrief.kick', { kind: def.scored ? tCampaign('debrief.special') : tCampaign('debrief.mission', { n: def.index }), codename: def.codename }))}</div>
+        <div class="kick">${esc(tCampaign('debrief.kick', { kind: def.scored ? tCampaign('debrief.special') : tCampaign('debrief.mission', { n: def.index }), codename: trSource(def.codename) }))}</div>
         <h1>${esc(tCampaign(result.won ? 'debrief.won' : 'debrief.lost'))}</h1>
         <div class="sub">${esc(mTitle(def).toUpperCase())} · ${esc(mLocation(def).toUpperCase())}</div>
         ${reason ? `<div class="dbf-reason">${esc(trSource(reason))}</div>` : ''}
@@ -655,6 +721,7 @@ export function showDebrief(
         <div class="dbf-big">
           <div><small>${esc(tCampaign('debrief.result'))}</small><b>${esc(tCampaign(result.won ? 'debrief.victory' : 'debrief.defeat'))}</b></div>
           ${def.scored ? `<div><small>${esc(tCampaign('debrief.score'))}</small><b>${fmtInt(result.score)}</b></div>` : `<div><small>${esc(tCampaign('debrief.stars'))}</small><b>${esc(tCampaign('debrief.starsOf', { n: result.won ? result.stars : 0 }))}</b></div>`}
+          ${takesLevel(def) ? `<div><small>${esc(tCampaign('level.title'))}</small><b>${esc(levelName(rt?.level ?? 'normal'))}</b></div>` : ''}
         </div>
       </div>
       <div class="dbf-sec">

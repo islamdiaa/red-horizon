@@ -27,6 +27,8 @@ export interface LockstepOptions {
   onExecute?(cmd: Command, tick: number): void;
   /** A player was handed to the AI at `tick`. */
   onDrop?(tick: number, player: number): void;
+  /** A player surrendered at `tick` (sim/resign.ts); the local one then only watches. */
+  onResign?(tick: number, player: number): void;
 }
 
 export type LockstepStatus = 'live' | 'over' | 'desync';
@@ -52,6 +54,10 @@ export class Lockstep {
   private sent: [number, Command][] = [];
   private sentCommit = -1;
   private localPlayer: number;
+  /** We surrendered: the command is on its way, nothing more of ours is issued. */
+  private resigning = false;
+  /** Players whose surrender was seen (onResign fires once each). */
+  private resigned = new Set<number>();
 
   constructor(private o: LockstepOptions) {
     this.world = o.world;
@@ -62,10 +68,23 @@ export class Lockstep {
 
   /** A command of the local player: scheduled a few ticks ahead and queued for the relay. */
   issue(cmd: Command) {
-    if (this.watching || this.status !== 'live') return;
+    if (this.watching || this.resigning || this.status !== 'live') return;
     const t = Math.max(this.world.tick + this.delay, this.committed + 1);
     const c = { ...cmd, player: this.localPlayer } as Command;
     this.outbox.push([t, c]);
+  }
+
+  /** Surrender (sim/resign.ts): our last command. Afterwards we issue nothing; once it runs we only watch. */
+  resign(): boolean {
+    if (this.watching || this.resigning || this.status !== 'live') return false;
+    this.issue({ c: 'resign', player: this.localPlayer });
+    this.resigning = true;
+    return true;
+  }
+
+  /** Our surrender is on its way or done. */
+  get surrendered(): boolean {
+    return this.resigning || this.resigned.has(this.localPlayer);
   }
 
   setDelay(d: number) {
@@ -161,6 +180,13 @@ export class Lockstep {
   afterStep(): string | null {
     const w = this.world;
     let h: string | null = null;
+    for (const p of w.players) {
+      if (!p.resigned || this.resigned.has(p.id)) continue;
+      this.resigned.add(p.id);
+      // (the relay no longer waits for a seat that surrendered: we stop committing too)
+      if (p.id === this.localPlayer) { this.watching = true; this.outbox.length = 0; this.sent.length = 0; }
+      this.o.onResign?.(w.tick, p.id);
+    }
     if (w.tick % NET_HASH_EVERY === 0) {
       h = worldHash(w);
       this.hashes.push([w.tick, h]);

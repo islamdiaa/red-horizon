@@ -4,6 +4,7 @@ import type { PlanItem, QueueKind } from './types';
 import type { SuperKind } from './superweapons';
 import type { PlayerCmd } from './doctrine';
 import { econBuildable, tierAllows, type PlayerEcon } from './economy-data';
+import type { Handicap } from './handicap';
 
 export interface QueueItem {
   type: string;
@@ -70,6 +71,8 @@ export class Player {
   powerOut = 0;
   powerUse = 0;
   defeated = false;
+  /** Surrendered (sim/resign.ts): out of the match and beaten, whatever the side does; set only then (saved with the player). */
+  declare resigned?: boolean;
   queues: Record<QueueKind, ProductionQueue> = {
     structure: new ProductionQueue('structure'),
     infantry: new ProductionQueue('infantry'),
@@ -131,6 +134,8 @@ export class Player {
   declare cmd?: PlayerCmd;
   /** Commander rules economy (tech tier, research; sim/economy.ts): non-enumerable like `cmd`, undefined under Classic rules. */
   declare econ?: PlayerEcon;
+  /** Campaign difficulty: RA's handicap for this side (sim/handicap.ts); non-enumerable like `cmd`, undefined at Normal and outside missions. */
+  declare hc?: Handicap;
 
   constructor(opts: { id: number; name: string; faction: Faction; color: number; team: number; isHuman: boolean; cash: number; mapCells: number }) {
     this.id = opts.id;

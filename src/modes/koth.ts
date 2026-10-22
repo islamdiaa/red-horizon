@@ -230,6 +230,9 @@ function warn(m: MissionRuntime, st: KothState, team: number) {
   }
 }
 
+/** How much of its army an AI level commits to the hill, relative to Normal (tools/campaign-koth.ts). */
+const HILL_EFFORT: Record<string, number> = { recruit: 0.8, easy: 0.9, normal: 1, hard: 1.25, brutal: 1.4 };
+
 /** Share of an AI's ground army (by value) assigned to the hill. */
 function squadShare(st: KothState, team: number): number {
   let lead = 0;
@@ -265,7 +268,8 @@ function squads(m: MissionRuntime, st: KothState) {
       const army = w.units.filter((u) => u.owner === p && squadUnit(u));
       const total = army.reduce((s, u) => s + u.ut.cost, 0);
       let have = squad.reduce((s, u) => s + u.ut.cost, 0);
-      const want = squadShare(st, p.team) * total;
+      // (the AI's level sets how hard it contests the hill: Recruit sends a smaller squad, Hard and Brutal a larger one)
+      const want = Math.min(0.9, squadShare(st, p.team) * (HILL_EFFORT[ai.difficulty] ?? 1)) * total;
       if (have < want && army.length >= 2) {
         const inSquad = new Set(squad.map((u) => u.id));
         const free = army.filter((u) => !inSquad.has(u.id)).sort((a, b) => {

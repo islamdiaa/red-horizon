@@ -18,7 +18,18 @@ import { REPLAY_SOURCE } from '../i18n/en/replay';
 const fillName = (tpl: string, w: number, h: number) => tpl.replace('{w}', String(w)).replace('{h}', String(h));
 
 /** Matches shorter than this (and not finished) are not worth keeping. */
-const MIN_TICKS = 20 * 30;
+export const MIN_TICKS = 20 * 30;
+/**
+ * A branch ("take command") is a deliberate what-if: it is kept from this length on once the player has given it an
+ * order, however short (the pause menu says when leaving would drop it).
+ */
+export const MIN_BRANCH_TICKS = 20 * 5;
+
+/** Whether a recording of this length is kept: finished, 30 s or more, or a branch with an order and 5 s or more. */
+export function keepsRecording(o: { gameOver: boolean; ticks: number; branch: boolean; commands: number }): boolean {
+  if (o.gameOver || o.ticks >= MIN_TICKS) return true;
+  return o.branch && o.commands > 0 && o.ticks >= MIN_BRANCH_TICKS;
+}
 
 export class ReplayRecorder {
   readonly id: string;
@@ -74,18 +85,24 @@ export class ReplayRecorder {
       mapName: def?.name ?? fillName(REPLAY_SOURCE.randomMap, w.map.w, w.map.h), mapCode: code ?? undefined, mapW: w.map.w, mapH: w.map.h,
       players: w.players.map((p) => ({ name: p.name, faction: p.faction, color: p.color, team: p.team, ai: w.ais.find((a) => a.player === p)?.difficulty })),
       local: local.id, ticks: w.tick,
-      result: w.gameOver ? (w.winnerTeam === local.team ? 'victory' : 'defeat') : 'abandoned', winnerTeam: w.winnerTeam,
+      result: w.gameOver ? (w.winnerTeam === local.team && !local.resigned ? 'victory' : 'defeat') : 'abandoned', winnerTeam: w.winnerTeam, // (MP: who surrendered lost)
       cmds: this.core.cmds, hashes: this.core.hashes,
     };
+  }
+
+  /** Whether leaving now would store the replay (see keepsRecording; a branch counts from its start). */
+  get keeps(): boolean {
+    const w = this.game.world, branch = this.game.setup.branch;
+    return keepsRecording({ gameOver: w.gameOver, ticks: w.tick - (branch?.tick ?? 0), branch: !!branch, commands: this.core.cmds.length });
   }
 
   /** Store the replay (match over, or the player left it). Idempotent. */
   finish() {
     if (this.done) return;
+    const keep = this.keeps;
     this.done = true;
     this.unhook();
-    const w = this.game.world;
-    if (!w.gameOver && w.tick - (this.game.setup.branch?.tick ?? 0) < MIN_TICKS) return; // a branch counts from its start
+    if (!keep) return;
     const data = this.toData();
     saveReplay(data).then(() => this.onSaved?.(data)).catch((e) => console.warn('replay not saved', e));
   }

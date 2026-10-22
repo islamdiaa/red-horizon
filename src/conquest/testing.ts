@@ -10,8 +10,8 @@ import type { BattleKind, BattleOutcome, ConquestSetup } from './battle';
 import { EVENT_BY_ID, chooseEvent } from './events';
 
 /** A fresh run with a committed battle of the given kind (the territory is picked to suit it). */
-export function runWithBattle(seed: number, faction: Faction, kind: BattleKind, doctrine = 'vanguard'): { run: ConquestRun; setup: ConquestSetup } {
-  const run = generateRun({ seed, faction, doctrine });
+export function runWithBattle(seed: number, faction: Faction, kind: BattleKind, doctrine = 'vanguard', difficulty?: ConquestRun['difficulty']): { run: ConquestRun; setup: ConquestSetup } {
+  const run = generateRun({ seed, faction, doctrine, difficulty });
   let target: string;
   if (kind === 'defend') {
     const t = owned(run).find((x) => neighbours(run, x.id).some((n) => territory(run, n.id).owner === 'enemy')) ?? owned(run)[0];

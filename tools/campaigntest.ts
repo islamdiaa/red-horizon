@@ -1,10 +1,13 @@
 // Headless campaign harness. Mirrors src/game.ts world setup (incl. climate map tweaks).
 //   node --import tsx tools/campaigntest.ts <missionId|allies|soviet|all> [minutes=40] [pilot=auto|idle|generic] [-v]
 // pilot=auto uses the mission-specific autopilot from tools/campaign-pilots.ts (falls back to generic),
-// pilot=idle does nothing (useful to check lose conditions), generic = AI base builder + periodic attack-moves.
+// pilot=idle does nothing (useful to check lose conditions), generic = AI base builder + periodic attack-moves,
+// newcomer / casual = the human-like pilots of tools/campaign-players.ts. LEVEL=recruit|easy|normal|hard|brutal sets
+// the campaign difficulty (default Normal); tools/campaign-levels.ts runs the whole matrix.
 import { generateMap } from '../src/sim/mapgen';
 import { World, type PlayerSetup } from '../src/sim/world';
 import { MissionRuntime, type MissionDef } from '../src/sim/mission';
+import type { MissionLevel } from '../src/sim/handicap';
 import { AIController } from '../src/sim/ai';
 import { campaignMissions, getMission } from '../src/missions';
 import { TICK_HZ } from '../src/sim/types';
@@ -12,10 +15,11 @@ import { PILOTS, genericPilot, type Pilot } from './campaign-pilots';
 import './campaign-pilots-allied';
 import './campaign-pilots-soviet';
 import './campaign-pilots-special';
+import { skillPilot } from './campaign-players';
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d];
 
-export function createMissionWorld(def: MissionDef) {
+export function createMissionWorld(def: MissionDef, opts: { level?: MissionLevel; jitter?: number } = {}) {
   const mp = def.map;
   const climate = mp.climate ?? 'temperate';
   const water = mp.water ?? 0.5, trees = mp.trees ?? 0.5;
@@ -39,23 +43,27 @@ export function createMissionWorld(def: MissionDef) {
   world.mission = rt;
   def.players.forEach((ps, i) => { if (i > 0 && ps.ai) rt.setAI(i, ps.ai); });
   if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
+  rt.setLevel(opts.level ?? (process.env.LEVEL as MissionLevel | undefined)); // campaign difficulty (LEVEL=recruit|easy|normal|hard|brutal)
   def.setup(rt);
   for (const p of world.players) { world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); }
   // JITTER=n perturbs the simulation RNG so repeated runs explore different outcomes
-  for (let k = 0; k < +(process.env.JITTER ?? 0); k++) world.rng.next();
+  for (let k = 0; k < (opts.jitter ?? +(process.env.JITTER ?? 0)); k++) world.rng.next();
   return { world, rt };
 }
 
 export interface RunResult {
   id: string; won: boolean; ended: boolean; time: number; reason: string | null; stars: number; objectives: string[]; error?: string;
+  /** Scored missions: waves survived and the score. */
+  waves?: number; score?: number;
 }
 
-export function runMission(def: MissionDef, minutes: number, pilotMode: string, verbose: boolean): RunResult {
-  const { world, rt } = createMissionWorld(def);
+export function runMission(def: MissionDef, minutes: number, pilotMode: string, verbose: boolean, opts: { level?: MissionLevel; jitter?: number } = {}): RunResult {
+  const { world, rt } = createMissionWorld(def, opts);
   const log = (s: string) => { if (verbose) console.log(`  [${fmt(world.time)}] ${s}`); };
   let pilot: Pilot | null = null;
-  if (pilotMode === 'auto') pilot = PILOTS[def.id] ?? genericPilot;
+  if (pilotMode === 'auto' || pilotMode === 'expert') pilot = PILOTS[def.id] ?? genericPilot;
   else if (pilotMode === 'generic') pilot = genericPilot;
+  else if (pilotMode === 'newcomer' || pilotMode === 'casual') pilot = skillPilot(pilotMode);
   const state: Record<string, any> = {};
   let error: string | undefined;
   const maxTicks = minutes * 60 * TICK_HZ;
@@ -92,6 +100,7 @@ export function runMission(def: MissionDef, minutes: number, pilotMode: string, 
   return {
     id: def.id, won: rt.won, ended: rt.ended, time: world.time, reason: rt.endReason, stars,
     objectives: rt.objectives.map((o) => `${o.primary ? '' : '(opt)'}${o.id}:${o.state}${o.progress ? '[' + o.progress + ']' : ''}`), error,
+    ...(def.scored ? { waves: rt.flags.survived ?? 0, score: rt.score } : {}),
   };
 }
 

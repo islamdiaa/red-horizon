@@ -21,6 +21,12 @@ case "${1:-status}" in
     docker build -q -t rh-lab-net-tools -f "$here/Dockerfile.tools" "$here"
     dc build -q relay ;;
   up)
+    # the game's host ports must be free (or already ours): fail clearly rather than collide with another service
+    for p in "${NETLAB_PORT:-8811}" "${NETLAB_VM_PORT:-8812}"; do
+      if ss -ltnH "( sport = :$p )" 2>/dev/null | grep -q . && ! docker port rh-lab-net-game-1 2>/dev/null | grep -q ":$p\$"; then
+        echo "netlab: port $p is in use by another service; set NETLAB_PORT / NETLAB_VM_PORT to free ports" >&2; exit 1
+      fi
+    done
     dc up -d relay game shaper-a shaper-b
     "$0" routes ;;
   routes)

@@ -13,4 +13,8 @@ export interface NetLink {
   frame(dt: number, step: (fast: boolean) => void): void;
   /** Interpolation factor between the last two ticks. */
   readonly alpha: number;
+  /** The local player may surrender now (src/net/surrender.ts). */
+  readonly canSurrender?: boolean;
+  /** Surrender (sim/resign.ts) through the lockstep; false when not possible now. */
+  surrender?(): boolean;
 }

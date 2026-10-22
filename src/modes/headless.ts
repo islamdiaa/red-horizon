@@ -18,6 +18,7 @@ import { ceasefireForSetup } from '../sim/ceasefire';
 import { applyRoster, attachModeRuntime, prepareModeSetup, startModes } from './runtime';
 import { mutateSetup, varietyOptions, withEconFlag, withMutatorMods } from './mutators';
 import { applyNetRoster } from '../net/roster';
+import { arrangeStarts } from '../sim/starts';
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d, 0xe07b2a, 0x8e4fd0, 0x2aa8a8, 0x9aa0aa];
 const AI_NAMES = ['Gen. Volkov', 'Marshal Krukov', 'Col. Nadia', 'Gen. Stavros', 'Cdr. Bennett', 'Maj. Kane'];
 
@@ -51,7 +52,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
   setup.opponents.forEach((o, i) => {
     const color = TEAM_COLORS.find((c) => !used.has(c))!;
     used.add(color);
-    players.push({ name: AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction: o.faction === 'random' ? rngFaction(i + 1) : o.faction, color, team: i + 1, isHuman: false, ai: o.difficulty });
+    players.push({ name: AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction: o.faction === 'random' ? rngFaction(i + 1) : o.faction, color, team: o.ally ? 0 : i + 1, isHuman: false, ai: o.difficulty }); // an AI ally shares the player's team (as game.ts)
   });
   if (def) {
     players.length = 0;
@@ -63,6 +64,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
   if (!def && setup.net) applyNetRoster(players, setup.net); // multiplayer roster (as game.ts)
   if (!def) applyRoster(players, setup);
   if (!def && (setup.seed & 2)) map.startPositions.reverse();
+  if (!def) map.startPositions = arrangeStarts(map.startPositions, players.map((p) => p.team)); // (as game.ts)
   const world = new World({
     map, players, credits: def ? (def.credits ?? 5000) : setup.credits, startUnits: def ? 'none' : setup.startUnits,
     startUnitsPer: def ? def.players.map((_, i) => (i === 0 ? def.startUnits ?? 'none' : 'none')) : undefined,
@@ -82,6 +84,7 @@ export function headlessGame(input: GameSetup): HeadlessGame {
     world.mission = rt;
     def.players.forEach((ps, i) => { if (i > 0 && ps.ai) rt.setAI(i, ps.ai); });
     if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
+    if (!setup.load && setup.missionLevel) rt.setLevel(setup.missionLevel); // campaign difficulty, only when the setup names one (ranked runs: Normal)
     if (!setup.load) def.setup(rt);
     if (setup.load) deserializeWorld(world, setup.load.world, rt);
     for (const p of world.players) { if (!setup.load) world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); } // (a save restores the fog exactly as it was)

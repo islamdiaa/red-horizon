@@ -181,15 +181,15 @@ export function paintOverlay(ctx: CanvasRenderingContext2D, w: number, h: number
     const titleSize = (lower ? 64 : 104) * u;
     let y = lower ? h - Math.max(bar, h * 0.06) - h * 0.1 : h / 2 + titleSize * 0.35;
     if (s.card.kicker) {
-      ctx.font = `600 ${Math.round(24 * u)}px Rajdhani, sans-serif`;
+      ctx.font = `600 ${Math.round(24 * u)}px Rajdhani, "RH Cyrillic", "RH CJK", sans-serif`;
       ctx.fillStyle = '#ffb08a';
       spaced(ctx, s.card.kicker.toUpperCase(), x, y - titleSize * 1.05, 0.45, lower);
     }
-    ctx.font = `700 ${Math.round(titleSize)}px Rajdhani, sans-serif`;
+    ctx.font = `700 ${Math.round(titleSize)}px Rajdhani, "RH Cyrillic", "RH CJK", sans-serif`;
     ctx.fillStyle = '#f2f6fa';
     spaced(ctx, s.card.title.toUpperCase(), x, y, 0.16, lower);
     if (s.card.sub) {
-      ctx.font = `500 ${Math.round(28 * u)}px Rajdhani, sans-serif`;
+      ctx.font = `500 ${Math.round(28 * u)}px Rajdhani, "RH Cyrillic", "RH CJK", sans-serif`;
       ctx.fillStyle = 'rgba(242,246,250,0.85)';
       y += 52 * u;
       spaced(ctx, s.card.sub.toUpperCase(), x, y, 0.28, lower);
@@ -199,7 +199,7 @@ export function paintOverlay(ctx: CanvasRenderingContext2D, w: number, h: number
   if (watermark) {
     ctx.save();
     ctx.globalAlpha = 0.72 * (1 - s.fade);
-    ctx.font = `700 ${Math.round(22 * u)}px Rajdhani, sans-serif`;
+    ctx.font = `700 ${Math.round(22 * u)}px Rajdhani, "RH Cyrillic", "RH CJK", sans-serif`;
     ctx.textAlign = 'right';
     ctx.fillStyle = '#fff';
     ctx.shadowColor = 'rgba(0,0,0,0.8)';

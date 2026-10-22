@@ -17,6 +17,7 @@ import { replayShareData } from '../share/content'; // share links
 import { fmtDate, tx } from '../i18n/core';
 import tCommon from '../i18n/en/common';
 import tMenu from '../i18n/en/menu';
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 /** A replay's result label. */
 const resultLabel = (r: ReplayData['result']): string => (r === 'victory' ? tCommon('victory') : r === 'defeat' ? tCommon('defeat') : tMenu('replays.left'));
@@ -44,7 +45,7 @@ export function renderReplayTree(list: HTMLElement, replays: ReplayData[], act: 
     const r = n.data;
     const br = r.setup.branch;
     const d = new Date(r.createdAt);
-    const players = r.players.map((p, k) => `<span class="rpl-pl${k === r.local ? ' me' : ''}" style="--c:${hexColor(p.color)}"><i></i>${k === r.local ? '<b>' : ''}${esc(p.name)}${k === r.local ? '</b>' : ''}${p.ai ? `<small>${esc(tx(`common.difficulty.${p.ai}`, undefined, p.ai))}</small>` : ''}</span>`).join('');
+    const players = r.players.map((p, k) => `<span class="rpl-pl${k === r.local ? ' me' : ''}" style="--c:${hexColor(p.color)}"><i></i>${k === r.local ? '<b>' : ''}${esc(playerName(p.name))}${k === r.local ? '</b>' : ''}${p.ai ? `<small>${esc(tx(`common.difficulty.${p.ai}`, undefined, p.ai))}</small>` : ''}</span>`).join('');
     // (recorded with another simulation version, src/sim/version.ts: playback tries anyway and warns if it drifts)
     const sv = simVersionOf(r);
     const old = otherSimVersion(r)

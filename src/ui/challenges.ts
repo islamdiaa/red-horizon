@@ -6,7 +6,7 @@ import {
   ACH_BY_ID, MODIFIER_BY_ID, achievementMetal, achievementTitle, allAchievementStates, dailyConfig, dailyModDesc, dailyModName, dailyPlace, dayKey, insigniaSvg, loadProfile,
   medalSvg, medalTotals, msUntilNextDaily, picto, prevDay, rankProgress, shiftDay, type DailyConfig, type Profile,
 } from '../meta';
-import { currentLang, dt, fmtDate, fmtInt, fmtMoney, fmtPct } from '../i18n/core';
+import { currentLang, dt, fmtDate, fmtInt, fmtMoney, fmtPct, trSource } from '../i18n/core';
 import tChallenges from '../i18n/en/challenges';
 import tCommon from '../i18n/en/common';
 import { SURVIVAL_VARIANTS, currentDailyDay, type SurvivalVariant } from '../missions/special';
@@ -333,7 +333,7 @@ function dailyCard(cfg: DailyConfig, p: Profile, day: string): string {
       <div class="chl-clock">${picto('clock')}<div><small>${tChallenges.html('daily.nextChallenge')}</small><b data-countdown>${hms(msUntilNextDaily())}</b></div></div>
       <div class="chl-hero-t">
         <div class="chl-kick"><i></i><span>${tChallenges.html('daily.kicker', { n: String(cfg.number), date: dayDate(day) })}</span></div>
-        <div class="chl-title">${tChallenges.html('daily.operation', { codename: cfg.codename })}</div>
+        <div class="chl-title">${tChallenges.html('daily.operation', { codename: trSource(cfg.codename) })}</div>
         <div class="chl-loc"><span>${picto('flag')}${esc(dailyPlace(cfg))}</span><span>${picto(cfg.climate === 'winter' ? 'snow' : cfg.climate === 'desert' ? 'sun' : 'tree')}${climateName}</span><span>${picto('target')}${cfg.size}x${cfg.size}</span><span>${picto('coin')}${fmtMoney(cfg.credits)}</span></div>
       </div>
     </div>

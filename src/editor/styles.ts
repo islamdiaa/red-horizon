@@ -8,10 +8,10 @@ const CSS = `
 .ed-panel { position: absolute; z-index: 5; background: var(--glass); border: 1px solid var(--line-2); border-radius: 0.9rem; box-shadow: 0 1rem 3rem rgba(0,0,0,0.5); backdrop-filter: blur(6px); }
 /* ---- top bar */
 .ed-top { left: 0.8rem; right: 0.8rem; top: 0.7rem; height: 3.2rem; display: flex; align-items: center; gap: 0.5rem; padding: 0 0.7rem; }
-.ed-brand { display: flex; flex-direction: column; line-height: 1; margin-right: 0.4rem; }
+.ed-brand { display: flex; flex-direction: column; line-height: 1; margin-right: 0.4rem; flex-shrink: 0; white-space: nowrap; }
 .ed-brand small { font-size: 0.62rem; letter-spacing: 0.32em; color: rgb(var(--accent-rgb)); font-weight: 700; }
-.ed-brand b { font-size: 1.15rem; letter-spacing: 0.16em; }
-.ed-name { width: 13rem; height: 2.1rem; border-radius: 0.5rem; border: 1px solid var(--line-2); background: rgba(0,0,0,0.3); color: #fff; font: inherit; font-size: 1rem; font-weight: 700; padding: 0 0.6rem; letter-spacing: 0.04em; }
+.ed-brand b { font-size: 1.15rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.ed-name { width: 13rem; min-width: 7rem; flex: 0 1 13rem; height: 2.1rem; border-radius: 0.5rem; border: 1px solid var(--line-2); background: rgba(0,0,0,0.3); color: #fff; font: inherit; font-size: 1rem; font-weight: 700; padding: 0 0.6rem; letter-spacing: 0.04em; }
 .ed-name:focus { outline: none; border-color: rgb(var(--accent-rgb)); }
 .ed-dirty { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0.5rem var(--warn); opacity: 0; transition: opacity .2s; }
 .ed-dirty.on { opacity: 1; }
@@ -19,7 +19,10 @@ const CSS = `
 .ed-sp { flex: 1; }
 .ed-b { height: 2.2rem; min-width: 2.2rem; padding: 0 0.7rem; border-radius: 0.5rem; border: 1px solid var(--line-2); background: rgba(255,255,255,0.04); color: var(--text-2);
   font-size: 0.82rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all .15s; white-space: nowrap; }
-.ed-b svg { width: 1.05rem; height: 1.05rem; }
+.ed-b svg { width: 1.05rem; height: 1.05rem; flex-shrink: 0; }
+.ed-top > * { flex-shrink: 0; }
+.ed-top > .ed-name, .ed-top > .ed-sp { flex-shrink: 1; }
+.ed-top.compact .ed-b.lbl span { display: none; }
 .ed-b:hover:not(:disabled) { color: #fff; border-color: rgba(var(--accent-rgb),0.6); background: rgba(var(--accent-rgb),0.12); }
 .ed-b:disabled { opacity: 0.35; cursor: default; }
 .ed-b.on { color: #fff; border-color: rgb(var(--accent-rgb)); background: rgba(var(--accent-rgb),0.25); box-shadow: inset 0 -2px 0 rgb(var(--accent-rgb)); }
@@ -30,7 +33,7 @@ const CSS = `
 .ed-seg .ed-b { border: 0; border-radius: 0; }
 /* ---- left tools */
 .ed-tools { left: 0.8rem; top: 4.6rem; width: 4.6rem; padding: 0.45rem; display: flex; flex-direction: column; gap: 0.3rem; max-height: calc(100vh - 5.4rem); overflow-y: auto; }
-.ed-tools h6 { margin: 0.35rem 0 0.05rem; font-size: 0.55rem; letter-spacing: 0.2em; color: var(--muted); text-align: center; font-weight: 700; }
+.ed-tools h6 { margin: 0.35rem 0 0.05rem; font-size: 0.55rem; letter-spacing: 0.12em; color: var(--muted); text-align: center; font-weight: 700; text-transform: uppercase; overflow-wrap: anywhere; line-height: 1.15; }
 .ed-tool { position: relative; height: 3.3rem; border-radius: 0.55rem; border: 1px solid var(--line); background: rgba(255,255,255,0.03); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem;
   color: var(--text-2); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; transition: all .12s; padding: 0; }
 .ed-tool i { width: 1.35rem; height: 1.35rem; border-radius: 0.35rem; display: block; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.4); }
@@ -58,7 +61,7 @@ const CSS = `
 .ed-tab .badge { position: absolute; right: 0.25rem; top: 0.1rem; min-width: 1rem; height: 1rem; border-radius: 0.5rem; font-size: 0.6rem; line-height: 1rem; color: #000; background: var(--warn); padding: 0 0.2rem; letter-spacing: 0; }
 .ed-tab .badge.err { background: var(--danger); color: #fff; }
 .ed-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0.7rem 0.85rem 1rem; }
-.ed-h { margin: 0.9rem 0 0.45rem; font-size: 0.66rem; letter-spacing: 0.26em; color: rgb(var(--accent-rgb)); font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+.ed-h { margin: 0.9rem 0 0.45rem; font-size: 0.66rem; letter-spacing: 0.26em; color: rgb(var(--accent-rgb)); font-weight: 700; display: flex; align-items: center; gap: 0.5rem; text-transform: uppercase; }
 .ed-h:first-child { margin-top: 0.1rem; }
 .ed-h .ln { flex: 1; height: 1px; background: var(--line); }
 .ed-h .ed-b { height: 1.6rem; font-size: 0.65rem; padding: 0 0.45rem; }
@@ -95,7 +98,7 @@ const CSS = `
 .ed-status { left: 6.1rem; right: 24.6rem; bottom: 0.7rem; height: 1.8rem; display: flex; align-items: center; gap: 1.2rem; padding: 0 0.8rem; font-family: var(--mono); font-size: 0.78rem; color: var(--text-2); border-radius: 0.55rem; }
 .ed-status b { color: #fff; font-weight: 400; }
 .ed-status .msg { margin-left: auto; color: rgb(var(--accent-rgb)); font-family: var(--font); font-weight: 700; letter-spacing: 0.06em; }
-.ed-busy { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; padding: 0.8rem 1.4rem; border-radius: 0.7rem; background: rgba(0,0,0,0.7); border: 1px solid var(--line-2); font-weight: 700; letter-spacing: 0.2em; font-size: 0.85rem; display: none; }
+.ed-busy { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; padding: 0.8rem 1.4rem; border-radius: 0.7rem; background: rgba(0,0,0,0.7); border: 1px solid var(--line-2); font-weight: 700; letter-spacing: 0.2em; font-size: 0.85rem; display: none; text-transform: uppercase; }
 .ed-busy.on { display: block; }
 .ed-toast { position: absolute; left: 50%; top: 4.6rem; transform: translateX(-50%); z-index: 9; padding: 0.55rem 1.1rem; border-radius: 0.6rem; background: rgba(8,14,20,0.92); border: 1px solid rgba(var(--accent-rgb),0.6); font-weight: 700; letter-spacing: 0.06em; font-size: 0.9rem;
   box-shadow: 0 0.6rem 2rem rgba(0,0,0,0.5); animation: edToast 2.6s ease forwards; pointer-events: none; white-space: pre-line; text-align: center; }
@@ -106,8 +109,8 @@ const CSS = `
 @keyframes edFade { from { opacity: 0; } to { opacity: 1; } }
 .ed-dlg { position: relative; width: min(56rem, 92vw); max-height: 88vh; display: flex; flex-direction: column; padding: 1rem 1.2rem; }
 .ed-dlg.sm { width: min(30rem, 92vw); }
-.ed-dlg h2 { margin: 0 0 0.2rem; font-size: 1.4rem; letter-spacing: 0.14em; }
-.ed-dlg .kick { font-size: 0.65rem; letter-spacing: 0.3em; color: rgb(var(--accent-rgb)); font-weight: 700; }
+.ed-dlg h2 { margin: 0 0 0.2rem; font-size: 1.4rem; letter-spacing: 0.14em; text-transform: uppercase; }
+.ed-dlg .kick { font-size: 0.65rem; letter-spacing: 0.3em; color: rgb(var(--accent-rgb)); font-weight: 700; text-transform: uppercase; }
 .ed-dlg .x { position: absolute; right: 0.8rem; top: 0.8rem; }
 .ed-dlg .foot { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.9rem; }
 .ed-lib { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: 0.7rem; overflow-y: auto; padding: 0.3rem 0.1rem; min-height: 8rem; }
@@ -119,7 +122,7 @@ const CSS = `
 .ed-lib-card small { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.06em; }
 .ed-lib-card .acts { display: flex; gap: 0.3rem; padding: 0 0.5rem 0.5rem; }
 .ed-lib-card .acts .ed-b { height: 1.7rem; font-size: 0.62rem; padding: 0 0.4rem; flex: 1; }
-.ed-pill { display: inline-block; font-size: 0.6rem; letter-spacing: 0.14em; font-weight: 800; padding: 0.12rem 0.35rem; border-radius: 0.3rem; background: rgba(var(--accent-rgb),0.2); color: rgb(var(--accent-rgb)); margin-left: 0.3rem; vertical-align: 0.1rem; }
+.ed-pill { display: inline-block; font-size: 0.6rem; letter-spacing: 0.14em; font-weight: 800; padding: 0.12rem 0.35rem; border-radius: 0.3rem; background: rgba(var(--accent-rgb),0.2); color: rgb(var(--accent-rgb)); margin-left: 0.3rem; vertical-align: 0.1rem; text-transform: uppercase; }
 .ed-pill.gold { background: rgba(var(--gold-rgb),0.18); color: var(--gold); }
 .ed-menu { position: absolute; z-index: 11; min-width: 15rem; padding: 0.35rem; display: flex; flex-direction: column; gap: 0.2rem; }
 .ed-menu .ed-b { justify-content: flex-start; height: auto; padding: 0.5rem 0.7rem; text-align: left; flex-direction: column; align-items: flex-start; gap: 0.1rem; }

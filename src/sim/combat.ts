@@ -142,9 +142,14 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
   });
   // structures (defences first)
   const ex = e.x, ey = e.y, far = buildingRange + 1e-6;
-  for (const b of world.buildings) {
-    // cheap reject first: the footprint is at least its larger axis gap away (every scanning unit walks the whole
-    // structure list, so this test is most of what a big base costs; the result is the same)
+  if (far < 0) return best;
+  // only the structures in the buckets around (ex, ey), visited in world.buildings order (the same choice, ties
+  // included, as walking the whole list: every scanning unit used to, and in a late game that was most of its cost)
+  const near = nearBuildings(world, ex, ey, far);
+  const all = world.buildings;
+  for (let k = 0; k < near.n; k++) {
+    const b = all[near.idx[k]];
+    // cheap reject first: the footprint is at least its larger axis gap away
     const size = b.bt.size;
     if (b.cx - ex > far || ex - (b.cx + size[0]) > far || b.cy - ey > far || ey - (b.cy + size[1]) > far) continue;
     if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1 || b.bt.wall || b.bt.mine) continue;
@@ -157,6 +162,54 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     if (score < bestScore) { bestScore = score; best = b; }
   }
   return best;
+}
+
+/**
+ * Coarse bucket index of world.buildings (8x8-cell buckets, each holding the list positions of the structures whose
+ * footprint, far edges included, touches it). Rebuilt when the list changes (a new array after dead entities are
+ * dropped, or a structure appended); not saved: it is derived from the list.
+ */
+interface BuildingIndex { src: Building[]; len: number; cols: number; rows: number; buckets: number[][] }
+const BUCKET = 8;
+const bIndex = new WeakMap<World, BuildingIndex>();
+const scratch = { idx: new Int32Array(256), n: 0 };
+
+function buildingIndex(world: World): BuildingIndex {
+  const src = world.buildings;
+  let ix = bIndex.get(world);
+  if (ix && ix.src === src && ix.len === src.length) return ix;
+  const cols = Math.ceil((world.map.w + 1) / BUCKET), rows = Math.ceil((world.map.h + 1) / BUCKET);
+  ix = { src, len: src.length, cols, rows, buckets: Array.from({ length: cols * rows }, () => []) };
+  for (let k = 0; k < src.length; k++) {
+    const b = src[k], size = b.bt.size;
+    const x0 = Math.max(0, Math.floor(b.cx / BUCKET)), x1 = Math.min(cols - 1, Math.floor((b.cx + size[0]) / BUCKET));
+    const y0 = Math.max(0, Math.floor(b.cy / BUCKET)), y1 = Math.min(rows - 1, Math.floor((b.cy + size[1]) / BUCKET));
+    for (let by = y0; by <= y1; by++) for (let bx = x0; bx <= x1; bx++) ix.buckets[by * cols + bx].push(k);
+  }
+  bIndex.set(world, ix);
+  return ix;
+}
+
+/** List positions (ascending, no repeats) of the structures that may lie within `far` of (x, y). */
+function nearBuildings(world: World, x: number, y: number, far: number): { idx: Int32Array; n: number } {
+  const ix = buildingIndex(world);
+  const x0 = Math.max(0, Math.floor((x - far) / BUCKET)), x1 = Math.min(ix.cols - 1, Math.floor((x + far) / BUCKET));
+  const y0 = Math.max(0, Math.floor((y - far) / BUCKET)), y1 = Math.min(ix.rows - 1, Math.floor((y + far) / BUCKET));
+  let n = 0;
+  for (let by = y0; by <= y1; by++) for (let bx = x0; bx <= x1; bx++) {
+    const list = ix.buckets[by * ix.cols + bx];
+    if (n + list.length > scratch.idx.length) { const g = new Int32Array(Math.max(scratch.idx.length * 2, n + list.length)); g.set(scratch.idx.subarray(0, n)); scratch.idx = g; }
+    for (let k = 0; k < list.length; k++) scratch.idx[n++] = list[k];
+  }
+  if (x1 > x0 || y1 > y0) {
+    // several buckets: restore list order and drop structures met twice
+    const v = scratch.idx.subarray(0, n).sort();
+    let m = 0;
+    for (let k = 0; k < n; k++) if (k === 0 || v[k] !== v[k - 1]) v[m++] = v[k];
+    n = m;
+  }
+  scratch.n = n;
+  return scratch;
 }
 
 /** Find a wounded friendly infantry for a medic. */
@@ -196,6 +249,7 @@ export function fire(world: World, shooter: Entity, slot: WeaponSlot, target: En
   let rof = raTicksToSeconds(w.rof) * (1 - 0.1 * shooter.rank);
   if (shooter instanceof Building && shooter.owner.lowPower && !shooter.bt.requiresPower) rof *= 1.5;
   if (shooter.owner.cmd) rof *= cmdRof(shooter); // Rally Cry
+  if (shooter.owner.hc) rof *= shooter.owner.hc.rof; // campaign difficulty: RA's ROF handicap (sim/handicap.ts)
   slot.cooldown = rof;
   slot.burstLeft = shots - 1;
   slot.burstTimer = w.projectile === 'missile' ? 0.22 : 0.16;
@@ -298,7 +352,7 @@ export function impact(world: World, w: WeaponDef, attacker: Entity | null, dire
       if (d <= R) victims.push([b, d]);
     }
   }
-  const firepower = attacker ? 1 + 0.15 * attacker.rank : 1;
+  const firepower = attacker ? (1 + 0.15 * attacker.rank) * (attacker.owner.hc?.firepower ?? 1) : 1; // (veterancy; campaign difficulty: RA's FirePower handicap, sim/handicap.ts)
   for (const [v, d] of victims) {
     if (v instanceof Building && v.bt.wall && !wh.wall) continue; // only explosives breach walls
     if (!navalImpactOk(w, v)) continue; // torpedoes stay in the water, submerged subs only feel underwater blasts

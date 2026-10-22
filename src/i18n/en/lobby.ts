@@ -30,6 +30,8 @@ export default strings('lobby', {
     removed: 'You were removed from the room.',
     // {reason}: why the connection ended (already translated where known)
     disconnected: 'Disconnected ({reason}).',
+    // chat typed while the connection was down, lost with it
+    unsent: '{n, plural, one {# chat message was not sent.} other {# chat messages were not sent.}}',
   },
   room: {
     youHost: 'You host this room',
@@ -53,6 +55,11 @@ export default strings('lobby', {
     chatPlaceholder: 'Say something (Enter)',
     send: 'Send',
     chatMuted: 'Chat muted.',
+    // while the connection is down (src/net/client.ts keeps what is typed meanwhile)
+    reconnecting: 'Connection lost · Reconnecting… Your seat is kept for a little while.',
+    chatOffline: 'Reconnecting… messages go out when the connection is back',
+    chatPending: 'waiting to send',
+    chatDropped: 'Not sent: the connection is down.',
     noMessages: 'No messages yet. Share the invite link to bring a friend.',
     settings: 'Battle settings',
     settingsByHost: 'Battle settings · set by the host',

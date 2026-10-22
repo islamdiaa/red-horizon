@@ -81,7 +81,7 @@ export function playIntro(game: Game, onDone: () => void) {
   const seed = game.setup.seed >>> 0;
   const md = game.missionDef;
   const ops = CINE_NAMES.operations, sectors = CINE_NAMES.sectors;
-  const op = md ? md.codename : ops[seed % ops.length];
+  const op = md ? trSource(md.codename) : ops[seed % ops.length]; // (L10N: mission code names are registered source text)
   const sector = md ? dt('mission', md.id, 'location', trSource(md.location)) : sectors[(seed >> 4) % sectors.length];
   const faction = tCine(game.local.faction === 'allies' ? 'intro.allies' : 'intro.soviet');
   const h = Math.floor(game.hours), m = Math.floor((game.hours % 1) * 60);

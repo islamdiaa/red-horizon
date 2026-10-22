@@ -286,7 +286,7 @@ export class OrderViz {
 
   private badge(ctx: CanvasRenderingContext2D, x: number, y: number, n: string, name: string, head: boolean) {
     ctx.save();
-    ctx.font = '700 11px "Rajdhani", "Segoe UI", sans-serif';
+    ctx.font = '700 11px "Rajdhani", "RH Cyrillic", "Segoe UI", "RH CJK", sans-serif';
     const label = `${n} · ${name}`;
     const w = ctx.measureText(label).width + 12;
     ctx.fillStyle = head ? 'rgba(60, 44, 6, 0.85)' : 'rgba(6, 24, 40, 0.82)';
@@ -465,7 +465,7 @@ body.cur-patrol #game-canvas { cursor: ${cursor("<g fill='none' stroke='#ffc24a'
 body.cur-rally #game-canvas { cursor: ${cursor("<g fill='none' stroke='#ffd34d' stroke-width='2.4' stroke-linejoin='round'><path d='M9 28V5h14l-3 5 3 5H9'/></g>")}; }
 .formations .fm svg { font-size: 1.15rem; }
 .bitem[data-planned]::after { content: attr(data-planned); position: absolute; left: 0.3rem; top: 0.3rem; z-index: 3; padding: 0.05rem 0.3rem; border-radius: 0.3rem;
-  background: rgba(6, 24, 40, 0.88); border: 1px solid rgba(140, 210, 255, 0.7); color: #cfeaff; font: 700 0.55rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
+  background: rgba(6, 24, 40, 0.88); border: 1px solid rgba(140, 210, 255, 0.7); color: #cfeaff; font: 700 0.55rem 'Rajdhani', 'RH Cyrillic', 'Segoe UI', 'RH CJK', sans-serif; letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
 .stance.fm.on { color: #fff; }
 
 /* --- radial menu */
@@ -474,12 +474,12 @@ body.cur-rally #game-canvas { cursor: ${cursor("<g fill='none' stroke='#ffd34d' 
 #rh-radial .rr-back { position: absolute; inset: 0; background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.35)); opacity: 0; transition: opacity 0.18s; }
 #rh-radial.on .rr-back { opacity: 1; pointer-events: auto; }
 #rh-radial .rr-center { position: absolute; transform: translate(-50%, -50%); padding: 0.3rem 0.7rem; border-radius: 1rem; background: rgba(8, 14, 20, 0.88); border: 1px solid rgba(120, 220, 255, 0.35);
-  color: #dff4ff; font: 700 0.8rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+  color: #dff4ff; font: 700 0.8rem 'Rajdhani', 'RH Cyrillic', 'Segoe UI', 'RH CJK', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
 #rh-radial .rr-center:empty { display: none; }
 #rh-radial .rr-item { position: absolute; width: 4.3rem; height: 4.3rem; margin: -2.15rem 0 0 -2.15rem; border-radius: 50%; pointer-events: auto; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.12rem; color: #e6f3ff;
   background: radial-gradient(circle at 50% 35%, rgba(40, 60, 78, 0.96), rgba(10, 16, 24, 0.96)); border: 1.5px solid rgba(140, 210, 255, 0.4);
-  box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.5); font: 700 0.62rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.03em; text-transform: uppercase;
+  box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.5); font: 700 0.62rem 'Rajdhani', 'RH Cyrillic', 'Segoe UI', 'RH CJK', sans-serif; letter-spacing: 0.03em; text-transform: uppercase;
   animation: rrIn 0.22s cubic-bezier(.2,1.4,.4,1) both; animation-delay: var(--d); touch-action: none; }
 #rh-radial .rr-item svg { font-size: 1.35rem; }
 #rh-radial .rr-item span { max-width: 4rem; text-align: center; line-height: 1; }
@@ -496,13 +496,13 @@ body.touch-ui #game-canvas { touch-action: none; }
 body.touch-ui #touch-bar { display: flex; }
 #touch-bar button { pointer-events: auto; width: 3.6rem; height: 3.6rem; border-radius: 0.9rem; border: 1px solid rgba(140, 210, 255, 0.35); color: #e6f3ff;
   background: linear-gradient(180deg, rgba(30, 44, 58, 0.9), rgba(10, 16, 24, 0.9)); box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.45);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; font: 700 0.56rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.04em; text-transform: uppercase; touch-action: manipulation; }
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; font: 700 0.56rem 'Rajdhani', 'RH Cyrillic', 'Segoe UI', 'RH CJK', sans-serif; letter-spacing: 0.04em; text-transform: uppercase; touch-action: manipulation; }
 #touch-bar button svg { font-size: 1.4rem; }
 #touch-bar button.on { border-color: #ffd34d; color: #fff2c0; background: linear-gradient(180deg, rgba(110, 84, 10, 0.92), rgba(40, 28, 4, 0.92)); box-shadow: 0 0 0.9rem rgba(255, 211, 77, 0.45); }
 #touch-bar button:active { transform: scale(0.93); }
 #touch-bar .tb-sep { height: 0.2rem; }
 #touch-hint { position: fixed; z-index: 7; left: 50%; top: 4.2rem; transform: translateX(-50%); padding: 0.35rem 0.9rem; border-radius: 1rem; pointer-events: none;
-  background: rgba(8, 14, 20, 0.85); border: 1px solid rgba(255, 211, 77, 0.5); color: #fff2c0; font: 700 0.8rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.06em; opacity: 0; transition: opacity 0.2s; }
+  background: rgba(8, 14, 20, 0.85); border: 1px solid rgba(255, 211, 77, 0.5); color: #fff2c0; font: 700 0.8rem 'Rajdhani', 'RH Cyrillic', 'Segoe UI', 'RH CJK', sans-serif; letter-spacing: 0.06em; opacity: 0; transition: opacity 0.2s; }
 #touch-hint.on { opacity: 1; }
 .touch-press { position: fixed; z-index: 79; width: 4.4rem; height: 4.4rem; margin: -2.2rem 0 0 -2.2rem; border-radius: 50%; pointer-events: none; border: 3px solid rgba(255, 211, 77, 0.9);
   animation: touchPress 0.5s linear both; }
@@ -522,7 +522,7 @@ body.gamepad-ui #game-canvas { cursor: none !important; }
 #gp-cursor.box svg .gp-ring { stroke-dasharray: 4 3; }
 .gp-focus { outline: 3px solid #ffd34d !important; outline-offset: 2px !important; box-shadow: 0 0 1rem rgba(255, 211, 77, 0.6) !important; }
 #gp-help { position: fixed; z-index: 7; left: calc((100vw - var(--sidebar-w, 22rem)) / 2); top: 3.6rem; transform: translateX(-50%); display: none; gap: 0.9rem; padding: 0.25rem 0.8rem; border-radius: 1rem; pointer-events: none;
-  background: rgba(8, 14, 20, 0.75); color: #cfe6f7; font: 600 0.72rem 'Rajdhani', 'Segoe UI', sans-serif; letter-spacing: 0.04em; white-space: nowrap; }
+  background: rgba(8, 14, 20, 0.75); color: #cfe6f7; font: 600 0.72rem 'Rajdhani', 'RH Cyrillic', 'Segoe UI', 'RH CJK', sans-serif; letter-spacing: 0.04em; white-space: nowrap; }
 body.gamepad-ui #gp-help { display: flex; }
 #gp-help b { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem; margin-right: 0.25rem; border-radius: 50%; font-size: 0.65rem; color: #08121c; background: #cfe6f7; }
 #gp-help b.A { background: #5ee08a; } #gp-help b.B { background: #ff6a5a; } #gp-help b.X { background: #5ab4ff; } #gp-help b.Y { background: #ffd34d; }

@@ -24,7 +24,8 @@ import { garrisonEnter } from './economy';
 const LEASH = 5;
 
 export function unitSpeed(u: Unit): number {
-  const s = mphToCellsPerSecond(u.ut.speed);
+  let s = mphToCellsPerSecond(u.ut.speed);
+  if (u.owner.hc) s *= u.owner.hc.ground; // campaign difficulty: RA's Groundspeed handicap (sim/handicap.ts)
   return u.owner.cmd ? s * cmdSpeed(u) : s; // doctrine speed, Rally Cry
 }
 
@@ -200,7 +201,8 @@ function medic(world: World, u: Unit) {
 function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
   const steered = o.formation !== undefined && formationSteer(world, u, o); // formation members follow their slot
   if (!steered && !u.hasGoal && !u.pathPending && !u.path) {
-    if (Math.hypot(o.x - u.x, o.y - u.y) < 0.15 || o.started) {
+    const d = Math.hypot(o.x - u.x, o.y - u.y);
+    if (d < 0.15 || (o.started && !tryAgain(o, d))) {
       finishOrder(world, u);
       return;
     }
@@ -230,6 +232,27 @@ function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
   }
 }
 
+/** RA FootClass PATH_RETRY: path attempts a blocked unit makes before it gives up on its destination. */
+const PATH_RETRY = 10;
+/** RA Rule.CloseEnoughDistance (RULES.CPP default 0x280 leptons): blocked this close to its destination, a unit stops there. */
+const CLOSE_ENOUGH = 2.5;
+
+/**
+ * A move whose path has run out short of the destination: try again? The path ends early when the unit was blocked
+ * (a jam on a bridge, in a gap, at a factory door: the stuck check drops the path) or when the destination can't be
+ * reached (the path then stops at the nearest point). As in RA (InfantryClass / UnitClass with TryTryAgain): within
+ * CloseEnough of the destination it stops; further away it searches again, up to PATH_RETRY times without getting any
+ * closer (getting closer earns the retries back), so a group stuck behind a jam keeps going once it clears instead of
+ * standing idle in the middle of the map, and a unit that can't get there at all still stops after a few searches.
+ */
+function tryAgain(o: Extract<Order, { type: 'move' }>, d: number): boolean {
+  if (d < CLOSE_ENOUGH) return false;
+  const closer = o.near === undefined || d < o.near - 1;
+  o.tries = closer ? PATH_RETRY : (o.tries ?? PATH_RETRY) - 1;
+  if (closer) o.near = d;
+  return o.tries > 0;
+}
+
 function attack(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>) {
   const t = world.entities.get(o.target);
   if (!t || !t.alive || (t instanceof Unit && t.transport) || (!o.forced && !u.owner.isEnemy(t.owner)) || (t.cloaked && !world.canSee(u.owner, t))) { // (gone into a transport or bunker: nothing left to shoot at)
@@ -245,6 +268,7 @@ function attack(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>) {
     return;
   }
   u.target = t;
+  if (!o.forced && !t.weapons.length && returnFire(world, u, o, t)) return;
   const range = slot.def.range;
   const d = distToEntity(u.x, u.y, t);
   if (d <= range - 0.05 && (!slot.def.minRange || d >= slot.def.minRange)) {
@@ -267,6 +291,25 @@ function attack(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>) {
       world.requestPath(u, gx, gy);
     }
   }
+}
+
+/**
+ * Return fire (RA FootClass::Take_Damage / TechnoClass::Is_Allowed_To_Retaliate): a unit busy with a harmless target
+ * (a structure without weapons, a truck) that is shot by an armed enemy it can hurt and reach from where it stands
+ * turns on the shooter, and afterwards carries on with this order. RA's Attack mission retaliates, against a molester
+ * within range (human players), when the current target is the lesser threat; never against dogs.
+ * Without this, units sent at a far structure (an attack-move click on a building is an attack order) walked through
+ * the enemy army and past its defences without answering, and waves melted away before they got anywhere.
+ * True when the order was switched.
+ */
+function returnFire(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>, t: Entity): boolean {
+  if (u.stance === 'passive' || world.tick - u.lastDamagedTick >= 10 || !u.lastAttacker || u.lastAttacker === t.id) return false;
+  const a = world.entities.get(u.lastAttacker) ?? null;
+  if (!a || !a.weapons.length || (a instanceof Unit && (a.transport || a.ut.dog)) || !validEnemyTarget(world, u, a)) return false;
+  if (distToEntity(u.x, u.y, a) > pickWeapon(u, a)!.def.range) return false;
+  world.setOrder(u, { type: 'attack', target: a.id, forced: false, resume: o });
+  u.target = a;
+  return true;
 }
 
 function attackGround(world: World, u: Unit, o: Extract<Order, { type: 'attackGround' }>) {
@@ -296,11 +339,7 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
   if (u.ut.engineer && !engineerCanEnter(u, t)) return finishOrder(world, u);
   const d = t.distTo(u.x, u.y);
   if (t.bt.repairPad && t.owner === u.owner && u.kind === 'vehicle') {
-    // drive onto the depot pad
-    const pad = t.bt.passable?.[0] ?? [1, 1];
-    const px = t.cx + pad[0] + 0.5, py = t.cy + pad[1] + 0.5;
-    if (Math.hypot(px - u.x, py - u.y) < 0.2) { stopMoving(u); finishOrder(world, u); return; }
-    if (!u.hasGoal && !u.pathPending) world.requestPath(u, px, py);
+    serviceDepot(world, u, t);
     return;
   }
   // structures out on the water (shipyard / sub pen) are entered from the shore
@@ -351,6 +390,48 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
 }
 
 const C4_FUSE = 1.6;
+
+/** Vehicles waiting for a busy Service Depot stop this far from its pad, clear of the way in. */
+const DEPOT_QUEUE = 3.2;
+
+/** What a vehicle wants from a Service Depot: repairs (world.ts) or, for a minelayer, its mines back (mines.ts). */
+const needsService = (u: Unit) => u.hp < u.maxHp || (!!u.ut.minelayer && u.ammo < (u.ut.ammo ?? 0));
+
+/**
+ * A vehicle sent to its Service Depot (RA RepairClass: one at a time on the pad, the others wait their turn). The
+ * first to come close reserves the pad (Building.dockOccupant, as a refinery dock) and stays on it until it is fully
+ * repaired (or re-armed), or its owner runs out of money, then drives off so the next can roll on; the rest stop
+ * short and queue. Before, every vehicle drove for the pad at once, the one on it finished its order the moment it
+ * arrived, and the next pushed it off half repaired: of six damaged tanks, three ended up idle beside the depot.
+ */
+function serviceDepot(world: World, u: Unit, t: Building) {
+  const pad = t.bt.passable?.[0] ?? [1, 1];
+  const px = t.cx + pad[0] + 0.5, py = t.cy + pad[1] + 0.5;
+  const d = Math.hypot(px - u.x, py - u.y);
+  let holder = t.dockOccupant ? world.entities.get(t.dockOccupant) as Unit | undefined : undefined;
+  // (a reservation lapses when its holder is gone, re-tasked or pushed well away)
+  if (holder && (!holder.alive || holder.order.type !== 'enter' || holder.order.target !== t.id || Math.hypot(px - holder.x, py - holder.y) > DEPOT_QUEUE + 1.5)) { t.dockOccupant = 0; holder = undefined; }
+  const done = !needsService(u) || u.owner.credits < 1;
+  if (holder && holder !== u) {
+    // busy: wait clear of the pad (or give up the trip when there is nothing left to fix)
+    if (done) { finishOrder(world, u); return; }
+    if (d < DEPOT_QUEUE) { stopMoving(u); return; }
+  } else if (!done && d < DEPOT_QUEUE) t.dockOccupant = u.id;
+  if (d < 0.2) {
+    stopMoving(u);
+    if (!done) return; // (world.ts repairs it while it stands still on the pad)
+    if (t.dockOccupant === u.id) t.dockOccupant = 0;
+    finishOrder(world, u);
+    if (u.order.type === 'idle') {
+      // roll off the pad, out of the way in
+      const [x, y] = world.findFreeSpot(t.x, t.cy + t.h + 1.5, 4, true);
+      world.setOrder(u, { type: 'move', x, y, attackMove: false });
+    }
+    return;
+  }
+  if (done && t.dockOccupant !== u.id) { finishOrder(world, u); return; }
+  if (!u.hasGoal && !u.pathPending) world.requestPath(u, px, py);
+}
 
 /** Engineers enter enemy structures (capture / sabotage) and damaged friendly ones (repair); never walls. */
 export function engineerCanEnter(u: Unit, b: Building): boolean {

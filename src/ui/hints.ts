@@ -5,7 +5,7 @@ import { esc } from './dom';
 import { isTouchDevice } from './touch';
 import { fillKeys } from './keymap';
 import { ARIA_TEXT } from './a11y-strings';
-import { CoachWatch, IDLE_SECS, LOW_POWER_SECS, firstWaveIncoming, hasDefences, oreNearRefineries, refineryCount, secondRefineryDue } from './coach';
+import { ALERTS, AlertQueue, CoachWatch } from './coach';
 import tHints from '../i18n/en/hints';
 import tCommon from '../i18n/en/common';
 
@@ -21,9 +21,10 @@ interface Hint {
 /** Touch-screen wording of the steps and alerts that speak of clicks and keys. */
 const TOUCH: Partial<Record<HintKey, HintKey>> = {
   'steps.deploy': 'touch.deploy', 'steps.power': 'touch.power', 'steps.barracks': 'touch.barracks', 'steps.factory': 'touch.factory', 'steps.keys': 'touch.keys',
-  'alerts.idle': 'touch.idle',
+  'alerts.idle': 'touch.idle', 'alerts.attackMove': 'touch.attackMove', 'alerts.together': 'touch.together', 'alerts.repair': 'touch.repair',
 };
-const forDevice = (k: HintKey): HintKey => (isTouchDevice() ? TOUCH[k] ?? k : k);
+/** The wording for this device and HUD: touch screens speak of taps; the Modern HUD has a build bar, not a sidebar. */
+const forDevice = (k: HintKey): HintKey => (isTouchDevice() ? TOUCH[k] ?? k : k === 'steps.power' && document.body.classList.contains('hud-modern') ? 'steps.powerBar' : k);
 
 const HINTS: Hint[] = [
   { text: 'steps.deploy', done: (w, p) => p.has('fact') || w.time > 240 },
@@ -35,83 +36,19 @@ const HINTS: Hint[] = [
   { text: 'steps.keys', done: (w) => w.time > 900 },
 ];
 
-/**
- * Situational warnings: shown (above the tutorial steps) while `when` holds, at most once per match (alerts that
- * share a `group` count as one), and never sooner than ALERT_GAP seconds after the previous alert appeared.
- */
-interface Alert {
-  text: HintKey | ((p: Player) => HintKey);
-  when(w: World, p: Player, c: CoachWatch): boolean;
-  group?: string;
-  /** Coaching: skirmish-like matches only (not campaign missions). */
-  coach?: boolean;
-}
-
-/** Seconds between two new alerts. */
-const ALERT_GAP = 60;
-
-const ALERTS: Alert[] = [
-  // coaching: the first enemy wave is coming and there is nothing to stop it (sooner than the general advice below)
-  {
-    text: (p) => (p.faction === 'soviet' ? 'alerts.attackSoviet' : 'alerts.attackAllies'),
-    group: 'defence',
-    coach: true,
-    when: (w, p) => !hasDefences(w, p) && firstWaveIncoming(w, p),
-  },
-  {
-    text: 'alerts.storage',
-    when: (_w, p) => p.storage > 0 && p.ore >= p.storage - 1,
-  },
-  {
-    text: 'alerts.defences',
-    group: 'defence',
-    when: (w, p) => w.time > 210 && w.time < 600 && !hasDefences(w, p) && w.buildings.some((b) => b.alive && b.owner === p && b.bt.id === 'proc'),
-  },
-  // coaching: low power, idle factories, the economy
-  {
-    text: 'alerts.power',
-    coach: true,
-    when: (w, _p, c) => c.lowPowerFor(w) >= LOW_POWER_SECS,
-  },
-  {
-    text: 'alerts.idle',
-    coach: true,
-    when: (w, _p, c) => c.idleFor(w) >= IDLE_SECS,
-  },
-  {
-    text: 'alerts.refinery',
-    coach: true,
-    when: (w, p) => { const n = refineryCount(w, p); return secondRefineryDue(w.time, n, n === 1 ? oreNearRefineries(w, p) : 0); },
-  },
-  {
-    text: 'alerts.income',
-    coach: true,
-    when: (w, p, c) => c.enemyOutEarning(w, p),
-  },
-  // Commander economy (sim/economy.ts)
-  {
-    text: 'alerts.tier2',
-    when: (w, p) => !!p.econ && p.econ.tier === 1 && w.time > 240 && p.credits >= 1000 && p.has('proc') && (p.has('tent') || p.has('barr')) && !w.buildings.some((b) => b.owner === p && b.task),
-  },
-  {
-    text: 'alerts.research',
-    when: (w, p) => !!p.econ && !Object.keys(p.econ.levels).length && w.buildings.some((b) => b.alive && b.owner === p && b.bt.id === 'rlab' && b.buildAnim >= 1 && !b.task),
-  },
-];
-
 /** Small contextual tips for new players. */
 export class Hints {
   private el: HTMLElement;
   private idx = -1;
   private dismissed = new Set<number>();
   /** Alerts already shown (index -> still showing). */
-  private alertShown = new Map<number, boolean>();
-  private alertIdx = -1;
-  /** Groups already shown, and when the last alert appeared (world seconds). */
-  private groupsShown = new Set<string>();
-  private lastAlert = -1e9;
+  /** The situational alerts (src/ui/coach.ts): which one is up, which were shown. */
+  private alerts = new AlertQueue();
   private coach = new CoachWatch();
   enabled = true;
+
+  /** What the match taught so far (the results screen's advice). */
+  lessons() { return this.coach.lessons(); }
 
   constructor(parent: HTMLElement, private world: World, private local: Player) {
     this.el = document.createElement('div');
@@ -119,7 +56,7 @@ export class Hints {
     this.el.addEventListener('click', (e) => {
       // a touch screen dismisses with the × only: taps and drags on the map next to the panel land on it too
       if (isTouchDevice() && !(e.target as HTMLElement | null)?.closest?.('.hint-x')) return;
-      if (this.alertIdx >= 0) { this.alertShown.set(this.alertIdx, false); this.alertIdx = -1; this.idx = -2; this.update(); return; }
+      if (this.alerts.current >= 0) { this.alerts.dismiss(); this.idx = -2; this.update(); return; }
       if (this.idx >= 0) this.dismissed.add(this.idx);
       this.show(-1);
     });
@@ -129,28 +66,22 @@ export class Hints {
   update() {
     if (!this.enabled) { this.show(-1); return; }
     const w = this.world, p = this.local;
-    const coach = !w.mission && !p.defeated && !w.gameOver;
+    // campaign missions: the battle lessons only (the tutorial's build order is the mission's business)
+    const coach = p.defeated || w.gameOver ? false : w.mission ? 'mission' : true;
     if (coach) this.coach.update(w, p);
     // a live situational alert takes priority over the tutorial
-    if (this.alertIdx >= 0) {
-      if (this.alertShown.get(this.alertIdx) && ALERTS[this.alertIdx].when(w, p, this.coach)) return;
-      this.alertShown.set(this.alertIdx, false);
-      this.alertIdx = -1;
-      this.idx = -2; // force the tutorial step to redraw
-    }
-    for (let i = 0; i < ALERTS.length && w.time - this.lastAlert >= ALERT_GAP; i++) {
-      const a = ALERTS[i];
-      if (this.alertShown.has(i) || (a.group && this.groupsShown.has(a.group)) || (a.coach && !coach) || !a.when(w, p, this.coach)) continue;
-      this.alertShown.set(i, true);
-      if (a.group) this.groupsShown.add(a.group);
-      this.lastAlert = w.time;
-      this.alertIdx = i;
-      const key = forDevice(typeof a.text === 'function' ? a.text(p) : a.text);
-      this.render(`<span class="hint-k">${tHints.html('report')}</span><span class="hint-t">${tHints.html(key, { shift: tCommon('keys.shift'), alt: tCommon('keys.alt') })}</span>`);
+    const al = this.alerts.update(w, p, this.coach, coach);
+    if (al.idx >= 0) {
+      if (!al.fresh) return;
+      const a = ALERTS[al.idx];
+      const key = forDevice(typeof a.text === 'function' ? a.text(p, this.coach, w) : a.text);
+      this.el.dataset.hint = key; // (for tests and the play matrix: which hint is up)
+      this.render(`<span class="hint-k">${tHints.html('report')}</span><span class="hint-t">${fillKeys(tHints.html(key, { shift: tCommon('keys.shift'), alt: tCommon('keys.alt'), ...a.vars?.(w, p, this.coach) }))}</span>`); // (the active key bindings)
+      this.idx = -2; // (the tutorial step redraws when the alert goes)
       return;
     }
     let next = -1;
-    for (let i = 0; i < HINTS.length; i++) {
+    for (let i = 0; i < HINTS.length && !w.mission; i++) {
       if (this.dismissed.has(i)) continue;
       if (HINTS[i].done(this.world, this.local)) { this.dismissed.add(i); continue; }
       next = i;
@@ -163,6 +94,7 @@ export class Hints {
     if (i === this.idx) return;
     this.idx = i;
     if (i < 0) { this.el.classList.remove('on'); return; }
+    this.el.dataset.hint = HINTS[i].text;
     const step = `${i + 1}/${HINTS.length}`;
     this.render(`<span class="hint-k">${tHints.html('manual')} <i>${step}</i></span><span class="hint-t">${fillKeys(tHints.html(forDevice(HINTS[i].text)))}</span>`); // (the active key bindings)
   }

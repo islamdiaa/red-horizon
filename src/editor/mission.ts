@@ -19,6 +19,9 @@ import { BUILDINGS, UNITS, type Faction } from '../data/rules';
 import type { MapDef } from '../maps/format';
 import type { AIMode, MissionDef, MissionRuntime, Portrait } from '../sim/mission';
 import type { Entity } from '../sim/entities';
+import { CAST } from '../i18n/en/campaign-cast';
+import { CM, english, tDefault } from '../i18n/en/editor-mission';
+import { tx } from '../i18n/core';
 
 export type StartKit = 'none' | 'mcv' | 'light' | 'heavy';
 
@@ -138,142 +141,29 @@ export interface CustomMissionSetup extends MissionSpec {
 }
 
 export const AI_MODES: AIMode[] = ['recruit', 'easy', 'normal', 'hard', 'brutal', 'defensive', 'passive'];
-export const OBJECTIVE_KINDS: { kind: ObjectiveKind; label: string }[] = [
-  { kind: 'destroyAll', label: 'Destroy all enemies' },
-  { kind: 'destroy', label: 'Destroy a target' },
-  { kind: 'survive', label: 'Survive' },
-  { kind: 'reach', label: 'Reach an area' },
-  { kind: 'protect', label: 'Protect' },
-  { kind: 'build', label: 'Build' },
-];
-export const TRIGGER_WHENS: { kind: TriggerWhen; label: string }[] = [
-  { kind: 'start', label: 'Mission start' },
-  { kind: 'time', label: 'After time' },
-  { kind: 'objectiveDone', label: 'Objective done' },
-  { kind: 'objectiveFailed', label: 'Objective failed' },
-  { kind: 'destroyed', label: 'Tagged thing destroyed' },
-  { kind: 'area', label: 'Units enter area' },
-];
-export const TRIGGER_DOS: { kind: TriggerDo; label: string }[] = [
-  { kind: 'message', label: 'Radio message' },
-  { kind: 'reinforce', label: 'Reinforcements' },
-  { kind: 'credits', label: 'Give credits' },
-  { kind: 'reveal', label: 'Reveal area' },
-  { kind: 'objective', label: 'Show objective' },
-  { kind: 'ai', label: 'Set AI mode' },
-  { kind: 'attack', label: 'AI attacks' },
-  { kind: 'win', label: 'Victory' },
-  { kind: 'lose', label: 'Defeat' },
-];
+// the kinds in editor order (their labels: src/i18n/en/editor.ts objective.kind / trigger.when / action.kind)
+export const OBJECTIVE_KINDS: ObjectiveKind[] = ['destroyAll', 'destroy', 'survive', 'reach', 'protect', 'build'];
+export const TRIGGER_WHENS: TriggerWhen[] = ['start', 'time', 'objectiveDone', 'objectiveFailed', 'destroyed', 'area'];
+export const TRIGGER_DOS: TriggerDo[] = ['message', 'reinforce', 'credits', 'reveal', 'objective', 'ai', 'attack', 'win', 'lose'];
 export const PORTRAITS: Portrait[] = ['commander', 'intel', 'commando', 'enemy', 'eva', 'scientist', 'pilot'];
 
-/** A fresh mission for a map with `starts` start positions: you against one normal AI. */
+/**
+ * A fresh mission for a map with `starts` start positions: you against one normal AI. Its text is written in the
+ * interface language (it is the author's to edit: src/i18n/en/editor-mission.ts DEFAULTS).
+ */
 export function defaultMission(starts: number, mapName = ''): MissionSpec {
   const players: MissionPlayer[] = [
-    { name: 'Commander', faction: 'allies', team: 0, ai: 'normal', credits: 5000, startUnits: 'mcv' },
-    { name: 'Gen. Volkov', faction: 'soviet', team: 1, ai: 'normal', credits: 5000, startUnits: 'mcv' },
+    { name: tDefault('human'), faction: 'allies', team: 0, ai: 'normal', credits: 5000, startUnits: 'mcv' },
+    { name: tDefault('enemy'), faction: 'soviet', team: 1, ai: 'normal', credits: 5000, startUnits: 'mcv' },
   ].slice(0, Math.max(1, Math.min(2, starts))) as MissionPlayer[];
   return {
-    title: mapName ? `Operation ${mapName}` : 'Custom Operation', codename: 'NIGHTFALL', location: '',
-    briefing: ['Commander, enemy forces have dug in across the valley.', 'Establish a base and destroy them.'],
+    title: (mapName ? tDefault('title', { map: mapName }) : tx('editorMission.run.title')).slice(0, 60), codename: tDefault('codename'), location: '',
+    briefing: [tDefault('briefing1'), tDefault('briefing2')],
     tips: [], timeOfDay: 'day', weather: 'auto', dayCycle: true, fog: true, parTime: 0,
     players, placements: [],
-    objectives: [{ id: 'o1', kind: 'destroyAll', text: 'Destroy all enemy forces', primary: true }],
+    objectives: [{ id: 'o1', kind: 'destroyAll', text: tDefault('objective.destroyAll'), primary: true }],
     triggers: [],
   };
-}
-
-// =====================================================================================================
-// Validation (structure + references; the editor adds map-dependent checks)
-// =====================================================================================================
-export interface MissionIssue {
-  level: 'error' | 'warning';
-  text: string;
-}
-
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-
-export function checkMission(spec: MissionSpec, starts: number): MissionIssue[] {
-  const out: MissionIssue[] = [];
-  const err = (text: string) => out.push({ level: 'error', text });
-  const warn = (text: string) => out.push({ level: 'warning', text });
-  if (!spec.title?.trim()) err('The mission needs a title.');
-  if (!spec.players?.length) { err('The mission needs at least the human player.'); return out; }
-  if (spec.players.length > starts) err(`${spec.players.length} players but the map has only ${starts} start position${starts === 1 ? '' : 's'}.`);
-  if (spec.players.length > 6) err('At most 6 players.');
-  const p0 = spec.players[0];
-  if (!spec.players.slice(1).some((p) => p.team !== p0.team) && !spec.objectives.some((o) => o.kind === 'survive' || o.kind === 'reach' || o.kind === 'build')) {
-    warn('Nobody is on another team than the human: add an enemy player or a survive / reach / build objective.');
-  }
-  const tags = new Map<string, Placement>();
-  spec.placements.forEach((pl, i) => {
-    const t = pl.kind === 'unit' ? UNITS[pl.type] : BUILDINGS[pl.type];
-    if (!t) err(`Placement ${i + 1}: unknown ${pl.kind} "${pl.type}".`);
-    if (!(pl.player >= 0 && pl.player < spec.players.length)) err(`Placement ${i + 1} (${t?.name ?? pl.type}): player ${pl.player + 1} doesn't exist.`);
-    if (pl.tag) {
-      if (tags.has(pl.tag)) err(`Tag "${pl.tag}" is used twice.`);
-      tags.set(pl.tag, pl);
-    }
-    if (pl.health !== undefined && !(pl.health > 0 && pl.health <= 1)) err(`Placement ${i + 1}: health must be between 0 and 100%.`);
-  });
-  const hasForces = spec.placements.some((p) => p.player === 0) || p0.startUnits !== 'none';
-  if (!hasForces && !spec.triggers.some((t) => t.when === 'start' && t.actions.some((a) => a.kind === 'reinforce' && (a.player ?? 0) === 0))) {
-    err('The human player has no units, structures or start kit: the mission would be lost at once.');
-  }
-  const objIds = new Set<string>();
-  for (const o of spec.objectives) {
-    const name = `Objective "${o.text || o.id}"`;
-    if (objIds.has(o.id)) err(`Objective id "${o.id}" is used twice.`);
-    objIds.add(o.id);
-    if (!o.text?.trim()) warn(`${name} has no text.`);
-    switch (o.kind) {
-      case 'destroy':
-      case 'protect': {
-        const pl = o.tag ? tags.get(o.tag) : undefined;
-        if (!pl) { err(`${name}: choose a tagged unit or structure.`); break; }
-        if (o.kind === 'destroy' && pl.player === 0) err(`${name}: the target belongs to the human player.`);
-        if (o.kind === 'protect' && spec.players[pl.player] && spec.players[pl.player].team !== p0.team) warn(`${name}: the protected thing belongs to an enemy.`);
-        break;
-      }
-      case 'destroyAll':
-        if (o.player !== undefined && !(o.player > 0 && o.player < spec.players.length)) err(`${name}: player ${o.player + 1} doesn't exist.`);
-        break;
-      case 'survive':
-        if (!isNum(o.seconds) || o.seconds < 10) err(`${name}: survive for at least 10 seconds.`);
-        break;
-      case 'reach':
-        if (!isNum(o.x) || !isNum(o.y) || !isNum(o.r) || o.r < 1) err(`${name}: place the area on the map.`);
-        break;
-      case 'build':
-        if (!o.type || !BUILDINGS[o.type]) err(`${name}: choose a structure type.`);
-        if (!isNum(o.count) || o.count < 1) err(`${name}: build at least one.`);
-        break;
-    }
-  }
-  const primaries = spec.objectives.filter((o) => o.primary);
-  if (!primaries.length) err('Add at least one primary objective (it decides victory).');
-  if (primaries.length && primaries.every((o) => o.kind === 'protect')) warn('Only "protect" objectives: the mission is won as soon as it starts.');
-  for (const t of spec.triggers) {
-    const name = `Trigger "${t.id}"`;
-    if ((t.when === 'objectiveDone' || t.when === 'objectiveFailed') && !objIds.has(t.objective ?? '')) err(`${name}: unknown objective.`);
-    if (t.when === 'destroyed' && !tags.has(t.tag ?? '')) err(`${name}: unknown tag "${t.tag ?? ''}".`);
-    if (t.when === 'time' && (!isNum(t.seconds) || t.seconds < 0)) err(`${name}: set the time.`);
-    if (t.when === 'area' && (!isNum(t.x) || !isNum(t.y) || !isNum(t.r))) err(`${name}: place the area on the map.`);
-    if (!t.actions.length) warn(`${name} does nothing.`);
-    for (const a of t.actions) {
-      if ((a.kind === 'reinforce' || a.kind === 'credits' || a.kind === 'ai' || a.kind === 'attack') && !(isNum(a.player) && a.player >= 0 && a.player < spec.players.length)) err(`${name}: choose a player.`);
-      if (a.kind === 'reinforce') {
-        if (!a.units?.length || a.units.some((u) => !UNITS[u])) err(`${name}: reinforcements need valid unit types.`);
-        if (!isNum(a.x) || !isNum(a.y)) err(`${name}: set where the reinforcements arrive.`);
-      }
-      if (a.kind === 'objective' && !spec.objectives.some((o) => o.id === a.objective && o.hidden)) err(`${name}: "${a.objective ?? ''}" is not a hidden objective.`);
-      if (a.kind === 'message' && !a.text?.trim()) warn(`${name}: empty radio message.`);
-    }
-  }
-  for (const o of spec.objectives) {
-    if (o.hidden && !spec.triggers.some((t) => t.actions.some((a) => a.kind === 'objective' && a.objective === o.id))) warn(`Hidden objective "${o.text || o.id}" is never revealed by a trigger.`);
-  }
-  return out;
 }
 
 // =====================================================================================================
@@ -307,14 +197,14 @@ function enemyForces(m: MissionRuntime): number {
 
 function activate(m: MissionRuntime, o: ObjectiveSpec) {
   m.objective(o.id, o.text || o.id, o.primary);
-  if (o.kind === 'survive' && o.seconds) m.startTimer('cm.obj.' + o.id, o.seconds, o.text || 'Hold out');
+  if (o.kind === 'survive' && o.seconds) m.startTimer('cm.obj.' + o.id, o.seconds, o.text || CM.holdOut);
   if (o.kind === 'reach' && o.x !== undefined && o.y !== undefined) m.beacon(o.x, o.y);
 }
 
 function runAction(m: MissionRuntime, spec: MissionSpec, a: TriggerAction) {
   switch (a.kind) {
     case 'message':
-      m.say(a.speaker || 'Battle Control', a.text ?? '', a.portrait ?? 'eva');
+      m.say(a.speaker || CAST.eva, a.text ?? '', a.portrait ?? 'eva');
       break;
     case 'reinforce': {
       const p = a.player ?? 0;
@@ -353,7 +243,7 @@ function runAction(m: MissionRuntime, spec: MissionSpec, a: TriggerAction) {
       m.win();
       break;
     case 'lose':
-      m.lose(a.text || 'Mission failed');
+      m.lose(a.text || CM.failed);
       break;
   }
 }
@@ -379,10 +269,10 @@ export function customMissionDef(cm: CustomMissionSetup, map: MapDef): MissionDe
     id: cm.id,
     campaign: 'special',
     index: 900,
-    title: spec.title || 'Custom Operation',
-    codename: (spec.codename || 'CUSTOM').toUpperCase(),
-    location: spec.location || `Custom map · ${map.name}`,
-    briefing: spec.briefing.length ? spec.briefing : ['No briefing.'],
+    title: spec.title || CM.title,
+    codename: (spec.codename || CM.codename).toUpperCase(),
+    location: spec.location || english(CM.location, { map: map.name }),
+    briefing: spec.briefing.length ? spec.briefing : [CM.noBriefing],
     tips: spec.tips?.filter((t) => t.trim()),
     map: {
       size: map.size, seed: map.seed, players: spec.players.length, climate: map.climate,
@@ -432,7 +322,7 @@ export function customMissionDef(cm: CustomMissionSetup, map: MapDef): MissionDe
             // enemies that only arrive later (reinforcement triggers) must show up before this can be done
             const left = o.player !== undefined ? forcesOf(m, o.player) : enemyForces(m);
             if (left > 0) m.flags['cm.seen.' + o.id] = true;
-            if (m.every(2, 'cm.p.' + o.id)) m.progress(o.id, `${left} left`);
+            if (m.every(2, 'cm.p.' + o.id)) m.progress(o.id, english(CM.left, { n: left }));
             if (left === 0 && m.flags['cm.seen.' + o.id]) m.complete(o.id);
             break;
           }
@@ -462,7 +352,7 @@ export function customMissionDef(cm: CustomMissionSetup, map: MapDef): MissionDe
       // ---- outcome
       const prim = objectives.filter((o) => o.primary);
       const failed = prim.find((o) => m.state(o.id) === 'failed');
-      if (failed) { m.lose(`Objective failed: ${failed.text}`); return; }
+      if (failed) { m.lose(english(CM.objectiveFailed, { text: failed.text })); return; }
       const open = prim.filter((o) => o.kind !== 'protect');
       if (open.length && open.every((o) => shown(o) && m.state(o.id) === 'done')) {
         for (const o of prim) if (o.kind === 'protect') m.complete(o.id);

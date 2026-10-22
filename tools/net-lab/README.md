@@ -36,11 +36,12 @@ The real VMs (`tools/lab`) do have `tc netem`, so `vm-match.sh` uses it there fo
 | `peer-server.mjs` | a Playwright browser server for a peer (host GPU, SwiftShader, or Windows D3D11 WARP) |
 | `match.mjs` | drives two browsers through the real lobby + match; checks desync, latency, chat, stalls, reconnect, results |
 | `profiles.mjs` | the link profiles (LAN, 80/200 ms, 2/5 % loss, 1 Mbit/s, outages, "awful") |
+| `summary.mjs` | a table of match reports: round trip, input delay, input-to-action latency, pace and stalls per peer |
 | `run.sh` | runs `match.mjs` jobs under the shared memory guard + heavy lock (browsers start per job, stop after) |
 | `relay-load.mjs` | protocol-level bots filling many rooms, sampling relay CPU/memory |
 | `relay-robust.mjs` | malformed/oversize/flood/rate/impersonation/replay/origin checks against a lab relay |
 | `lb-forge.ts` | plays a real ranked run, submits it, then confirms every tampered variant is rejected |
-| `vm-match.sh` | a cross-machine match: a browser in a test VM vs one on the host or in the other VM (real NAT, real `tc netem` on the Ubuntu side, optional Firefox/WebKit engines). Not yet run end to end: the VMs were busy with long soak runs |
+| `vm-match.sh` | a cross-machine match: a browser in a test VM vs one on the host or in the other VM (real NAT, real `tc netem` both ways on the Ubuntu side, Chromium/Firefox/WebKit on Ubuntu, Chrome on Direct3D 11 on Windows). Every peer's Playwright server listens on `NETLAB_PEER_PORT` (default 8818), checked free on each machine first: the script stops with a clear message rather than talk to another service |
 
 ## Running
 
@@ -64,11 +65,20 @@ node --import tsx tools/net-lab/lb-forge.ts
 # cross-machine over the real NAT (needs the test VMs from tools/lab and the game published on the NAT:
 #   NETLAB_VM_BIND=192.168.122.1 docker compose -p rh-lab-net -f tools/net-lab/compose.yml up -d game; netlab.sh routes)
 # Other agents use the VMs: check nothing else runs there first. Processes are stopped by port only.
-tools/net-lab/vm-match.sh ubuntu:firefox host --profile lan --churn 60 --fast --tag vm-firefox
-NETEM_A='delay 40ms 10ms loss 1%' tools/net-lab/vm-match.sh ubuntu host --profile lan --churn 60 --fast --tag vm-netem
+tools/net-lab/vm-match.sh ubuntu:firefox host --profile lan --churn 90 --tag vm-firefox      # a full match
+tools/net-lab/vm-match.sh win11 ubuntu:webkit --profile lan --churn 90 --end surrender --tag vm-xos
+NETEM_A='delay 75ms 5ms loss 2%' tools/net-lab/vm-match.sh ubuntu:firefox host --profile lan --churn 90 --tag vm-netem
 
 tools/net-lab/netlab.sh down            # stop and remove the stack
 ```
+
+The game is published on `NETLAB_PORT` (default 8811) on localhost and `NETLAB_VM_PORT` (default 8812) on the NAT;
+`netlab.sh up` refuses ports another service holds. `NETLAB_RELAY_TAG` / `NETLAB_DIST` run an older relay image and
+build (for before/after measurements).
+
+`--end surrender` ends a full 1v1 with B surrendering through the in-match menu instead of being hunted down;
+`--lobby-outage <s>` pulls B's cable in the lobby (B must show "reconnecting", chat typed meanwhile must arrive).
+The `rtt50` ... `rtt600` and `rtt150j40` ... `rtt450j100` profiles are the high-latency ladder.
 
 `--fast` ends a match after the order churn (determinism is proven by the agreeing state hashes); without it a 1v1
 plays all the way to a winner so the results screens can be checked too. Reports are written as JSON next to the

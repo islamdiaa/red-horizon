@@ -54,6 +54,27 @@ export default strings('campaign', {
     notAttempted: 'NOT YET ATTEMPTED',
     deploy: 'Deploy',
   },
+  // campaign difficulty: Red Alert's handicaps on your side and the enemy's (the picker on the briefing, the debrief)
+  level: {
+    title: 'DIFFICULTY',
+    // the hardest level a mission was won at, next to the picker
+    wonOn: 'WON ON {level}',
+    you: 'You',
+    enemy: 'Enemy',
+    // {n} is a signed percentage, e.g. "+20%" or "−17%"
+    firepower: '{n} firepower',
+    rof: '{n} rate of fire',
+    speed: '{n} speed',
+    cost: '{n} build cost',
+    // one line about each level, above its numbers
+    about: {
+      recruit: 'For your very first battles (Red Alert\'s Easy): your forces are stronger, the enemy weaker, and the missions go easier on you.',
+      easy: 'The enemy is weakened and the missions go easier on you; your own forces fight as usual. A good place to start.',
+      normal: 'The missions as designed, with no handicap on either side.',
+      hard: 'The enemy hits harder, fires faster, moves faster and builds for less, and some missions send more against you.',
+      brutal: 'For veterans (Red Alert\'s Hard): the enemy is stronger, your own forces weaker, and the missions send more against you.',
+    },
+  },
   // the briefing officer's position, under their name
   role: {
     rourke: 'Allied Command, Europe',

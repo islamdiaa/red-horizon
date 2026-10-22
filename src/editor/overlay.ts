@@ -10,6 +10,7 @@ import { BUILDINGS, UNITS } from '../data/rules';
 import type { GameMap } from '../sim/map';
 import { startRefs } from './doc';
 import type { MissionSpec } from './mission';
+import { typeName } from '../i18n/names';
 
 /** Map (x, y) -> canvas pixel, or null when off-screen / behind the camera. */
 export type Proj = (x: number, y: number) => [number, number] | null;
@@ -69,7 +70,7 @@ function poly(ctx: CanvasRenderingContext2D, proj: Proj, pts: Pt[], close = fals
 }
 
 function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color = '#fff', size = 12, bg = 'rgba(0,0,0,0.6)') {
-  ctx.font = `700 ${size}px Rajdhani, system-ui, sans-serif`;
+  ctx.font = `700 ${size}px Rajdhani, 'RH Cyrillic', system-ui, 'RH CJK', sans-serif`;
   const w = ctx.measureText(text).width;
   ctx.fillStyle = bg;
   ctx.beginPath();
@@ -197,7 +198,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, proj: Proj, s: Overla
         ctx.stroke();
         ctx.setLineDash([]);
         const p = proj(x + w / 2, y + h + 0.55);
-        if (p && pxPerCell(proj, x, y) > 5 && (pl.tag || sel || pxPerCell(proj, x, y) > 12)) label(ctx, (pl.tag ? '★ ' + pl.tag + ' · ' : '') + bt.name, p[0], p[1], '#fff', 11, 'rgba(0,0,0,0.55)');
+        if (p && pxPerCell(proj, x, y) > 5 && (pl.tag || sel || pxPerCell(proj, x, y) > 12)) label(ctx, (pl.tag ? '★ ' + pl.tag + ' · ' : '') + typeName(bt), p[0], p[1], '#fff', 11, 'rgba(0,0,0,0.55)');
       } else {
         const ut = UNITS[pl.type];
         if (!ut) return;
@@ -208,7 +209,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, proj: Proj, s: Overla
         ctx.strokeStyle = sel ? '#fff' : s.models ? col : 'rgba(0,0,0,0.8)';
         ctx.stroke();
         const p = proj(pl.x, pl.y - 0.9);
-        if (p && (pl.tag || sel) && pxPerCell(proj, pl.x, pl.y) > 4) label(ctx, (pl.tag ? '★ ' + pl.tag : ut.name), p[0], p[1], '#fff', 11);
+        if (p && (pl.tag || sel) && pxPerCell(proj, pl.x, pl.y) > 4) label(ctx, (pl.tag ? '★ ' + pl.tag : typeName(ut)), p[0], p[1], '#fff', 11);
       }
     });
   }
@@ -242,7 +243,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, proj: Proj, s: Overla
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = '#fff';
-    ctx.font = `800 ${Math.round(rad * 1.15)}px Rajdhani, system-ui, sans-serif`;
+    ctx.font = `800 ${Math.round(rad * 1.15)}px Rajdhani, 'RH Cyrillic', system-ui, 'RH CJK', sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(r.index + 1), p[0], p[1] + 1);

@@ -12,6 +12,7 @@ import type { BridgeDef, Climate, Feature, FeatureKind, MapDef, Pt, Symmetry } f
 import { newCustomId, playerCount } from '../maps/custom';
 import { T, type GameMap } from '../sim/map';
 import type { MissionSpec } from './mission';
+import tEd from '../i18n/en/editor'; // the default map name
 
 export interface EditorDoc {
   id: string;
@@ -40,16 +41,16 @@ export interface BrushParams {
 
 export const DEFAULT_BRUSH: BrushParams = { radius: 3, rough: 0.5, density: 0.7, rich: 1, amount: 0.6, once: false };
 
-/** Symmetry options for the editor: label, players per authored start, and the max authored starts. */
-export const SYMMETRY_INFO: Record<Symmetry, { label: string; short: string; group: number }> = {
-  none: { label: 'None (free)', short: 'Free', group: 1 },
-  mirrorX: { label: 'Mirror left / right', short: 'Mirror ↔', group: 2 },
-  mirrorY: { label: 'Mirror top / bottom', short: 'Mirror ↕', group: 2 },
-  mirrorD: { label: 'Mirror diagonal', short: 'Mirror ⤡', group: 2 },
-  rot2: { label: 'Rotate 180°', short: 'Rotate 2', group: 2 },
-  rot3: { label: 'Rotate 120° (3 players)', short: 'Rotate 3', group: 3 },
-  rot4: { label: 'Rotate 90° (4 players)', short: 'Rotate 4', group: 4 },
-  mirror4: { label: 'Mirror 4-way', short: 'Mirror 4', group: 4 },
+/** Symmetry options for the editor: players per authored start (names: src/i18n/en/editor.ts sym.*). */
+export const SYMMETRY_INFO: Record<Symmetry, { group: number }> = {
+  none: { group: 1 },
+  mirrorX: { group: 2 },
+  mirrorY: { group: 2 },
+  mirrorD: { group: 2 },
+  rot2: { group: 2 },
+  rot3: { group: 3 },
+  rot4: { group: 4 },
+  mirror4: { group: 4 },
 };
 
 export const MAX_PLAYERS = 4;
@@ -89,7 +90,7 @@ export function newMapDef(o: NewMapOptions = {}): MapDef {
   const sym = o.symmetry ?? 'rot2';
   const def: MapDef = {
     id: newCustomId(),
-    name: o.name ?? 'Untitled map',
+    name: o.name ?? tEd('untitled'),
     desc: '',
     size: N,
     players: 0,

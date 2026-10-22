@@ -4,6 +4,8 @@
  * campaign screen's strings (campaign.ts) because the mission scripts load with the game.
  */
 import { sourceStrings } from '../core';
+// the mission scripts' own text (briefings, radio, objectives...): registered with the cast the scripts load
+import './missions';
 
 /** Speaker names (rank and name) of the recurring cast: the mission scripts emit this English. */
 export const CAST = sourceStrings('campaign.cast', {

@@ -246,30 +246,9 @@ export function squad(m: MissionRuntime, p: number, types: string[], anchor: Pt,
 }
 
 /** Give an AI player difficulty parameters (build speed, income) and a behaviour (full / defensive / passive). */
-export function aiProfile(m: MissionRuntime, p: number, difficulty: 'easy' | 'normal' | 'hard' | 'brutal', behaviour: 'full' | 'defensive' | 'passive' = 'full') {
+export function aiProfile(m: MissionRuntime, p: number, difficulty: 'recruit' | 'easy' | 'normal' | 'hard' | 'brutal', behaviour: 'full' | 'defensive' | 'passive' = 'full') {
   m.setAI(p, difficulty);
   if (behaviour !== 'full') m.setAI(p, behaviour);
-}
-
-/**
- * Workaround for units that stall next to a structure they were ordered to enter (engineers, C4):
- * when a unit already stands in the cell beside the footprint but more than 0.7 cells from its edge,
- * the pathfinder has nowhere to go and the order never completes. Step such units up to the wall.
- */
-export function nudgeEntries(m: MissionRuntime) {
-  if (m.world.tick % 10 !== 0) return;
-  for (const u of m.world.units) {
-    if (!u.alive || u.order.type !== 'enter' || u.path || u.moving) continue;
-    const t = m.world.getEntity(u.order.target);
-    if (!t || !t.alive || t.kind !== 'building') continue;
-    const b = t as Building;
-    const d = b.distTo(u.x, u.y);
-    if (d <= 0.7 || d > 1.6) continue;
-    const [cx, cy] = b.closestPoint(u.x, u.y);
-    const k = 0.55 / d;
-    u.x = cx + (u.x - cx) * k;
-    u.y = cy + (u.y - cy) * k;
-  }
 }
 
 /** Compass word for the direction from a to b (map y grows southwards). */

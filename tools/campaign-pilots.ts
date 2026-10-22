@@ -1,6 +1,7 @@
 // Autopilots that stand in for a competent human in tools/campaigntest.ts.
 // They may use full knowledge of the map; the goal is to prove each mission is winnable and stable.
 import { AIController } from '../src/sim/ai';
+import { aiPlacement } from '../src/sim/ai-naval';
 import { BUILDINGS } from '../src/data/rules';
 import type { World } from '../src/sim/world';
 import type { MissionRuntime } from '../src/sim/mission';
@@ -79,11 +80,11 @@ void T;
  * (pickTarget) as a blob; falls back when the wave is broken, and raises the bar for the next wave.
  */
 export function commander(world: World, rt: MissionRuntime, s: Record<string, any>, log: (t: string) => void,
-  opts: { threshold?: number; pickTarget?: (from: { x: number; y: number }) => Entity | null; rally?: [number, number]; deadline?: () => boolean; noBrain?: boolean } = {}) {
+  opts: { threshold?: number; pickTarget?: (from: { x: number; y: number }) => Entity | null; rally?: [number, number]; deadline?: () => boolean; noBrain?: boolean; units?: (u: Unit) => boolean; maxThreshold?: number } = {}) {
   if (!opts.noBrain) brain(world, s, 'defensive');
   if (!every(world, s, 'cmd', 5)) return;
   const st = rt.start(0);
-  const a = army(world).filter((u) => !u.ut.hero && u.ut.id !== 'e6');
+  const a = army(world).filter((u) => !u.ut.hero && u.ut.id !== 'e6' && (!opts.units || opts.units(u)));
   const value = a.reduce((v, u) => v + u.ut.cost, 0);
   s.threshold ??= opts.threshold ?? 7000;
   s.mode ??= 'gather';
@@ -111,7 +112,7 @@ export function commander(world: World, rt: MissionRuntime, s: Record<string, an
     attackMove(world, a, t.x, t.y);
     if (value < s.waveStart * 0.35 && !opts.deadline?.()) {
       s.mode = 'gather';
-      s.threshold += 2500;
+      s.threshold = Math.min(s.threshold + 2500, opts.maxThreshold ?? Infinity);
       attackMove(world, a, rally[0], rally[1]);
       log(`pilot: wave broken (value ${value}); next bar ${s.threshold}`);
     }
@@ -138,7 +139,8 @@ export function builder(world: World, s: Record<string, any>, order: string[], i
   }
   const q = p.queues.structure;
   if (q.ready) {
-    const spot = s.placer.findPlacement(BUILDINGS[q.ready]);
+    const bt = BUILDINGS[q.ready];
+    const spot = bt.water ? aiPlacement(world, p, bt) : s.placer.findPlacement(bt); // (shipyards and sub pens go on the water)
     if (spot) world.issue({ c: 'place', player: 0, type: q.ready, cx: spot[0], cy: spot[1] });
     else world.issue({ c: 'cancel', player: 0, type: q.ready });
   } else if (!q.items.length) {

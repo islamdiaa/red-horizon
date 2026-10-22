@@ -365,7 +365,7 @@ export class ArmyTools {
       drawn = true;
       const [x, y] = p;
       ctx.save();
-      ctx.font = '700 12px "Rajdhani", "Segoe UI", sans-serif';
+      ctx.font = '700 12px "Rajdhani", "RH Cyrillic", "Segoe UI", "RH CJK", sans-serif';
       const label = `→ ${g}`;
       const tw = ctx.measureText(label).width + 12;
       ctx.fillStyle = 'rgba(6, 16, 26, 0.85)';

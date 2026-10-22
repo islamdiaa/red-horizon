@@ -51,9 +51,27 @@ function linkPreviewMeta(): Plugin {
   };
 }
 
+/**
+ * MP: keep `Math.pow(a, b)` calls as calls in the bundle. Multiplayer matches and ranked runs swap portable versions
+ * into Math (src/net/dmath.ts) so every engine computes the same; the minifier rewrites a literal `Math.pow(a, b)`
+ * into `a ** b`, which always runs the engine's own pow and would bypass the swap (map generation and the AI's
+ * counter weights then differ in the last bit between Chrome, Firefox and Safari, and from the leaderboard
+ * server). `(0, Math.pow)(a, b)` reads Math.pow when it runs and survives minification (tests/build-pow.test.ts).
+ */
+export function keepMathPow(): Plugin {
+  return {
+    name: 'rh-keep-math-pow',
+    transform(code, id) {
+      // (only the simulation and what feeds it: drawing and sound keep the engine's fast pow)
+      if (!/[\\/]src[\\/](sim|maps|data|core|missions|modes|net|replay|conquest)[\\/].*\.ts$/.test(id) || !code.includes('Math.pow(')) return null;
+      return { code: code.replace(/\bMath\.pow\(/g, '(0, Math.pow)('), map: null };
+    },
+  };
+}
+
 export default defineConfig({
   base: BASE,
-  plugins: [linkPreviewMeta()],
+  plugins: [linkPreviewMeta(), keepMathPow()],
   // the public address share links point at from relative builds (src/share/links.ts)
   define: { 'import.meta.env.RH_SITE_URL': JSON.stringify(siteUrl()) },
   server: {

@@ -105,6 +105,14 @@ export class Bot {
     this.shotN = 0;
     /** Expected console errors (RegExps) a journey whitelists for a while, e.g. a deliberately broken import file. */
     this.expect = [];
+    /** Friction a player would feel (clicks that did nothing, prompts that didn't help...): { t, kind, text }. */
+    this.frictions = [];
+  }
+
+  /** Record friction (the matrix reports it): a click that did nothing, a prompt that didn't help, a softlock. */
+  friction(kind, text) {
+    this.frictions.push({ kind, text: String(text).slice(0, 300), t: Math.round(this.simT ?? 0) });
+    this.log(`friction [${kind}] ${text}`);
   }
 
   /** A fresh profile (a new context: empty storage, no service worker) and one page. */
@@ -311,6 +319,7 @@ export class Bot {
   async settleCamera() {
     await this.page.waitForFunction(() => { const c = window.__game?.gfx?.cam; return !c || (!c.flyTo && Math.abs(c.dist - c.targetDist) < 0.5); }, null, { timeout: 30000 * this.o.slow, polling: 300 }).catch(() => {});
     await sleep(300);
+    await this.frames(2); // (the camera's matrices update when a frame renders: aiming before that projects with the old view)
   }
 
   /** Simulation time in seconds. */
@@ -321,14 +330,21 @@ export class Bot {
    * chunks; under 40 ticks a chunk so Game.fastForward processes every event) unless --realtime, which waits for the
    * game clock instead. `until` (a page function) stops early when it returns true.
    */
-  async wait(simSeconds, { until = null, chunk = 1.9 } = {}) {
+  async wait(simSeconds, { until = null, chunk = 1.9 } = {}) { // (chunk: under 40 ticks, so Game.fastForward processes every event)
     const end = (await this.simTime()) + simSeconds;
     for (let guard = 0; guard < 100000; guard++) {
       const st = await this.page.evaluate(() => { const g = window.__game; return g ? { t: g.world.time, over: g.world.gameOver, paused: g.paused } : null; }).catch(() => null);
+      if (st) this.simT = st.t; // (the time friction notes are stamped with)
       if (!st || st.over || st.t >= end) break;
       if (until && await this.page.evaluate(until).catch(() => false)) return true;
       if (this.o.realtime) await sleep(400);
-      else { await this.page.evaluate((c) => window.__game?.fastForward(c), Math.min(chunk, end - st.t + 0.05)); await sleep(60); }
+      else {
+        // E2E_FF_BATCH chunks per round trip (each chunk still processes all its events): fewer rendered frames per
+        // simulated second on a software GPU, where every round trip waits for a frame (the play matrix uses 4)
+        const batch = Math.max(1, Number(process.env.E2E_FF_BATCH) || 1);
+        await this.page.evaluate(([c, n, end]) => { const g = window.__game; for (let k = 0; k < n && g && !g.world.gameOver && g.world.time < end; k++) g.fastForward(Math.min(c, end - g.world.time + 0.05)); }, [chunk, batch, end]);
+        await sleep(60);
+      }
     }
     return until ? this.page.evaluate(until).catch(() => false) : true;
   }
@@ -341,6 +357,32 @@ export class Bot {
       v.set(x, g.world.map.heightAt(x, y) + lift, y).project(cam);
       return { x: (v.x * 0.5 + 0.5) * innerWidth, y: (-v.y * 0.5 + 0.5) * innerHeight, onScreen: Math.abs(v.x) < 0.98 && Math.abs(v.y) < 0.98 && v.z < 1 };
     }, [x, y, lift]);
+  }
+
+  /**
+   * Project many map points at once (one round trip: on a software GPU every evaluate waits for a frame, so
+   * aiming at fifty units one by one took a minute). Each result also says whether it is in the play area with the
+   * game canvas under it (inPlay's test).
+   */
+  async toScreenMany(pts, lift = 0) {
+    return this.page.evaluate(([pts, lift]) => {
+      const g = window.__game, cam = g.gfx.cam.camera;
+      const vis = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return b.width > 2 && b.height > 2 && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' ? b : null; };
+      const r = { x0: 0, y0: 0, x1: innerWidth, y1: innerHeight };
+      const tb = vis(document.getElementById('topbar')); if (tb) r.y0 = Math.max(r.y0, tb.bottom);
+      const bb = vis(document.getElementById('buildbar')); if (bb) r.y1 = Math.min(r.y1, bb.top);
+      const sb = vis(document.getElementById('sidebar')); if (sb) r.x1 = Math.min(r.x1, sb.left);
+      const dock = vis(document.getElementById('dock')); if (dock && dock.top > innerHeight / 2) r.y1 = Math.min(r.y1, dock.top);
+      const a = { x0: r.x0 + 12, y0: r.y0 + 12, x1: r.x1 - 12, y1: r.y1 - 12 };
+      const v = cam.position.clone();
+      return pts.map(([x, y]) => {
+        v.set(x, g.world.map.heightAt(x, y) + lift, y).project(cam);
+        const p = { x: (v.x * 0.5 + 0.5) * innerWidth, y: (-v.y * 0.5 + 0.5) * innerHeight, onScreen: Math.abs(v.x) < 0.98 && Math.abs(v.y) < 0.98 && v.z < 1 };
+        let ok = p.onScreen && p.x > a.x0 && p.x < a.x1 && p.y > a.y0 && p.y < a.y1;
+        if (ok) { const e = document.elementFromPoint(p.x, p.y); ok = !!e && e.tagName === 'CANVAS' && !e.closest('#ui'); }
+        return { ...p, inPlay: ok };
+      });
+    }, [pts, lift]);
   }
 
   /** The part of the screen that shows the battlefield (not covered by the HUD). */
@@ -450,7 +492,7 @@ export class Bot {
     if (!tab) { this.log(`build ${type}: no card`); return false; }
     if (await this.locked(type)) { // (a requirement may still be finishing: a structure placed a moment ago)
       await this.wait(10, { until: `(() => { const c = document.querySelector('#ui :is(#buildbar, #sidebar) .bitem[data-id="${type}"]'); return !!c && !c.classList.contains('locked'); })()` });
-      if (await this.locked(type)) { this.log(`build ${type}: the card is locked`); return false; }
+      if (await this.locked(type)) { this.friction('locked', `build ${type}: the card is locked`); return false; }
     }
     let st = await this.cardState(type);
     if (st !== 'ready') {
@@ -459,14 +501,14 @@ export class Bot {
       // (a click that started nothing: no money, a busy yard, a mission that forbids it; the order lands on the next tick)
       const isOn = `(() => { const q = window.__game?.local.queues.structure; return !!q && (q.ready === '${type}' || q.items.some((i) => i.type === '${type}')); })()`;
       const started = await this.wait(2, { until: isOn });
-      if (!started) { this.log(`build ${type}: the click started nothing (card ${await this.cardState(type)})`); return false; }
+      if (!started) { this.friction('no-op click', `build ${type}: the click started nothing (card ${await this.cardState(type)}, $${await this.g((g) => g.local.credits)})`); return false; }
       const ok = await this.wait(maxWait, { until: `(() => document.querySelector('#ui :is(#buildbar, #sidebar) .bitem[data-id="${type}"]')?.dataset.state === 'ready' || window.__game?.local.queues.structure.ready === '${type}' || window.__game?.local.queues.defense?.ready === '${type}')()` });
       if (!ok) { this.log(`build ${type}: not ready (card ${await this.cardState(type)})`); return false; }
     }
     await this.tab(tab);
     if (!await this.clickCard(type)) return false;
     await sleep(300);
-    if (await this.g((g) => g.input.mode) !== 'place') { this.log(`build ${type}: not in place mode after clicking the ready card`); return false; }
+    if (await this.g((g) => g.input.mode) !== 'place') { this.friction('no-op click', `build ${type}: not in place mode after clicking the ready card`); return false; }
     return this.place(type, { near, tries });
   }
 
@@ -488,9 +530,10 @@ export class Bot {
       return out.slice(0, 160);
     }, { ...base, w, h, type });
     let n = 0;
-    for (const c of cands) {
-      const p = await this.toScreen(c.gx, c.gy);
-      if (!await this.inPlay(p)) continue;
+    const scr = await this.toScreenMany(cands.map((c) => [c.gx, c.gy]));
+    for (const [k, c] of cands.entries()) {
+      const p = scr[k];
+      if (!p.inPlay) continue;
       await this.page.mouse.move(p.x, p.y, { steps: 3 });
       await sleep(200);
       // the ghost follows the cursor: check the cell under it is the one we aimed at (and still valid)
@@ -505,7 +548,7 @@ export class Bot {
       if (++n >= tries) break;
       if (await this.g((g) => g.input.mode) !== 'place') break;
     }
-    this.log(`place ${type}: no spot worked (${cands.length} candidates)`);
+    this.friction('placement', `place ${type}: no spot worked (${cands.length} candidates)`);
     await this.key('Escape');
     return false;
   }
@@ -532,7 +575,7 @@ export class Bot {
       }
       await sleep(250);
     }
-    this.log(`card ${id}: not clickable`);
+    this.friction('no-op click', `card ${id}: not clickable`);
     return false;
   }
 
@@ -569,8 +612,7 @@ export class Bot {
     await this.lookAt(x, y);
     const a = await this.playArea();
     const units = (await this.mine()).units.filter((u) => u.armed && Math.hypot(u.x - x, u.y - y) <= radius);
-    const pts = [];
-    for (const u of units) { const p = await this.toScreen(u.x, u.y); if (p.onScreen) pts.push(p); }
+    const pts = (await this.toScreenMany(units.map((u) => [u.x, u.y]))).filter((p) => p.onScreen);
     if (!pts.length) return 0;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const p0 = { x: clamp(Math.min(...pts.map((p) => p.x)) - 30, a.x0, a.x1), y: clamp(Math.min(...pts.map((p) => p.y)) - 30, a.y0, a.y1) };

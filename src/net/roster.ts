@@ -12,6 +12,7 @@ import { validDoctrine } from '../sim/doctrine';
 import type { ModSet } from '../mods/format';
 import type { MatchStart, SlotView } from './protocol';
 import { activeSlots, SLOT_COLORS, slotTeam, type NetMode } from './settings';
+import { AI_COMMANDERS } from '../i18n/en/players';
 
 /** One player of a multiplayer match (GameSetup.net.players, in World player order). */
 export interface NetPlayer {
@@ -38,10 +39,13 @@ export interface NetSetup {
   drops?: [number, number][];
 }
 
-/** Difficulty of the AI that takes over a dropped player (no economy bonus). */
-export const TAKEOVER_AI: AIDifficulty = 'normal';
+/** Difficulty of the AI that takes over a dropped player (no economy bonus): sim/resign.ts. */
+export { TAKEOVER_AI } from '../sim/resign';
 
-const NAMES_AI = ['Gen. Volkov', 'Marshal Krukov', 'Col. Nadia', 'Gen. Stavros', 'Cdr. Bennett', 'Maj. Kane'];
+/** The AI commanders' names (English: part of the match setup every client builds; the interface translates them).
+ *  Listed one by one, so names added to the table for other modes do not change multiplayer's. */
+const C = AI_COMMANDERS;
+const NAMES_AI = [C.volkov, C.krukov, C.nadia, C.stavros, C.bennett, C.kane];
 
 /** Resolve a faction pick ('random' draws from the match seed, per slot). */
 function faction(pick: SlotView['faction'], seed: number, slot: number): Faction {

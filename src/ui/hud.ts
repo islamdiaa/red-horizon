@@ -34,6 +34,7 @@ import tHud from '../i18n/en/hud';
 import tCommon from '../i18n/en/common';
 import { englishOf, fmtInt, fmtMoney, onLanguageChange, trSource } from '../i18n/core';
 import { resolveTypeNames, typeDesc, typeName } from '../i18n/names';
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 // unit and structure names inside emitted English (mission objectives, radio) translate too
 resolveTypeNames(UNITS, BUILDINGS);
@@ -174,13 +175,14 @@ export function intelOn(viewer: Player, other: Player): IntelView | null {
 }
 
 /** Card names shortened (by the English name, so a mod that renames the type gets its own name): hud.short.<key>. */
-const SHORT_NAMES: Record<string, 'apwr' | 'mcv' | 'atek' | 'stek' | 'v2rl' | 'fact'> = {
+const SHORT_NAMES: Record<string, 'apwr' | 'mcv' | 'atek' | 'stek' | 'v2rl' | 'fact' | 'proc'> = {
   'Advanced Power Plant': 'apwr',
   'Mobile Construction Vehicle': 'mcv',
   'Allied Tech Center': 'atek',
   'Soviet Tech Center': 'stek',
   'V2 Rocket Launcher': 'v2rl',
   'Construction Yard': 'fact',
+  'Ore Refinery': 'proc', // (long in Russian: "Рудоперерабатывающий завод")
 };
 const shortName = (t: TypeDef) => { const k = SHORT_NAMES[t.name]; return k ? tHud(`short.${k}`) : typeName(t); };
 
@@ -1371,10 +1373,10 @@ export class Hud {
       const making = it.production ? Object.values(o.queues).map((q) => q.items[0]?.type ?? q.ready).filter((t): t is string => !!t).map((t) => typeName(getType(t))) : [];
       key += `${o.id}:${it.credits ? o.credits : ''}:${it.power ? o.powerOut + '/' + o.powerUse : ''}:${it.radar ? 'r' : ''}:${making.join(',')}|`;
       if (!it.credits && !it.power && !making.length && !it.radar) continue;
-      rows.push(`<span class="in-row" style="--c:${hexColor(teamColor(o))}"><i></i><b>${esc(o.name)}</b>${it.credits ? `<span class="in-cr">${fmtMoney(o.credits)}</span>` : ''}${it.power ? `<span class="in-pw${o.lowPower ? ' low' : ''}">${ICONS.bolt}${o.powerOut}/${o.powerUse}</span>` : ''}${it.radar ? `<span class="in-rd" title="${esc(tHud('intel.radarShared'))}">${ICONS.radar}</span>` : ''}${making.length ? `<span class="in-mk">${ICONS.building}${making.length}</span>` : ''}</span>`);
+      rows.push(`<span class="in-row" style="--c:${hexColor(teamColor(o))}"><i></i><b>${esc(playerName(o.name))}</b>${it.credits ? `<span class="in-cr">${fmtMoney(o.credits)}</span>` : ''}${it.power ? `<span class="in-pw${o.lowPower ? ' low' : ''}">${ICONS.bolt}${o.powerOut}/${o.powerUse}</span>` : ''}${it.radar ? `<span class="in-rd" title="${esc(tHud('intel.radarShared'))}">${ICONS.radar}</span>` : ''}${making.length ? `<span class="in-mk">${ICONS.building}${making.length}</span>` : ''}</span>`);
       const lines = [it.credits ? tHud.html('intel.credits', { money: fmtMoney(o.credits) }) : '', it.power ? tHud.html('intel.power', { out: o.powerOut, use: o.powerUse }) + (o.lowPower ? ` <span class="tt-bad">${tHud.html('intel.lowPower')}</span>` : '') : '',
         it.radar ? tHud.html('intel.radar') : '', making.length ? tHud.html('intel.producing', { names: making.join(', ') }) : ''].filter(Boolean);
-      tips.push(`<span class="tt-foe" style="--c:${hexColor(teamColor(o))}"><i></i>${esc(o.name)}</span><br>${lines.join('<br>')}`);
+      tips.push(`<span class="tt-foe" style="--c:${hexColor(teamColor(o))}"><i></i>${esc(playerName(o.name))}</span><br>${lines.join('<br>')}`);
     }
     if (key === this.intelKey) return;
     this.intelKey = key;
@@ -1506,7 +1508,7 @@ export class Hud {
       if (bt.storage) chips.push(this.chip(ICONS.coin, fmtMoney(bt.storage), tHud.html('chip.store'), tipHtml(tHud.html('chip.storage'))));
     }
     if (e.weapons.length || look.masked) chips.push(this.chip(ICONS.kills, '0', tHud.html('chip.kills'), tipHtml(tHud.html('chip.killsTip')), 'kills'));
-    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name"${typeName(t).length > 18 ? ' data-long' : ''}>${esc(typeName(t))}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(look.owner.name)}</span>`}</div>
+    const main = el('div', 'sp-main', `<div class="sp-title"><span class="sp-name"${typeName(t).length > 18 ? ' data-long' : ''}>${esc(typeName(t))}</span><span class="sp-tag" data-k="tag"></span>${own ? '' : `<span class="sp-owner"><i></i>${esc(playerName(look.owner.name))}</span>`}</div>
       <div class="sp-hp"><div class="hp-bar"><i class="hp-trail"></i><i class="hp-fill"></i><i class="hp-segs"></i></div><span class="hp-num" data-k="hp"></span></div>
       <div class="sp-chips">${chips.join('')}</div>
       <div class="sp-extra" data-k="extra"></div>`);
@@ -1817,7 +1819,7 @@ export class Hud {
     const alive = foes.filter((o) => !o.defeated).length;
     const pips = this.objEl.querySelector('.obj-pips') as HTMLElement;
     pips.innerHTML = foes.map((o) => `<i class="${o.defeated ? 'dead' : ''}" style="--c:${hexColor(teamColor(o))}"></i>`).join('') + `<span><b>${alive}</b>/${foes.length}</span>`;
-    this.objEl.dataset.tip = tipHtml(tHud.html('obj.title'), `${tHud.html('obj.desc')}<br>` + foes.map((o) => `<span class="tt-foe${o.defeated ? ' dead' : ''}" style="--c:${hexColor(teamColor(o))}"><i></i>${esc(o.name)} <small>${esc(factionAdj(o))}${o.defeated ? ` · ${tHud.html('obj.eliminated')}` : ''}</small></span>`).join(''));
+    this.objEl.dataset.tip = tipHtml(tHud.html('obj.title'), `${tHud.html('obj.desc')}<br>` + foes.map((o) => `<span class="tt-foe${o.defeated ? ' dead' : ''}" style="--c:${hexColor(teamColor(o))}"><i></i>${esc(playerName(o.name))} <small>${esc(factionAdj(o))}${o.defeated ? ` · ${tHud.html('obj.eliminated')}` : ''}</small></span>`).join(''));
     this.tip.refresh(this.objEl, this.objEl.dataset.tip);
     if (!first) replay(this.objEl, 'flash', 1600);
   }
@@ -1863,7 +1865,7 @@ export class Hud {
     const row = (cls: string, text: string, pg = '') => `<div class="op-row ${cls}"><i class="op-bx"></i><span class="op-tx">${text}</span>${pg ? `<span class="op-pg">${pg}</span>` : ''}</div>`;
     this.objPanel.innerHTML = `<div class="op-head"><span class="op-ic">${ICONS.target}</span><b>${tHud.html('obj.objectives')}</b><span class="op-n">${foes.length - alive}/${foes.length}</span></div>`
       + row(done ? 'done' : '', tHud.html('obj.destroyAll'), foes.length ? tHud.html('obj.left', { n: alive }) : '')
-      + foes.map((o) => row(`sub ${o.defeated ? 'done' : ''}`, `<i class="op-dot" style="--c:${hexColor(teamColor(o))}"></i>${esc(o.name)} <small>${esc(factionAdj(o))}</small>`)).join('');
+      + foes.map((o) => row(`sub ${o.defeated ? 'done' : ''}`, `<i class="op-dot" style="--c:${hexColor(teamColor(o))}"></i>${esc(playerName(o.name))} <small>${esc(factionAdj(o))}</small>`)).join('');
     this.objPanel.dataset.tip = this.objEl.dataset.tip ?? '';
     this.objPanel.querySelector('.op-head')!.after(this.cfRow); // (the build-up countdown leads the list)
     if (!first) replay(this.objPanel, 'flash', 1600);

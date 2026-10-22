@@ -1,7 +1,11 @@
 /**
- * Photo mode lens controls (U hides the interface): a small depth-of-field panel that stays on screen.
+ * Photo mode lens controls (the photo key, U by default, hides the interface): a small depth-of-field panel that stays on screen.
  * Aperture 0 = everything sharp (the default); focus follows the screen centre or a set distance.
  */
+import tHud from '../i18n/en/hud';
+import { fillKeys } from '../ui/keymap';
+import { esc } from '../ui/dom';
+
 export interface PhotoLensTarget {
   photoDof: number;
   /** Focus: -1 = auto (screen centre), otherwise a distance from the camera in world units. */
@@ -15,8 +19,9 @@ const CSS = `
   backdrop-filter: blur(6px); align-items: center; gap: 12px; user-select: none; }
 body.photo-mode .photo-lens { display: flex; }
 .photo-lens input[type=range] { width: 170px; accent-color: rgb(var(--accent-rgb, 90, 180, 255)); }
-.photo-lens label { display: flex; align-items: center; gap: 8px; opacity: .9; }
-.photo-lens .hint { opacity: .5; font-size: 11px; }
+.photo-lens label { display: flex; align-items: center; gap: 8px; opacity: .9; text-transform: uppercase; }
+.photo-lens .hint { opacity: .5; font-size: 11px; text-transform: uppercase; }
+.photo-lens .hint kbd { font: inherit; }
 `;
 
 export class PhotoLens {
@@ -32,8 +37,8 @@ export class PhotoLens {
     }
     const el = document.createElement('div');
     el.className = 'photo-lens';
-    el.innerHTML = `<label>DEPTH OF FIELD <input type="range" data-k="dof" min="0" max="1" step="0.01" value="0"></label>
-      <label>FOCUS <input type="range" data-k="focus" min="0" max="1" step="0.01" value="0"></label><span class="hint">FOCUS 0 = AUTO · U TO EXIT</span>`;
+    el.innerHTML = `<label>${esc(tHud('photo.dof'))} <input type="range" data-k="dof" min="0" max="1" step="0.01" value="0"></label>
+      <label>${esc(tHud('photo.focus'))} <input type="range" data-k="focus" min="0" max="1" step="0.01" value="0"></label><span class="hint">${fillKeys(tHud.html('photo.hint'))}</span>`;
     for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'wheel', 'contextmenu']) el.addEventListener(ev, this.stop);
     const dof = el.querySelector('[data-k="dof"]') as HTMLInputElement;
     const focus = el.querySelector('[data-k="focus"]') as HTMLInputElement;

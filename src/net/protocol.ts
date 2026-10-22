@@ -15,15 +15,20 @@
 import type { AIDifficulty } from '../sim/ai';
 import type { FactionPick, MatchSettings } from './settings';
 
-/** Bump when a message changes shape; the relay refuses other versions. */
-export const NET_PROTOCOL = 1;
+/** Bump when a message changes shape or meaning; the relay refuses other versions. (2: input delay up to 15 ticks,
+ *  surrender.) */
+export const NET_PROTOCOL = 2;
 /** Players per room (humans and AI). */
 export const MAX_SLOTS = 4;
 /** Clients report a world hash every this many ticks (5 s). */
 export const NET_HASH_EVERY = 100;
-/** Input delay bounds in ticks (100-250 ms at 20 Hz). */
+/**
+ * Input delay bounds in ticks (100-750 ms at 20 Hz). The relay picks the delay (delayFor) and every client clamps what
+ * it is told to the same bounds (Lockstep.setDelay): one table for both sides. Up to 15 ticks the match keeps real
+ * time on links up to about 650 ms round trip; beyond that it slows down instead.
+ */
 export const MIN_DELAY = 2;
-export const MAX_DELAY = 5;
+export const MAX_DELAY = 15;
 export const DEFAULT_DELAY = 3;
 /** Invite codes: no 0/O, 1/I/L look-alikes. */
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -89,7 +94,8 @@ export type ClientMessage =
   | { t: 'in'; upTo: number; cmds: [number, unknown][] }
   | { t: 'hash'; tick: number; h: string }
   | { t: 'drop'; seat: number }
-  | { t: 'pong'; n: number }
+  /** `f`: the client's frame time (ms): a ping waits about half of it for the page's next turn (see Relay.onPong). */
+  | { t: 'pong'; n: number; f?: number }
   | { t: 'over'; tick: number; winner: number }
   | { t: 'lobby' }
   | { t: 'bye' };
@@ -239,7 +245,8 @@ export function parseClientMessage(text: unknown): ClientMessage | null {
     case 'drop':
       return isInt(m.seat, 0, 1e6) ? { t: 'drop', seat: m.seat } : null;
     case 'pong':
-      return isInt(m.n, 0, 1e12) ? { t: 'pong', n: m.n } : null;
+      if (!isInt(m.n, 0, 1e12) || (m.f !== undefined && !isInt(m.f, 0, 10_000))) return null;
+      return m.f === undefined ? { t: 'pong', n: m.n } : { t: 'pong', n: m.n, f: m.f };
     case 'over':
       return isInt(m.tick, 0, 1e9) && isInt(m.winner, -1, 64) ? { t: 'over', tick: m.tick, winner: m.winner } : null;
     default:
@@ -263,7 +270,9 @@ export function normaliseCode(input: string): string | null {
 
 /**
  * Input delay (ticks) the relay recommends for the room's round-trip times: enough to cover the slowest
- * player's round trip plus jitter, within 100-250 ms.
+ * player's round trip plus jitter, within MIN_DELAY-MAX_DELAY (100-750 ms). A command issued at tick W runs at
+ * W + delay; it must reach the relay, and the relay's closing of that tick must come back, before the issuing
+ * client gets there: one round trip, the jitter on both legs, and a little for frames and timers.
  */
 export function delayFor(maxRtt: number, maxJitter: number): number {
   const d = Math.ceil((maxRtt + 2 * maxJitter + 30) / 50);

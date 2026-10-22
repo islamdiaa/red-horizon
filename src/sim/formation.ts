@@ -401,6 +401,10 @@ function stepGroup(world: World, g: FormationGroup): boolean {
   g.f = Math.max(0, Math.min(1, 1 - (worst - 1.1) / 2));
   g.wait = g.f < 0.5 ? (g.wait ?? 0) + 1 : 0;
   if (narrow || g.wait > 60) g.f = Math.max(g.f, 0.35);
+  // a member that can't catch up (a vehicle working round trees, a unit fighting on an attack-move) holds the group
+  // back for a few seconds, not for the whole trip: the pace comes back to full over the next ~8 s, the laggard drops
+  // more than STRAGGLER behind and paths after the group on its own
+  if (g.wait > 60) g.f = Math.max(g.f, Math.min(1, 0.35 + (g.wait - 60) / 160));
   const tx = g.path[2 * g.idx], ty = g.path[2 * g.idx + 1];
   const want = Math.atan2(ty - g.y, tx - g.x);
   let step = g.speed * g.f * DT;

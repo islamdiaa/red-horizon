@@ -4,7 +4,7 @@
  * ranks it - then that every tampered variant (score, result, a single order, the tick, the hash, the board,
  * the build) is rejected. Proves submissions are re-simulated server-side and cannot be forged.
  *
- *   node --import tsx tools/net-lab/lb-forge.ts [--http http://127.0.0.1:8801/relay/] [--board survival]
+ *   node --import tsx tools/net-lab/lb-forge.ts [--http http://127.0.0.1:8811/relay/] [--board survival]
  */
 import { headlessGame } from '../../src/modes/headless';
 import { RunRecorder } from '../../src/net/runrecord';

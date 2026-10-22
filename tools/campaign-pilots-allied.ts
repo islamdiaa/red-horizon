@@ -116,11 +116,33 @@ PILOTS['allied-03'] = (world, rt, s, log) => {
   }
 };
 
-// 4. escort: board the APCs, tanks lead, APCs follow behind
+// 4. escort: board the APCs; the APCs stay back while the army clears the paratroopers at the station, then the
+//    tanks lead and the APCs trail behind them, backing off from any fight (an APC's machine gun loses to infantry)
 PILOTS['allied-04'] = (world, rt, s, log) => {
   if (!every(world, s, 'tick', 1.5)) return;
   const team = rt.livingUnits(rt.flags.team);
   const apcs = rt.livingUnits(rt.flags.apcs);
+  const st = rt.start(0), e = rt.start(1);
+  const esc = army(world).filter((u) => !u.ut.passengers);
+  /** APCs move away from any enemy within r of them; returns true if one had to. */
+  const backOff = (r: number) => {
+    let any = false;
+    for (const apc of apcs) {
+      const near = enemyUnitsNear(world, apc.x, apc.y, r);
+      if (!near.length) continue;
+      any = true;
+      const c = cen(near);
+      const away = Math.atan2(apc.y - c.y, apc.x - c.x);
+      const [x, y] = ground(rt, apc.x + Math.cos(away) * 6, apc.y + Math.sin(away) * 6, 4);
+      moveTo(world, [apc], x, y);
+    }
+    return any;
+  };
+  if (!s.sold) {
+    // the station is short of power: sell the Tech Center and the radar so the prototype charges in four minutes
+    s.sold = true;
+    for (const b of world.buildings) if (b.alive && b.owner.id === 0 && (b.bt.id === 'atek' || b.bt.id === 'dome')) world.issue({ c: 'sell', player: 0, building: b.id });
+  }
   if (!s.boarded) {
     team.forEach((u, i) => {
       if (u.transport || u.order.type === 'enter') return;
@@ -128,34 +150,47 @@ PILOTS['allied-04'] = (world, rt, s, log) => {
       if (apc) world.issue({ c: 'enter', player: 0, units: [u.id], target: apc.id });
     });
     if (team.every((u) => u.transport)) { s.boarded = true; log('pilot: boarded'); }
-    // hold position near the station until boarded, but fight paratroopers
-    const st = rt.start(0);
-    const threats = enemyUnitsNear(world, st.x, st.y, 14);
-    if (threats.length) attackMove(world, army(world).filter((u) => !u.ut.passengers), threats[0].x, threats[0].y);
+    return;
+  }
+  // the station: hold until the paratroopers (they drop at 0:25) are dead; the APCs wait behind the station
+  if (!s.cleared) {
+    const threats = enemyUnitsNear(world, st.x, st.y, 18);
+    if (threats.length) attackMove(world, esc, threats[0].x, threats[0].y);
+    if (!backOff(9)) {
+      const [hx, hy] = ground(rt, ...rt.toward(st, e, -4), 4);
+      const lag = apcs.filter((a) => Math.hypot(a.x - hx, a.y - hy) > 2.5);
+      if (lag.length) moveTo(world, lag, hx, hy);
+    }
+    if (world.time > 32 && !threats.length) { s.cleared = true; log('pilot: station clear, moving out'); }
     return;
   }
   const lz = rt.flags.lz as [number, number];
-  const esc = army(world).filter((u) => !u.ut.passengers);
+  // after the betrayal the Chronosphere prototype (charged by then, as Saarinen points out) carries the doctor's APC
+  // straight to the seaplane
+  const doc = apcs.find((a) => a.passengers.some((p) => p.id === rt.flags.saarinen));
+  if (rt.flags.betrayed && doc && rt.superState(0, 'chrono')?.ready) {
+    world.issue({ c: 'superweapon', player: 0, kind: 'chrono', x: lz[0], y: lz[1], unit: doc.id });
+    log('pilot: chronoshift to the seaplane');
+  }
   const veh = esc.filter((u) => u.kind === 'vehicle');
   const lead = veh.length ? cen(veh) : esc.length ? cen(esc) : cen(apcs);
   const threats = enemyThings(world).filter((t) => Math.hypot(t.x - lead.x, t.y - lead.y) < 9 && (t.kind !== 'building' || (t as Building).weapons.length));
   const toLz = Math.hypot(lz[0] - lead.x, lz[1] - lead.y);
-  if (threats.length && esc.length) {
-    const t = nearestTo(threats, lead.x, lead.y)!;
-    attackMove(world, esc, t.x, t.y);
-    const tc = cen(threats);
-    if (rt.flags.betrayed) moveTo(world, apcs, lz[0], lz[1]);
-    else for (const apc of apcs) {
-      const away = Math.atan2(apc.y - tc.y, apc.x - tc.x);
-      if (Math.hypot(apc.x - tc.x, apc.y - tc.y) < 10) moveTo(world, [apc], apc.x + Math.cos(away) * 5, apc.y + Math.sin(away) * 5);
-    }
-  } else {
-    const step = Math.min(8, toLz);
-    const nx = lead.x + ((lz[0] - lead.x) / (toLz || 1)) * step, ny = lead.y + ((lz[1] - lead.y) / (toLz || 1)) * step;
-    attackMove(world, esc, nx, ny);
-    if (toLz < 7 || !esc.length) moveTo(world, apcs, lz[0], lz[1]);
-    else moveTo(world, apcs, lead.x, lead.y);
+  if (!esc.length) { moveTo(world, apcs, lz[0], lz[1]); return; } // nothing left to hide behind: run for it
+  if (threats.length) {
+    attackMove(world, esc, nearestTo(threats, lead.x, lead.y)!.x, nearestTo(threats, lead.x, lead.y)!.y);
+    if (rt.flags.betrayed && toLz < 10) moveTo(world, apcs, lz[0], lz[1]);
+    else backOff(10);
+    return;
   }
+  const step = Math.min(8, toLz);
+  attackMove(world, esc, lead.x + ((lz[0] - lead.x) / (toLz || 1)) * step, lead.y + ((lz[1] - lead.y) / (toLz || 1)) * step);
+  if (backOff(8)) return;
+  if (toLz < 7) { moveTo(world, apcs, lz[0], lz[1]); return; }
+  // trail the army by a few cells (never in front of it)
+  const [tx, ty] = ground(rt, lead.x - ((lz[0] - lead.x) / (toLz || 1)) * 5, lead.y - ((lz[1] - lead.y) / (toLz || 1)) * 5, 4);
+  const lag = apcs.filter((a) => Math.hypot(a.x - tx, a.y - ty) > 2.5);
+  if (lag.length) moveTo(world, lag, tx, ty);
 };
 
 // 5. truck hunt: lean base with Longbows, and a hunter group of tanks and helicopters
@@ -172,10 +207,12 @@ PILOTS['allied-05'] = (world, rt, s, log) => {
   // only chase trucks away from the camp flame tower and the main base; strike as a pack
   const e = rt.start(1);
   const fts = world.buildings.filter((b) => b.alive && b.owner.id === 1 && (b.bt.id === 'ftur' || b.bt.id === 'tsla'));
-  const exposed = harvs.filter((h) => Math.hypot(h.x - e.x, h.y - e.y) > 12 && fts.every((f) => f.distTo(h.x, h.y) > 6));
+  // the last few trucks hide by the base: past ten minutes (or with three left) go in after them anyway
+  const late = harvs.length <= 3 || world.time > 600;
+  const exposed = late ? harvs : harvs.filter((h) => Math.hypot(h.x - e.x, h.y - e.y) > 12 && fts.every((f) => f.distTo(h.x, h.y) > 6));
   const ready = hunters.filter((h) => h.kind !== 'aircraft' || h.ammo > 0);
   const c = ready.length ? cen(ready) : st;
-  if (exposed.length && ready.length >= 8) {
+  if (exposed.length && ready.length >= (late ? 6 : 8)) {
     const t = nearestTo(exposed, c.x, c.y)!;
     attack(world, ready, t);
   } else {
@@ -195,7 +232,7 @@ PILOTS['allied-06'] = (world, rt, s, log) => {
   builder(world, s, ['powr', 'tent', 'proc', 'weap', 'powr', 'gun', 'proc', 'pbox', 'dome', 'gun', 'powr', 'weap', 'fix'], ['e1', 'e3', 'e3'], ['2tnk', '2tnk', '2tnk', 'arty']);
   commander(world, rt, s, log, {
     noBrain: true,
-    threshold: 11000,
+    threshold: 8000,
     rally: rt.toward(s.yardC, st, 14),
     deadline: () => left < 300,
     pickTarget: (from) => {
@@ -210,11 +247,12 @@ PILOTS['allied-06'] = (world, rt, s, log) => {
 
 // 7. finale: big economy, push when strong; the silo first, then the nearest base
 PILOTS['allied-07'] = (world, rt, s, log) => {
-  builder(world, s, ['proc', 'weap', 'apwr'], ['e3'], ['2tnk', '2tnk', '2tnk', 'arty']);
+  builder(world, s, ['proc', 'weap', 'apwr', 'proc'], ['e3'], ['2tnk', '2tnk', '2tnk', 'arty']);
   const silo = world.getEntity(rt.flags.silo) as Building | undefined;
   commander(world, rt, s, log, {
     noBrain: true,
-    threshold: 10000,
+    threshold: 14000,
+    maxThreshold: 16000, // (a broken wave raises the bar, but not past what the economy can field)
     pickTarget: (from) => (silo?.alive ? silo : nearestTo(enemyThings(world).filter((e) => e.kind === 'building'), from.x, from.y) ?? nearestTo(enemyThings(world), from.x, from.y)),
   });
   // the Chronosphere: drop a medium tank next to the target structure when charged

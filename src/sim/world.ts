@@ -26,6 +26,7 @@ import { CEASEFIRE_WARNING } from './ceasefire';
 import { commanderCommand, commanderKill, commanderSpawn, commanderTick, initCommander, type CommanderState } from './commander';
 import { costOf } from './doctrine';
 import { initVariety, varietyCommand, varietyTick, type VarietyState } from './events';
+import { resignCommand } from './resign'; // surrender
 import { econCombat, econCommand, econKilled, econSight, econTick, initEcon, outpostSiteOk, type EconState } from './economy';
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
@@ -177,6 +178,10 @@ export class World {
   private commands: Command[] = [];
   private pathQueue: Unit[] = [];
   private dirtyLists = false;
+  /** updateVisibility scratch (not saved): per cell, the last pass that stamped a circle from it and its radius. */
+  private visPass = 0;
+  private readonly visSeenPass: Int32Array;
+  private readonly visSeenR: Float64Array;
   /**
    * During the combat phase of a tick lethal damage only marks the victim; it is removed at the end of
    * the phase so everybody fires "simultaneously" (no advantage for entities that happen to update first).
@@ -190,6 +195,8 @@ export class World {
     this.rng = new Rng(opts.seed ^ 0x5bd1e995);
     this.pathfinder = new PathFinder(this.map);
     this.grid = new UnitGrid(this.map.w, this.map.h);
+    this.visSeenPass = new Int32Array(this.map.w * this.map.h);
+    this.visSeenR = new Float64Array(this.map.w * this.map.h);
     this.fog = opts.fog;
     this.ceasefireUntil = opts.ceasefireUntil ?? 0;
     initBridges(this);
@@ -713,6 +720,7 @@ export class World {
       case 'upgrade': case 'research': case 'evacuate': // Commander economy (economy.ts)
         if (this.econ) econCommand(this, cmd);
         break;
+      case 'resign': resignCommand(this, cmd.player); break; // surrender (resign.ts)
     }
   }
 
@@ -1089,9 +1097,19 @@ export class World {
       p.explored.fill(1);
       return;
     }
+    // a circle stamped again from the same cell with no larger radius adds nothing (infantry stand several to a cell,
+    // structures never move): skip it, the result is the same
+    const pass = ++this.visPass;
+    const seenPass = this.visSeenPass, seenR = this.visSeenR;
     const stamp = (x: number, y: number, r: number) => {
-      const offs = circleOffsets(r);
       const fx = Math.floor(x), fy = Math.floor(y);
+      if (fx >= 0 && fy >= 0 && fx < m.w && fy < m.h) {
+        const c = fy * m.w + fx;
+        if (seenPass[c] === pass && seenR[c] >= r) return;
+        seenPass[c] = pass;
+        seenR[c] = r;
+      }
+      const offs = circleOffsets(r);
       for (let k = 0; k < offs.length; k += 2) {
         const cx = fx + offs[k], cy = fy + offs[k + 1];
         if (cx < 0 || cy < 0 || cx >= m.w || cy >= m.h) continue;

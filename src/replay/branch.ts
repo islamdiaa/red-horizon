@@ -40,6 +40,11 @@ export function defaultTakeoverAI(data: ReplayData): AIDifficulty {
 /** Branch info for taking command of `local` in a replay's world at its current tick. */
 export function makeBranch(data: ReplayData, world: World, local: number, ai: AIDifficulty, view?: StartView): BranchInfo {
   const parentBranch = data.setup.branch;
+  const start = snapshotWorld(world) as { players?: Record<string, unknown>[] };
+  // taking command of a side whose player had surrendered (multiplayer: the AI fought on for them): the new commander
+  // starts fresh there, free to win or to surrender (sim/resign.ts: a surrendered player always counts as beaten)
+  const sp = start.players?.[local];
+  if (sp && sp.resigned) delete sp.resigned;
   return {
     parent: data.id,
     root: parentBranch?.root ?? data.id,
@@ -47,7 +52,7 @@ export function makeBranch(data: ReplayData, world: World, local: number, ai: AI
     tick: world.tick,
     local,
     ai,
-    start: snapshotWorld(world),
+    start,
     hash: worldHash(world),
     view,
     name: world.players[local]?.name,

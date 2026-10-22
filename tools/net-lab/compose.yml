@@ -11,7 +11,7 @@
 # Players open http://10.231.200.10:8080/ (the game's virtual address); the game sees them as 10.231.101.x (a) and
 # 10.231.102.x (b). pktem translates (Docker drops packets for a container address arriving on another bridge).
 #
-# The game is published on 127.0.0.1 only (NETLAB_PORT, default 8801) for tools on the host; NETLAB_VM_BIND adds
+# The game is published on 127.0.0.1 only (NETLAB_PORT, default 8811) for tools on the host; NETLAB_VM_BIND adds
 # the libvirt NAT address so the test VMs can reach it. Nothing is published on the LAN.
 name: rh-lab-net
 
@@ -42,7 +42,7 @@ x-peer: &peer
 
 services:
   relay:
-    image: rh-lab-net-relay
+    image: rh-lab-net-relay:${NETLAB_RELAY_TAG:-latest}
     build:
       context: ../..
       dockerfile: server/Dockerfile
@@ -72,8 +72,8 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     ports:
-      - "127.0.0.1:${NETLAB_PORT:-8801}:8080"
-      - "${NETLAB_VM_BIND:-127.0.0.1}:${NETLAB_VM_PORT:-8809}:8080"
+      - "127.0.0.1:${NETLAB_PORT:-8811}:8080"
+      - "${NETLAB_VM_BIND:-127.0.0.1}:${NETLAB_VM_PORT:-8812}:8080"
     networks:
       core: { ipv4_address: 10.231.0.10 }
     depends_on: [relay]

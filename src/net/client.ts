@@ -48,6 +48,9 @@ export interface NetClientOptions {
 
 export type ClientState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
+/** Chat lines kept while the connection is down (the relay lets a fresh connection send this many at once). */
+export const MAX_QUEUED_CHAT = 4;
+
 const defaultTimers: Timers = { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>), now: () => Date.now() };
 
 export class NetClient {
@@ -60,6 +63,10 @@ export class NetClient {
   endReason = '';
   /** The last error the relay reported. */
   lastError: { code: string; msg: string } | null = null;
+  /** Chat typed while the connection was down, sent as soon as the seat is back (see chat()). */
+  readonly pendingChat: string[] = [];
+  /** The page's smoothed frame time (ms), sent with each pong (the match session sets it). */
+  frameMs: () => number = () => 0;
   /** Ticks we already have when resuming (the match session sets it). */
   have: () => number = () => -1;
   /**
@@ -128,6 +135,17 @@ export class NetClient {
     }
   }
 
+  /**
+   * A chat line: sent now, or - while reconnecting - kept and sent when the seat is resumed (the echo from the relay
+   * then shows it as usual). 'dropped': not kept (the connection is gone for good, or MAX_QUEUED_CHAT already wait).
+   */
+  chat(text: string): 'sent' | 'queued' | 'dropped' {
+    if (this.state === 'open' && this.ws?.readyState === 1) { this.send({ t: 'chat', text }); return 'sent'; }
+    if (this.state === 'closed' || this.state === 'idle' || this.pendingChat.length >= MAX_QUEUED_CHAT) return 'dropped';
+    this.pendingChat.push(text);
+    return 'queued';
+  }
+
   /** Leave the room for good. */
   leave() {
     this.leaving = true;
@@ -192,13 +210,16 @@ export class NetClient {
         this.retry = 0;
         this.lostAt = 0;
         this.setState('open');
+        for (const text of this.pendingChat.splice(0)) this.send({ t: 'chat', text }); // (typed while reconnecting)
         break;
       case 'room':
         this.room = m.room;
         break;
-      case 'ping':
-        this.send({ t: 'pong', n: m.n });
+      case 'ping': {
+        const f = Math.round(this.frameMs());
+        this.send(f > 0 ? { t: 'pong', n: m.n, f: Math.min(10_000, f) } : { t: 'pong', n: m.n });
         return;
+      }
       case 'error':
         this.lastError = { code: m.code, msg: m.msg };
         break;

@@ -85,6 +85,8 @@ interface Seat {
   disconnectedAt: number;
   /** Replaced by the AI (match). */
   dropped: boolean;
+  /** Surrendered (a closed `resign` command, sim/resign.ts): no longer waited for; watches if still connected. */
+  resigned: boolean;
   loaded: boolean;
   over: boolean;
 }
@@ -141,6 +143,8 @@ class Client {
   lastPong: number;
   rtt = 0;
   jitter = 0;
+  /** The last raw round trips (the median of three feeds the averages: one stall of the page is not the network). */
+  recent: number[] = [];
   msgs: TokenBucket;
   chat: TokenBucket;
   constructor(readonly id: number, readonly conn: RelayConn, readonly ip: string, now: number, l: RelayLimits) {
@@ -242,7 +246,7 @@ export class Relay {
     if (!c.msgs.take(now)) { this.violation(c, 'rate'); return; }
     const m = parseClientMessage(text);
     if (!m) { this.violation(c, 'malformed'); this.error(c, 'bad-message', 'Malformed message.'); return; }
-    if (m.t === 'pong') { this.onPong(c, m.n, now); return; }
+    if (m.t === 'pong') { this.onPong(c, m.n, now, m.f ?? 0); return; }
     if (m.t === 'hello') { this.onHello(c, m, now); return; }
     const room = c.room, seat = c.seat;
     if (!room || !seat || seat.conn !== c) { this.violation(c, 'no-room'); return; }
@@ -334,7 +338,7 @@ export class Relay {
   }
 
   private addSeat(room: Room, c: Client, name: string, slot: number): Seat {
-    const seat: Seat = { id: room.nextSeat++, token: this.opts.token(), name, slot, conn: c, ready: false, faction: 'random', doctrine: null, disconnectedAt: 0, dropped: false, loaded: false, over: false };
+    const seat: Seat = { id: room.nextSeat++, token: this.opts.token(), name, slot, conn: c, ready: false, faction: 'random', doctrine: null, disconnectedAt: 0, dropped: false, resigned: false, loaded: false, over: false };
     room.seats.set(seat.id, seat);
     c.room = room;
     c.seat = seat;
@@ -435,26 +439,30 @@ export class Relay {
     const why = startProblem(view);
     if (why) { this.error(c, 'not-ready', why); return; }
     const start: MatchStart = { seed: 1 + this.opts.randInt(0x7ffffffe), room: { ...view, phase: 'match' } };
+    // the first input delay from the round trips the lobby's heartbeats measured (a far player does not stall the
+    // first seconds); never below the default while everyone is still loading
+    const measured = [...room.seats.values()].filter((s) => s.conn && s.conn.rtt > 0).map((s) => s.conn!);
+    const delay = measured.length ? Math.max(DEFAULT_DELAY, delayFor(Math.max(...measured.map((c) => c.rtt)), Math.max(...measured.map((c) => c.jitter)))) : DEFAULT_DELAY;
     room.phase = 'match';
     const committed = new Map<number, number>();
-    for (const s of room.seats.values()) { committed.set(s.id, -1); s.loaded = false; s.over = false; s.dropped = false; }
+    for (const s of room.seats.values()) { committed.set(s.id, -1); s.loaded = false; s.over = false; s.dropped = false; s.resigned = false; }
     room.match = {
       start, startedAt: now, closed: -1, committed, pending: [], seq: 0, log: [], drops: [], hashes: new Map(),
-      lastAdvance: now, stallSeat: -1, delay: DEFAULT_DELAY, lastLat: now, pace: new TokenBucket(20, 60, now), ended: null,
+      lastAdvance: now, stallSeat: -1, delay, lastLat: now, pace: new TokenBucket(20, 60, now), ended: null,
     };
     this.stats.matches++;
     this.opts.log?.(`match started (${room.seats.size} players)`);
     this.broadcast(room, { t: 'start', start, delay: room.match.delay });
   }
 
-  /** Seats whose commits gate closing: in the match, not dropped, not finished. */
+  /** Seats whose commits gate closing: in the match, not dropped, not surrendered, not finished. */
   private gating(room: Room): Seat[] {
-    return [...room.seats.values()].filter((s) => !s.dropped && !s.over && room.match!.committed.has(s.id));
+    return [...room.seats.values()].filter((s) => !s.dropped && !s.resigned && !s.over && room.match!.committed.has(s.id));
   }
 
   private onIn(c: Client, room: Room, seat: Seat, upTo: number, cmds: [number, unknown][], now: number) {
     const m = room.match;
-    if (room.phase !== 'match' || !m || m.ended || seat.dropped || !m.committed.has(seat.id)) return;
+    if (room.phase !== 'match' || !m || m.ended || seat.dropped || seat.resigned || !m.committed.has(seat.id)) return;
     const prev = m.committed.get(seat.id)!;
     const cap = m.closed + MAX_COMMIT_AHEAD;
     for (const [t, cmd] of cmds) {
@@ -471,8 +479,12 @@ export class Relay {
     const m = room.match!;
     if (m.ended) return;
     const gate = this.gating(room);
-    if (!gate.length) return;
-    let target = Math.min(...gate.map((s) => m.committed.get(s.id)!));
+    let target: number;
+    if (gate.length) target = Math.min(...gate.map((s) => m.committed.get(s.id)!));
+    // nobody plays any more (every human surrendered or left) but someone still watches: the AIs finish the match,
+    // at real time (the pace below)
+    else if ([...room.seats.values()].some((s) => s.resigned && s.conn && !s.over && !s.dropped)) target = m.closed + MAX_COMMIT_AHEAD;
+    else return;
     if (target <= m.closed) return;
     const allowed = m.pace.available(now);
     if (allowed <= 0) return;
@@ -483,7 +495,13 @@ export class Relay {
     for (const p of m.pending) (p[0] <= target ? out : keep).push(p);
     out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
     m.pending = keep;
-    const cmds: TickCmd[] = out.map((p) => [p[0], p[1], p[3]]);
+    const cmds: TickCmd[] = [];
+    for (const p of out) {
+      const seat = room.seats.get(p[1]);
+      if (seat?.resigned) continue; // (nothing of a seat after its surrender, even in the same tick)
+      cmds.push([p[0], p[1], p[3]]);
+      if (seat && (p[3] as { c?: unknown }).c === 'resign') this.resign(room, seat);
+    }
     const drops = m.drops.filter((d) => d[0] > m.closed && d[0] <= target);
     m.closed = target;
     m.lastAdvance = now;
@@ -516,10 +534,20 @@ export class Relay {
     if (want.every((s) => e!.has(s.id))) m.hashes.delete(tick);
   }
 
+  /** A seat's `resign` was closed: the simulation takes it out at that tick on every client (sim/resign.ts). The seat
+   *  gates nothing from now on and its later commands are dropped; it may stay and watch. */
+  private resign(room: Room, seat: Seat) {
+    const m = room.match!;
+    seat.resigned = true;
+    m.pending = m.pending.filter((p) => p[1] !== seat.id);
+    this.opts.log?.('player surrendered');
+  }
+
   private dropSeat(room: Room, seat: Seat, now: number, why: string) {
     const m = room.match;
     if (!m || seat.dropped || m.ended) return;
     seat.dropped = true;
+    if (seat.resigned) { this.broadcastRoom(room); return; } // out already: no AI takeover to schedule (sim/resign.ts)
     const at = m.closed + 1;
     m.drops.push([at, seat.id]);
     m.pending = m.pending.filter((p) => p[1] !== seat.id); // its commands for ticks still open go with it
@@ -567,7 +595,7 @@ export class Relay {
     if (room.phase !== 'over' || seat.id !== room.host) { this.violation(c, 'not-host'); return; }
     for (const s of [...room.seats.values()]) {
       if (!s.conn) room.seats.delete(s.id);
-      else { s.ready = false; s.dropped = false; s.over = false; s.loaded = false; }
+      else { s.ready = false; s.dropped = false; s.resigned = false; s.over = false; s.loaded = false; }
     }
     room.match = null;
     room.phase = 'lobby';
@@ -603,7 +631,7 @@ export class Relay {
     }
     this.send(c, {
       t: 'welcome', code: room.code, seat: seat.id, token: seat.token, room: this.view(room),
-      resume: { start: m.start, committed: m.committed.get(seat.id) ?? -1, closed: m.closed, dropped: seat.dropped, delay: m.delay },
+      resume: { start: m.start, committed: m.committed.get(seat.id) ?? -1, closed: m.closed, dropped: seat.dropped || seat.resigned, delay: m.delay },
     });
     // everything closed after what the client has, in chunks that never split a tick (the drops ride with the
     // first chunk: a client applies each one when it reaches its tick)
@@ -622,11 +650,23 @@ export class Relay {
     this.broadcastRoom(room);
   }
 
-  private onPong(c: Client, n: number, now: number) {
+  /**
+   * A heartbeat's round trip, as the input delay needs it: the network's. A page answers a ping only between frames,
+   * so a machine drawing a few frames a second adds about half a frame to every sample; the client tells its frame
+   * time and that is taken off (its own commits already reach that much further ahead: src/net/session.ts). A single
+   * sample far above the average (a page that froze for a second) moves the average only so far.
+   */
+  private onPong(c: Client, n: number, now: number, frameMs: number) {
     if (n !== c.pingN || !c.pingAt) return;
-    const rtt = Math.max(0, now - c.pingAt);
+    const raw = Math.max(0, now - c.pingAt - frameMs / 2);
     c.pingAt = 0;
     c.lastPong = now;
+    // a page building the match (compiling shaders, loading models) answers late: that says nothing about the network
+    if (c.room?.phase === 'match' && c.seat && !c.seat.loaded) return;
+    c.recent.push(raw);
+    if (c.recent.length > 3) c.recent.shift();
+    let rtt = c.recent.length < 3 ? raw : [...c.recent].sort((a, b) => a - b)[1];
+    if (c.rtt) rtt = Math.min(rtt, 2 * c.rtt + 250);
     if (!c.rtt) c.rtt = rtt;
     c.jitter = c.jitter * 0.75 + Math.abs(rtt - c.rtt) * 0.25;
     c.rtt = c.rtt * 0.7 + rtt * 0.3;
@@ -675,7 +715,9 @@ export class Relay {
       const live = [...room.seats.values()].filter((s) => s.conn && !s.dropped && s.conn.rtt > 0);
       if (live.length) {
         const want = delayFor(Math.max(...live.map((s) => s.conn!.rtt)), Math.max(...live.map((s) => s.conn!.jitter)));
-        m.delay = want > m.delay ? want : Math.max(want, m.delay - 1); // up at once, down a step at a time
+        // up at once; down by half the gap every 2 s (from 15 ticks back to 2 within about 8 s), so a short bad spell -
+        // or the first seconds of a match on a page still warming up - does not keep play sluggish
+        m.delay = want > m.delay ? want : Math.max(want, m.delay - Math.max(1, Math.ceil((m.delay - want) / 2)));
         this.broadcast(room, { t: 'lat', rtt: live.map((s) => [s.id, Math.round(s.conn!.rtt)]), delay: m.delay });
       }
     }

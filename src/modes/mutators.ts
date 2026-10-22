@@ -54,7 +54,9 @@ const DAILY_SKIRMISH: Record<string, Partial<MutatorInfo>> = {
   'storm-front': { excl: 'weather', quick: true, newcomer: true },
   'double-ore': { excl: 'ore', quick: true },
   'lean-times': { quick: false },
-  'credits-rain': { desc: '+$400 for every commander every 30 seconds, and crates fall from the sky.', quick: true, newcomer: true },
+  // (not newcomer-safe: the AI spends the free money at once, a new player banks it; Easy won 52% of its Quick Battles
+  // against the newcomer stand-in with it, 31% without: docs/BALANCE.md, version 5)
+  'credits-rain': { desc: '+$400 for every commander every 30 seconds, and crates fall from the sky.', quick: true },
   'glass-cannons': { desc: 'Every unit has 60% of its normal health: battles are short and brutal.', quick: true },
   'veteran-start': { desc: 'Every unit fielded, on every side, arrives as a Veteran.', quick: true, newcomer: true },
   'fast-production': { excl: 'speed', quick: true },

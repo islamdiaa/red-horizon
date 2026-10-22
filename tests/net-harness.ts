@@ -198,8 +198,13 @@ export interface Peer {
   messages: ServerMessage[];
   /** Run frames (false: a frozen client, e.g. a hung tab). */
   running: boolean;
+  /** A tab in the background: no frames, but its timers still run (the game link commits ahead every 250 ms). */
+  hidden?: boolean;
   /** Never report the match as loaded (a page still building it). */
   noLoad?: boolean;
+  /** A slow machine: it runs a frame only this often (virtual ms), with that frame's whole elapsed time. */
+  frameEveryMs?: number;
+  lastFrameAt?: number;
 }
 
 export class Match {
@@ -217,6 +222,7 @@ export class Match {
 
   private relayTick() {
     this.relay.tick();
+    for (const p of this.peers) if (p.session && p.running) p.session.idleCommit(); // (src/net/game-link.ts's 250 ms timer)
     this.clock.at(this.clock.t + 250, () => this.relayTick());
   }
 
@@ -236,6 +242,7 @@ export class Match {
 
   /** The start (or a resume) arrived: build the world and the session (as the browser does after loading). */
   begin(p: Peer, start: MatchStart, bot: boolean) {
+    if (p.session) { p.session.dispose(); p.executed = []; p.drops = []; } // (a rematch in the same room)
     p.start = start;
     const setup = matchSetup(start, p.client.seat, 'low', null);
     const g = headlessGame(setup);
@@ -252,8 +259,16 @@ export class Match {
   frame(ms = 1000 / 60) {
     this.clock.advance(ms);
     for (const p of this.peers) {
-      if (!p.session || !p.running) continue;
-      p.session.frame(ms / 1000, () => { p.bot?.(); p.world!.step(); p.world!.events.length = 0; if (p.world!.mission) p.world!.mission.events.length = 0; });
+      if (!p.session || !p.running || p.hidden) continue;
+      let dt = ms;
+      if (p.frameEveryMs) {
+        const last = p.lastFrameAt ?? 0;
+        if (this.clock.t - last < p.frameEveryMs) continue;
+        dt = last ? this.clock.t - last : ms;
+        p.lastFrameAt = this.clock.t;
+      }
+      // (the game caps a frame's dt at 0.1 s, as game.ts does)
+      p.session.frame(Math.min(dt, 100) / 1000, () => { p.bot?.(); p.world!.step(); p.world!.events.length = 0; if (p.world!.mission) p.world!.mission.events.length = 0; });
     }
   }
 
@@ -268,7 +283,7 @@ export class Match {
   }
 
   /** Create a room with the first peer, join with the others, get everyone ready, start. */
-  setupRoom(settings: Record<string, unknown>, ai: { slot: number; ai: 'easy' | 'normal' | 'hard' }[] = []): RoomView {
+  setupRoom(settings: Record<string, unknown>, ai: { slot: number; ai: 'easy' | 'normal' | 'hard' }[] = [], lobbyMs = 0): RoomView {
     const [host, ...rest] = this.peers;
     host.client.create(settings);
     if (!this.until(() => host.client.state === 'open', 2000)) throw new Error('host did not get a room');
@@ -279,6 +294,7 @@ export class Match {
     }
     for (const p of rest) p.client.send({ t: 'me', ready: true, faction: 'random' });
     this.until(() => !!host.client.room && host.client.room.slots.every((s) => s.kind !== 'human' || s.ready), 2000);
+    if (lobbyMs) this.until(() => false, lobbyMs); // (a lobby that lasts: the relay measures the round trips meanwhile)
     host.client.send({ t: 'start' });
     if (!this.until(() => this.peers.every((p) => !!p.session), 3000)) throw new Error(`no start: ${host.errors.join(',')}`);
     return host.client.room!;

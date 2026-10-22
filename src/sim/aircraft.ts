@@ -43,7 +43,7 @@ export function updateAircraft(world: World, u: Unit) {
   if (u.ut.passengers) { updateTransportHeli(world, u); return; }
   const vtol = !!u.ut.vtol;
   const cruise = vtol ? HELI_ALT : PLANE_ALT;
-  const speed = mphToCellsPerSecond(u.ut.speed);
+  const speed = mphToCellsPerSecond(u.ut.speed) * (u.owner.hc?.air ?? 1); // (campaign difficulty: RA's Airspeed handicap, sim/handicap.ts)
   const rot = rotToRadPerSecond(u.ut.rot) * (vtol ? 1.3 : 0.9);
   const maxAmmo = u.ut.ammo ?? 0;
   const o = u.order;

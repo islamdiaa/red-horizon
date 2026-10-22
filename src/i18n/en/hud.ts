@@ -125,6 +125,7 @@ export default strings('hud', {
     stek: 'Tech Center',
     v2rl: 'V2 Launcher',
     fact: 'Const. Yard',
+    proc: 'Refinery',
   },
   // build card tooltip
   tip: {
@@ -442,5 +443,12 @@ export default strings('hud', {
     operation: 'Operation {name}',
     won: 'All enemy forces destroyed',
     lost: 'Your forces have been overrun',
+  },
+  // photo mode's lens controls (src/render/photo.ts)
+  photo: {
+    dof: 'Depth of field',
+    focus: 'Focus',
+    // focus slider at 0 means automatic focus; {key:photo} is the photo-mode key
+    hint: 'Focus 0 = auto · [kbd]{key:photo}[/kbd] to exit',
   },
 });

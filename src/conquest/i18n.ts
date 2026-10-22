@@ -5,7 +5,7 @@
  * Display only: never call this from run or battle logic.
  */
 import { BUILDINGS, UNITS } from '../data/rules';
-import { currentLang, dt, flatten, fmtDate, fmtMoney, trSource, tx, type Params } from '../i18n/core';
+import { addSourceResolver, currentLang, dt, flatten, fmtDate, fmtMoney, trSource, tx, type Params } from '../i18n/core';
 import { typeName } from '../i18n/names';
 import { RUN } from '../i18n/en/conquest-run';
 import { BATTLE, BATTLE_LOCAL } from '../i18n/en/conquest-battle';
@@ -13,6 +13,7 @@ import { DOCTRINES, MONTHS, PERKS, PERSONALITIES, RESEARCH, RESOURCES, TITLES, t
 import { KIND_INFO, type BattleKind } from './battle';
 import { EVENT_BY_ID } from './events';
 import { dateOf } from './state';
+import { REGIONS } from './geo';
 
 // =====================================================================================================
 // Game data names (tools/i18n/data-sources.ts, tables conquest*)
@@ -31,6 +32,16 @@ export const personalityName = (id: PersonalityId) => dt('conquestPersonality', 
 export const personalityDesc = (id: PersonalityId) => dt('conquestPersonality', id, 'desc', PERSONALITIES[id].desc);
 export const titleName = (t: TitleDef) => dt('conquestTitle', t.id, 'name', t.name);
 export const titleDesc = (t: TitleDef) => dt('conquestTitle', t.id, 'desc', t.desc);
+/** A territory's name (a run's territory keeps its region id: tools/i18n/data-sources.ts, table conquestRegion). */
+export const territoryName = (t: { id: string; name: string }) => dt('conquestRegion', t.id, 'name', t.name);
+// a {territory} inside emitted English ("Destroy the garrison of Normandy") is translated too
+// (battles use the territory in capitals as their codename: "NORMANDY")
+addSourceResolver((en) => {
+  const r = REGIONS.find((x) => x.name === en || x.name.toUpperCase() === en);
+  if (!r) return null;
+  const t = dt('conquestRegion', r.id, 'name', r.name);
+  return en === r.name ? t : t.toLocaleUpperCase(currentLang());
+});
 export const kindName = (k: BattleKind) => trRun(KIND_INFO[k].name);
 export const kindDesc = (k: BattleKind) => trRun(KIND_INFO[k].desc);
 /** The month of a turn ("March 1953"), in the active language. */

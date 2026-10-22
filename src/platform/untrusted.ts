@@ -11,6 +11,7 @@
  *   - caps string length, nesting depth and the total number of values.
  * The UI escapes text again where it builds HTML; this is the second line of defence.
  */
+import tErr from '../i18n/en/errors';
 
 export interface UntrustedLimits {
   /** Maximum input size in characters. */
@@ -39,8 +40,15 @@ export function cleanText(s: string, maxLen = 4000): string {
   return t.replace(CONTROL, '').replace(/</g, '‹').replace(/>/g, '›').replace(/"/g, '”').replace(/'/g, '’');
 }
 
-/** Thrown for input that breaks the limits; `message` is user-facing. */
-export class UntrustedInputError extends Error {}
+/** Why an untrusted input was refused (the translated text: src/i18n/en/errors.ts, file.<code>). */
+export type UntrustedInputCode = 'notText' | 'tooLarge' | 'tooMany' | 'tooDeep' | 'tooBig';
+
+/** Thrown for input that breaks the limits; `message` is user-facing (in the interface language). */
+export class UntrustedInputError extends Error {
+  constructor(readonly code: UntrustedInputCode, params?: { mb: number }) {
+    super(tErr(`file.${code}`, params));
+  }
+}
 
 /**
  * Parse untrusted JSON text. Throws `UntrustedInputError` (too large / too deep / too many values) or
@@ -49,16 +57,16 @@ export class UntrustedInputError extends Error {}
  */
 export function parseUntrustedJson(text: string, limits: Partial<UntrustedLimits> = {}): unknown {
   const L = { ...DEFAULT_LIMITS, ...limits };
-  if (typeof text !== 'string') throw new UntrustedInputError('Not a text file.');
-  if (text.length > L.maxChars) throw new UntrustedInputError(`File too large (${Math.round(L.maxChars / 1048576)} MB max).`);
+  if (typeof text !== 'string') throw new UntrustedInputError('notText');
+  if (text.length > L.maxChars) throw new UntrustedInputError('tooLarge', { mb: Math.round(L.maxChars / 1048576) });
   const raw: unknown = JSON.parse(text);
   let nodes = 0;
   const walk = (v: unknown, depth: number): unknown => {
-    if (++nodes > L.maxNodes) throw new UntrustedInputError('File has too many entries.');
+    if (++nodes > L.maxNodes) throw new UntrustedInputError('tooMany');
     if (typeof v === 'string') return cleanText(v, L.maxString);
     if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
     if (v === null || typeof v === 'boolean') return v;
-    if (depth >= L.maxDepth) throw new UntrustedInputError('File is nested too deeply.');
+    if (depth >= L.maxDepth) throw new UntrustedInputError('tooDeep');
     if (Array.isArray(v)) {
       const out: unknown[] = new Array(v.length);
       for (let i = 0; i < v.length; i++) out[i] = walk(v[i], depth + 1);
@@ -92,7 +100,7 @@ export async function gunzipBounded(bytes: Uint8Array, maxBytes: number): Promis
     total += value.byteLength;
     if (total > maxBytes) {
       void reader.cancel();
-      throw new UntrustedInputError('File expands to more data than a challenge can hold.');
+      throw new UntrustedInputError('tooBig');
     }
     chunks.push(value);
   }

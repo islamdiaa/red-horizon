@@ -110,10 +110,12 @@ export function buyResearch(run: ConquestRun, id: string): boolean {
 // =====================================================================================================
 function aiFor(strength: number, difficulty: ConquestRun['difficulty']): AIDifficulty {
   const off = difficulty === 'easy' ? -1 : difficulty === 'hard' ? 1 : 0;
-  // garrisons start with an established base while we land with an MCV: keep their AI a notch gentler
+  // garrisons start with an established base while we land with an MCV: keep their AI a notch gentler. On an Easy run
+  // the weakest garrisons (strength 1-3) play at Recruit: an Easy commander beat newcomers from an established base
+  // (tools/conquesttest.ts --pilot newcomer --difficulty easy). Normal and Hard runs are unchanged.
   const base = strength <= 3 ? 0 : strength <= 5 ? 1 : 2;
-  const k = Math.max(0, Math.min(3, base + off));
-  return (['easy', 'normal', 'hard', 'brutal'] as const)[k];
+  const k = Math.max(0, Math.min(4, base + off + 1));
+  return (['recruit', 'easy', 'normal', 'hard', 'brutal'] as const)[k];
 }
 
 /** Perk / research / territory effects for a battle. */

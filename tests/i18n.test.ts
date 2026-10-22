@@ -207,9 +207,11 @@ describe('no new hard-coded player-facing strings', async () => {
   const FILES = [
     ...fs.readdirSync(path.join(ROOT, 'src/ui')).filter((f) => f.endsWith('.ts')).map((f) => `src/ui/${f}`),
     'src/platform/errors.ts', 'src/platform/webgl.ts', 'src/share/dialog.ts', 'src/share/open.ts', 'src/share/content.ts', 'src/mods/ui.ts', 'src/cinematic.ts',
+    // the map & mission editor (its runtime English for custom missions is registered source text: editor-mission.ts)
+    ...fs.readdirSync(path.join(ROOT, 'src/editor')).filter((f) => f.endsWith('.ts')).map((f) => `src/editor/${f}`),
   ];
   /** Literals that are not prose: KeyboardEvent.key / .code names, names and marks that stay as they are. */
-  const ALLOW = new Set(['Escape', 'Enter', 'Tab', 'Shift', 'Control', 'Alt', 'Meta', 'Ctrl', 'Dead', 'Unidentified', 'Process', 'Key', 'Backquote',
+  const ALLOW = new Set(['Escape', 'Enter', 'Tab', 'Shift', 'Control', 'Alt', 'Meta', 'Ctrl', 'Dead', 'Unidentified', 'Process', 'Key', 'Backquote', 'Delete', 'Backspace', 'Arrow',
     'Red Horizon', 'RED HORIZON', 'Commander' /* the default commander name (stored, sent to other players) */, 'Error' /* Error.name */,
     'HD', 'XP', 'FPS', 'OK', 'Esc', 'vs', 'AI', 'MP', 'GPU', 'WebGL', 'WebGL 2', 'LB', 'RB', 'LT', 'RT', 'zZ', '.rhmod.json']);
   /** Developer text: the copied diagnostics and error reports stay English, plus never-shown internals. */
@@ -217,7 +219,7 @@ describe('no new hard-coded player-facing strings', async () => {
     'src/ui/a11y-diagnostics.ts': ['Version', 'Time', 'Browser', 'Platform', 'Screen', 'Device', 'Display', 'Settings'],
     'src/platform/errors.ts': ['Version', 'Time', 'User agent', 'Screen', 'Device', 'Context'],
     'src/platform/webgl.ts': ['No document', 'No WebGL implementation.'],
-    'src/ui/hud.ts': ['Advanced Power Plant', 'Mobile Construction Vehicle', 'Allied Tech Center', 'Soviet Tech Center', 'V2 Rocket Launcher', 'Construction Yard'], // SHORT_NAMES keys
+    'src/ui/hud.ts': ['Advanced Power Plant', 'Mobile Construction Vehicle', 'Allied Tech Center', 'Soviet Tech Center', 'V2 Rocket Launcher', 'Construction Yard', 'Ore Refinery'], // SHORT_NAMES keys
   };
   type Node = { type?: string; start: number; value?: unknown; quasis?: { value: { cooked?: string; raw: string } }[] };
   const walk = (n: unknown, fn: (n: Node) => void) => {

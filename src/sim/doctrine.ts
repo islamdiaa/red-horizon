@@ -314,6 +314,7 @@ export const AEGIS_FACTOR = 0.5;
 /** Price of a type for a player (whole credits). Classic: the rules' cost. */
 export function costOf(p: Player, t: TypeDef): number {
   const m = p.cmd?.rules?.cost[t.id];
+  if (p.hc) return Math.round((m === undefined ? t.cost : t.cost * m) * p.hc.cost); // campaign difficulty: RA's Cost handicap, which the build time follows (sim/handicap.ts)
   return m === undefined ? t.cost : Math.round(t.cost * m);
 }
 

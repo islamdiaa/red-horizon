@@ -18,6 +18,7 @@ import tLocker from '../i18n/en/locker';
 import tCommon from '../i18n/en/common';
 import { applyHudTheme, bindCosmeticsAudio, commanderLook, portraitSvg, previewFanfare, previewVoice, refreshVoice } from '../meta/cosmetics';
 import { paintPreviews } from '../meta/paint'; // (needs the 3D models: the Locker loads on demand)
+import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
 
 const CSS = `
 .rh-locker { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: .9rem; padding: 3.2vh 3vw; font-family: var(--font, sans-serif); color: var(--text, #e9f0f7);
@@ -210,7 +211,7 @@ export function showLocker(opts: { onBack(): void; audio?: AudioSystem; play?(k:
     root.innerHTML = `
       <div class="lk-head" style="--banner:${look.banner}">
         <div class="lk-por">${look.portrait}</div><div class="lk-ins">${insigniaSvg(rp.index, profile.faction)}</div>
-        <div class="lk-id"><small>${tLocker.html('kicker', { rank: rp.name })}</small><b>${esc(profile.name)}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
+        <div class="lk-id"><small>${tLocker.html('kicker', { rank: rp.name })}</small><b>${esc(playerName(profile.name))}</b>${look.title ? `<em>${esc(look.title)}</em>` : ''}</div>
         <div class="lk-cmd"><b>${picto('medal')}${fmtInt(profile.commendations)}</b><small>${tLocker.html('commendations')}</small></div>
         <button class="lk-btn" data-act="back">${picto('back')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button>
       </div>

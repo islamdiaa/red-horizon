@@ -199,7 +199,7 @@ export class Overlay {
       this.drawn = true;
       ctx.save();
       ctx.globalAlpha = Math.min(1, (1 - k) * 2);
-      ctx.font = '700 15px "Rajdhani", "Segoe UI", sans-serif';
+      ctx.font = '700 15px "Rajdhani", "RH Cyrillic", "Segoe UI", "RH CJK", sans-serif';
       ctx.textAlign = 'center';
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
@@ -314,7 +314,7 @@ export class Overlay {
     const blink = Math.sin(time * Math.PI * (left < 2 ? 8 : 3)) > 0;
     const ctx = this.ctx;
     ctx.save();
-    ctx.font = '700 11px "Share Tech Mono", "Rajdhani", monospace';
+    ctx.font = '700 11px "Share Tech Mono", "Rajdhani", "RH Cyrillic", "RH CJK", monospace';
     const text = `C4 ${left.toFixed(1)}`;
     const tw = ctx.measureText(text).width + 12;
     ctx.fillStyle = blink ? 'rgba(120, 10, 6, 0.9)' : 'rgba(40, 6, 4, 0.85)';
@@ -336,7 +336,7 @@ export class Overlay {
   private tag(x: number, y: number, text: string, square = false) {
     const ctx = this.ctx;
     ctx.save();
-    ctx.font = '700 10px "Rajdhani", "Segoe UI", sans-serif';
+    ctx.font = '700 10px "Rajdhani", "RH Cyrillic", "Segoe UI", "RH CJK", sans-serif';
     const tw = ctx.measureText(text).width + 8;
     ctx.fillStyle = 'rgba(10, 20, 14, 0.8)';
     this.round(square ? x - 6 : x - tw / 2, y - 7, square ? 12 : tw, 13, 3);

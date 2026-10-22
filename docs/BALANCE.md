@@ -14,11 +14,12 @@ How Red Horizon keeps its matches fair, and the numbers it is measured by.
 - **No dominant plan.** Every doctrine should win 40–60% of its matchups, mirror and cross-faction. The Commander
   economy should help a commander who uses it (55–65% against one who ignores it) without deciding the match on
   its own, and a side that falls behind should still be able to come back.
-- **Difficulty is a curve, measured against people.** Five levels, each measured against scripted stand-ins for
-  real players (a novice, a casual and an experienced commander). Recruit and Easy must lose to a newcomer most of the
-  time, Normal is an even fight for a casual player, Hard for an experienced one, and Brutal beats them. The easy
-  levels are weak because they *use less*, not because they cheat less: under Commander rules the full AI's economy
-  (tiers, processors, smelter, outposts, derricks, events, powers) is worth more than any income multiplier.
+- **Difficulty is a curve, measured against people.** Five levels, each measured against scripted stand-ins for real
+  players (a first-time newcomer, a novice, a casual and an experienced commander), where players meet them (Quick
+  Battle and the skirmish menu's defaults). Recruit and Easy must lose to a newcomer most of the time, Normal is an
+  even fight for a casual player, Hard for an experienced one, and Brutal beats them. The easy levels are weak because
+  they *use less*, not because they cheat less: under Commander rules the full AI's economy (tiers, processors,
+  smelter, outposts, derricks, events, powers) is worth more than any income multiplier.
 - **Measured, not guessed.** Every number below comes from headless AI-vs-AI self-play (`tools/selfplay`),
   reported with 95% confidence intervals. Self-play is noisy: differences under about 5 points between two
   batches of a few hundred games are not significant.
@@ -33,9 +34,202 @@ How Red Horizon keeps its matches fair, and the numbers it is measured by.
 | The Commander economy on vs off | `node --import tsx tools/selfplay/economy.ts --only ablation,greed --games 24` |
 | The difficulty curve against a passive player and after a build-up time | `node --import tsx tools/selfplay/difficulty.ts --games 6 --only passive,ceasefire` |
 | Each level against the human stand-ins | `node --import tsx tools/selfplay/standins.ts --games 20` (`--personality all`, `--dynamic 1`) |
+| Each level where players meet it: Quick Battle rolls and the skirmish menu's defaults, against the stand-in each level is measured against | `node --import tsx tools/selfplay/levels.ts --games 60` (`--cond qb,custom`, `--rules commander,classic`, `--pairs all`, `--patch`, `--tune`) |
+| Team play (2v2 with an AI teammate), free-for-alls and navies at every level | `node --import tsx tools/selfplay/teams.ts --games 16` (`--mode 2v2,ffa,naval`, `--map archipelago`) |
+| One match as the game sets it up, with snapshots of both sides (what the AI spent, fields and builds) | `node --import tsx tools/selfplay/trace.ts --qb 77 --diff recruit --vs newcomer --at 3,7,15` (`--autostart <seed>`, `--vs ai:<level>`) |
 
 `MatchSpec.rules` (tools/selfplay/lib.ts) can patch any rule or Commander number for one batch (`patches`, e.g.
 `['POWERS.funds.cooldown', 300]`), so a change can be tried before it is made.
+
+## Where players meet the AI (simulation version 5)
+
+The user's words: *"the AI is hard even on easy, I can't win"*, and then *"improve the gameplay on all modes for all
+levels"*. The UI bot of the test lab (tools/e2e), playing through the real interface the way a first-time player does
+(infantry waves, no defences), lost both of its Recruit Quick Battles; the Recruit AI had about 36 units and flame
+towers by minute 7.
+
+The stand-ins are described under *The stand-ins* below; version 5 adds the **newcomer**, a first-time player.
+
+### What the Recruit AI did (Quick Battle seed 77, version 4)
+
+`tools/selfplay/trace.ts` replays a match exactly as the game sets it up. On the bot's setup (`--autostart 77`: 96×96,
+Commander rules, Recruit) the Recruit AI had spent $8,000 of its $10,000 by minute 3: 22 units worth $4,110 (15
+riflemen, 5 rocket soldiers, a grenadier and its starting tank, exactly its $4,000 army cap) and its one flame tower.
+From then on the army cap stopped units, so the money went into structures: by minute 7 two war factories, a radar, a
+kennel, an airfield, a helipad, a service depot and two advanced power plants. The Quick Battle roll for seed 77 (112×112
+desert, Air Marshal, Night Ops) did the same, plus three airfields and two helipads from the personality's build
+order, and aircraft that the army cap did not count.
+
+What applied and what did not:
+
+| | |
+|---|---|
+| Applied | the $4,000 army cap (by value: cheap riflemen made it 20+ units), one defence (rebuilt when lost: two flame towers placed in the match), one refinery and two trucks, build speed 0.5 and income 0.7, no battlefield-event money (none earned), dynamic difficulty in the Quick Battle roll (it eased off, to level −3 by minute 3) |
+| Did not apply | nothing limited infantry before the war factory or how fast the starting $10,000 went; aircraft and ships were outside the army cap; the personality's build order added airfields, helipads and a second war factory; nothing limited the number of structures |
+| Mutators, rivals, events, Quick Battle extras | no effect on seed 77 (Night Ops is a look), and a rival is capped at the commander's level; but Quick Battle's newcomer pool included Credits Rain, which pays the AI and the player alike and is spent only by the AI (see below) |
+
+What killed the newcomer's units in the AI's wins (the newcomer stand-in, 240 games): heavy tanks ($11,500 a game),
+riflemen and rocket soldiers ($10,600), the flame tower ($4,300), V2 rockets ($3,600) and Mammoth Tanks ($2,400). The
+Soviet Recruit beat an Allied newcomer in 68% of the games, the Allied Recruit a Soviet newcomer in 4%. The bot's waves
+that "stalled mid-map" were a unit-behaviour matter (fixed in the same round: units return fire and retry blocked
+moves) and an interface one (an attack-move click on a structure used to issue a plain attack).
+
+### The levels against the stand-ins
+
+`tools/selfplay/levels.ts`, 60 games a cell, version 4 against version 5 (this round, with the unit-behaviour fixes).
+*Quick Battle*: a roll per game (generated 80–112 maps with water or a curated two-player map, climate, a personality or,
+in 35% of the games, a rival with a newcomer's counter-plan, one newcomer-safe mutator below Normal and one or two from
+Normal up, battlefield events, dynamic difficulty on below Normal); Quick Battle is Commander rules, and the same rolls
+were also played under Classic rules. *Custom*: the skirmish menu's defaults (96×96, water 0.5, $10,000, light start,
+events, balanced personality, dynamic difficulty at its default). Factions alternate; a game still running at 45 minutes
+goes to the side ahead on material. Pooled over both conditions (240 games a row, 120 per ruleset):
+
+| Level vs stand-in | Target | Version 4 | Version 5 | Classic (v4 → v5) | Commander (v4 → v5) | Human's wins, median length (v5) |
+|---|---|---|---|---|---|---|
+| Recruit vs newcomer | ≤ 15% | 36% [30–42] | **9% [6–13]** | 36% → 8% | 36% → 10% | 16 min |
+| Recruit vs novice | ≤ 5% | 1% [0–3] | 3% [1–5] | 0% → 3% | 2% → 3% | 33 min |
+| Easy vs newcomer | ≤ 40% | 77% [71–82] | **31% [26–37]** | 73% → 28% | 82% → 34% | 30 min |
+| Easy vs novice | ≤ 20% | 16% [12–21] | 7% [4–11] | 13% → 12% | 18% → 3% | 45 min |
+| Easy vs casual | ≤ 10% | 0% [0–2] | 0% [0–2] | 0% → 0% | 0% → 0% | 36 min |
+| Normal vs casual (with its new economy, below) | 40–60% | 39% [33–45] | **47% [41–53]** | 33% → 46% | 45% → 48% | — |
+| Hard vs casual | ≥ 65% | 63% [56–68] | 55% [49–62] | 46% → 38% | 79% → 73% | — |
+| Hard vs experienced | 40–60% | 57% [50–63] | 60% [53–66] | 58% → 68% | 55% → 52% | — |
+| Brutal vs experienced | ≥ 80% | 93% [89–96] | 93% [88–95] | 94% → 92% | 93% → 93% | — |
+
+The same match-ups with the version-4 AI on this round's units (120 games a ruleset) put Recruit and Easy against the
+newcomer at 33% and 78%: the drop to 9% and 31% is the AI's. Hard against the experienced stand-in in Classic rose from
+58% to 68% [59–75], above the 40–60% aimed for, while Hard against the casual player in Classic is 38%: Classic Hard
+handles AI-like play better than it did and the tank-massing casual player no better (*Still open*, below).
+
+By condition (version 4 → 5, 60 games each): Recruit vs newcomer, Quick Battle 38% → 13% (Commander) and 33% → 8%
+(Classic rules), custom 33% → 7% and 38% → 7%; Easy vs newcomer, Quick Battle 75% → 32% and 72% → 25%, custom 88% → 37%
+and 73% → 32%. Hard against the casual player in Classic is 50% on the Quick Battle rolls and 27% on the 96×96 custom
+default (38% in version 4), the gap version 4 left open (*Still open* below).
+
+Signs of life (version 5; games still running at minute 15): the Recruit AI scouted by minute 5 in every game, sent
+its first wave at 10:00 (median; was 15:00) and had a wave out by minute 15 in 100% of the games against the novice
+(85% before) and 73% against the newcomer (51%: the newcomer keeps its army busy at home); Easy at 9:00 (was 12:00),
+100% and 80%; their units reached the human's base by minute 15 in 99–100% of the games against the novice and 65%
+(Recruit) / 100% (Easy) against the newcomer. A newcomer's wins against Recruit take 16 minutes (median).
+
+**Dynamic difficulty** (on by default below Normal) stayed assist-only: in 1,200 Recruit and Easy games it never pushed
+harder, and it eased off in 357 of them (down to level −4).
+
+### What changed (Recruit and Easy use less)
+
+Every one of these is something the easy levels *use less* of, visible on the battlefield; none is a hidden penalty.
+Each step was measured against the newcomer stand-in (40 games a cell: Quick Battle and the menu defaults, both rulesets,
+160 games a level). The later steps ran on the tree with the round's unit-behaviour fixes (return fire, move retries).
+
+| Step | Recruit vs newcomer | Easy vs newcomer |
+|---|---|---|
+| Version 4 | 36% | 77% |
+| A: the army grows over the match (Recruit $1,200 + $250 a minute, Easy $1,500 + $300, aircraft and ships counted), 6 / 8 riflemen before the war factory, one of each factory | 56% (stronger: the money went into tanks and structures) | 88% |
+| A + earlier, smaller first waves (10:00 for $1,000 / 9:00 for $1,800) | 49% | 81% |
+| A + no ground defence before 10:00 / 6:00 | 28% | 87% |
+| A + both + no artillery, V2s, Mammoths or specials, 3 / 6 combat vehicles at most | 23% | 77% |
+| … + the army waits behind the yard, 10 / 13 structures at most, no decoys | 16% | 74% |
+| … + Easy: one defence, not before 10:00 (was two from 6:00), 4 vehicles, wave cap $3,000, army cap $6,000 | 16% | 34% |
+| … + Recruit: 2 combat vehicles at most (version 5 as shipped) | 11% | 34% |
+
+Tried and left out: smaller army caps (Recruit $3,000: 12%, but more games running to the time limit), the army waiting
+in front of the yard vs behind it (no difference within the noise), sparing the human's construction yard until last
+(no difference), dropping the riflemen limit before the war factory (no difference: it stays, as the cure for the
+reported crowd of riflemen).
+
+Also in version 5:
+
+- **Credits Rain** left Quick Battle's newcomer-safe pool (see *Looking for AI advantages*).
+- **Short of money** ($2,500 with Lean Times, or a refinery lost with an empty bank): the AI builds the power plant the
+  refinery needs and then the refinery, before anything else. It used to build two power plants and a barracks, and
+  the refinery then waited half-paid for ever with no income to finish it (the daily challenge's Lean Times AI).
+- **Free-for-alls**: with several enemy starts equally far away (a symmetric four-player map), the low levels used to
+  scout, and then attack, the first seat in the list: the human's. Ties now go round the map one way, so each AI
+  looks at a different neighbour.
+- **Navies**: Recruit fields no ships, and now builds no shipyard either ($650 it never used).
+
+### Classic: finishing the game
+
+Classic AI-vs-AI games on the curated two-player maps (normal and hard, both sides the same AI, 96 games,
+`run.ts --mode faction --maps curated`): 77% ran to the 45-minute limit in version 4, and 93% on this round's tree
+before these changes (the units now return fire and retry blocked moves, which made sieges costlier still). Half of
+the timeouts were lopsided (the leader at twice the trailer's material or more): the leader either had no target left
+that it knew of (the enemy's last structures out of sight), or turned every wave back at a Tesla Coil base it could not
+break. What the Classic commander (normal and up) does now, judgement only, rules untouched:
+
+- **Hunting** (`AIIntel.huntPoint`, every skirmish AI): with no enemy structure, start or unit left that it knows of
+  while an enemy is still in the game, its waves search the map, the square it has gone longest without seeing first.
+  The waves used to sit at home until the time limit.
+- **Sieges** (`AITuning.proSiege` 2): a wave stopped by defences rather than by an army, while the commander is clearly
+  ahead (its army worth 1.5 times its estimate of the enemy's), holds at its staging point outside their reach and
+  calls up the rest of the army, then goes in again once it outweighs what stopped it, twice at most, instead of
+  going home. While clearly ahead it also counts known defences at 1.5 times their price instead of 2 when it weighs
+  what a wave faces (`proTowerW`).
+- **Power** (`proPower`): the power plants a Tesla Coil base can't spare (by what it has seen of his plants and
+  consumers) come first among wave targets, and a coil it sees standing dark counts for nothing. In Red Alert a coil
+  base falls with its power.
+- **A lean first 15 minutes** (`proLean`): the tech centre, a third refinery and a second Tesla Coil wait for money or
+  an army edge, like the other extras.
+
+Ungated, the sieges and the lighter tower weight took about 10 points off Normal and Hard against the casual stand-in (an
+army that leaves home to besiege leaves its own base bare against a commander who masses tanks and counter-attacks),
+which is why they wait for a clear lead.
+
+| Curated maps, Classic, normal and hard (96 games) | Timeouts | Allied share (timeouts by material) | Allied share of decided games |
+|---|---|---|---|
+| Version 4 | 77% | 70% [60–78] | 50% (11 of 22) |
+| This round's units, version-4 AI | 93% | 71% [61–79] | 71% (5 of 7) |
+| + sieges and the lighter tower weight, ungated | 68% | 60% [50–70] | 65% (20 of 31) |
+| + lean build, power play, hunting; sieges gated (version 5, with Normal's economy below) | **57%** | **56% [46–66]** | 66% (27 of 41) |
+
+The Allied share is back inside 40–60%, but timeouts stay far above the 35% aimed for: in half of the remaining ones
+the leader is 1.5 times ahead on material or more (a quarter 2.3 times), the rest are even games in which two fortified
+commanders trade waves. *Still open.*
+
+**Normal** now builds at 1.0 and earns 1.05 (was 0.95 / 1.0): on this round's tree the unit-behaviour fixes had taken
+Normal against the casual stand-in from 33% to 27% in Classic and from 45% to 38% under Commander rules (version-4 AI
+on the new units, 120 games each); with the 5% it is 46% [37–55] in Classic and 48% [40–57] under Commander rules
+(custom 40% / 52%, Quick Battle 52% / 45%), inside 40–60% in both. Hard (1.05 / 1.05) stays a step above it.
+
+**Hard against the casual stand-in in Classic** stays the gap version 4 left: 27% on the 96×96 custom default and 50%
+on the Quick Battle rolls (38% / 53% before). The casual player has twice the Classic AI's army at minute 10 and
+destroys its Ore Trucks and refineries at home: the AI harvests $48,000 a game to his $65,000 and builds 12 tanks to
+his 45. Raising Classic Hard's economy to 1.15 (tried) brings the Quick Battle rolls to 68% but the custom default
+only to 30%, and lifts Hard over the experienced stand-in to 75–88%: the AI's judgement against a tank-massing,
+counter-attacking player is what is missing, not money. *Still open.*
+
+### Team play, free-for-alls and navies
+
+`tools/selfplay/teams.ts`, 16 games a cell (both rulesets), the casual stand-in as the human; version 4 against version
+5 (both with the round's team-aware start positions, src/sim/starts.ts).
+
+**2v2 with an AI teammate** (the lobby's AI seats; every AI at the level). AI teammates had no notion of a human
+teammate: they never came to his base when it was attacked, and the easy levels sat at home a third to half of the
+time. Now an AI teammate (`src/sim/ai-team.ts`, only with a human on its team) sends help when the human's base is
+attacked (after the level's reaction delay, with at least half its free army or enough to outweigh the attackers),
+joins the human's pushes (when his army is at an enemy base, its idle army goes for the same base, wave caps still
+apply), and keeps its Ore Trucks off the fields by his refineries while another field has ore.
+
+| Level (Commander / Classic) | Help sent to the human's base, v4 → v5 | Pushes joined | Teammate idle at home | Human team wins, v4 → v5 |
+|---|---|---|---|---|
+| Recruit | 0% → 0% / 0% → 0% (1 and 8 attacks) | 29% → 53% / 13% → 60% | 37% → 17% / 50% → 18% | 100% → 100% |
+| Easy | 0% → 20% / 0% → 33% | 41% → 61% / 38% → 66% | 22% → 12% / 38% → 12% | 100% → 100% |
+| Normal | 0% → 74% / 0% → 48% | 49% → 57% / 25% → 38% | 5% → 1% / 13% → 5% | 63% → 75% / 44% → 69% |
+| Hard | 0% → 64% / 0% → 72% | 27% → 33% / 29% → 36% | 6% → 2% / 12% → 3% | 31% → 13% / 44% → 63% |
+| Brutal | 0% → 61% / 0% → 71% | 29% → 36% / 23% → 46% | 3% → 1% / 10% → 2% | 6% → 6% / 13% → 0% |
+
+The help arrives within 150 s in 16–38% of the attacks (median 20–90 s): most attacks are over by then, beaten by the
+human's own defences. The AI teammates never mined by the human's refinery in either version (0–2% of their harvesting).
+
+**Free-for-all** (the human and three AIs): version 4's Recruit and Easy aimed 51–67% of their waves at the human
+(a third would be even-handed): their only scout went to the nearest unexplored start, and on a symmetric map the
+first of several equally near starts in the list, the human's seat. Ties now go round the map one way: 29–35% at
+Recruit and Easy; Normal and up 15–25% (21–30% before).
+
+**Navies** (two AIs of the level on a generated sea map; `--map archipelago` gives the same picture): ships built per
+side (median) 0 / 1 / 5 / 6–9 / 8–9 from Recruit to Brutal, sinking ships and shelling the shore in proportion. Recruit
+fields no ships by design and now builds no shipyard either (it built one in every game before). Two Recruit or two
+Easy AIs on a sea map rarely finish each other inside 45 minutes.
 
 ## Difficulty levels (simulation version 3)
 
@@ -50,6 +244,7 @@ mercenary helpers work for them. They act every few seconds of "attention", with
 
 | Stand-in | Plays like |
 |---|---|
+| **Newcomer** (version 5) | A first-time player, after the UI bot's first naive player (tools/e2e) and how new players play their first skirmishes: the opening the first launch teaches (power, refinery, barracks, power, war factory), built slowly (30 s between structures); one refinery and its free Ore Truck; mostly riflemen with a few light vehicles (light tanks and jeeps, heavy tanks for the Soviets), queued four at a time every 12 s, so money often sits idle. No defences, repairs, commander powers or harvester care. From minute 5 every group at home worth $700 or more goes across the map on an attack-move as soon as it gathers (one every 75 s at most), and no group ever comes back; a raid on the base is answered after 25 s with half the idle units at home. |
 | **Novice** | A slow build (dawdles 25 s between structures). One refinery and two Ore Trucks, power only after it has been low for 45 s, one pillbox or flame tower. Looks at its factories every 25 s and queues one unit, so they stand idle and money piles up (no silos). Attacks from minute 14, every 7 minutes, with everything it has, never retreats. Answers a raid after 15 s with half of its idle units. No commander powers, tiers or upgrades. |
 | **Casual** | A sensible build with two refinery lines (two trucks each, five at most), four defences, a service depot and power planned ahead. Factories mostly busy (two queued, checked every 5 s). A medium attack every 4 minutes from minute 8 (from $4,000, growing $800 a wave) with 80% of the army, falling back at a quarter strength; the whole home army answers a raid within 3 s; repairs. Commander rules: Emergency Funds, Field Repair, Rally Cry and Reinforcements, Tier 2 at minute 10 and an Ore Processor. |
 | **Experienced** | The version-2 Normal AI, frozen in `tools/selfplay/frozen/`, playing with a human's economy (build speed and income 1.0) and its own doctrine. |
@@ -142,7 +337,8 @@ A build with a plain five-minute limit on holding back gave 58% [48–68] with 5
 against the casual player. Two other tries did not reach 50% timeouts with a 40–60% split of the decided games and
 were left out: waves that see a stalemate-breaking attack through (retreating only at 1.8 times the usual line: 79%
 timeouts), and counting towers once instead of twice, health-weighted, when the wave has beaten the defending army
-(68% timeouts, Allies 71% of the decided games). Still open.
+(68% timeouts, Allies 71% of the decided games). Version 5 takes it to 57% timeouts and a 56% Allied share (*Classic:
+finishing the game*, above); still open.
 
 Economy at a glance (harvest a minute, AI against stand-in, Commander): Easy against the novice $829 / $851 (was
 $3,139 / $857); Normal against the casual player $1,682 / $1,789 (was $2,651 / $1,470).
@@ -161,7 +357,7 @@ goes from 48% to 55% [40–69].
 
 | | Recruit | Easy | Normal | Hard | Brutal |
 |---|---|---|---|---|---|
-| Build speed / ore income | 0.5 / 0.7 | 0.6 / 0.75 (was 0.65 / 0.9) | 0.95 / 1.0 | 1.05 / 1.05 (was 1.15 / 1.15) | 1.4 / 1.35 |
+| Build speed / ore income | 0.5 / 0.7 | 0.6 / 0.75 (was 0.65 / 0.9) | 1.0 / 1.05 (version 5; was 0.95 / 1.0) | 1.05 / 1.05 (was 1.15 / 1.15) | 1.4 / 1.35 |
 | Refineries / Ore Trucks at most | 1 / 2 | 2 / 3 | 3 / 6 | — | — |
 | Expansions / mining outposts | none | none | 1 / 1 | 2 / 2 | 3 / any |
 | Oil derricks, battlefield events | no / no | no / no | yes / 60% of events | yes / 80% | yes / all |
@@ -170,9 +366,14 @@ goes from 48% to 55% [40–69].
 | Upgrades | none | Turbines only | 2 Processors at most, no Purifier, Smelter or Logistics Centre | 3 Processors | any |
 | Doctrine | none | none | yes | yes | yes |
 | Commander powers | none | Field Repair only, 2 min apart | all but Tesla Storm and Sabotage, 45 s apart | all, 30 s apart | all |
-| First wave / its value / growth | 15:00 / $1,800 / $400 | 12:00 / $2,500 / $700 | 7:00 / $3,500 / $1,800 | 5:00 / $3,500 / $2,000 | 3:30 / $3,500 / $2,200 |
-| Wave and army caps | $3,000 / $4,000 | $6,000 / $8,000 | $12,000 / $30,000 | — | — |
-| Defences, bunkers | 1, none | 2 (+1 after 15 min), none; one Tesla Coil at most | 3 (+2), 2 | 4 (+2), 3 | 5 (+2), 3 |
+| First wave / its value / growth | 10:00 / $1,000 / $300 (was 15:00 / $1,800 / $400) | 9:00 / $1,800 / $700 (was 12:00 / $2,500) | 7:00 / $3,500 / $1,800 | 5:00 / $3,500 / $2,000 | 3:30 / $3,500 / $2,200 |
+| Wave and army caps | $3,000 / $4,000 | $3,000 / $6,000 (was $6,000 / $8,000) | $12,000 / $30,000 | — | — |
+| Army cap at the start, growth a minute (aircraft and ships count) | $1,200, +$250 | $1,500, +$300 | — | — | — |
+| Combat vehicles at most; units it never builds | 2; artillery, V2s, Mammoths, Tesla and Chrono tanks, specials | 4; the same | — | — | — |
+| Riflemen before the war factory | 6 | 8 | — | — | — |
+| Structures (power aside); factories | 10; one barracks, war factory, airfield, helipad; no kennel, decoys or gap generator | 12; the same | — | — | — |
+| Defences, bunkers | 1, none, not before 10:00 (was 1 from the start) | 1, none, not before 10:00 (was 2, +1 after 15 min); one Tesla Coil at most | 3 (+2), 2 | 4 (+2), 3 | 5 (+2), 3 |
+| Where the army waits between waves | 3 cells behind the yard | 3 cells behind the yard | 5 cells in front | 5 cells in front | 5 cells in front |
 | Raids on harvesters, spies, thieves, mines, siege specials, superweapons | none | none | yes | yes | yes |
 | Answers an intruder after / rebuilds after | 15 s / 150 s | 6 s / 60 s | 2 s / 20 s | at once | at once |
 
@@ -195,7 +396,9 @@ building or event:
   minutes at full value. Recruit and Easy now take no part in any of them (Easy has no Funds power), and Normal plays
   60% of the events.
 - Only one mutator favours the AI by design, *Fanatics* (+35% build speed, +20% ore for AI players), and it is labelled
-  so; Quick Battle never rolls it, and below Normal rolls only newcomer-safe mutators.
+  so; Quick Battle never rolls it, and below Normal rolls only newcomer-safe mutators. *Credits Rain* left that pool
+  in version 5: it pays everyone the same $400 every 30 seconds, but the AI spends it at once and a new player banks
+  it (Easy won 52% of its Quick Battles against the newcomer stand-in with it, 31% without).
 - Dynamic difficulty is the only other AI multiplier; it is opt-in (default on only against Recruit and Easy, where it
   can only ease off), and announced.
 - Left as it is: an idle AI Ore Truck goes back to work after 4 s, a human's after 8 s (the player's grace period to
