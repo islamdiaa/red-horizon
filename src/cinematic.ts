@@ -2,6 +2,7 @@ import type { Game } from './game';
 import { esc } from './ui/dom';
 import tCine, { CINE_NAMES } from './i18n/en/cinematic';
 import { dt, trSource } from './i18n/core';
+import { isTouchDevice } from './ui/touch';
 
 const CSS = `
 .cine-bar { position: fixed; left: 0; right: 0; height: 11vh; background: #000; z-index: 40; transition: transform 0.9s cubic-bezier(.7,0,.2,1); pointer-events: none; }
@@ -86,7 +87,7 @@ export function playIntro(game: Game, onDone: () => void) {
   const h = Math.floor(game.hours), m = Math.floor((game.hours % 1) * 60);
   const clock = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   const text = mk('cine-text', `<div class="op">${tCine.html('intro.operation', { name: op })}</div><div class="rule"></div><div class="line" data-l="1"></div><div class="line" data-l="2"></div>`);
-  mk('cine-skip', tCine.html('intro.skip'));
+  mk('cine-skip', tCine.html(isTouchDevice() ? 'intro.skipTouch' : 'intro.skip')); // (E2E/MOBILE: a tap skips on touch screens)
   body.classList.add('cine-active');
 
   // camera: start high and rotated over the map, sweep down onto the base

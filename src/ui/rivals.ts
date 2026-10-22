@@ -98,6 +98,8 @@ body.hud-modern .rv-tx .pt { width: 4.6rem; height: 5.4rem; border-radius: 0.5re
 body.hud-modern .rv-tx .sp { font-size: 0.68rem; }
 body.hud-modern .rv-tx .tt { font-size: 0.92rem; }
 .rv-tx.on { transform: none; opacity: 1; }
+/* (#ui > * turns pointer events back on for HUD panels: the radio is display-only, faded or not, so clicks reach the map) */
+#ui > .rv-tx { pointer-events: none; }
 .rv-tx .pt { width: 74px; height: 86px; flex-shrink: 0; border-radius: 8px; overflow: hidden; background: radial-gradient(ellipse at 50% 30%, rgba(255,90,70,0.35), #05080c 75%); border: 1px solid rgba(255,90,70,0.4); }
 .rv-tx .pt svg { width: 100%; height: 100%; }
 .rv-tx .sp { font-size: 11px; letter-spacing: 0.24em; color: #ff8a7a; font-weight: 700; margin-bottom: 4px; }

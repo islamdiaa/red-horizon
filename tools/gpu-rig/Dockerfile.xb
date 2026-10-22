@@ -1,0 +1,21 @@
+# Cross-browser real-GPU rig: Playwright's Chromium, Firefox and WebKit on the host's Mesa GPU (Intel iris / ANV).
+# Based on the official Playwright image of the same version as the repository's playwright-core (1.64.1): it holds
+# Node 24, the three browser builds and their system libraries (Ubuntu 24.04). Added: the Vulkan driver and GL / Vulkan
+# info tools, Weston (a headless compositor with GL on the GPU, for headful Firefox and WebKit: tools/xb/display.sh) and
+# PulseAudio (a null sink, so the browsers have an audio device and their autoplay policies are real).
+# The repository is still mounted read-only and playwright-core comes from it.
+# Build:  docker build -t red-horizon-gpu-rig-xb -f tools/gpu-rig/Dockerfile.xb tools/gpu-rig
+# Run:    see tools/gpu-rig/README.md ("Firefox and WebKit").
+FROM mcr.microsoft.com/playwright:v1.64.1-noble
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      mesa-vulkan-drivers mesa-utils vulkan-tools fonts-dejavu-core weston pulseaudio pulseaudio-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# the image's non-root user; the render node is opened through the video/render groups
+RUN groupadd -f render && usermod -aG video,render pwuser
+USER pwuser
+WORKDIR /game
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENTRYPOINT ["node"]

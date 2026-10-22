@@ -177,8 +177,45 @@ const modeDesc = (m: { id: string; desc: string }) => dt('netmode', m.id, 'desc'
 /** A curated map's name (maps/defs.ts, game data). */
 const mapName = (m: { id: string; name: string }) => dt('map', m.id, 'name', m.name);
 
+/** The parts of the browser revealFieldsAboveKeyboard needs (the tests pass fakes). */
+export interface KeyboardEnv {
+  visualViewport: { readonly height: number; addEventListener(t: 'resize', f: () => void): void; removeEventListener(t: 'resize', f: () => void): void } | null | undefined;
+  activeElement(): Element | null;
+  innerHeight(): number;
+  requestAnimationFrame(f: () => void): unknown;
+}
+
+const browserEnv = (): KeyboardEnv => ({
+  visualViewport: window.visualViewport, activeElement: () => document.activeElement, innerHeight: () => window.innerHeight,
+  requestAnimationFrame: (f) => requestAnimationFrame(f),
+});
+
+/**
+ * Keep the field being typed in visible above a phone's on-screen keyboard. The keyboard shrinks the visual
+ * viewport, and a field in the fixed lobby panel can end up under it: on a landscape phone (about 844 x 390) the
+ * keyboard leaves about 60 px, and the room code field stayed hidden. When the visual viewport shrinks, and when a
+ * field gets focus while the keyboard is already up, the focused field is scrolled to the middle of what is left.
+ * Returns a function that removes the listeners.
+ */
+export function revealFieldsAboveKeyboard(root: HTMLElement, env: KeyboardEnv = browserEnv()): () => void {
+  const vv = env.visualViewport;
+  if (!vv) return () => {};
+  let last = vv.height;
+  const reveal = () => {
+    const a = env.activeElement() as HTMLElement | null;
+    if (a && root.contains(a) && a.matches('input, textarea, select')) a.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+  };
+  const onResize = () => { const h = vv.height; if (h < last - 1) reveal(); last = h; };
+  // the keyboard is already up (moving from one field to the next): reveal the field once it has the focus
+  const onFocus = () => { if (vv.height < env.innerHeight() * 0.75) env.requestAnimationFrame(reveal); };
+  vv.addEventListener('resize', onResize);
+  root.addEventListener('focusin', onFocus);
+  return () => { vv.removeEventListener('resize', onResize); root.removeEventListener('focusin', onFocus); };
+}
+
 let client: NetClient | null = null;
 let root: HTMLElement | null = null;
+let unreveal: (() => void) | null = null;
 
 /** Open the lobby (the main menu's Multiplayer entry, an invite link, or after a match). */
 export function openLobby(host: LobbyHost, opts: { join?: string } = {}) {
@@ -186,6 +223,7 @@ export function openLobby(host: LobbyHost, opts: { join?: string } = {}) {
   close();
   const view = new LobbyView(host);
   root = view.root;
+  unreveal = revealFieldsAboveKeyboard(view.root);
   document.body.appendChild(view.root);
   if (client && client.state !== 'closed') view.attach(client);
   else view.connectScreen(opts.join);
@@ -198,6 +236,8 @@ export function keepConnection() {
 }
 
 function close() {
+  unreveal?.();
+  unreveal = null;
   if (root) { const r = root; r.classList.add('leaving'); setTimeout(() => r.remove(), 300); }
   root = null;
 }

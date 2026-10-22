@@ -406,7 +406,7 @@ export class Hud {
       const g = this.grid;
       if (g.scrollWidth <= g.clientWidth + 1) return;
       e.preventDefault();
-      g.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 30 : 1);
+      g.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 30 : e.deltaMode === 2 ? g.clientWidth : 1); // (lines, pages)
     }, { passive: false });
     this.supers = el('div', 'supers');
     this.bindTips(sb, () => (this.layout === 'modern' ? 'top' : 'left'));

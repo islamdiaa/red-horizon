@@ -55,7 +55,12 @@ export class VClock {
   get timers() { return { setTimeout: this.setTimeout, clearTimeout: this.clearTimeout, now: this.now }; }
 }
 
-export interface Link { latency: number; jitter: number; extra: number; up: boolean }
+/**
+ * A link. `up: false` refuses and closes connections (a reset); `silent: true` is a dead link that tells nobody - no
+ * RST, no FIN: packets both ways vanish, new connections are never answered, and a close from the relay never
+ * reaches the client (a pulled cable or a dead Wi-Fi, as the net lab measured in real browsers).
+ */
+export interface Link { latency: number; jitter: number; extra: number; up: boolean; silent?: boolean }
 
 /** A virtual network: client sockets wired to the relay with per-link one-way latency (ordered, like TCP). */
 export class VNet {
@@ -83,6 +88,7 @@ export class VNet {
         onopen: null, onmessage: null, onclose: null, onerror: null,
         send: (data: string) => {
           if (!open || closed || closing) return;
+          if (link.silent) return;
           if (!link.up) { doClose(); return; }
           lastUp = delay(lastUp);
           clock.at(lastUp, () => { if (!closed) handle?.message(data); });
@@ -92,6 +98,7 @@ export class VNet {
       // a close from either side arrives after what that side already sent (as on a TCP connection)
       const doClose = (fromRelay = false) => {
         if (closed || closing) return;
+        if (fromRelay && link.silent) { closed = true; handle?.close(); return; } // (the client never hears of it)
         closing = true;
         const at = Math.max(clock.t, fromRelay ? lastDown : lastUp) + 1;
         clock.at(at, () => { closed = true; handle?.close(); s.onclose?.({ code: 1006 }); });
@@ -99,6 +106,7 @@ export class VNet {
       const conn = {
         send: (text: string) => {
           if (closed || closing) return;
+          if (link.silent) return;
           const t = (JSON.parse(text) as ServerMessage).t;
           this.sent.set(t, (this.sent.get(t) ?? 0) + 1);
           lastDown = delay(lastDown);
@@ -109,6 +117,7 @@ export class VNet {
       let handle: ReturnType<Relay['connect']> = null;
       clock.at(clock.t + link.latency, () => {
         if (closed) return;
+        if (link.silent) return; // a SYN into a dead link: never answered
         if (!link.up) { doClose(); return; }
         handle = this.relay.connect(conn, `10.0.0.${[...this.links.keys()].indexOf(name) + 1}`);
         if (!handle) return;

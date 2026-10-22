@@ -2,6 +2,7 @@ import type { Player } from '../sim/player';
 import type { World } from '../sim/world';
 import { ICONS } from './icons';
 import { esc } from './dom';
+import { isTouchDevice } from './touch';
 import { fillKeys } from './keymap';
 import { ARIA_TEXT } from './a11y-strings';
 import { CoachWatch, IDLE_SECS, LOW_POWER_SECS, firstWaveIncoming, hasDefences, oreNearRefineries, refineryCount, secondRefineryDue } from './coach';
@@ -16,6 +17,13 @@ interface Hint {
   /** Shown while this returns true; dismissed for good once `done` returns true. */
   done(w: World, p: Player): boolean;
 }
+
+/** Touch-screen wording of the steps and alerts that speak of clicks and keys. */
+const TOUCH: Partial<Record<HintKey, HintKey>> = {
+  'steps.deploy': 'touch.deploy', 'steps.power': 'touch.power', 'steps.barracks': 'touch.barracks', 'steps.factory': 'touch.factory', 'steps.keys': 'touch.keys',
+  'alerts.idle': 'touch.idle',
+};
+const forDevice = (k: HintKey): HintKey => (isTouchDevice() ? TOUCH[k] ?? k : k);
 
 const HINTS: Hint[] = [
   { text: 'steps.deploy', done: (w, p) => p.has('fact') || w.time > 240 },
@@ -108,7 +116,9 @@ export class Hints {
   constructor(parent: HTMLElement, private world: World, private local: Player) {
     this.el = document.createElement('div');
     this.el.className = 'hint panel';
-    this.el.addEventListener('click', () => {
+    this.el.addEventListener('click', (e) => {
+      // a touch screen dismisses with the × only: taps and drags on the map next to the panel land on it too
+      if (isTouchDevice() && !(e.target as HTMLElement | null)?.closest?.('.hint-x')) return;
       if (this.alertIdx >= 0) { this.alertShown.set(this.alertIdx, false); this.alertIdx = -1; this.idx = -2; this.update(); return; }
       if (this.idx >= 0) this.dismissed.add(this.idx);
       this.show(-1);
@@ -135,7 +145,7 @@ export class Hints {
       if (a.group) this.groupsShown.add(a.group);
       this.lastAlert = w.time;
       this.alertIdx = i;
-      const key = typeof a.text === 'function' ? a.text(p) : a.text;
+      const key = forDevice(typeof a.text === 'function' ? a.text(p) : a.text);
       this.render(`<span class="hint-k">${tHints.html('report')}</span><span class="hint-t">${tHints.html(key, { shift: tCommon('keys.shift'), alt: tCommon('keys.alt') })}</span>`);
       return;
     }
@@ -154,7 +164,7 @@ export class Hints {
     this.idx = i;
     if (i < 0) { this.el.classList.remove('on'); return; }
     const step = `${i + 1}/${HINTS.length}`;
-    this.render(`<span class="hint-k">${tHints.html('manual')} <i>${step}</i></span><span class="hint-t">${fillKeys(tHints.html(HINTS[i].text))}</span>`); // (the active key bindings)
+    this.render(`<span class="hint-k">${tHints.html('manual')} <i>${step}</i></span><span class="hint-t">${fillKeys(tHints.html(forDevice(HINTS[i].text)))}</span>`); // (the active key bindings)
   }
 
   private render(body: string) {

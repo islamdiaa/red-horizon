@@ -25,3 +25,22 @@ $RIG tools/gpu-rig/perf.mjs http://127.0.0.1:5291/ low,medium,high 150,300  # FP
   flicker of a paused scene. One JSON line per check goes to `/out/sweep-<mode>.jsonl`; `BAD` lines are printed in full.
 - **Memory.** Integrated GPUs keep textures in system memory, which counts against the container limit: the High preset needs about 3 GB.
 - **Shared machines.** Run one container at a time, after `tools/assets/memguard.sh`.
+
+## Firefox and WebKit
+
+`Dockerfile.xb` builds a second image, `red-horizon-gpu-rig-xb`, from the official Playwright image of the repository's
+version. It has Chromium, Firefox and WebKit, plus Weston and PulseAudio. In a container, headless Firefox has no WebGL
+and headless WebKit renders WebGL in software, so both run headful as Wayland clients of a headless Weston that
+renders with GL on the GPU's render node. PulseAudio gives them a null audio sink. `tools/xb/rig.sh` runs one script in
+it after `memguard.sh`, under a lock file. `RIG_ENGINE` picks the browser for the rig's own scripts:
+
+```bash
+docker build -t red-horizon-gpu-rig-xb -f tools/gpu-rig/Dockerfile.xb tools/gpu-rig
+XB_DISPLAY=weston tools/xb/rig.sh tools/xb/probe.mjs chromium,firefox,webkit       # renderer, extensions, float targets
+XB_DISPLAY=weston RIG_ENGINE=firefox TAG=-firefox tools/xb/rig.sh tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ env
+XB_DISPLAY=weston tools/xb/rig.sh tools/xb/matrix.mjs http://127.0.0.1:5291/ all    # boot, input, battle, look per engine
+```
+
+Firefox reports a coarse renderer string ("Intel(R) HD Graphics, or similar") and WebKit reports "Apple GPU". Neither
+has `EXT_disjoint_timer_query_webgl2`, so GPU times per pass are Chromium-only. See `tools/xb/README.md` for the
+cross-browser and test-VM scripts.

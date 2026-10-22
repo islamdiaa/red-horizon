@@ -12,6 +12,7 @@
  * Toolbar (left edge): Box select, Add (taps add to / remove from the selection, and act as Shift: plan more
  * structures, more patrol waypoints), Attack-move, Force fire, Guard, Patrol, Stop, All units.
  * Sidebar cards: tap = left click, press and hold = right click (hold / cancel).
+ * Android Back = Esc (see guardBack).
  */
 import { Building, Unit, type Entity } from '../sim/entities';
 import type { Command, FormationShape, Stance } from '../sim/types';
@@ -32,6 +33,21 @@ export function isTouchDevice(): boolean {
 }
 
 interface Finger { id: number; x: number; y: number; x0: number; y0: number; t0: number }
+
+/** The parts of a pointer event the drag decision reads. */
+export interface MoveSample { timeStamp: number; clientX: number; clientY: number; getCoalescedEvents?: () => MoveSample[] }
+
+/**
+ * When the finger left the tap slop circle around (x0, y0). A slow frame makes the browser coalesce the moves of a
+ * drag into one late pointermove; its own timestamp would make a quick pan look like hold-then-drag (box select),
+ * so the first coalesced sample outside the circle decides.
+ */
+export function slopExitTime(e: MoveSample, x0: number, y0: number, slop = SLOP): number {
+  let samples: MoveSample[] = [];
+  try { samples = e.getCoalescedEvents?.() ?? []; } catch { /* not supported */ }
+  for (const c of samples) if (Math.hypot(c.clientX - x0, c.clientY - y0) >= slop) return Math.min(c.timeStamp, e.timeStamp);
+  return e.timeStamp;
+}
 
 /**
  * Hold this long to arm box select; this long (unmoved) for the context menu. Decided from event timestamps (not
@@ -103,7 +119,27 @@ export class TouchController {
     on(document, 'click', (e: MouseEvent) => {
       if (performance.now() < this.swallowClickUntil) { e.preventDefault(); e.stopPropagation(); this.swallowClickUntil = 0; }
     }, true);
-    if (isTouchDevice()) this.enable();
+    if (isTouchDevice()) { this.enable(); this.guardBack(); }
+  }
+
+  /**
+   * Android's Back button (or edge swipe) in a match does what Esc does (cancel the order mode, open or close the
+   * pause menu) instead of leaving the page and the match. A history entry of our own catches it; the next match
+   * reuses the entry, so the browser history grows by one at most.
+   */
+  private guardBack() {
+    if (typeof history === 'undefined' || typeof addEventListener === 'undefined') return;
+    const mark = { rhBack: Math.random() };
+    try {
+      if ((history.state as { rhBack?: number } | null)?.rhBack !== undefined) history.replaceState(mark, '');
+      else history.pushState(mark, '');
+    } catch { return; /* sandboxed */ }
+    const onPop = () => {
+      try { history.pushState(mark, ''); } catch { /* sandboxed */ }
+      for (const type of ['keydown', 'keyup']) document.body.dispatchEvent(new KeyboardEvent(type, { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+    };
+    addEventListener('popstate', onPop);
+    this.disposers.push(() => removeEventListener('popstate', onPop));
   }
 
   dispose() {
@@ -160,7 +196,7 @@ export class TouchController {
       const inp = this.input;
       if (inp.mode === 'place' || inp.mode === 'plan') {
         // placing: the finger is the cursor (a wall line is dragged from where it lands)
-        inp.pointerAt(e.clientX, e.clientY);
+        this.pointTo(e.clientX, e.clientY);
         this.state = 'aim';
         if (inp.mode === 'place' && this.isWall()) inp.primaryPress(this.ptr(e.clientX, e.clientY));
       }
@@ -184,11 +220,11 @@ export class TouchController {
     f.y = e.clientY;
     if (this.state === 'pinch') { this.applyPinch(); return; }
     if (this.fingers.size !== 1) return;
-    if (this.state === 'aim') { this.input.pointerAt(f.x, f.y); return; }
+    if (this.state === 'aim') { this.pointTo(f.x, f.y); return; }
     if (this.state === 'pending') {
       if (Math.hypot(f.x - f.x0, f.y - f.y0) < SLOP) return;
       // held still a moment before dragging: box select; straight away: pan
-      this.state = this.boxMode || e.timeStamp - f.t0 >= ARM_MS ? 'box' : 'pan';
+      this.state = this.boxMode || slopExitTime(e, f.x0, f.y0) - f.t0 >= ARM_MS ? 'box' : 'pan';
       this.hidePress();
     }
     if (this.state === 'pan') this.grabPan(px, py, f.x, f.y);
@@ -211,7 +247,7 @@ export class TouchController {
         else this.tap(f.x, f.y, e.timeStamp);
         break;
       case 'aim':
-        this.input.pointerAt(f.x, f.y);
+        this.pointTo(f.x, f.y);
         if (this.input.mode === 'place' && this.isWall()) this.input.primaryRelease(this.ptr(f.x, f.y));
         else this.tap(f.x, f.y, e.timeStamp);
         break;
@@ -261,6 +297,18 @@ export class TouchController {
   // ---------------------------------------------------------------------------
   private ptr(x: number, y: number): PtrLike {
     return { clientX: x, clientY: y, shiftKey: this.addMode, ctrlKey: false, altKey: false };
+  }
+
+  /**
+   * Put the virtual pointer, and the ground point under it, at a finger. InputController refreshes the ground point
+   * once per frame from the pointer, and placement reads it: on a slow frame a quick tap would otherwise place the
+   * structure where the previous touch was (or refuse it there).
+   */
+  private pointTo(x: number, y: number) {
+    const inp = this.input;
+    inp.pointerAt(x, y);
+    const [gx, gy] = inp.screenToGround(x, y);
+    if (Number.isFinite(gx + gy)) { inp.groundX = gx; inp.groundY = gy; }
   }
 
   private isWall(): boolean {
@@ -314,7 +362,7 @@ export class TouchController {
   private tap(x: number, y: number, time = performance.now()) {
     const inp = this.input;
     inp.tapTime = time;
-    inp.pointerAt(x, y);
+    this.pointTo(x, y);
     const p = this.ptr(x, y);
     if (inp.mode !== 'normal') {
       inp.primaryPress(p);
@@ -351,7 +399,7 @@ export class TouchController {
   contextMenu(x: number, y: number) {
     const inp = this.input;
     if (inp.spectator) return;
-    inp.pointerAt(x, y);
+    this.pointTo(x, y);
     const [gx, gy] = inp.screenToGround(x, y);
     const t = inp.pickAt(x, y, 1.6);
     const items = orderMenu(inp, (c) => this.h.issue(c), gx, gy, t);

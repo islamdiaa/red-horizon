@@ -4,7 +4,7 @@
  * oscillators, noise sources, filters, envelopes and a handful of reusable sound "layers"
  * (thump, crack, noise blast, debris grains, metallic partials, formant voice, crackle).
  */
-import { fuzzCurve, impulseResponse, noiseBuffer, softClipCurve, type IrKind, type NoiseColor, type Rng } from './dsp';
+import { fuzzCurve, impulseResponse, impulseStart, noiseBuffer, softClipCurve, type IrKind, type NoiseColor, type Rng } from './dsp';
 
 export interface NoiseHitOpts {
   color?: NoiseColor;
@@ -33,7 +33,7 @@ export const VOWELS: Record<Vowel, [number, number, number]> = {
 
 export class Synth {
   readonly sr: number;
-  private verbs = new Map<IrKind, ConvolverNode>();
+  private verbs = new Map<IrKind, { input: AudioNode; conv: ConvolverNode }>();
 
   constructor(readonly ctx: BaseAudioContext, readonly out: AudioNode, readonly rng: Rng) {
     this.sr = ctx.sampleRate;
@@ -88,14 +88,34 @@ export class Synth {
 
   /** Shared convolution reverb (one per IR kind) feeding the output. Returns its input. */
   reverb(kind: IrKind): AudioNode {
-    let c = this.verbs.get(kind);
-    if (!c) {
-      c = this.ctx.createConvolver();
-      c.buffer = impulseResponse(this.sr, kind, 1);
-      c.connect(this.out);
-      this.verbs.set(kind, c);
+    let v = this.verbs.get(kind);
+    if (!v) {
+      const conv = this.ctx.createConvolver();
+      const ir = impulseResponse(this.sr, kind, 1);
+      let input: AudioNode = conv;
+      // An offline render of `length` frames only hears that much of the response: its start sounds the same (with a
+      // level correction). Setting a convolver's buffer runs its FFTs on the main thread (about 17 ms in Chromium and
+      // Firefox, 30 in WebKit, for each of the bank's ~140 renders) and keeps their kernels until garbage collection.
+      const frames = (this.ctx as Partial<OfflineAudioContext>).length;
+      if (typeof frames === 'number' && frames > 0 && frames < ir.length) {
+        const start = impulseStart(ir, frames);
+        conv.buffer = start.buffer;
+        input = this.gain(start.gain);
+        input.connect(conv);
+      } else conv.buffer = ir;
+      conv.connect(this.out);
+      v = { input, conv };
+      this.verbs.set(kind, v);
     }
-    return c;
+    return v.input;
+  }
+
+  /** Free the convolvers' kernels after an offline render (they are large, and collection can lag far behind). */
+  release(): void {
+    for (const { input, conv } of this.verbs.values()) {
+      try { input.disconnect(); conv.disconnect(); conv.buffer = null; } catch { /* already released */ }
+    }
+    this.verbs.clear();
   }
 
   /** Send `node` to a reverb with the given wet gain. */

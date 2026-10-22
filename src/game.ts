@@ -827,9 +827,11 @@ export class Game {
         this.reticle.hide();
       }
     }
+    // (dynamic resolution before drawing: a resize after drawing clears the canvas that this frame then presents, a
+    // black flash at every Auto render-scale step without TAA; seen on Android, tools/mobile)
+    if (!this.setup.demo && !this.paused) this.gfx.adaptResolution(dt * 1000);
     this.gfx.render(dt, this.time);
     hdReleaseUploaded(this.gfx.renderer); // upload new HD atlases and close their decoded bitmaps
-    if (!this.setup.demo && !this.paused) this.gfx.adaptResolution(dt * 1000);
     if (this.overlay) this.overlay.draw(this.gfx.cam.camera, world, this.ents, this.local, this.selection, this.input?.hovered ?? 0, this.alpha, fdt);
     const rt = this.world.mission;
     if (rt && rt.events.length) {

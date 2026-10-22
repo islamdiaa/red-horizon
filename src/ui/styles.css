@@ -1679,3 +1679,81 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   body.hud-modern .tab { min-height: 0; }
   body.hud-modern #selpanel .cmds { grid-auto-rows: 2.9rem; }
 }
+
+/* --- touch screens: phones and tablets (checked on Android Chrome by tools/mobile/run.mjs) ------------- */
+@media (pointer: coarse) {
+  /* the mission and rival radio panels never take taps: `#ui > *` would let them catch fingers over a big piece
+     of the map, also after they fade out */
+  html body #ui > .rv-tx, html body #ui > .mh-tx { pointer-events: none; }
+  /* finger-sized buttons in the resource bar (menu, settings, alerts, full screen) */
+  body.hud-modern #topright { height: 3.2rem; }
+  body.hud-modern #topright .rb-btns .tb-btn { width: 2.9rem; }
+}
+/* phones in landscape, main menu: the two columns don't fit side by side (the title and the setup panel were cut
+   off at both edges), so stack them and scroll, as on portrait screens */
+@media (pointer: coarse) and (max-height: 600px) and (min-aspect-ratio: 1/1) {
+  .main-screen .mm-layout { flex-direction: column; align-items: center; gap: 1.6rem; padding: 1.4rem 1rem 2rem; }
+  .main-screen .mm-left, .main-screen .mm-panel { width: min(100%, 41rem); transform: none; }
+  .main-screen .mm-panel { position: relative; top: auto; max-height: none; overflow: visible; }
+  .main-screen .mm-panel .deploy { position: static; }
+  .main-screen .mm-nav { width: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+  .main-screen .game-title { font-size: min(5.2rem, 15vw, 16vh); }
+  .main-screen .mm-tag { display: block; max-width: none; }
+}
+@media (pointer: coarse) {
+  /* settings: finger-height segmented choices */
+  .settings-panel .seg button { height: 2.6rem; }
+}
+/* phones in landscape: a compact HUD that leaves the map most of the screen */
+@media (pointer: coarse) and (max-height: 500px) {
+  body.hud-modern { --mm-w: 9.6rem; --sel-w: 18rem; --card-w: 4.8rem; --card-h: 5.5rem; }
+  body.hud-modern #topbar { width: 13.5rem; }
+  body.hud-modern .obj-panel { padding: 0.4rem 0.6rem 0.45rem; }
+  body.hud-modern .obj-panel .op-row.sub { display: none; }
+  body.hud-modern #topright .power { min-width: 6.6rem; }
+  body.hud-modern #topright .ero-ore, body.hud-modern #topright .ero-inc small, body.hud-modern #topright .ero-tier small { display: none; }
+  body.hud-modern #selpanel .sp-portrait { width: 4.2rem; height: 4.2rem; flex-basis: 4.2rem; }
+  /* the touch toolbar: icon-only squares in two columns under the objectives */
+  html body.hud-modern #touch-bar { gap: 0.35rem; }
+  html body.hud-modern #touch-bar button { width: 3rem; height: 3rem; border-radius: 0.7rem; }
+  html body.hud-modern #touch-bar button span { display: none; }
+  html body.hud-modern.touch-ui .hint { left: calc(var(--edge) + 6.9rem); max-width: 19rem; }
+  /* radio transmissions: beside the touch toolbar, not over it */
+  html body.hud-modern .rv-tx, html body.hud-modern .mh-tx { left: calc(var(--edge) + 6.9rem); width: min(26rem, calc(100vw - 7.6rem - 11.6rem - var(--edge) * 3)); }
+  /* rules / weather chips: right-aligned beside the commander panel, clear of the Field Manual */
+  body.hud-modern .vr-strip { top: calc(var(--edge) + 3.6rem); left: auto; right: calc(var(--edge) * 2 + 11.6rem); transform: none; max-width: 22rem; justify-content: flex-end; }
+  #minimap-panel .radar .offline b { font-size: 0.8rem; letter-spacing: 0.14em; }
+  #minimap-panel .radar .offline span { letter-spacing: 0.08em; }
+}
+/* portrait (phones and tablets held upright): resource bar across the top, objectives and the touch toolbar under
+   it on the left, the build bar across the bottom above the minimap and the selection panel */
+@media (pointer: coarse) and (max-aspect-ratio: 1/1) {
+  body.hud-modern { --mm-w: 10.5rem; --top-h: 3.2rem; --tbar-h: 3.6rem; }
+  body.hud-modern #topright { left: var(--edge); right: var(--edge); justify-content: space-between; }
+  body.hud-modern #topright .rb-res { flex: 1 1 auto; min-width: 0; }
+  body.hud-modern #topright .econ-ro { display: none; }
+  body.hud-modern #topright .power { min-width: 6.4rem; }
+  body.hud-modern #topbar { top: calc(var(--edge) * 2 + var(--top-h)); width: min(21rem, calc(100vw - 2 * var(--edge))); }
+  html body.hud-modern #touch-bar { top: calc(var(--edge) * 2 + var(--top-h) + var(--tl-h, 5rem) + 0.5rem); flex-direction: row; max-height: none; max-width: calc(100vw - 2 * var(--edge)); }
+  html body.hud-modern.touch-ui .hint { top: calc(var(--edge) * 2 + var(--top-h) + var(--tl-h, 0px) + var(--tbar-h) + 1rem); left: var(--edge); right: var(--edge); max-width: 30rem; }
+  body.hud-modern .vr-strip { top: calc(var(--edge) * 2 + var(--top-h)); left: auto; right: var(--edge); transform: none; max-width: calc(100vw - 23rem); justify-content: flex-end; }
+  /* bottom row: minimap left, selection right; the build bar spans the screen above them */
+  body.hud-modern #dock { width: auto; left: calc(var(--edge) * 2 + var(--mm-w)); right: var(--edge); }
+  body.hud-modern #buildbar { left: var(--edge); right: var(--edge); max-width: none; bottom: calc(var(--edge) * 2 + max(var(--mm-w) + 0.9rem, var(--sel-h, 0px))); }
+  html body.hud-modern #cmdpanel { bottom: calc(var(--edge) * 3 + max(var(--mm-w) + 0.9rem, var(--sel-h, 0px)) + var(--bb-h, 9rem)); }
+  html body.hud-modern .rv-tx, html body.hud-modern .mh-tx, html body.hud-modern #rh-subs { bottom: calc(var(--edge) * 3 + max(var(--mm-w) + 0.9rem, var(--sel-h, 0px)) + var(--bb-h, 9rem)); }
+  #minimap-panel .radar .offline b { font-size: 0.8rem; letter-spacing: 0.14em; }
+  #minimap-panel .radar .offline span { letter-spacing: 0.08em; }
+}
+/* phones upright: the resource bar wraps to two rows */
+@media (pointer: coarse) and (max-aspect-ratio: 1/1) and (max-width: 600px) {
+  body.hud-modern { --mm-w: 8.6rem; --top-h: 6.3rem; --tbar-h: 3.1rem; --card-w: 5rem; --card-h: 5.8rem; }
+  body.hud-modern #topright { height: auto; flex-wrap: wrap; row-gap: 0.25rem; }
+  body.hud-modern #topright .rb-btns .tb-btn { height: 2.75rem; }
+  body.hud-modern #topright .rb-btns { margin-left: auto; }
+  body.hud-modern .vr-strip { display: none; }
+  body.hud-modern .obj-panel .op-row.sub { display: none; }
+  body.hud-modern #selpanel .sp-portrait { width: 4rem; height: 4rem; flex-basis: 4rem; }
+  html body.hud-modern #touch-bar button { width: 3.1rem; height: 3.1rem; }
+  html body.hud-modern #touch-bar button span { display: none; }
+}

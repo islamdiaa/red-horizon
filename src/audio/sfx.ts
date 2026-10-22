@@ -1188,6 +1188,8 @@ export async function renderSfx(key: AnyKey, sampleRate: number, variation = 0):
   r.build(s, T0);
   const t0 = performance.now();
   const buf = await oc.startRendering();
+  s.release();
+  out.disconnect();
   const res = postProcess(buf, r.peak);
   return { ...res, renderMs: performance.now() - t0 };
 }
@@ -1212,7 +1214,7 @@ export class SfxBank {
   /** Last error, if any render failed (kept for debugging, never thrown). */
   lastError: unknown = null;
 
-  constructor(readonly sampleRate: number, private readonly concurrency = 3) {
+  constructor(readonly sampleRate: number, private readonly concurrency = 2) {
     this.done = new Promise((res) => { this.resolveDone = res; });
   }
 
@@ -1252,7 +1254,8 @@ export class SfxBank {
           this.active--;
           this.finished++;
           if (this.finished >= this.total) this.resolveDone();
-          this.pump();
+          // the next render's set-up (graph, convolver FFTs) waits for the next task, so frames keep coming
+          if (this.queue.length) setTimeout(() => this.pump(), 0);
         });
     }
   }

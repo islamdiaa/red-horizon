@@ -61,6 +61,12 @@ unchanged.
 - **Dropped connections reconnect.** The client retries with backoff and resumes its seat with its token. The
   relay keeps every closed order of the match. It sends the missing ones, and the client re-sends what never
   arrived.
+- **A dead link is noticed by the client itself.** A link can die without a reset (a pulled cable, a dead Wi-Fi),
+  and TCP then reports nothing until it next has to deliver something. The relay pings every 2 s, so a client
+  that hears nothing for 7 s shows "Connection lost · Reconnecting" and reconnects; a connection attempt that is
+  not answered within 10 s is replaced by a fresh one. A check that runs late (a busy page, a throttled background
+  tab) is not taken for a dead link. The client keeps trying for 3 minutes, so a player whose link comes back after
+  the AI took over the seat still rejoins and watches.
 - **A reloaded page can rejoin.** It rebuilds the match from the start and re-simulates it from the relay's
   buffer, quickly and without effects, until it catches up. The seat token lives in `sessionStorage`, so only
   that tab can rejoin.

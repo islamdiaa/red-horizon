@@ -57,6 +57,9 @@ export function verifyRun(sub: Submission, o: VerifyOptions): VerifyResult {
     if (score !== sub.score) return { ok: false, reason: fillEnglish(R.score, { got: score, claimed: sub.score }) };
     if (score <= 0) return { ok: false, reason: R.zero };
     const won = !!w.mission?.won;
+    // the result is re-derived too (only the re-simulated value is ever stored), so a submission claiming a
+    // different outcome is a forged run: reject it rather than silently accepting a claim we overrule.
+    if (sub.won !== won) return { ok: false, reason: R.result };
     return { ok: true, score, ticks: w.tick, won };
   } finally {
     exitPortableMath();

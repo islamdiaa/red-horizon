@@ -122,6 +122,41 @@ const IR_SPECS: Record<IrKind, IrSpec> = {
 };
 
 const irCache = new Map<string, AudioBuffer>();
+const irScale = new WeakMap<AudioBuffer, number>();
+
+/**
+ * The gain a ConvolverNode with `normalize = true` applies to an impulse response (Web Audio's
+ * calculateNormalizationScale: RMS power over every channel and frame, calibrated to 44.1 kHz).
+ */
+export function convolverNormalization(buf: { numberOfChannels: number; length: number; sampleRate: number; getChannelData(ch: number): Float32Array }): number {
+  const GainCalibration = 0.00125, GainCalibrationSampleRate = 44100, MinPower = 0.000125;
+  let power = 0;
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < d.length; i++) power += d[i] * d[i];
+  }
+  power = Math.sqrt(power / (buf.numberOfChannels * buf.length));
+  if (!Number.isFinite(power) || power < MinPower) power = MinPower;
+  let scale = (GainCalibration / power) * (GainCalibrationSampleRate / buf.sampleRate);
+  if (buf.numberOfChannels === 4) scale *= 0.5;
+  return scale;
+}
+
+/**
+ * The first `frames` frames of an impulse response, and the gain that makes a normalising ConvolverNode with that
+ * start sound like one with the whole response: normalisation divides by the response's RMS power, so the shorter
+ * copy needs (its power / the full power) in front of it. For any output shorter than `frames` (an offline render
+ * of that length never hears the rest) the result is the same, for a fraction of the convolver's FFT set-up and
+ * memory. (`normalize` stays on, so every browser's convolver runs the same code path as with the whole response.)
+ */
+export function impulseStart(full: AudioBuffer, frames: number): { buffer: AudioBuffer; gain: number } {
+  let fullScale = irScale.get(full);
+  if (fullScale === undefined) { fullScale = convolverNormalization(full); irScale.set(full, fullScale); }
+  const n = Math.max(1, Math.min(full.length, Math.floor(frames)));
+  const out = makeBuffer(full.numberOfChannels, n, full.sampleRate);
+  for (let ch = 0; ch < full.numberOfChannels; ch++) out.getChannelData(ch).set(full.getChannelData(ch).subarray(0, n));
+  return { buffer: out, gain: fullScale / convolverNormalization(out) };
+}
 
 /** Exponentially decaying filtered noise with early reflections; darker towards the tail. */
 export function impulseResponse(sampleRate: number, kind: IrKind, channels = 1): AudioBuffer {

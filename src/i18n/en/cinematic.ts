@@ -21,6 +21,8 @@ export default strings('cinematic', {
     // second briefing line: {clock} is the local time (14:05)
     status: 'DAY 1  ·  {clock} LOCAL  ·  {n, plural, one {# HOSTILE FORCE DETECTED} other {# HOSTILE FORCES DETECTED}}',
     skip: 'PRESS ANY KEY TO SKIP',
+    // on touch screens
+    skipTouch: 'TAP TO SKIP',
   },
   nuke: {
     warning: 'WARNING',

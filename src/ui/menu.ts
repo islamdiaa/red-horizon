@@ -287,7 +287,22 @@ export interface MenuCallbacks {
   /** Open the multiplayer lobby (src/ui/lobby.ts); after a match, back to its room. */
   openMultiplayer?(): void;
   backToLobby?(): void;
+  /** The main menu has just been shown (main.ts applies a downloaded update here: never under another screen). */
+  mainShown?(): void;
 }
+
+/**
+ * Make sure the current history entry is one of ours (the same `rhBack` mark src/ui/touch.ts uses), so the next
+ * Back lands on this page (a popstate) instead of leaving it. One entry at most: an existing mark is kept.
+ */
+function markBack() {
+  try {
+    if ((history.state as { rhBack?: number } | null)?.rhBack === undefined) history.pushState({ rhBack: Math.random() }, '');
+  } catch { /* sandboxed frames */ }
+}
+
+/** A touch-first device: the test of src/ui/touch.ts isTouchDevice, kept here so the menu chunk stays free of the battle code. */
+const touchScreen = (): boolean => typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && matchMedia('(hover: none)').matches));
 
 /** How the Settings screen was opened (see Menus.showSettings). */
 interface SettingsOpts { inBattle?: boolean; rerender?: boolean }
@@ -303,7 +318,13 @@ export class Menus {
   private langBusy = 0;
   private langPick: (() => void) | null = null;
   private langTimer = 0;
-  private escAction: (() => void) | null = null;
+  private escFn: (() => void) | null = null;
+  /** What Esc does on the current screen (or overlay); a screen with one gets a history entry for Back (guardBack). */
+  private get escAction(): (() => void) | null { return this.escFn; }
+  private set escAction(fn: (() => void) | null) {
+    this.escFn = fn;
+    if (fn) markBack();
+  }
   /** Keeps Tab inside the current screen (released when it goes). */
   private untrap: (() => void) | null = null;
   private sound: UiSound;
@@ -319,12 +340,31 @@ export class Menus {
       e.stopPropagation();
       this.escAction();
     });
+    this.guardBack();
+  }
+
+  /**
+   * The browser's Back (Android's Back button or gesture, a mouse's back button) does what Esc does everywhere but on
+   * the main menu: it closes the screen, overlay or editor on show, or opens the pause menu in a match, instead of
+   * leaving the page. The entry it pops is put back (markBack) unless Back led to the main menu, where Back leaves,
+   * as on any page (after one extra press when the menu was reached by clicking).
+   * In a match on a touch device, the touch controls handle Back the same way (src/ui/touch.ts guardBack).
+   */
+  private guardBack() {
+    if (typeof addEventListener === 'undefined') return;
+    addEventListener('popstate', () => {
+      if (document.body.classList.contains('touch-ui')) return; // (TouchControls.guardBack has it)
+      if (this.onMainMenu && !this.escFn) return;
+      for (const type of ['keydown', 'keyup']) document.body.dispatchEvent(new KeyboardEvent(type, { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+      if (!this.onMainMenu || this.escFn) markBack(); // (still somewhere Back should return from)
+    });
   }
 
   hide() {
     const old = this.screen;
     this.screen = null;
     this.escAction = null;
+    markBack(); // (a match, the editor, the campaign screens... come next: Back returns from them)
     this.untrap?.();
     this.untrap = null;
     if (old) this.retire(old);
@@ -637,6 +677,12 @@ export class Menus {
     };
     panel.appendChild(go);
     layout.append(left, panel);
+    this.cb.mainShown?.();
+  }
+
+  /** Is the main menu the screen on show (not a sub-screen, and not hidden behind the editor, a lobby or a match)? */
+  get onMainMenu(): boolean {
+    return !!this.screen?.classList.contains('main-screen');
   }
 
   /** Quick Battle: roll a well-tuned random skirmish, show the roll on the loading screen, deploy. */
@@ -876,7 +922,7 @@ export class Menus {
     }
     const play = sec(ICONS.mouse, tS('gameplay'));
     play.appendChild(this.languageRow(back, opts));
-    play.appendChild(settingRow(ICONS.mouse, tS('edgeScroll'), tS('edgeScrollSub'), toggle(this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; apply(); })));
+    if (!touchScreen()) play.appendChild(settingRow(ICONS.mouse, tS('edgeScroll'), tS('edgeScrollSub'), toggle(this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; apply(); }))); // (no mouse pointer to push at the edges on a touch screen)
     play.appendChild(settingRow(ICONS.mic, tS('unitVoices'), tS('unitVoicesSub'), toggle(this.settings.unitVoices, (v) => { this.settings.unitVoices = v; apply(); })));
     play.appendChild(settingRow(ICONS.bulb, tS('hints'), tS('hintsSub'), toggle(this.settings.hints, (v) => { this.settings.hints = v; apply(); })));
     play.appendChild(settingRow(ICONS.eye, tS('skipIntro'), tS('skipIntroSub'), toggle(!!this.settings.skipIntro, (v) => { this.settings.skipIntro = v; apply(); })));

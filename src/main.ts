@@ -12,7 +12,7 @@ import type { TimeOfDay } from './render/renderer';
 import { installErrorBoundary, reportError } from './platform/errors';
 import { checkSupport, renderUnsupported } from './platform/webgl';
 import { detectQuality } from './platform/gpu';
-import { registerServiceWorker } from './platform/pwa';
+import { registerServiceWorker, serviceWorkerRegistration } from './platform/pwa';
 import { enterFullscreen } from './platform/fullscreen';
 import { hdModelsWanted, loadSettings, saveSettings } from './ui/settings';
 import { resolveTestSetup } from './replay/launch';
@@ -91,12 +91,25 @@ const unlock = () => {
 window.addEventListener('pointerdown', unlock, { once: true });
 window.addEventListener('keydown', unlock, { once: true });
 
+/**
+ * Offline support (E2E fix). A downloaded update reloads the page, so it is applied only while the main menu is on
+ * show: never mid-match, and never under the editor, a lobby or another screen with work in progress (it waits for
+ * the next visit to the main menu). If another tab already switched to the new build, this page reloads into it.
+ */
+let applyUpdate: (() => void) | null = null;
+function maybeApplyUpdate() {
+  if (!applyUpdate || (game && !game.setup.demo) || !menus.onMainMenu) return;
+  const apply = applyUpdate;
+  applyUpdate = null;
+  if (serviceWorkerRegistration()?.waiting) apply(); else location.reload();
+}
+
 const menus = new Menus(audio, {
   start: (setup) => void startGame(setup),
   resume: () => game?.resume(),
   // same map, same opponents, from the beginning (a loaded game restarts its map from scratch)
   restart: (newMap) => { if (newMap && lastSetup?.quick && !lastSetup.replay) { menus.quickBattle(); return; } /* "Play again" after a Quick Battle rolls a new one */ if (lastSetup) void startGame({ ...lastSetup, load: undefined, intro: false, ...(newMap && !lastSetup.branch && !lastSetup.challenge ? { seed: (Math.random() * 1e9) | 0 } : {}) }); }, // a branch / challenge restarts from its moment
-  quit: () => { if (game?.setup.conquest && !game.world.gameOver) game.save('auto'); /* the campaign can resume this battle */ if (applyUpdate) return applyUpdate(); audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); }, // playtests return to the editor
+  quit: () => { if (game?.setup.conquest && !game.world.gameOver) game.save('auto'); /* the campaign can resume this battle */ audio.stopMusic(); if (returnToEditor) { openEditorScreen(); return; } startDemo(); }, // playtests return to the editor (a downloaded update applies when the main menu shows: mainShown)
   settingsChanged: (s: Settings) => { if (game) applySettings(game, s); },
   openCampaign: () => openCampaign(),
   openConquest: () => openConquest(),
@@ -117,6 +130,7 @@ const menus = new Menus(audio, {
     if (s?.game?.setup) void startGame({ ...s.game.setup, load: s, intro: false, quality: menus.settings.quality });
   },
   saveGame: () => game?.save('manual') ?? false,
+  mainShown: () => maybeApplyUpdate(), // (E2E fix: updates reload the page only here)
 });
 
 function latestSave(): SaveData | null {
@@ -507,6 +521,5 @@ async function setPortable(on: boolean) {
 }
 window.addEventListener('hashchange', openInvite);
 
-// Offline support. A downloaded update is applied only between matches (never mid-game).
-let applyUpdate: (() => void) | null = null;
-void registerServiceWorker({ onUpdateReady: (apply) => { applyUpdate = apply; if (!game || game.setup.demo) apply(); } });
+// Offline support: the service worker announces a downloaded update; maybeApplyUpdate (above) applies it on the main menu.
+void registerServiceWorker({ onUpdateReady: (apply) => { applyUpdate = apply; maybeApplyUpdate(); } });

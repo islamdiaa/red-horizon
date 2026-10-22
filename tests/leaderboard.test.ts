@@ -91,6 +91,7 @@ describe('verified leaderboards', () => {
     assert.equal(bad({ ...run, ticks: run.ticks + 50 }).ok, false, 'claims to end later');
     assert.equal(bad({ ...run, ticks: run.ticks - 50 }).ok, false, 'claims to end earlier');
     assert.equal(bad({ ...run, cmds: [[1, { c: 'build', player: 0, type: 'no-such-unit' } as Command], ...run.cmds] }).ok, false, 'invalid command');
+    assert.match((bad({ ...run, won: !run.won }) as { reason: string }).reason, /result does not match/, 'a claimed result the run does not earn');
     assert.equal(bad(run).ok, true, 'the original still verifies');
     assert.equal(typeof parseSubmission({ ...run, kind: 'challenge', id: '__proto__' }), 'string', 'unknown board');
     assert.equal(typeof parseSubmission({ ...run, cmds: [[5, { c: 'stop' }], [1, { c: 'stop' }]] }), 'string', 'commands out of order');

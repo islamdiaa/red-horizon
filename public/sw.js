@@ -68,12 +68,17 @@ function htmlRefs(html, base) {
   return [...out];
 }
 
-/** Asset URLs referenced from a JS/CSS bundle (string literals and url(...) pointing into assets/). */
+/**
+ * Asset URLs referenced from a JS/CSS bundle (string literals and url(...) pointing into assets/). Vite lists a lazy
+ * chunk's files relative to the app's base ("assets/results-<hash>.js"), not to the chunk that mentions them: resolved
+ * against the chunk, they became assets/assets/... (404s), so chunks the page had not loaded yet (the results
+ * screen, the locker, clips) were missing offline. Paths starting with ./, ../ or / keep resolving against the file.
+ */
 function bundleRefs(text, base) {
   const out = new Set();
   for (const m of text.matchAll(/["'`(]((?:\.{0,2}\/)?(?:[\w.-]+\/)*assets\/[\w.@-]+\.[a-z0-9]+)["'`)]/gi)) {
     try {
-      const u = new URL(m[1], base);
+      const u = new URL(m[1], /^\.{0,2}\//.test(m[1]) ? base : SCOPE);
       if (u.origin === self.location.origin && ASSET_RE.test(u.pathname)) out.add(u.href);
     } catch { /* not a URL */ }
   }

@@ -471,9 +471,14 @@ mat4 rhDynM( float slot, float bone ) {
   return mat4( r0.x, r1.x, r2.x, 0.0, r0.y, r1.y, r2.y, 0.0, r0.z, r1.z, r2.z, 0.0, r0.w, r1.w, r2.w, 1.0 );
 }
 mat4 rhBone( float bone ) {
-  if ( aClip.w >= 0.0 ) return rhDynM( aClip.w, bone );
-  mat4 m = rhVatM( aClip.x, bone );
-  if ( aClip.z > 0.002 ) m = m * ( 1.0 - aClip.z ) + rhVatM( aClip.y, bone ) * aClip.z;
+  // one return at the end: ANGLE's HLSL output of an early return made FXC warn X4000 (potentially
+  // uninitialized return value) on Direct3D
+  mat4 m;
+  if ( aClip.w >= 0.0 ) m = rhDynM( aClip.w, bone );
+  else {
+    m = rhVatM( aClip.x, bone );
+    if ( aClip.z > 0.002 ) m = m * ( 1.0 - aClip.z ) + rhVatM( aClip.y, bone ) * aClip.z;
+  }
   return m;
 }
 `;

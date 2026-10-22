@@ -46,6 +46,17 @@ function loadedResources(): string[] {
 let registration: ServiceWorkerRegistration | null = null;
 
 /**
+ * Whether a worker that has just installed is an update (a previous version controlled this page when it loaded, or
+ * is still active) rather than the first install. Not the live `controller`: WebKit delivers the first worker's
+ * 'installed' event after it has already activated and claimed the page, which made the first install look like an
+ * update, so the page reloaded about 10 s into a player's first visit. Workers are compared by script URL (each
+ * build has its own).
+ */
+export function isUpdate(hadController: boolean, active: { scriptURL: string } | null, installed: { scriptURL: string }): boolean {
+  return hadController || (!!active && active.scriptURL !== installed.scriptURL);
+}
+
+/**
  * Register the service worker (production only, HTTPS or localhost). Resolves to the
  * registration, or null when disabled/unsupported. Never throws.
  */
@@ -60,21 +71,25 @@ export async function registerServiceWorker(opts: PwaOptions = {}): Promise<Serv
     const reg = await navigator.serviceWorker.register(assetUrl(`sw.js?v=${encodeURIComponent(buildId())}`), { scope: baseUrl() });
     registration = reg;
 
+    let applying = false;
     const apply = () => {
       const waiting = reg.waiting;
-      if (!waiting) return;
+      if (!waiting || applying) return;
+      applying = true;
       navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
       waiting.postMessage({ type: 'SKIP_WAITING' });
     };
+    const watched = new WeakSet<ServiceWorker>();
     const watch = (w: ServiceWorker | null) => {
-      if (!w) return;
+      if (!w || watched.has(w)) return; // (the first install shows up both as reg.installing and in 'updatefound')
+      watched.add(w);
       w.addEventListener('statechange', () => {
         if (w.state !== 'installed') return;
-        if (navigator.serviceWorker.controller || hadController) opts.onUpdateReady?.(apply);
+        if (isUpdate(hadController, reg.active, w)) opts.onUpdateReady?.(apply);
         else opts.onOfflineReady?.();
       });
     };
-    if (reg.waiting && navigator.serviceWorker.controller) opts.onUpdateReady?.(apply);
+    if (reg.waiting && isUpdate(hadController, reg.active, reg.waiting)) opts.onUpdateReady?.(apply);
     watch(reg.installing);
     reg.addEventListener('updatefound', () => watch(reg.installing));
 

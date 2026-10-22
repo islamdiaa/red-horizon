@@ -37,7 +37,7 @@ export default strings('errors', {
     noWebglAdvice2: 'If you are on a remote desktop or virtual machine, try a regular desktop session.',
     webgl1Advice1: 'Update your browser: every current Chrome, Edge, Firefox and Safari (15+) supports WebGL 2.',
     webgl1Advice2: 'On Safari 14 and older, enable "WebGL 2.0" under Develop › Experimental Features, or update macOS / iOS.',
-    contextAdvice1: 'Turn on hardware acceleration (Chrome / Edge: Settings › System › "Use graphics acceleration when available"; Firefox: Settings › Performance).',
+    contextAdvice1: 'Turn on hardware acceleration (Chrome / Edge: Settings › System › "Use graphics acceleration when available"). In Firefox, open about:config, set webgl.force-enabled to true and restart Firefox.',
     contextAdvice2: 'Update your graphics driver, then restart the browser.',
     contextAdvice3: 'Close other tabs or apps using the GPU heavily, then try again; a crashed GPU process is reset by restarting the browser.',
     featureAdvice1: 'Try another browser on this device (Chrome and Firefox use different graphics back-ends).',

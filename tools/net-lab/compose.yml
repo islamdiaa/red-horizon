@@ -1,0 +1,117 @@
+# Net lab: the game and relay as deployed (nginx proxies /relay to the relay), and players behind emulated
+# network links. Each player's browser sits on its own network, and reaches the game only through a pktem router
+# (pktem.py) that adds delay, jitter, loss, a rate limit or an outage, per direction, controlled at run time.
+#
+#   tools/net-lab/netlab.sh up        build the images and a copy of the game, start the stack, set the routes
+#   tools/net-lab/netlab.sh down
+#
+#   browser A  --net a-->  pktem a  --core-->  game (nginx :8080)  -->  relay (:8787)
+#   browser B  --net b-->  pktem b  --core-->
+#
+# Players open http://10.231.200.10:8080/ (the game's virtual address); the game sees them as 10.231.101.x (a) and
+# 10.231.102.x (b). pktem translates (Docker drops packets for a container address arriving on another bridge).
+#
+# The game is published on 127.0.0.1 only (NETLAB_PORT, default 8801) for tools on the host; NETLAB_VM_BIND adds
+# the libvirt NAT address so the test VMs can reach it. Nothing is published on the LAN.
+name: rh-lab-net
+
+x-shaper: &shaper
+  image: rh-lab-net-tools
+  entrypoint: ["/net-lab/shaper-entry.sh"]
+  cap_add: [NET_ADMIN, NET_RAW]
+  sysctls:
+    net.ipv4.ip_forward: "1"
+  volumes:
+    - ./pktem.py:/net-lab/pktem.py:ro
+    - ./shaper-entry.sh:/net-lab/shaper-entry.sh:ro
+  mem_limit: 256m
+  restart: "no"
+
+x-peer: &peer
+  image: red-horizon-gpu-rig
+  profiles: [peers]
+  command: ["tools/net-lab/peer-server.mjs"]
+  working_dir: /game
+  volumes:
+    - ../..:/game:ro
+    - ${PW_BROWSERS:-${HOME}/.cache/ms-playwright}:/ms-playwright:ro
+  devices: ["/dev/dri:/dev/dri"]
+  shm_size: 512m
+  mem_limit: 2560m
+  restart: "no"
+
+services:
+  relay:
+    image: rh-lab-net-relay
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    environment:
+      RELAY_TRUST_PROXY: "1"
+      LB_FILE: /data/leaderboard.json
+    volumes:
+      - relay-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    pids_limit: 128
+    networks:
+      core: { ipv4_address: 10.231.0.3 }
+    restart: "no"
+
+  game:
+    image: red-horizon:latest
+    volumes:
+      - ${NETLAB_DIST:-/tmp/rh-lab/net/dist}:/usr/share/nginx/html:ro
+      - ../../docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../../docker/security-headers.conf:/etc/nginx/security-headers.conf:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:${NETLAB_PORT:-8801}:8080"
+      - "${NETLAB_VM_BIND:-127.0.0.1}:${NETLAB_VM_PORT:-8809}:8080"
+    networks:
+      core: { ipv4_address: 10.231.0.10 }
+    depends_on: [relay]
+    restart: "no"
+
+  shaper-a:
+    <<: *shaper
+    environment: { SIDE_SUBNET: 10.231.1.0/24, CORE_SUBNET: 10.231.0.0/24, VIRT_NET: 10.231.200.0/24, ALIAS_NET: 10.231.101.0/24 }
+    networks:
+      core: { ipv4_address: 10.231.0.11 }
+      a: { ipv4_address: 10.231.1.2 }
+
+  shaper-b:
+    <<: *shaper
+    environment: { SIDE_SUBNET: 10.231.2.0/24, CORE_SUBNET: 10.231.0.0/24, VIRT_NET: 10.231.200.0/24, ALIAS_NET: 10.231.102.0/24 }
+    networks:
+      core: { ipv4_address: 10.231.0.12 }
+      b: { ipv4_address: 10.231.2.2 }
+
+  peer-a:
+    <<: *peer
+    environment: { PEER: a, PEER_GPU: "${PEER_GPU_A:-1}", PLAYWRIGHT_BROWSERS_PATH: /ms-playwright }
+    networks:
+      a: { ipv4_address: 10.231.1.10 }
+
+  peer-b:
+    <<: *peer
+    environment: { PEER: b, PEER_GPU: "${PEER_GPU_B:-1}", PLAYWRIGHT_BROWSERS_PATH: /ms-playwright }
+    networks:
+      b: { ipv4_address: 10.231.2.10 }
+
+networks:
+  core:
+    ipam: { config: [{ subnet: 10.231.0.0/24 }] }
+  a:
+    ipam: { config: [{ subnet: 10.231.1.0/24 }] }
+  b:
+    ipam: { config: [{ subnet: 10.231.2.0/24 }] }
+
+volumes:
+  relay-data:

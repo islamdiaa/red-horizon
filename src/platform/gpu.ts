@@ -27,6 +27,7 @@
  * | AMD Radeon RX / Pro / R9 / Vega 56/64 / VII                     | high                        |
  * | AMD Radeon HD / R5 / R7                                         | medium                      |
  * | Unknown / masked string ("ANGLE (Unknown)", "Apple GPU" masked) | medium, benchmark decides   |
+ * | Firefox's coarse bucket ("..., or similar")                     | medium, benchmark decides   |
  * | navigator.deviceMemory <= 2 GB                                  | cap low                     |
  * | navigator.deviceMemory <= 4 GB                                  | cap medium                  |
  * | navigator.hardwareConcurrency <= 2                              | cap low                     |
@@ -64,6 +65,8 @@ export interface GpuClass {
   tier: GpuTier;
   baseline: QualityLevel;
   reason: string;
+  /** The name is the browser's coarse bucket, not the model (Firefox): the benchmark replaces the baseline. */
+  coarse?: boolean;
 }
 
 export interface QualityDecision {
@@ -100,15 +103,20 @@ let cachedInfo: GpuInfo | null = null;
 /** Read vendor/renderer strings from a context (prefers the unmasked debug strings). */
 export function readGpuStrings(gl: WebGLRenderingContext | WebGL2RenderingContext): { vendor: string; renderer: string } {
   let vendor = '', renderer = '';
+  // Firefox exposes its (sanitised) name directly through RENDERER and logs a deprecation warning for the debug
+  // extension; Chromium and WebKit report a generic "WebKit WebGL" there, and the real name through the extension.
+  const plain = String(gl.getParameter(gl.RENDERER) ?? '');
+  if (plain && !/^(webkit webgl|webkit|mozilla|google)$/i.test(plain.trim())) {
+    return { vendor: String(gl.getParameter(gl.VENDOR) ?? ''), renderer: plain };
+  }
   try {
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     if (dbg) {
       vendor = String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) ?? '');
       renderer = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) ?? '');
     }
-  } catch { /* extension deprecated in some browsers */ }
-  // Firefox (and future Chrome) expose a sanitised name directly through RENDERER.
-  if (!renderer) renderer = String(gl.getParameter(gl.RENDERER) ?? '');
+  } catch { /* extension removed in some browsers */ }
+  if (!renderer) renderer = plain;
   if (!vendor) vendor = String(gl.getParameter(gl.VENDOR) ?? '');
   return { vendor, renderer };
 }
@@ -156,12 +164,26 @@ export function getGpuInfo(gl?: WebGLRenderingContext | WebGL2RenderingContext |
 const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render driver|microsoft basic|mesa offscreen|virgl|vmware svga|parallels/i;
 const MOBILE_UA = /android|iphone|ipad|ipod|mobile|silk|kindle/i;
 
+/**
+ * Firefox reports a sanitised bucket instead of the model, marked ", or similar": every recent GeForce is
+ * "NVIDIA GeForce GTX 980, or similar", every Intel GPU from HD 4000 to Arc "Intel(R) HD Graphics, or similar",
+ * most Radeons "Radeon R9 200 Series, or similar" (on Windows inside "ANGLE (..., D3D11), or similar").
+ */
+const SANITISED = /,\s*or similar\s*$/i;
+
 /** Classify a renderer string into a tier and a baseline quality. */
 export function classifyGpu(rendererRaw: string, userAgent = ''): GpuClass {
   const r = rendererRaw.replace(/\s+/g, ' ').trim();
   const mobileUa = MOBILE_UA.test(userAgent) || (/macintosh/i.test(userAgent) && /mobile/i.test(userAgent));
   if (!r) return { tier: 'unknown', baseline: 'medium', reason: 'GPU name unavailable' };
   if (SOFTWARE.test(r)) return { tier: 'software', baseline: 'low', reason: `software rasteriser (${r})` };
+  if (SANITISED.test(r)) {
+    // the bucket's model says nothing about this GPU (an RTX 4090 reads as a GTX 980, an Iris Xe as an HD
+    // Graphics): keep the vendor's tier, start at medium and let the benchmark decide
+    const c = classifyGpu(r.replace(SANITISED, ''), userAgent);
+    if (c.tier === 'mobile' || c.tier === 'software') return c;
+    return { tier: c.tier, baseline: 'medium', coarse: true, reason: `GPU class only (${r}): benchmark decides` };
+  }
 
   // ---- mobile GPU families
   if (/adreno|mali|powervr|immortalis|xclipse|tegra|videocore|vivante/i.test(r)) {
@@ -237,7 +259,7 @@ export function decideQuality(gpu: GpuClass, sig: DeviceSignals, score?: number)
   if (score !== undefined && Number.isFinite(score)) {
     const b = benchmarkLevel(score);
     reasons.push(`benchmark ${score < 1 ? score.toPrecision(2) : score.toFixed(1)} => ${b}`);
-    if (gpu.tier === 'unknown') {
+    if (gpu.tier === 'unknown' || gpu.coarse) {
       // the class told us nothing: trust the measurement, still bounded by memory / CPU caps
       const caps = decideQuality({ ...gpu, baseline: 'high' }, sig).quality;
       q = minQ(b, caps);

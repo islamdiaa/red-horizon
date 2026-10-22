@@ -102,7 +102,37 @@ These take the URL or port of a running dev server.
 
 On a real GPU (Linux with an Intel or AMD GPU and Docker), `tools/gpu-rig/` runs the browser checks that SwiftShader can't do: NaN and
 half-float overflow in every HDR render target, WebGL errors, context loss and restore, missing mobile extensions, and FPS per preset
-with per-pass GPU timings. See [`gpu-rig/README.md`](gpu-rig/README.md).
+with per-pass GPU timings. See [`gpu-rig/README.md`](gpu-rig/README.md). [`xb/`](xb/README.md) runs the same checks in
+Firefox and WebKit on the GPU, and in the test VMs (Windows Direct3D, a low-end Linux laptop): look comparisons, input,
+soak, low-end CPU, PWA and high-DPI checks.
+
+On Android, [`mobile/`](mobile/README.md) runs the game in Chrome in a KVM emulator and plays it by touch: phone and
+tablet layouts in both orientations, gestures, the build bar, backgrounding and WebGL context loss, rotation, the
+on-screen keyboard and the installed app (`node tools/mobile/run.mjs`).
+
+## End-to-end bot (`tools/e2e`)
+
+A Playwright bot that plays through the real interface: it clicks, drags, types and presses keys like a player, and
+reads `window.__game` (exposed by `?debug=1`) only to check results and to aim. To keep software-GPU runs short it
+fast-forwards the simulation between actions (time passes, nothing is ordered); `--realtime` waits for the game clock
+instead. Every journey fails on console errors and Content-Security-Policy violations.
+
+| Tool | What it does | Command |
+|---|---|---|
+| `run.mjs` | Runs journeys against a URL (or serves a build), writes `report.json`, `summary.txt` and screenshots | `node tools/e2e/run.mjs [journey,...] [--url <url>] [--serve <dist>] [--browser chromium\|firefox\|webkit] [--cdp <url>] [--slow 2] [--realtime] [--size 1280x720] [--out <dir>]` |
+| `serve.mjs` | Serves a production build with the shipped security headers, cache rules and SPA fallback | `node tools/e2e/serve.mjs <dist> [port=5302] [host=127.0.0.1]` |
+| `builds.mjs` | Builds A, B and C (each differs only in its build id, like successive deploys) for the PWA update journey | `node tools/e2e/builds.mjs <outA> <outB> <outC>` |
+
+Journeys (`tools/e2e/journeys/`): `first-launch` (fresh profile, Quick Battle on Recruit won through the UI, results,
+Play again), `skirmish-setup`, `campaign` (Boot Camp drills, mission 1 of each side, a special operation lost and
+retried, the first Conquest battle), `saves`, `replays`, `editor`, `challenges` (daily, files, share links), `settings`,
+`pwa-update` (needs `--serve <A> --serve-b <B>,<C>`) and `abuse` (rapid clicks, Esc spam, focus loss, resizing).
+
+- **Other browsers and machines.** Point `--url` at any reachable server. `E2E_CHANNEL=chrome|msedge` picks a branded
+  browser and `E2E_CHROME_ARGS` replaces the default SwiftShader flags (for example `--use-angle=d3d11-warp`, or empty
+  for the real GPU).
+- **Android.** Forward Chrome's DevTools socket (`adb forward tcp:9222 localabstract:chrome_devtools_remote`) and pass
+  `--cdp http://127.0.0.1:9222`; add `--touch --mobile` for touch input.
 
 ## HD model factory (`tools/assets`)
 

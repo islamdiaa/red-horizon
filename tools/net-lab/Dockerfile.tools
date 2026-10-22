@@ -1,0 +1,6 @@
+# Small image for the net lab: the pktem router and one-shot route helpers (iproute2).
+#   docker build -t rh-lab-net-tools -f tools/net-lab/Dockerfile.tools tools/net-lab
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 tcpdump procps && rm -rf /var/lib/apt/lists/*
+COPY pktem.py shaper-entry.sh /net-lab/
+RUN chmod +x /net-lab/shaper-entry.sh

@@ -184,7 +184,8 @@ export class InputController {
     on(window, 'pointerup', (e: PointerEvent) => this.onUp(e));
     on(window, 'pointercancel', (e: PointerEvent) => { if (e.pointerType === 'touch') this.touch.cancel(e); });
     on(this.canvas, 'contextmenu', (e: Event) => e.preventDefault());
-    on(this.canvas, 'wheel', (e: WheelEvent) => { e.preventDefault(); this.h.gfx.cam.zoomBy(e.deltaY * (e.deltaMode === 1 ? 30 : 1)); }, { passive: false });
+    // (deltaMode 1: lines, 2: pages, e.g. Windows' "one screen at a time" wheel setting)
+    on(this.canvas, 'wheel', (e: WheelEvent) => { e.preventDefault(); this.h.gfx.cam.zoomBy(e.deltaY * (e.deltaMode === 1 ? 30 : e.deltaMode === 2 ? 600 : 1)); }, { passive: false });
     on(this.canvas, 'pointerenter', () => { this.pointerInside = true; });
     on(document, 'pointerleave', () => {
       // in a browser window the pointer easily overshoots the edge; remember which way it went
@@ -558,9 +559,13 @@ export class InputController {
     this.h.audio.announce('select_target');
   }
 
-  private placementCell(): [number, number] {
+  /**
+   * The footprint's top-left cell for a ground point: by default the one under the pointer as of the last frame (the
+   * ghost); clicks pass their own point, since on a slow frame the cached one can still be the previous position.
+   */
+  private placementCell(gx = this.groundX, gy = this.groundY): [number, number] {
     const bt = BUILDINGS[this.placeType!];
-    return [Math.round(this.groundX - bt.size[0] / 2), Math.round(this.groundY - bt.size[1] / 2)];
+    return [Math.round(gx - bt.size[0] / 2), Math.round(gy - bt.size[1] / 2)];
   }
 
   /** Plan mode: open ground, clear of other planned structures, next to the base or to a planned structure. */
@@ -611,7 +616,7 @@ export class InputController {
     if (this.spectator && this.mode !== 'normal') this.setMode('normal');
     switch (this.mode) {
       case 'place': {
-        const [cx, cy] = this.placementCell();
+        const [cx, cy] = this.placementCell(gx, gy); // (where the click is, not where the last frame saw the pointer)
         const type = this.placeType!;
         const issue = world.placementIssue(local, type, cx, cy);
         if (issue) {
@@ -629,7 +634,7 @@ export class InputController {
         return;
       }
       case 'plan': {
-        const [cx, cy] = this.placementCell();
+        const [cx, cy] = this.placementCell(gx, gy);
         const type = this.placeType!;
         if (!this.planValid(type, cx, cy)) {
           this.h.audio.play('error');
@@ -805,7 +810,7 @@ export class InputController {
   /** Left button released (tap end, gamepad A up): finish a wall line, a box, or a click selection. */
   primaryRelease(e: PtrLike) {
     if (this.wallStart && this.mode === 'place' && this.placeType) {
-      const [cx, cy] = this.placementCell();
+      const [cx, cy] = this.placementCell(...this.screenToGround(e.clientX, e.clientY)); // (the release point itself)
       this.h.issue({ c: 'place', player: this.h.local.id, type: this.placeType, cx: this.wallStart[0], cy: this.wallStart[1], cx2: cx, cy2: cy });
       this.h.audio.play('build_place');
       this.wallStart = null;

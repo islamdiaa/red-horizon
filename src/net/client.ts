@@ -29,8 +29,21 @@ export interface NetClientOptions {
   mods: string;
   socket?: (url: string) => SocketLike;
   timers?: Timers;
-  /** Give up reconnecting after this long (the relay hands the seat to the AI after about a minute). */
+  /**
+   * Give up reconnecting after this long. The relay hands a silent seat to the AI after its heartbeat timeout plus
+   * its grace period (about 90 s); trying a while longer lets a player whose link comes back later still rejoin the
+   * match and watch it (src/net/lockstep.ts: a dropped seat only watches).
+   */
   reconnectForMs?: number;
+  /**
+   * Nothing at all from the relay for this long while connected means the link is dead: the relay pings every 2 s
+   * and sends closed ticks many times a second in a match. TCP alone notices a silent link only when it next has to
+   * deliver something, which can be long after the link is back, and meanwhile the player sees a frozen game with no
+   * explanation. Then: show "reconnecting" and reconnect (resuming the seat). Default 7 s.
+   */
+  silentMs?: number;
+  /** A new connection that is not welcomed within this long is abandoned and retried (no waiting out TCP's backoff). */
+  connectTimeoutMs?: number;
 }
 
 export type ClientState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
@@ -65,6 +78,12 @@ export class NetClient {
   private lostAt = 0;
   private hello: ClientMessage | null = null;
   private leaving = false;
+  // liveness watchdog (silentMs / connectTimeoutMs)
+  private watchdog: unknown = null;
+  private lastRx = 0;
+  private lastCheck = 0;
+  private openedAt = 0;
+  private welcomed = false;
 
   constructor(private o: NetClientOptions) {
     this.timers = o.timers ?? defaultTimers;
@@ -142,12 +161,17 @@ export class NetClient {
       return;
     }
     this.ws = ws;
+    this.openedAt = this.lastRx = this.timers.now();
+    this.welcomed = false;
+    this.startWatchdog();
     ws.onopen = () => {
       if (this.ws !== ws) return;
       try { ws.send(JSON.stringify(hello)); } catch { /* onclose follows */ }
     };
     ws.onmessage = (ev) => {
-      if (this.ws !== ws || typeof ev.data !== 'string') return;
+      if (this.ws !== ws) return;
+      this.lastRx = this.timers.now();
+      if (typeof ev.data !== 'string') return;
       let m: ServerMessage;
       try { m = JSON.parse(ev.data) as ServerMessage; } catch { return; }
       if (!m || typeof m !== 'object' || typeof (m as { t?: unknown }).t !== 'string') return;
@@ -160,6 +184,7 @@ export class NetClient {
   private handle(m: ServerMessage) {
     switch (m.t) {
       case 'welcome':
+        this.welcomed = true;
         this.code = m.code;
         this.seat = m.seat;
         this.token = m.token;
@@ -193,14 +218,42 @@ export class NetClient {
     if (this.leaving || !this.token || this.lastError?.code === 'no-room' || this.lastError?.code === 'build') { this.shutdown(this.endReason || this.lastError?.code || 'closed'); return; }
     const now = this.timers.now();
     if (!this.lostAt) this.lostAt = now;
-    if (now - this.lostAt > (this.o.reconnectForMs ?? 90_000)) { this.shutdown('connection lost'); return; }
+    if (now - this.lostAt > (this.o.reconnectForMs ?? 180_000)) { this.shutdown('connection lost'); return; }
     this.setState('reconnecting');
     const wait = Math.min(5000, 400 * 2 ** this.retry++);
     this.retryTimer = this.timers.setTimeout(() => { this.retryTimer = null; if (this.state === 'reconnecting') this.open(this.resumeHello()); }, wait);
   }
 
+  /** Check the connection every second (see silentMs). */
+  private startWatchdog() {
+    if (this.watchdog) return;
+    this.lastCheck = this.timers.now();
+    this.watchdog = this.timers.setTimeout(this.check, 1000);
+  }
+
+  private check = () => {
+    this.watchdog = null;
+    if (this.state === 'closed' || this.state === 'idle') return;
+    const now = this.timers.now();
+    // this check itself ran late (a busy main thread, a throttled background tab): messages may be queued behind it,
+    // so start counting again rather than call the link dead
+    if (now - this.lastCheck > 3000) { this.lastRx = now; if (!this.welcomed) this.openedAt = now; }
+    this.lastCheck = now;
+    const ws = this.ws;
+    if (ws) {
+      const dead = this.welcomed ? now - this.lastRx > (this.o.silentMs ?? 7000) : now - this.openedAt > (this.o.connectTimeoutMs ?? 10_000);
+      if (dead) {
+        this.ws = null; // (its late events are ignored)
+        try { ws.close(4001, 'silent'); } catch { /* */ }
+        this.lost();
+      }
+    }
+    if ((this.state as ClientState) !== 'closed') this.watchdog = this.timers.setTimeout(this.check, 1000); // (lost() may have closed it)
+  };
+
   private shutdown(reason: string) {
     if (this.retryTimer) { this.timers.clearTimeout(this.retryTimer); this.retryTimer = null; }
+    if (this.watchdog) { this.timers.clearTimeout(this.watchdog); this.watchdog = null; }
     const ws = this.ws;
     this.ws = null;
     if (ws) { try { ws.close(1000, 'bye'); } catch { /* */ } }

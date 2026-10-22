@@ -56,6 +56,7 @@ export const VERIFY_REASONS = {
   time: 'The run ends at a different time ({got} vs {claimed}).',
   hash: 'The final state does not match (different game version or a modified run).',
   score: 'The score does not match ({got} vs {claimed}).',
+  result: 'The result does not match the run.',
   zero: 'Only runs that score are ranked.',
   // server/src/leaderboard/queue.ts and worker.ts
   busy: 'The leaderboard server is busy verifying other runs. Try again in a minute.',

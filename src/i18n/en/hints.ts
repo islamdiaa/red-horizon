@@ -18,6 +18,15 @@ export default strings('hints', {
     radar: 'A [b]Radar Dome[/b] powers the minimap. Keep an eye on your power bar — low power slows everything.',
     keys: 'Tip: [kbd]{mod:assign}[/kbd]+[kbd]1-9[/kbd] assigns control groups, [kbd]{key:attackMove}[/kbd] attack-moves, [kbd]{key:lastAttack}[/kbd] jumps to the last attack.',
   },
+  // the same steps for touch screens (tap, press and hold, the build bar)
+  touch: {
+    deploy: 'Tap your [b]MCV[/b], then press and hold on it and pick [b]Deploy[/b] to set up a Construction Yard.',
+    power: 'Build a [b]Power Plant[/b] from the build bar, then tap the map to place it next to your base.',
+    barracks: 'Train infantry at the [b]Barracks[/b]. With units selected, tap the ground to move and tap enemies to attack.',
+    factory: 'A [b]War Factory[/b] unlocks tanks. Select it, then press and hold on the map and pick [b]Rally here[/b] to set a rally point.',
+    keys: 'Tip: press and hold on the map for more orders (stop, scatter, stance, formation). Drag with two fingers to pan, pinch to zoom.',
+    idle: 'Your factories are idle while you have money in the bank: keep units queued (tap a unit card several times).',
+  },
   alerts: {
     storage: '[b]Ore storage is full.[/b] Refined ore beyond your capacity is lost — build an [b]Ore Silo[/b] or spend your credits.',
     defences: 'Enemy attack waves usually arrive within a few minutes. Cover your refinery with a [b]Pillbox[/b], [b]Turret[/b] or [b]Flame Tower[/b].',
