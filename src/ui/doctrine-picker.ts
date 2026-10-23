@@ -207,7 +207,7 @@ const CSS = `
 .dp-sel.none .dp-ic { color: var(--muted); background: rgba(255,255,255,.04); border-color: var(--line-2); }
 .dp-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
 .dp-txt b { font-size: .86rem; letter-spacing: .05em; color: var(--text); }
-.dp-txt small { font-size: .66rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-txt small { font-size: .66rem; color: var(--text-2); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; } /* (two lines: on one, the drawback was always cut off) */
 .dp-plus { font-style: normal; color: var(--ok); font-weight: 700; margin-right: .12rem; }
 .dp-minus { font-style: normal; color: var(--danger); font-weight: 700; margin-right: .12rem; }
 .dp-chg { margin-left: auto; color: var(--muted); font-size: .95rem; flex-shrink: 0; }

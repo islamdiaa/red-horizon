@@ -26,6 +26,12 @@ import { serve } from './serve.mjs';
 import { PLAY, PROFILES, over } from './profiles.mjs';
 
 const LEVELS = ['recruit', 'easy', 'normal', 'hard', 'brutal'];
+/** The campaigns' missions in order (src/missions: campaignMissions), and the special operations a player plays. */
+const MISSION_IDS = {
+  allies: ['allied-01', 'allied-02', 'allied-03', 'allied-04', 'allied-05', 'allied-06', 'allied-07'],
+  soviet: ['soviet-01', 'soviet-02', 'soviet-03', 'soviet-04', 'soviet-05', 'soviet-06', 'soviet-07'],
+  special: ['wolfpack', 'ironcoast'],
+};
 const P = '.main-screen:not(.leaving) .mm-panel';
 
 // ------------------------------------------------------------------------------------------------ cells
@@ -62,6 +68,21 @@ export function allCells() {
   for (const r of [2, 3]) for (const level of ['recruit', 'easy']) {
     cells.push({ id: `qb:${level}:newcomer#${r}`, mode: 'qb', rules: 'commander', level, profile: 'newcomer', seed: 1000 + LEVELS.indexOf(level) + 100 * r });
     cells.push({ id: `classic:${level}:newcomer#${r}`, mode: 'classic', rules: 'classic', level, profile: 'newcomer', seed: 2000 + LEVELS.indexOf(level) + 100 * r });
+  }
+  // round 4: three games a cell for the newcomer and the casual player at Recruit, Easy and Normal (both rulesets)
+  for (const r of [2, 3]) for (const profile of ['newcomer', 'casual']) for (const level of ['recruit', 'easy', 'normal']) {
+    if (profile === 'newcomer' && level !== 'normal') continue; // (above)
+    cells.push({ id: `qb:${level}:${profile}#${r}`, mode: 'qb', rules: 'commander', level, profile, seed: 1000 + LEVELS.indexOf(level) + 100 * r });
+    cells.push({ id: `classic:${level}:${profile}#${r}`, mode: 'classic', rules: 'classic', level, profile, seed: 2000 + LEVELS.indexOf(level) + 100 * r });
+  }
+  for (const level of ['recruit', 'easy', 'normal']) { // (the casual player had no Recruit cells before round 4's list)
+    if (!cells.some((c) => c.id === `qb:${level}:casual`)) cells.push({ id: `qb:${level}:casual`, mode: 'qb', rules: 'commander', level, profile: 'casual', seed: 1000 + LEVELS.indexOf(level) });
+    if (!cells.some((c) => c.id === `classic:${level}:casual`)) cells.push({ id: `classic:${level}:casual`, mode: 'classic', rules: 'classic', level, profile: 'casual', seed: 2000 + LEVELS.indexOf(level) });
+  }
+  // every campaign mission and special operation once, the newcomer at its default level (Easy: a new player's),
+  // reached as a player who won the missions before it
+  for (const [side, ids] of Object.entries(MISSION_IDS)) for (const id of ids) {
+    cells.push({ id: `mission:${id}:newcomer`, mode: 'mission', side, mission: id, level: 'easy', profile: 'newcomer', seed: 4100 });
   }
   return cells;
 }
@@ -154,12 +175,22 @@ async function readMetrics(bot) {
 // ------------------------------------------------------------------------------------------------ setting up a mode
 
 /** A deterministic Math.random for the page (the menu rolls Quick Battles and skirmish seeds with it). */
-async function seedPage(bot, seed, profile = null) {
-  await bot.context.addInitScript(([seed, profile]) => {
+async function seedPage(bot, seed, profile = null, storage = null) {
+  await bot.context.addInitScript(([seed, profile, storage]) => {
     let a = seed >>> 0;
     Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
     try { if (profile && !localStorage.getItem('rh.profile')) localStorage.setItem('rh.profile', JSON.stringify(profile)); } catch { /* storage blocked */ }
-  }, [seed, profile]);
+    // (other stored state, once: campaign progress for a mission cell)
+    try { if (storage && !localStorage.getItem('rh.e2e.seeded')) { for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v); localStorage.setItem('rh.e2e.seeded', '1'); } } catch { /* storage blocked */ }
+  }, [seed, profile, storage]);
+}
+
+/** Stored campaign progress of a newcomer who won every mission before `id` in its campaign at Easy (and plays at Easy). */
+function missionStorage(cell) {
+  const ids = MISSION_IDS[cell.side];
+  const rec = {};
+  for (const m of ids.slice(0, ids.indexOf(cell.mission))) rec[m] = { completed: true, stars: 1, bestTime: 1200, level: cell.level };
+  return { 'rh.campaign': JSON.stringify(rec), 'rh.campaign.level': cell.level, 'rh.campaign.tab': cell.side };
 }
 
 /** A profile record that makes Quick Battle pick `level` (modes/quickbattle.ts quickSkill: 3 wins at each level below). */
@@ -242,6 +273,25 @@ async function startMode(bot, cell) {
     await bot.waitMatch();
     return true;
   }
+  if (cell.mode === 'mission') {
+    // one mission from the campaign screen: its tab, its node on the map (a special operation: its card), Deploy
+    await bot.nav('Campaign');
+    await bot.waitFor('.cmp .cmp-tab');
+    await bot.click(`.cmp .cmp-tab[data-tab="${cell.side}"]`);
+    const node = `.cmp :is(.node, .cmp-sp)[data-id="${cell.mission}"]`;
+    if (!await bot.waitFor(node, undefined, 15000)) { bot.friction('missing', `mission ${cell.mission} is not on the campaign screen`); return false; }
+    await bot.page.locator(node).first().dispatchEvent('click'); // (an SVG node: a dispatched click, as the Conquest map's)
+    await sleep(500);
+    const lvl = await bot.page.evaluate(() => document.querySelector('.cmp .cmp-lvl [data-level].on, .cmp .cmp-lvl [data-level][aria-pressed="true"], .cmp .cmp-lvl [data-level].sel')?.getAttribute('data-level') ?? '');
+    if (lvl && lvl !== cell.level) bot.friction('setup', `the campaign screen offers ${lvl}, not ${cell.level}`);
+    await bot.shot('campaign');
+    await bot.click('.cmp [data-act="deploy"]');
+    await bot.waitMatch();
+    const m = await bot.g((g) => ({ id: g.world.mission?.def.id, level: g.world.mission?.level }));
+    if (m.id !== cell.mission) bot.friction('setup', `deployed ${m.id}, not ${cell.mission}`);
+    bot.log(`mission ${m.id} at ${m.level}`);
+    return true;
+  }
   if (cell.mode === 'conquest') {
     await bot.nav('Conquest');
     await bot.waitFor('[data-act="begin"]', undefined, 30000);
@@ -297,7 +347,7 @@ async function runCell(o, cell) {
   const rec = { id: cell.id, mode: cell.mode, level: cell.level ?? '', rules: cell.rules ?? '', profile: cell.profile ?? '', label: o.label, result: 'error', wall: 0, ffBatch: Number(process.env.E2E_FF_BATCH) || 1 };
   try {
     await bot.open();
-    await seedPage(bot, cell.seed, cell.mode === 'qb' ? profileFor(cell.level) : null);
+    await seedPage(bot, cell.seed, cell.mode === 'qb' ? profileFor(cell.level) : null, cell.mode === 'mission' ? missionStorage(cell) : null);
     if (cell.mode === 'journey') {
       const mod = await loadJourney(cell.journey);
       await mod.default(bot, { o, browser });
@@ -322,10 +372,10 @@ async function runCell(o, cell) {
         if (o2) {
           // (the 4.5 s finale counts frame time capped at 0.1 s a frame: on a software GPU at 1 fps it takes minutes)
           const te = Date.now();
-          const ok = await bot.page.waitForSelector(':is(.end-screen, .dbf, .mx-overlay .chr):not(.leaving)', { state: 'visible', timeout: 420000 * bot.o.slow }).then(() => true, () => false);
+          const ok = await bot.page.waitForSelector(':is(.end-screen, .dbf, .mx-overlay .chr, .cq-modal .cq-dlg):not(.leaving)', { state: 'visible', timeout: 420000 * bot.o.slow }).then(() => true, () => false);
           rec.endScreenSecs = Math.round((Date.now() - te) / 1000);
           if (!ok) bot.friction('softlock', 'the match ended but no results screen or debrief appeared within 7 minutes');
-          else { await sleep(1500); rec.endText = await bot.page.evaluate(() => document.querySelector(':is(.end-screen, .dbf, .mx-overlay .chr):not(.leaving)')?.innerText.replace(/\s+/g, ' ').slice(0, 400)); await bot.shot('results'); }
+          else { await sleep(1500); rec.endText = await bot.page.evaluate(() => document.querySelector(':is(.end-screen, .dbf, .mx-overlay .chr, .cq-modal .cq-dlg):not(.leaving)')?.innerText.replace(/\s+/g, ' ').slice(0, 400)); await bot.shot('results'); }
         } else {
           // still running at the time limit: is anything happening, or is it stuck?
           const st = await bot.g((g) => { const us = g.world.units.filter((u) => u.alive && u.owner === g.local); return { my: us.length, types: [...new Set(us.map((u) => u.ut.id))].join(','), where: us.slice(0, 3).map((u) => `${Math.round(u.x)},${Math.round(u.y)}`).join(' '), blds: g.world.buildings.filter((b) => b.alive && b.owner === g.local).length, credits: g.local.credits }; });

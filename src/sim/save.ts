@@ -14,6 +14,7 @@ import { newCtrlState } from './formation';
 import { loadCommander, saveCommander } from './commander';
 import { loadVariety, neutralOwner, saveVariety } from './events';
 import { loadEcon, saveEcon } from './economy';
+import { AI_DIFFICULTIES } from './ai';
 
 export const SAVE_VERSION = 1;
 
@@ -276,6 +277,9 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
     const ai = w.ais.find((a) => a.player.id === as.player) as any;
     if (!ai) continue;
     const p = ai.player as Player, keep = [p.buildSpeed, p.incomeBias];
+    // the level first: a mission AI set to a level and then to a behaviour (missions/common.ts aiProfile: 'easy' +
+    // 'defensive') keeps its level, which the behaviour alone would not restore (the AI was rebuilt at the setup's)
+    if ((AI_DIFFICULTIES as readonly string[]).includes(as.difficulty)) ai.difficulty = as.difficulty;
     if (as.behaviour === 'full') ai.setMode(as.difficulty); else ai.setMode(as.behaviour);
     if (typeof as.modeSet === 'boolean') { ai.modeSet = as.modeSet; [p.buildSpeed, p.incomeBias] = keep; } // (the economy multipliers as they were: dynamic difficulty moves them)
     Object.assign(ai, { state: as.state, stage: as.stage, stageX: as.stageX, stageY: as.stageY, stageTarget: as.stageTarget, stageStart: as.stageStart, wave: new Set(as.wave), waveStart: as.waveStart, nextWaveValue: as.nextWaveValue, lastDefend: as.lastDefend, deployTries: as.deployTries, thinks: as.thinks ?? 0 });

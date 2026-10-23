@@ -88,6 +88,15 @@ export function txHtml(key: string, params?: Params, fallback?: string): string 
 /** Whether English (the source) has this key. */
 export const hasKey = (key: string): boolean => key in EN;
 
+/**
+ * The active language's own translation of a key, as plain text (markers stripped), or null in English and when the
+ * catalogue lacks the key: no English fallback (speech uses it to decide between a translated line and English).
+ */
+export function translation(key: string, params?: Params): string | null {
+  const m = table?.[key];
+  return m ? formatMessage(unmark(m), params, lang) : null;
+}
+
 export interface Translator<K extends string> {
   /** The translated plain text (markers stripped): for textContent, attributes, or esc() into HTML. */
   (key: K, params?: Params): string;
@@ -176,19 +185,46 @@ export function addSourceResolver(fn: (english: string) => string | null) {
   sourceResolvers.push(fn);
   sourceCache.clear();
 }
+const paramResolvers: { when: (key: string, param: string) => boolean; fn: (english: string) => string | null }[] = [];
+/**
+ * Translate one parameter of some templates only: `when(key, param)` picks them (a key prefix and parameter names),
+ * `fn` returns the translation or null. For names that are also ordinary words (Conquest call signs: "Ranger",
+ * "Ghost"), which a general resolver would translate everywhere.
+ */
+export function addParamResolver(when: (key: string, param: string) => boolean, fn: (english: string) => string | null) {
+  paramResolvers.push({ when, fn });
+  sourceCache.clear();
+}
+/** The translation a parameter resolver gives the value of {param} in the template `key`; null when none does. */
+export function resolveParamOf(key: string, param: string, v: string): string | null {
+  if (!table) return null;
+  for (const r of paramResolvers) if (r.when(key, param)) { const t = r.fn(v); if (t != null) return t; }
+  return null;
+}
 function resolveParam(v: string): string {
   if (!table || !v || /^[\d\s.,:%$+−-]*$/.test(v)) return v;
   const k = sourceExact.get(v);
   if (k && table[k]) return unmark(table[k]);
   for (const r of sourceResolvers) { const t = r(v); if (t != null) return t; }
   // a list the source joined ("Double Ore, Fast Production"): each name on its own
-  for (const sep of [', ', ' · ', ' and ']) {
+  for (const sep of [', ', ' · ', ' and ', ' & ']) {
     if (!v.includes(sep)) continue;
     const parts = v.split(sep);
     const tr = parts.map(resolveParam);
     if (tr.some((t, i) => t !== parts[i])) return sep === ' and ' ? fmtList(tr) : tr.join(sep);
   }
   return v;
+}
+
+/**
+ * Whether a template ("Wave {n}") is registered source text as a template, placeholder names aside. Tools use it
+ * instead of isSourceText(): matching a template against the registered patterns would let a shorter one swallow it
+ * ("Daily Challenge #{n}" matches "Daily Challenge #{number}, operation {codename}. ..." with n = the rest).
+ */
+export function isSourceTemplate(template: string): boolean {
+  const norm = (t: string) => t.replace(/\{\w+\}/g, '{}');
+  const want = norm(template);
+  return sourcePatterns.some((p) => norm(EN[p.key] ?? '') === want);
 }
 
 /** Whether `text` is English a registered source emits (tests keep the simulation's templates in sync). */
@@ -209,7 +245,7 @@ export function trSource(text: string): string {
       if (!m) continue;
       matched = true;
       const tr = table[p.key];
-      if (tr) out = formatMessage(unmark(tr), Object.fromEntries(p.names.map((n, i) => [n, resolveParam(m[i + 1])])), lang);
+      if (tr) out = formatMessage(unmark(tr), Object.fromEntries(p.names.map((n, i) => [n, resolveParamOf(p.key, n, m[i + 1]) ?? resolveParam(m[i + 1])])), lang);
       break;
     }
     // a bare name the resolvers know (a structure type, a Conquest territory used as a code name...)

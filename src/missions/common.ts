@@ -6,6 +6,7 @@ import type { MissionRuntime, Portrait, Pt } from '../sim/mission';
 import type { Building, Entity, Unit } from '../sim/entities';
 import type { World } from '../sim/world';
 import { floodReach } from '../sim/mapgen';
+import { ARMOR_INDEX, WARHEADS } from '../data/rules';
 import { CAST as N } from '../i18n/en/campaign-cast';
 
 export interface Speaker {
@@ -161,6 +162,14 @@ export function closestHumanAsset(m: MissionRuntime, x: number, y: number): Enti
 /** Non-wall structures of a player. */
 export function structures(m: MissionRuntime, p: number, types?: string[]): Building[] {
   return m.buildings(p, types).filter((b) => !b.bt.wall);
+}
+
+/**
+ * Units of a side that can still damage structures (not dogs, medics, engineers or anti-air only). Red Alert's rule
+ * for missions without a base: the mission fails when the forces that can complete it are gone.
+ */
+export function structureBreakers(m: MissionRuntime, p: number): Unit[] {
+  return m.units(p).filter((u) => u.weapons.some((w) => w.def.antiGround && WARHEADS[w.def.warhead].verses[ARMOR_INDEX.wood] > 0.05));
 }
 
 /** Escorts stay close to the unit they protect (call every few seconds). */

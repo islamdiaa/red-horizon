@@ -58,7 +58,7 @@ export function defenceAt(ai: AIController, x: number, y: number): number {
 
 /** The army value (credits) a wave against this target needs before it sets out. */
 export function waveNeeds(ai: AIController, target: [number, number], caution: number): number {
-  return (ai.enemyEst + defenceAt(ai, target[0], target[1])) * EDGE * caution;
+  return (ai.enemyEst + defenceAt(ai, target[0], target[1])) * EDGE * caution * (late(ai) ? 0.75 : 1);
 }
 
 /** A wave on its way or in the fight that has met more than it can beat (what it sees around it, defences included). */
@@ -67,7 +67,7 @@ export function outmatchedWave(ai: AIController, alive: { x: number; y: number; 
   let cx = 0, cy = 0, v = 0;
   for (const u of alive) { cx += u.x; cy += u.y; v += u.ut.cost * u.healthFrac; }
   cx /= alive.length; cy /= alive.length;
-  return facingNear(ai, cx, cy) > v * RETREAT_AT;
+  return facingNear(ai, cx, cy) > v * (late(ai) ? 1.5 : RETREAT_AT);
 }
 
 /**
@@ -105,6 +105,11 @@ export function powerTargets(ai: AIController, known: KnownStructure[]): Set<num
     }
   }
   return out;
+}
+
+/** (tune.proLate) A long war: from tune.proLate seconds the commander takes more risk. */
+function late(ai: AIController): boolean {
+  return ai.tune.proLate > 0 && ai.world.time >= ai.tune.proLate;
 }
 
 /** A wave turns back when what it faces is this much stronger than itself. */

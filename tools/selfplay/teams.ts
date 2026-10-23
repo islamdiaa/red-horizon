@@ -9,7 +9,10 @@
  *  - naval: two AIs of the level on a sea map (generated, water 1): ships built and lost, and what the ships destroyed.
  *
  *   node --import tsx tools/selfplay/teams.ts [--mode 2v2,ffa,naval] [--games 24] [--diff recruit,easy,normal,hard,brutal]
- *        [--vs casual] [--rules commander,classic] [--size 96] [--minutes 45] [--json out.json]
+ *        [--vs casual] [--rules commander,classic] [--size 96] [--minutes 45] [--enemy normal] [--json out.json]
+ *
+ * --enemy <level> (2v2): the two enemy AIs play this level and only the human's AI teammate plays the level under test
+ * (a lobby with an easy teammate against harder enemies, so that the human's base actually gets attacked).
  */
 import { writeFileSync } from 'node:fs';
 import type { Faction } from '../../src/data/rules';
@@ -30,6 +33,7 @@ const minutes = +opt('minutes', '45');
 const jsonOut = opt('json', '');
 // (naval: a curated naval map instead of a generated sea map, e.g. --map archipelago)
 const navalMap = opt('map', '');
+const enemyLevel = opt('enemy', '') as AIDifficulty | '';
 
 function wilson(k: number, n: number): [number, number] {
   if (!n) return [0, 1];
@@ -53,7 +57,8 @@ for (const mode of modes) for (const rules of rulesSets) for (const diff of diff
   if (mode === '2v2') {
     // (the 2v2 lobby: slots 0+1 against 2+3; the teammate mixes factions as random seats do)
     const mate: Faction = g % 4 < 2 ? human : other(human);
-    setup = { ...base, faction: human, water: 0.4, opponents: [{ faction: mate, difficulty: diff }, { faction: other(human), difficulty: diff }, { faction: g % 3 ? other(human) : human, difficulty: diff }] };
+    const foe = enemyLevel || diff;
+    setup = { ...base, faction: human, water: 0.4, opponents: [{ faction: mate, difficulty: diff }, { faction: other(human), difficulty: foe }, { faction: g % 3 ? other(human) : human, difficulty: foe }] };
     teams = [0, 0, 1, 1];
     probe = 'teams';
   } else if (mode === 'ffa') {
@@ -64,7 +69,7 @@ for (const mode of modes) for (const rules of rulesSets) for (const diff of diff
     probe = 'naval';
   }
   players = [{ faction: human, difficulty: 'normal', standin: vs, label: vs },
-    ...setup.opponents.map((o, i): PlayerSpec => ({ faction: o.faction as Faction, difficulty: diff, label: `ai${i + 1}` }))];
+    ...setup.opponents.map((o, i): PlayerSpec => ({ faction: o.faction as Faction, difficulty: o.difficulty, label: `ai${i + 1}` }))];
   // (naval: both sides AI; a plain AI spec in slot 0 makes buildFromSetup seat an AI there)
   if (mode === 'naval') players[0] = { faction: human, difficulty: diff, label: 'ai0' };
   specs.push({ id: id++, seed, map: 'land', setup, teams, players, maxMinutes: minutes, probe });

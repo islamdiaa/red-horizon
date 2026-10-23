@@ -96,7 +96,10 @@ const CSS = `
 .cmp-stamp { position: absolute; left: 112px; bottom: 10px; font-family: var(--mono, monospace); font-size: 10px; letter-spacing: .3em; color: rgba(255,120,100,0.45); pointer-events: none; }
 .cmp-text { flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px; padding-right: 6px; cursor: pointer; }
 .cmp-text p { font-size: 15.5px; line-height: 1.58; color: #d4e0ec; margin: 0 0 11px; min-height: 1.2em; }
-.cmp-text p.typing::after { content: '▌'; color: rgb(var(--accent-rgb, 90,180,255)); animation: cmpCaret .8s steps(1) infinite; margin-left: 1px; }
+.cmp-text p.typing .ty::after { content: '▌'; color: rgb(var(--accent-rgb, 90,180,255)); animation: cmpCaret .8s steps(1) infinite; margin-left: 1px; }
+/* (the untyped rest of each paragraph is laid out but invisible, so the briefing has its final height from the start
+   and the difficulty picker and Deploy below it don't move while it types: early taps land where they look) */
+.cmp-text .ty-rest { visibility: hidden; }
 @keyframes cmpCaret { 50% { opacity: 0; } }
 .cmp-tips { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: rgba(var(--accent-rgb, 90,180,255),0.07); border: 1px solid rgba(var(--accent-rgb, 90,180,255),0.22); }
 .cmp-tips h4, .cmp-tech h4 { margin: 0 0 4px; font-size: 11px; letter-spacing: .26em; color: rgb(var(--accent-rgb, 90,180,255)); }
@@ -109,6 +112,7 @@ const CSS = `
 .cmp-lvl-head h4 { margin: 0; font-size: 11px; letter-spacing: .26em; color: rgb(var(--accent-rgb, 90,180,255)); }
 .cmp-lvl-head span { font-family: var(--mono, monospace); font-size: 11px; letter-spacing: .12em; color: #ffd34d; }
 .cmp-lvl .seg button { height: 32px; font-size: 13px; }
+@media (pointer: coarse) { .cmp-lvl .seg button { height: 44px; } } /* (touch: a full-size target; only the height grows, the row's width is unchanged) */
 .cmp-lvl-desc { margin-top: 6px; font-size: 12.5px; line-height: 1.4; color: #b8c8d8; min-height: 2.8em; }
 .cmp-lvl-desc b { color: #dfe8f2; font-weight: 600; }
 .cmp-lvl-desc .up { color: #9fe8b0; }
@@ -172,6 +176,31 @@ const CSS = `
 .dbf-radio .who { font-size: 12px; letter-spacing: .24em; color: rgb(var(--accent-rgb, 90,180,255)); font-weight: 700; margin-bottom: 6px; }
 .dbf-radio .line { font-size: 16px; line-height: 1.5; color: #e8f0f8; }
 .dbf-actions { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: flex-end; }
+.dbf-big b { white-space: nowrap; }
+/* phones and short landscape windows: the card fills the screen and scrolls, the actions stay at its foot, the title
+   and the stars shrink (desktop sizes are unchanged) */
+@media (max-width: 700px), (max-height: 560px) {
+  .dbf-card { width: 100vw; max-height: 100vh; max-height: 100dvh; box-sizing: border-box; border-radius: 0; padding: 14px 14px 0; gap: 12px 16px; align-content: start; }
+  .dbf-top .kick { letter-spacing: .2em; font-size: 11px; }
+  .dbf-top h1 { font-size: clamp(20px, 6.4vw, 46px); letter-spacing: .1em; overflow-wrap: anywhere; }
+  .dbf-top .sub { letter-spacing: .12em; font-size: 12px; }
+  .dbf-stars { gap: 10px; margin: 0; }
+  .dbf-star { width: auto; flex: 1 1 0; min-width: 0; }
+  .dbf-star svg { width: 52px; height: 52px; }
+  .dbf-star span { font-size: 10px; letter-spacing: .06em; }
+  .dbf-big { gap: 8px; margin-top: 10px; }
+  .dbf-big div { min-width: 0; padding: 8px; }
+  .dbf-big b { font-size: 18px; }
+  .dbf-radio { padding: 10px; gap: 10px; }
+  .dbf-radio .cmp-pt { width: 56px; height: 66px; }
+  .dbf-radio .txt { min-height: 0; }
+  .dbf-radio .line { font-size: 14px; }
+  .dbf-actions { position: sticky; bottom: 0; z-index: 2; margin: 0 -14px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); flex-wrap: wrap;
+    background: rgba(8,11,16,0.96); box-shadow: 0 -10px 14px rgba(8,11,16,0.9); }
+  .dbf-actions .cmp-btn { flex: 1 1 auto; height: 44px; padding: 0 12px; font-size: 13px; letter-spacing: .12em; }
+}
+@media (max-width: 700px) { .dbf-card { grid-template-columns: minmax(0, 1fr); } }
+@media (max-height: 560px) { .dbf-star svg { width: 34px; height: 34px; } .dbf-star { gap: 2px; } }
 /* portrait screens (tablets, phones): the theatre map above the briefing, one column that scrolls */
 @media (max-aspect-ratio: 1/1) {
   .cmp { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; align-content: start; overflow-y: auto; padding: 1rem .8rem 1.4rem; }
@@ -617,7 +646,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
       <div class="cmp-speaker">
         <div class="cmp-pt">${portraitSvg(who.name, who.portrait)}</div>
         <div class="cmp-say"><div class="who">${esc(trSource(who.name).toUpperCase())}</div><div class="role">${esc(roleOf(who.name).toUpperCase())}</div>
-          <div class="cmp-text" title="${esc(tCampaign('brief.skip'))}">${m.briefing.map((p) => `<p data-full="${esc(trSource(p))}"></p>`).join('')}</div>
+          <div class="cmp-text" title="${esc(tCampaign('brief.skip'))}">${m.briefing.map((p) => `<p data-full="${esc(trSource(p))}"><span class="ty"></span><span class="ty-rest" aria-hidden="true">${esc(trSource(p))}</span></p>`).join('')}</div>
         </div>
         <div class="cmp-wm">${t === 'soviet' ? IC.star : t === 'allies' ? IC.shield : IC.target}</div>
         <div class="cmp-stamp">${esc(tCampaign('brief.stamp', { stamp: t === 'soviet' ? tCampaign('brief.sovietSecret') : tCampaign('brief.eyesOnly'), codename: trSource(m.codename) }))}</div>
@@ -644,11 +673,12 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
       if (closed || pi >= ps.length) return;
       const n = Math.max(1, Math.round((now - last) / 14));
       last = now;
-      const full = ps[pi].dataset.full ?? '';
+      const p = ps[pi], full = p.dataset.full ?? '';
       ci = Math.min(full.length, ci + n);
-      ps[pi].textContent = full.slice(0, ci);
-      ps[pi].classList.add('typing');
-      if (ci >= full.length) { ps[pi].classList.remove('typing'); pi++; ci = 0; }
+      const ty = p.querySelector<HTMLElement>('.ty'), rest = p.querySelector<HTMLElement>('.ty-rest');
+      if (ty && rest) { ty.textContent = full.slice(0, ci); rest.textContent = full.slice(ci); } else p.textContent = full.slice(0, ci);
+      p.classList.add('typing');
+      if (ci >= full.length) { p.classList.remove('typing'); p.textContent = full; pi++; ci = 0; }
       typer = requestAnimationFrame(step);
     };
     typer = requestAnimationFrame(step);
@@ -733,7 +763,7 @@ export function showDebrief(
         <div class="txt"><div class="who">${esc(trSource(line.speaker).toUpperCase())}</div><div class="line"></div></div>
       </div>
       <div class="dbf-actions">
-        <button class="cmp-btn sec" data-act="menu">${esc(tCampaign('debrief.mainMenu'))}</button>
+        <button class="cmp-btn sec" data-act="menu">${esc(tCampaign('debrief.toCampaign'))}</button>
         <button class="cmp-btn sec" data-act="retry">${esc(tCampaign(result.won ? 'debrief.replay' : 'debrief.retry'))}</button>
         ${result.won && actions.onNext ? `<button class="cmp-btn" data-act="next">${esc(tCampaign('debrief.next'))}</button>` : ''}
       </div>

@@ -46,7 +46,8 @@ tools/mobile/mobile.sh down
 ## The matrix (`run.mjs`)
 
 `--profiles phone-land,phone,tablet-land,tablet` (390×844 and 800×1280 CSS pixels, each in both orientations),
-`--only <scenarios>`, `--url`, `--out`. Each scenario starts Chrome fresh with empty storage.
+`--only <scenarios>`, `--url`, `--out`, `--every-profile` (every scenario on every profile; by default only `menus`,
+`match`, `rotate` and `campaign` do), `--mission-minutes` (the campaign scenario's touch play). Each scenario starts Chrome fresh with empty storage.
 
 | Scenario | Checks |
 |---|---|
@@ -59,6 +60,8 @@ tools/mobile/mobile.sh down
 | `rotate` | Rotating mid-match keeps the match and resizes the canvas |
 | `keyboard` | The on-screen keyboard opens for text fields and doesn't cover them |
 | `pwa` | Installable, service worker, the menu and a match offline, Add to Home screen and launch from the icon |
+| `campaign` | Campaign screen: the difficulty picker (fits, finger-sized, a new player starts on Easy, a tap picks and stores a level, remembered), the briefing readable; Allied mission 1 deployed at Easy (the level reaches the mission and its objectives panel), mission HUD audit, pause and resume with Back; then played by touch: MCV deployed from the selection panel, Power Plant, Barracks and Refinery bought and placed by tap, a Field Manual battle alert (idle Barracks) checked in both orientations (on screen, readable, its × finger-sized, taps and drags beside it reach the map, the text does not dismiss it, the × does), Rocket Soldiers trained and the army sent with All, Attack and a tap until the mission ends or `--mission-minutes` runs out |
+| `pickerprobe` | Triage: where a real tap and a CDP touch on the campaign difficulty picker land (pointer and click targets), and whether they pick the level |
 
 ## Notes
 

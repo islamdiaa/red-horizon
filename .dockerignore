@@ -8,6 +8,8 @@ tools/nsslibs
 .github
 .env
 .env.*
+**/.env
+**/.env.*
 *.pem
 *.key
 .npmrc
@@ -20,3 +22,5 @@ release
 desktop
 server/node_modules
 server/dist
+# dev and test tooling (tools/lab/.env holds local paths); the build needs only src, public and the configs
+tools

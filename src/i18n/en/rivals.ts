@@ -1,9 +1,11 @@
 /**
  * Rivals (persistent enemy commanders): the board, the skirmish-setup chip and the in-match rival radio
  * (src/ui/rivals.ts), and the English the rival logic stores (src/meta/rivals.ts). Rival personal names (first and
- * last names) are proper names and stay as they are; ranks, nicknames, titles, traits and radio lines translate.
+ * last names) keep their spelling in Latin-script languages and are transliterated in Russian and Chinese
+ * (players.ts personName); ranks, nicknames, titles, traits and radio lines translate.
  */
-import { liveStrings, sourceStrings, strings } from '../core';
+import { addSourceResolver, liveStrings, sourceStrings, strings, tx } from '../core';
+import { isPersonName, personName } from './players';
 
 /**
  * English that src/meta/rivals.ts stores in rh.rivals and in the skirmish setup (replays, saves) or matches on:
@@ -197,4 +199,13 @@ export default strings('rivals', {
     /** Screen reader announcement of a radio line. */
     announce: '{who}: {text}',
   },
+});
+
+// A rival's in-match player name is its English radio call sign ("Col. Volkov": src/meta/rivals.ts callSign, stored by
+// the match setup): playerName() / trSource() translate it here (short rank and surname).
+const SHORT_RANK: Record<string, string> = { 'Lt.': 'lieutenant', 'Capt.': 'captain', 'Maj.': 'major', 'Col.': 'colonel', 'Gen.': 'general', Marshal: 'marshal', 'F.M.': 'fieldMarshal' };
+addSourceResolver((en) => {
+  const m = /^(Lt\.|Capt\.|Maj\.|Col\.|Gen\.|Marshal|F\.M\.) (.+)$/.exec(en);
+  if (!m || !isPersonName(m[2])) return null;
+  return tx('rivals.name.callSign', { rank: tx(`rivals.short.${SHORT_RANK[m[1]]}`), last: personName(m[2]) });
 });

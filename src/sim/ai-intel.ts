@@ -58,8 +58,12 @@ export type ArmyMix = Record<UnitClass, number> & { total: number };
 
 /** Seconds a sighting of a unit stays in the composition estimate. */
 const UNIT_MEMORY = 150;
-/** Edge (cells) of the squares the AI remembers having seen (huntPoint). */
-const HUNT_SQUARE = 8;
+/**
+ * Edge (cells) of the squares the AI remembers having seen (huntPoint). Version 6: 4 cells (was 8), and a square is seen
+ * once all its open ground is in view at once (it was its centre cell): a square whose centre was a tree or rock was
+ * never searched, so a unit hiding in a map corner was never found.
+ */
+const HUNT_SQUARE = 4;
 
 export function unitClass(u: { ut: Unit['ut'] }): UnitClass {
   const t = u.ut;
@@ -87,7 +91,10 @@ export class AIIntel {
 
   /** Experiments only (AITuning.mapHack): the classic all-seeing AI. */
   mapHack = false;
-  /** (AITuning.proPower, version 5) A Tesla Coil it sees standing dark for want of power is no threat (strengthNear). */
+  /**
+   * (AITuning.proPower, version 5; every skirmish level, as it only reads what the AI sees) A Tesla Coil it sees
+   * standing dark for want of power is no threat (strengthNear, and the Classic commander's defenceAt).
+   */
   powerAware = false;
   /** Per known structure: known structures of the same owner within 8 cells (enemyBase); derived, rebuilt after update(). */
   private nearCache: Map<number, number> | null = null;
@@ -305,32 +312,49 @@ export class AIIntel {
     return v;
   }
 
-  /** Squares of the map in view now (their centre cell visible). */
+  /** Squares of the map in view now: all their open ground (terrain a ground unit can stand on) visible at once. */
   private markSeen(tick: number) {
     const m = this.world.map, vis = this.p.visible, G = HUNT_SQUARE;
     const gw = Math.ceil(m.w / G), gh = Math.ceil(m.h / G);
     if (!this.seenAt || this.seenAt.length !== gw * gh) this.seenAt = new Int32Array(gw * gh).fill(-1);
     for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-      const cx = Math.min(m.w - 1, gx * G + (G >> 1)), cy = Math.min(m.h - 1, gy * G + (G >> 1));
-      if (vis[cy * m.w + cx]) this.seenAt[gy * gw + gx] = tick;
+      let all = true;
+      for (let y = gy * G; y < Math.min(m.h, gy * G + G) && all; y++) for (let x = gx * G; x < Math.min(m.w, gx * G + G); x++) {
+        const i = y * m.w + x;
+        if (!vis[i] && m.terrainPassable(i)) { all = false; break; }
+      }
+      if (all) this.seenAt[gy * gw + gx] = tick;
     }
   }
 
   /**
    * Where to look for an enemy whose structures it no longer knows of (its last buildings hidden somewhere, a base
-   * moved by MCV): the centre of the land square it has gone longest without seeing, the nearest of those first.
-   * Null with nothing to search (no fog, or every square in view).
+   * moved by MCV, a beaten player's last units hiding): the open cell nearest the centre of the square it has gone
+   * longest without seeing, the nearest of those first. `zone` (ai-ops.ts landZones): only ground that units standing
+   * there can drive to; `claimed`: points other search parties are already heading for (their squares and the
+   * neighbouring ones are left to them). Null with nothing to search (no fog, or everything seen within 20 s).
    */
-  huntPoint(fromX: number, fromY: number): [number, number] | null {
+  huntPoint(fromX: number, fromY: number, zone?: { zones: Int32Array; id: number }, claimed: readonly [number, number][] = []): [number, number] | null {
     const m = this.world.map, G = HUNT_SQUARE, seen = this.seenAt;
     if (!seen || this.omniscient) return null;
     const gw = Math.ceil(m.w / G), gh = Math.ceil(m.h / G);
     let best: [number, number] | null = null, bestT = Infinity, bestD = Infinity;
     for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-      const cx = Math.min(m.w - 1, gx * G + (G >> 1)), cy = Math.min(m.h - 1, gy * G + (G >> 1));
-      if (!m.passable(cx, cy)) continue;
-      const t = seen[gy * gw + gx], d = Math.hypot(cx + 0.5 - fromX, cy + 0.5 - fromY);
-      if (t < bestT || (t === bestT && d < bestD)) { bestT = t; bestD = d; best = [cx + 0.5, cy + 0.5]; }
+      const t = seen[gy * gw + gx];
+      if (t > bestT) continue;
+      const mx = gx * G + G / 2, my = gy * G + G / 2;
+      if (claimed.some(([x, y]) => Math.abs(x - mx) < G * 2 && Math.abs(y - my) < G * 2)) continue;
+      // the square's open cell nearest its centre (on the searchers' ground)
+      let cell = -1, cd = Infinity;
+      for (let y = gy * G; y < Math.min(m.h, gy * G + G); y++) for (let x = gx * G; x < Math.min(m.w, gx * G + G); x++) {
+        const i = y * m.w + x;
+        if (!m.terrainPassable(i) || (zone && zone.zones[i] !== zone.id)) continue;
+        const d = (x + 0.5 - mx) ** 2 + (y + 0.5 - my) ** 2;
+        if (d < cd) { cd = d; cell = i; }
+      }
+      if (cell < 0) continue;
+      const cx = (cell % m.w) + 0.5, cy = ((cell / m.w) | 0) + 0.5, d = Math.hypot(cx - fromX, cy - fromY);
+      if (t < bestT || d < bestD) { bestT = t; bestD = d; best = [cx, cy]; }
     }
     return best && bestT < this.world.tick - TICK_HZ * 20 ? best : null;
   }

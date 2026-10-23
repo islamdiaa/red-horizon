@@ -50,7 +50,8 @@ stop_ubuntu() {
 }
 stop_win() {
   [ -e "$st/win11" ] || return 0
-  timeout 150 "$lab" ssh win11 "Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id \$_.OwningProcess -Force }; Remove-NetFirewallRule -DisplayName rh-lab-net-peer-$PORT -ErrorAction SilentlyContinue; foreach (\$f in 'C:/lab/pw/peer-server-$PORT.mjs','C:/lab/pw/peer-$PORT.log','C:/lab/pw/peer-$PORT.err') { Remove-Item \$f -Force -ErrorAction SilentlyContinue }; 'ok'" >/dev/null 2>&1 || true
+  # (the whole process tree: a killed server leaves its browser's helper processes running; tools/net-lab/win-peer-stop.ps1)
+  timeout 150 "$lab" ssh win11 "powershell -NoProfile -ExecutionPolicy Bypass -File C:/lab/pw/win-peer-stop.ps1 -Port $PORT; Remove-Item C:/lab/pw/win-peer-stop.ps1 -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1 || true
 }
 
 start_peer() { # <spec> -> prints "<endpoint> <engine>"
@@ -83,11 +84,12 @@ start_peer() { # <spec> -> prints "<endpoint> <engine>"
       local ip; ip=$(vm_ip win11); [ -n "$ip" ] || return 1
       win_busy && { busy_msg "the win11 VM"; return 1; }
       "$lab" copy win11 "$here/peer-server.mjs" ":C:/lab/pw/peer-server-$PORT.mjs" || return 1
+      "$lab" copy win11 "$here/win-peer-stop.ps1" ":C:/lab/pw/win-peer-stop.ps1" || return 1
       touch "$st/win11"
       # the host reaches the peer server through Windows Firewall: a rule for the run, removed in cleanup. The server is
       # started through WMI (Win32_Process.Create): a process started from the SSH session would die with it (Windows
       # OpenSSH ends the session's job object), so its environment goes on the cmd line.
-      local envs="set PEER=win11&& set PEER_PORT=$PORT&& set PEER_WIN=1&& set PEER_CHANNEL=${WIN_CHANNEL:-chrome}&& set PEER_ENGINE=$engine&&"
+      local envs="set PEER=win11&& set PEER_PORT=$PORT&& set PEER_WIN=1&& set PEER_CHANNEL=${WIN_CHANNEL:-chrome}&& set PEER_ENGINE=$engine&& set PEER_STOP_FILE=C:/lab/pw/peer-$PORT.stop&&"
       timeout 150 "$lab" ssh win11 "New-NetFirewallRule -DisplayName rh-lab-net-peer-$PORT -Direction Inbound -LocalPort $PORT -Protocol TCP -Action Allow -ErrorAction SilentlyContinue | Out-Null; Remove-Item C:/lab/pw/peer-$PORT.log,C:/lab/pw/peer-$PORT.err -ErrorAction SilentlyContinue; \$node = (Get-Command node).Source; \$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = \"cmd /c $envs \`\"\$node\`\" peer-server-$PORT.mjs > C:\\lab\\pw\\peer-$PORT.log 2> C:\\lab\\pw\\peer-$PORT.err\"; CurrentDirectory = 'C:\\lab\\pw' }; 'started ' + \$r.ProcessId" >&2 || true
       wait_ready "win11 peer ($engine)" "timeout 60 '$lab' ssh win11 'Get-Content C:/lab/pw/peer-$PORT.log -ErrorAction SilentlyContinue'" || return 1
       echo "ws://$ip:$PORT/pw $engine" ;;

@@ -16,7 +16,9 @@ export type Order =
   | { type: 'attack'; target: number; forced: boolean; resume?: Order }
   | { type: 'attackGround'; x: number; y: number }
   | { type: 'harvest'; x?: number; y?: number }
-  | { type: 'enter'; target: number }
+  /** `via` / `tried`: the cell beside the structure it heads for when the side facing it can't be reached, and the
+   *  cells it has tried (unitlogic.ts enterApproach). */
+  | { type: 'enter'; target: number; via?: number; tried?: number[] }
   | { type: 'deploy' }
   | { type: 'guard'; x: number; y: number }
   /** Minelayer: lay a mine in each of these cells (map indices), nearest first (mines.ts). */

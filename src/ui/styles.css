@@ -189,6 +189,8 @@ body.cur-pan #game-canvas { cursor: grabbing; }
   box-shadow: inset 0 0 2rem rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(0, 0, 0, 0.6);
 }
 .radar canvas { width: 100%; height: 100%; display: block; image-rendering: auto; cursor: crosshair; }
+/* Classic on a short window (800x600): a smaller radar leaves the build grid two rows of cards or more (it had one) */
+@media (max-height: 820px) { body:not(.hud-modern) #sidebar .radar { width: min(100%, 30vh); align-self: center; } }
 .radar::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px); }
 .radar-sweep {
   position: absolute; inset: -21%; pointer-events: none; opacity: 0; transition: opacity 0.8s;
@@ -695,6 +697,22 @@ body:not(.hud-modern) .hint { top: max(calc(var(--edge) + 3.05rem), calc(var(--m
 .hint kbd { font-size: 0.7rem; }
 .hint-x { margin-left: 0.3rem; color: var(--muted); font-size: 0.9rem; padding: 0.15rem; border-radius: 0.3rem; transition: color 0.15s, background 0.15s; }
 .hint:hover .hint-x { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+/* Show: an alert that points at places (the close-out alert) takes the camera there */
+.hint-go {
+  align-self: flex-start; margin-top: 0.35rem; padding: 0.28rem 0.85rem; min-height: 1.9rem; border-radius: 0.4rem; cursor: pointer;
+  font-size: 0.8rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-hi);
+  background: rgba(var(--accent-rgb), 0.16); border: 1px solid rgba(var(--accent-rgb), 0.5);
+}
+.hint-go:hover { background: rgba(var(--accent-rgb), 0.3); color: #fff; } /* (keyboard focus: the global ring, ui/a11y.ts) */
+body.touch-ui .hint-go { min-height: 2.6rem; padding: 0.4rem 1.2rem; }
+/* touch: the x is the only way to dismiss (a tap elsewhere on the panel is a map tap); 40 px, the panel keeps its size */
+html body.touch-ui .hint-x { display: inline-grid; place-items: center; min-width: 40px; min-height: 40px; margin: -12px -10px -12px 0; }
+/* a debrief or results screen is up: the leaderboard submit card (net/leaderboard.ts) and the XP summary (meta/toast.ts)
+   move from the bottom-right corner to the top-right one, off the screen's Retry / Next / Play again buttons */
+body:has(.dbf:not(.leaving)) .lbs-card, body:has(.dbf:not(.leaving)) .rhx-sum, body:has(.end-screen:not(.leaving)) .lbs-card { top: 1.2rem; bottom: auto; }
+/* the bank reminder on show (ui/hints.ts): the unit cards' loop buttons appear, with a gold ring (else on hover only) */
+body.coach-loop .bitem:not(.locked):not([data-loop]) .bi-loop { opacity: 0.95; transform: none; box-shadow: 0 0 0 2px rgba(var(--gold-rgb), 0.85); animation: coachLoop 1.6s ease-in-out infinite; }
+@keyframes coachLoop { 50% { box-shadow: 0 0 0 0.3rem rgba(var(--gold-rgb), 0.2); } }
 
 /* =============================================================================
    MENUS
@@ -773,6 +791,8 @@ html:not([lang='en']) .seg button { white-space: normal; line-height: 1.05; lett
 .toggle.on { background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.75), rgba(var(--accent-rgb), 0.45)); border-color: rgba(var(--accent-rgb), 0.9); box-shadow: 0 0 0.8rem rgba(var(--accent-rgb), 0.45); }
 .toggle.on i { left: calc(100% - 1.21rem); background: #fff; }
 .toggle:hover { border-color: rgba(var(--accent-rgb), 0.7); }
+/* touch: finger-sized switches (35x19 px was below a fingertip) */
+@media (pointer: coarse) { .toggle { width: 3.4rem; height: 1.9rem; border-radius: 1rem; } .toggle i { top: 0.17rem; width: 1.45rem; height: 1.45rem; } .toggle.on i { left: calc(100% - 1.61rem); } }
 
 /* slider */
 .slider-wrap { display: flex; align-items: center; gap: 0.7rem; flex: 1; }
@@ -1175,6 +1195,14 @@ body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-heigh
 }
 @media (max-aspect-ratio: 16/10.5) {
   .tb-obj .obj-txt { display: none; }
+}
+/* Classic on a narrow window (800 px): the top bar's end (the idle-unit count) slid under the top-right buttons */
+@media (max-width: 1000px) {
+  body:not(.hud-modern) .tb-menu kbd { display: none; }
+  body:not(.hud-modern) .speed-ctl button { min-width: 1.75rem; }
+  body:not(.hud-modern) #topbar { gap: 0.3rem; }
+  /* (and the selection panel's last column of order buttons ran under the sidebar) */
+  body:not(.hud-modern) .sp-main { min-width: 13rem; }
 }
 body.reduce-motion .radar-sweep, body.reduce-motion .bi-shine, body.reduce-motion .sw-shine, body.reduce-motion .end-rays { display: none !important; }
 /* Zero-length (not 1 ms): state changes apply at once instead of depending on the animation clock ticking,
@@ -1738,6 +1766,13 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   html body.hud-modern.touch-ui .hint { left: calc(var(--edge) + 6.9rem); max-width: 19rem; }
   /* radio transmissions: beside the touch toolbar, not over it */
   html body.hud-modern .rv-tx, html body.hud-modern .mh-tx { left: calc(var(--edge) + 6.9rem); width: min(26rem, calc(100vw - 7.6rem - 11.6rem - var(--edge) * 3)); }
+  /* a mission (LAB's phone runs, 796x306): the checklist is capped (it scrolls) so the toolbar keeps its place under it;
+     the Field Manual moves to the right column under the resource bar, above the toolbar (it sat on the build bar and
+     the toolbar covered its x); the mission radio goes between the checklist and the Field Manual */
+  html body.hud-modern.touch-ui .mh-obj { max-height: 34vh; overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
+  html body.hud-modern.touch-ui:has(.mh-obj) .hint { top: calc(var(--edge) + 3.3rem); right: var(--edge); left: auto; max-width: min(17rem, 36vw); max-height: max(6rem, calc(100vh - var(--edge) * 3 - 3.3rem - var(--sel-h, 0px))); overflow-y: auto; z-index: 8; }
+  html body.hud-modern .mh-tx { left: calc(var(--edge) * 2 + 14.3rem); right: auto; top: calc(var(--edge) + 3.3rem); bottom: auto; width: min(20rem, calc(100vw - 14.3rem - min(17rem, 36vw) - var(--edge) * 4)); z-index: 6; }
+  /* (at 300 px tall nothing is free for it: the toolbar's buttons stay drawn over the transient radio, and taps go through it) */
   /* rules / weather chips: right-aligned beside the commander panel, clear of the Field Manual */
   body.hud-modern .vr-strip { top: calc(var(--edge) + 3.6rem); left: auto; right: calc(var(--edge) * 2 + 11.6rem); transform: none; max-width: 22rem; justify-content: flex-end; }
   #minimap-panel .radar .offline b { font-size: 0.8rem; letter-spacing: 0.14em; }

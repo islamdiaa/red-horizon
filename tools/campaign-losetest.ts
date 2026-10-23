@@ -18,6 +18,7 @@ const cases: Case[] = [
   { id: 'soviet-05', at: 20, what: 'Chronosphere', kill: byFlag('pdox') },
   { id: 'soviet-06', at: 20, what: 'Iron Curtain', kill: byFlag('iron') },
   { id: 'allied-05', at: 20, what: 'nothing (reserve timer)', kill: (rt) => { rt.setTimeLeft('reserve', 1); } },
+  { id: 'soviet-01', at: 20, what: 'the heavy tanks and the V2', kill: (rt) => { for (const u of rt.units(0, ['3tnk', 'v2rl'])) rt.world.kill(u); } },
 ];
 let fail = 0;
 for (const c of cases) {

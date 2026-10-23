@@ -6,6 +6,8 @@
 import { BUILDINGS, UNITS, WARHEADS, type BuildingTypeDef } from '../data/rules';
 import { Building, Unit, type Entity } from './entities';
 import type { GameMap } from './map';
+import type { Player } from './player';
+import type { World } from './world';
 import { pickWeapon } from './combat';
 import { TICK_HZ } from './types';
 import { trait } from './ai-personality';
@@ -201,6 +203,9 @@ export function manageExpansion(ai: AIController) {
   if (w.time < ai.tune.expandAfter * trait(pers.economy, 1.6, 0.55) / (0.6 + ai.d.skill * 0.4)) return;
   if (w.tick - ai.lastExpandTry < TICK_HZ * 45 || w.tick - ai.lastDefend < TICK_HZ * 20) return;
   if (ai.count('proc') < 2 || !p.canBuild('mcv')) return;
+  // (Classic, version 6: not while behind on army, DiffParams.classicThrift; unless the ore at home is running out, or
+  // the commander is an economist by taste)
+  if (ai.classicPro && ai.thrift() > 0 && pers.economy < 0.8 && homeOre >= 40 && ai.armyValue() < ai.enemyEst * ai.thrift()) return;
   // affordable: money in the bank, or the ore at home running out (the MCV is paid as it is built anyway)
   if (p.credits < ai.tune.expandCredits * trait(pers.economy, 1.4, 0.5) && homeOre > 40 && pers.economy < 0.8) return;
   ai.lastExpandTry = w.tick;
@@ -431,6 +436,18 @@ export function retreatDamaged(ai: AIController, alive: Unit[], gx: number, gy: 
 }
 
 /** Repair queue: one vehicle on the depot pad at a time; healed ones rejoin the army. */
+/** A damaged vehicle of ours waiting on a Service Depot's pad (planUnits keeps the repair money back for it, version 6). */
+export function onRepairPad(ai: AIController): boolean {
+  if (!ai.repairs.size) return false;
+  const fix = depot(ai);
+  if (!fix) return false;
+  for (const id of ai.repairs) {
+    const u = ai.world.entities.get(id);
+    if (u instanceof Unit && u.alive && u.hp < u.maxHp && !u.moving && fix.distTo(u.x, u.y) < 0.5) return true;
+  }
+  return false;
+}
+
 export function manageRepairs(ai: AIController, gx: number, gy: number) {
   if (!ai.repairs.size) return;
   const w = ai.world;
@@ -507,6 +524,42 @@ void UNITS;
 // ---------------------------------------------------------------------------
 // Reachability: ground regions of the map (terrain, trees and intact bridges; buildings and units ignored)
 // ---------------------------------------------------------------------------
+
+/**
+ * Version 6: the lanes a base needs kept open. The cells round each of the side's refinery docks and war-factory exits
+ * (the 3x3 block centred on the dock or exit cell, outside the building itself) take no structure, defences included,
+ * and a new refinery or war factory goes only where its own lane is open. The AI used to box an Ore Truck in for the
+ * rest of a match: a power plant below the refinery's dock and a turret on either side of it.
+ */
+export function lanesOpen(world: World, p: Player, bt: BuildingTypeDef, px: number, py: number): boolean {
+  const m = world.map, [sw, sh] = bt.size;
+  const inFoot = (x: number, y: number) => x >= px && x < px + sw && y >= py && y < py + sh;
+  for (const b of world.buildings) {
+    if (!b.alive || b.owner !== p || (!b.bt.dock && b.bt.factory !== 'vehicle')) continue;
+    const [lx, ly] = b.bt.dock ? b.dockCell()! : b.exitCell();
+    if (lx < px - 1 || lx > px + sw || ly < py - 1 || ly > py + sh) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = lx + dx, y = ly + dy;
+      if (x >= b.cx && x < b.cx + b.w && y >= b.cy && y < b.cy + b.h) continue;
+      if (inFoot(x, y)) return false;
+    }
+  }
+  const own = bt.dock ?? (bt.factory === 'vehicle' ? bt.exit ?? [Math.floor(sw / 2), sh] : null);
+  if (own) {
+    const lx = px + own[0], ly = py + own[1];
+    if (!m.inBounds(lx, ly) || !m.passable(lx, ly)) return false;
+    let open = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = lx + dx, y = ly + dy;
+      if ((!dx && !dy) || inFoot(x, y) || !m.inBounds(x, y)) continue;
+      const i = m.idx(x, y);
+      if (m.occupant[i]) return false;
+      if (m.terrainPassable(i)) open++;
+    }
+    if (open < 2) return false;
+  }
+  return true;
+}
 
 const zoneCache = new WeakMap<GameMap, { trees: number; bridges: number; zone: Int32Array }>();
 

@@ -24,6 +24,7 @@ import { quickSkill } from '../modes/quickbattle';
 import { currentLang, fmtNum, fmtPct } from '../i18n/core';
 import { personalityBlurb, personalityName, typeName } from '../i18n/names';
 import tRivals from '../i18n/en/rivals';
+import { personName, playerName as shownName } from '../i18n/en/players'; // (L10N: rival names in Russian / Chinese script; the default "Commander")
 
 const CSS = `
 .rv { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: 1rem; padding: 4vh 4vw; overflow: hidden;
@@ -184,21 +185,23 @@ export function showRivals(opts: { onBack(): void; play?(k: 'click' | 'tab' | 'h
   saveRivals(store);
   const root = document.createElement('div');
   root.className = 'rv';
-  const player = loadProfile().name || 'Commander';
+  const player = shownName(loadProfile().name || 'Commander');
   const cap = rivalCap(); // (the level shown is the one the rival plays at against this commander)
   const h = store.habits;
   const fav = favouriteUnit(h);
+  const nq = tRivals('name.plain', { first: '', nick: '\u0001', last: '' }).trim().split('\u0001'); // the quotes around a nickname: ' ' « » “ ”
   const cards = rosterOrder(store).map((r, i) => {
     const pers = PERSONALITIES[r.personality];
     const plan = r.status === 'active' ? counterPlan(r, habitsFor(store, r)).notes[0] : '';
     const hist = r.history.slice(-8).map((b) => `<b class="${b.rivalWon ? 'w' : 'l'}" title="${esc(tRivals('board.historyTip', { note: rivalText(b.note), min: fmtNum(b.minutes, 1) }))}">${tRivals.html(b.rivalWon ? 'board.win' : 'board.loss')}</b>`).join('');
     const tags = [...r.titles.map((t) => `<i class="t">${esc(rivalText(t))}</i>`), ...r.traits.map((t) => `<i>${esc(rivalText(t))}</i>`), r.status === 'dead' ? `<i class="k">${tRivals.html('board.killed')}</i>` : ''].join('');
     const act = r.status === 'active' ? `<div class="rv-act">${opts.onChallenge ? `<button class="rv-btn" data-ch="${r.id}">${tRivals.html(opts.current === r.id ? 'board.selected' : 'board.challenge')}</button>` : ''}</div>` : '';
-    // (first and last names are proper names: only the nickname translates)
+    // (first and last names keep their spelling, in Cyrillic / Chinese script for ru / zh; the nickname translates and
+    // takes the language's quotes)
     return `<div class="rv-card ${r.faction}${r.status === 'dead' ? ' dead' : ''}${r.id === store.nemesis ? ' nemesis' : ''}" style="--i:${i}">
       <div class="rv-pt">${rivalSvg(r)}</div>
       <div class="rv-info"><div class="rv-rank">${esc(rivalRankLabel(r))} · ${tRivals.html(r.faction === 'soviet' ? 'board.soviet' : 'board.allied')}${r.id === store.nemesis ? ` · ${tRivals.html('board.nemesis')}` : ''}</div>
-        <div class="rv-name">${esc(r.first)} <em>'${esc(rivalText(r.nick))}'</em> ${esc(r.last)}</div>
+        <div class="rv-name">${esc(personName(r.first))} <em>${esc(nq[0])}${esc(rivalText(r.nick))}${esc(nq[1] ?? nq[0])}</em> ${esc(personName(r.last))}</div>
         <div class="rv-pers"><b>${esc(pers ? personalityName(pers) : r.personality)}</b> — ${esc(pers ? personalityBlurb(pers) : '')}</div>
         <div class="rv-stats"><span><em>${tRivals.html('board.vsYou')}</em>${r.wins}–${r.losses}</span><span><em>${tRivals.html('board.ai')}</em>${tRivals.html(`board.difficulty.${capDifficulty(rivalDifficulty(r), cap)}`)}</span>${r.returns ? `<span><em>${tRivals.html('board.returned')}</em>${tRivals.html('board.returnedTimes', { n: r.returns })}</span>` : ''}</div>
         ${tags ? `<div class="rv-tags">${tags}</div>` : ''}${hist ? `<div class="rv-hist">${hist}</div>` : ''}
@@ -337,7 +340,7 @@ export function attachRivals(game: GameLike): { dispose(): void } {
   const me = game.local;
   // rival opponents: setup.opponents[i] is player i + 1
   const rivals = game.setup.opponents.map((o, i) => (o.rival ? { ref: o.rival, player: w.players[i + 1] } : null)).filter((x): x is { ref: RivalRef; player: Player } => !!x && !!x.player);
-  const playerName = loadProfile().name || 'Commander';
+  const playerName = shownName(loadProfile().name || 'Commander');
   // (with a build-up time the first strike says nothing about the player's habits: -2 = not measured)
   const hab: MatchHabits = { built: {}, infantry: 0, armour: 0, artillery: 0, air: 0, naval: 0, defenceValue: 0, structureValue: 0, rushMinute: w.ceasefireUntil ? -2 : -1, superweapons: 0, subterfuge: 0 };
   const seenUnits = new Set<number>();
@@ -371,7 +374,7 @@ export function attachRivals(game: GameLike): { dispose(): void } {
     if (w.time - lastLine < gap && ev !== 'won' && ev !== 'lost') return;
     said.set(k, n + 1);
     lastLine = w.time;
-    say(r.ref, taunt(ev, n, { player: playerName, rival: r.ref.name.split(' ').slice(-1)[0] }));
+    say(r.ref, taunt(ev, n, { player: playerName, rival: personName(r.ref.name.split(' ').slice(-1)[0]) }));
   };
 
   const track = () => {

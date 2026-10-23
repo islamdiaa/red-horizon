@@ -24,7 +24,7 @@ import path from 'node:path';
 import { parseArgs, openBrowser, Bot, JourneyAbort, loadJourney, ROOT } from './lib.mjs';
 import { serve } from './serve.mjs';
 
-export const JOURNEYS = ['first-launch', 'skirmish-setup', 'skirmish-ally', 'campaign', 'saves', 'replays', 'editor', 'challenges', 'settings', 'pwa-update', 'abuse'];
+export const JOURNEYS = ['first-launch', 'skirmish-setup', 'skirmish-ally', 'campaign', 'saves', 'replays', 'editor', 'challenges', 'settings', 'pwa-update', 'abuse', 'menus', 'keyboard', 'touch-mission', 'motion'];
 
 const o = parseArgs();
 if (o.help) {

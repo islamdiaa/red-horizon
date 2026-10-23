@@ -20,6 +20,7 @@ import { defaultStorage, type KV } from './profile';
 import { flatten, format, trSource, tx, type Params } from '../i18n/core';
 import { formatMessage } from '../i18n/format';
 import tRivals, { RIVAL_SRC, TAUNT_TEXT } from '../i18n/en/rivals';
+import { personName } from '../i18n/en/players'; // (L10N: rival names in Russian / Chinese script)
 
 // The rival logic stores and compares English (rh.rivals, the skirmish setup and its replays): the display helpers at
 // the end of this file (rivalText, rivalRankLabel, rivalDisplayName...) translate it.
@@ -632,7 +633,7 @@ export function rivalText(text: string): string {
     const hit = m.re.exec(text);
     if (!hit) continue;
     const params: Params = {};
-    m.names.forEach((n, i) => { params[n] = n === 'rank' || n === 'units' ? trSource(hit[i + 1]) : hit[i + 1]; });
+    m.names.forEach((n, i) => { params[n] = n === 'rank' || n === 'units' ? trSource(hit[i + 1]) : n === 'last' ? personName(hit[i + 1]) : hit[i + 1]; });
     return tx(m.key, params);
   }
   return trSource(text);
@@ -644,7 +645,7 @@ export function rivalRankLabel(r: Rival): string {
 }
 
 function nameParts(rank: string, first: string, nick: string, last: string, withRank: boolean): string {
-  const p = { rank: rank ? trSource(rank) : '', first, nick: nick ? trSource(nick) : '', last };
+  const p = { rank: rank ? trSource(rank) : '', first: personName(first), nick: nick ? trSource(nick) : '', last: personName(last) };
   if (!withRank || !rank) return tRivals(nick ? 'name.plain' : 'name.plainNoNick', p);
   return tRivals(nick ? 'name.full' : 'name.fullNoNick', p);
 }
@@ -665,5 +666,5 @@ export function rivalRefName(ref: Pick<RivalRef, 'name' | 'rank'>): string {
 /** "Col. Volkov" in the active language. */
 export function rivalCallSign(r: Rival): string {
   const k = RANK_KEYS[rankName(r)];
-  return tRivals('name.callSign', { rank: k ? tRivals(`short.${k}`) : rivalRankLabel(r), last: r.last });
+  return tRivals('name.callSign', { rank: k ? tRivals(`short.${k}`) : rivalRankLabel(r), last: personName(r.last) });
 }

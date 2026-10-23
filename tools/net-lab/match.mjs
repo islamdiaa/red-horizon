@@ -62,6 +62,7 @@ function instrument() {
     exec?.(cmd, tick);
   };
   c.onState((st) => nl.states.push([Math.round(performance.now() - nl.t0), st]));
+  nl.frames = 0; const raf = () => { nl.frames++; requestAnimationFrame(raf); }; requestAnimationFrame(raf); // (the page's frame rate: a slow page answers heartbeats late)
   // what both players must agree on, taken at the tick the match ends (afterwards each client runs the finale
   // locally, outside the lockstep)
   const oa = ls.afterStep.bind(ls);
@@ -81,7 +82,8 @@ function instrument() {
     if (b !== lastBanner) { nl.banners.push([Math.round(performance.now() - nl.t0), b]); lastBanner = b; }
   }, 200);
   setInterval(() => {
-    nl.samples.push({ t: Math.round(performance.now() - nl.t0), tick: g.world.tick, confirmed: ls.confirmed, delay: ls.delay, rtt: s.rtt.get(c.seat) ?? 0, st: c.state, cu: s.catchingUp });
+    nl.samples.push({ t: Math.round(performance.now() - nl.t0), tick: g.world.tick, confirmed: ls.confirmed, delay: ls.delay, rtt: s.rtt.get(c.seat) ?? 0, st: c.state, cu: s.catchingUp, fps: nl.frames });
+    nl.frames = 0;
     if (nl.samples.length > 4000) nl.samples.shift();
   }, 1000);
   new MutationObserver(() => {
@@ -391,6 +393,7 @@ try {
     report.peers[who] = {
       ...report.peers[who], latency: stat(n.lat), delayTicks: stat(sm.map((s) => s.delay)), rttMs: stat(sm.filter((s) => s.rtt).map((s) => s.rtt)),
       pace: span ? Math.round(((sm[sm.length - 1].tick - sm[0].tick) / span) * 10) / 10 : 0, stallSeconds: stallS, sampledSeconds: Math.round(span),
+      fps: stat(sm.map((x) => x.fps ?? 0)), timeline: sm.filter((_, j) => j % 5 === 0).map((x) => [Math.round(x.t / 1000), x.tick, x.delay, x.rtt, x.fps]),
       states: n.states, banners: n.banners.slice(0, 40), chats: n.chats.slice(0, 20), rejected: n.rejected, errors: errors[i].slice(0, 30),
     };
   }

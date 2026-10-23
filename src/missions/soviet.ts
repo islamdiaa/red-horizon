@@ -8,7 +8,7 @@ import type { MissionDef } from '../sim/mission';
 import type { Building, Unit } from '../sim/entities';
 import { BUILDINGS, UNITS } from '../data/rules';
 import {
-  CAST, say, hunt, huntWave, addHunters, structures, layout, squad, edgeNear, ground, ids, entity, centroid, aiProfile,
+  CAST, say, hunt, huntWave, addHunters, structures, structureBreakers, layout, squad, edgeNear, ground, ids, entity, centroid, aiProfile,
   quietSetup,
 } from './common';
 
@@ -71,14 +71,17 @@ const FIRST_SNOW: MissionDef = {
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'e3'], s, e, 1, 3);
     const v2 = squad(m, 0, ['v2rl'], s, e, -0.5, -2.5);
     m.flags.v2 = v2[0].id;
-    // (campaign difficulty: on the easy levels one pillbox and a lighter garrison hold the heights)
-    const guns: [string, number, number][] = m.eased ? [['pbox', 5.5, 0], ['gun', 4.5, -5]] : [['pbox', 5.5, 2], ['pbox', 5.5, -2], ['gun', 4.5, -5]];
+    // (campaign difficulty: on the easy levels one pillbox and a lighter garrison hold the heights; at Brutal too, where
+    // the handicaps alone make every Allied gun hit about twice as hard as yours: with the full garrison no strike plan
+    // the autopilots tried ever took the hill)
+    const light = m.eased || m.level === 'brutal';
+    const guns: [string, number, number][] = light ? [['pbox', 5.5, 0], ['gun', 4.5, -5]] : [['pbox', 5.5, 2], ['pbox', 5.5, -2], ['gun', 4.5, -5]];
     const [dome] = layout(m, 1, e, s, [['dome', 0, 0], ['powr', -2.5, 3], ['powr', -2.5, -3], ['tent', 2.5, 3.5], ...guns]);
     m.flags.dome = dome?.id;
     const [w1, w2] = [m.toward(e, s, 7.5, -4), m.toward(e, s, 7.5, 4)];
     m.wall(1, 'sbag', Math.round(w1[0]), Math.round(w1[1]), Math.round(w2[0]), Math.round(w2[1]));
-    squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e1', 'e3', 'e3'], e, s, 3.5, 0);
-    squad(m, 1, m.eased ? ['jeep'] : ['1tnk', 'jeep'], e, s, 4, 5);
+    squad(m, 1, light ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e1', 'e3', 'e3'], e, s, 3.5, 0);
+    squad(m, 1, light ? ['jeep'] : ['1tnk', 'jeep'], e, s, 4, 5);
     squad(m, 1, ['e1', 'e1'], e, s, 1, -5);
     m.reveal(0, e.x, e.y, 4);
     m.objective('dome', 'Destroy the Allied radar dome');
@@ -117,6 +120,16 @@ const FIRST_SNOW: MissionDef = {
     }
     const left = structures(m, 1).length;
     m.progress('garrison', `${left} left`);
+    // Red Alert's rule: the mission fails when the forces that can complete it are gone. Riflemen do not take a
+    // fortified hill (measured: the whole company without armour never took a single pillbox, even at Easy), so with
+    // every heavy tank and the V2 lost while a gun still stands, the strike has failed (it used to leave a few
+    // survivors that could neither win nor lose).
+    if (left && !m.units(0, ['3tnk', 'v2rl']).length && structures(m, 1).some((b) => b.weapons.length) && m.once('spent')) {
+      if (m.state('dome') === 'active') m.fail('dome');
+      m.fail('garrison');
+      m.lose('The armour is gone. Riflemen alone cannot take a fortified hill.');
+      return;
+    }
     if (m.isDone('dome') && left === 0 && m.once('won')) {
       m.complete('garrison');
       if (m.alive(m.flags.v2)) m.complete('v2');
@@ -143,7 +156,8 @@ const BRIDGEHEAD: MissionDef = {
     'Intelligence reports an Allied commando operating in the sector. They call her Kestrel. Commissar Orlova would very much like to meet her.',
   ],
   tips: [
-    'Build Power, then Barracks and an Ore Refinery. Flame Towers unlock Flamethrowers.',
+    'Build Power, then Barracks and an Ore Refinery. Riflemen and Grenadiers make your army: grenades crack pillboxes.',
+    'Flame Towers unlock Flamethrowers. They roast infantry, and any of your own men crowding the target with them.',
     'Attack dogs kill infantry with one bite, and they are faster than any commando.',
     'Barbed wire slows attackers down in front of your Flame Towers.',
   ],
@@ -166,8 +180,9 @@ const BRIDGEHEAD: MissionDef = {
     squad(m, 0, ['3tnk', '3tnk'], s, e, 3.5, 0);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'dog', 'dog', 'e6'], s, e, 2, 3.5);
     m.player(1).allowedTypes = new Set(['e1', 'e3', '1tnk', 'jeep']);
-    // (campaign difficulty: the easy levels face one pillbox and one turret, a smaller garrison with less money)
-    const guns: [string, number, number][] = m.eased ? [['pbox', 7, 0], ['gun', 6.5, 6]] : [['pbox', 7, 2], ['pbox', 7, -2.5], ['gun', 6.5, 6], ['gun', 6.5, -7]];
+    // (campaign difficulty: the easy levels face one pillbox and one turret, a smaller garrison with less money; Brutal
+    // the one pillbox and turret too: with four guns hitting twice as hard as your infantry, one win in eight)
+    const guns: [string, number, number][] = m.eased || m.level === 'brutal' ? [['pbox', 7, 0], ['gun', 6.5, 6]] : [['pbox', 7, 2], ['pbox', 7, -2.5], ['gun', 6.5, 6], ['gun', 6.5, -7]];
     layout(m, 1, e, s, [
       ['tent', 1, 3], ['weap', 1, -3.5], ['powr', -3, 1], ['powr', -2.5, -6], ['dome', -3.5, 5.5], ['fix', 4, -8],
       ...guns,
@@ -199,11 +214,12 @@ const BRIDGEHEAD: MissionDef = {
       huntWave(m, 1, m.eased ? ['1tnk', 'e1', 'e1'] : ['1tnk', '1tnk', 'e1', 'e1', 'e3'], edgeNear(m, ...m.toward(e, s, 20, -22)), [s.x, s.y]);
       say(m, C.orlova, 'Allied tanks moving on your flank.');
     }
+    // (campaign difficulty: at Hard and Brutal the town's armour raids less often: its tanks hit half again as hard)
     if (m.eased) {
       if (m.time > 900 && m.every(300, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['1tnk', 'e1', 'e1', 'e3'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
-    } else if (m.time > 600 && m.every(200, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['2tnk', '1tnk', 'e1', 'e1', 'e3', 'e3'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
-    // the easy levels: two more heavy tanks come over the pontoon bridge
-    if (m.eased && m.after(360, 'platoon')) {
+    } else if (m.time > 600 && m.every(m.tightened ? 280 : 200, 'raidN') && structures(m, 1).length) huntWave(m, 1, ['2tnk', '1tnk', 'e1', 'e1', 'e3', 'e3'], ground(m, ...m.toward(e, s, 10)), [s.x, s.y]);
+    // the easy levels and Brutal: two more heavy tanks come over the pontoon bridge
+    if ((m.eased || m.level === 'brutal') && m.after(360, 'platoon')) {
       m.reinforce(0, ['3tnk', '3tnk'], edgeNear(m, s.x, s.y), m.toward(s, e, 4), false);
       say(m, C.morozov, 'Two more heavy tanks are across the bridge, Comrade. Armour first, infantry behind it: their pillboxes eat riflemen.');
     }
@@ -302,8 +318,9 @@ const THUNDERHEAD: MissionDef = {
     const s = m.start(0), e = m.start(1);
     // the raiders
     squad(m, 0, ['dog', 'dog', 'dog', 'dog'], s, e, 3, 1);
-    // (campaign difficulty: a raid with no factory feels the enemy's handicap in full; at Hard a second section rides along)
-    if (m.level === 'hard') squad(m, 0, ['dog', 'dog', 'e1', 'e1', 'e1'], s, e, 1, 4);
+    // (campaign difficulty: a raid with no factory feels the enemy's handicap in full; at Hard and Brutal a second section
+    // rides along)
+    if (m.tightened) squad(m, 0, ['dog', 'dog', 'e1', 'e1', 'e1'], s, e, 1, 4);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e1', 'e4', 'e4', 'e4', 'e2'], s, e, 1.5, -1);
     const eng = squad(m, 0, ['e6', 'e6'], s, e, 0, 2);
     m.flags.engineers = ids(eng);
@@ -359,8 +376,8 @@ const THUNDERHEAD: MissionDef = {
     if (m.flags.holdStart && !m.isDone('hold')) {
       const t = m.time - m.flags.holdStart;
       const target = station ?? coil;
-      const waves: [number, string[], number][] = m.level === 'hard' ? [
-        // (campaign difficulty: at Hard each armoured wave brings one tank fewer, against the enemy's handicap)
+      const waves: [number, string[], number][] = m.tightened ? [
+        // (campaign difficulty: at Hard and Brutal each armoured wave brings one tank fewer, against the enemy's handicap)
         [10, ['e1', 'e1', 'e1', 'e1', 'e3', 'jeep'], 0], [70, ['1tnk', 'e1', 'e1', 'e3', 'e6'], 1], [140, ['jeep', 'jeep', 'e1', 'e1', 'e1', 'e3', 'e3'], 2],
         [200, ['2tnk', 'e1', 'e1', 'e6'], 0], [250, ['1tnk', 'e3', 'e3', 'e1'], 1],
       ] : [
@@ -406,6 +423,12 @@ const THUNDERHEAD: MissionDef = {
     if (m.isDone('hold')) {
       const left = structures(m, 1).length;
       m.progress('camp', `${left} left`);
+      // (no base here: with nothing left that can damage a building, dogs and engineers alone, the camp can't be taken)
+      if (left && !structureBreakers(m, 0).length && m.once('spent')) {
+        m.fail('camp');
+        m.lose('Nothing left of the raid can break the camp.');
+        return;
+      }
       if (!left && m.once('won')) {
         m.complete('camp');
         if (coil) m.complete('coilAlive');
@@ -464,8 +487,11 @@ const IRON_ROAD: MissionDef = {
     squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e3', 'e3', 'jeep'], ground(m, a1[0], a1[1]), s);
     squad(m, 1, m.eased ? ['e1', 'e1', 'e3'] : ['e1', 'e1', 'e1', 'e3', '1tnk'], ground(m, a2[0], a2[1]), s);
     layout(m, 1, ground(m, a2[0], a2[1]), s, [['pbox', 2, 2]]);
-    // the airbase (campaign difficulty: on the easy levels its commander plays at Recruit, behind fewer guns)
-    aiProfile(m, 1, m.eased ? 'recruit' : 'easy');
+    // the airbase (campaign difficulty: on the easy levels its commander plays at Recruit, behind fewer guns; at Hard and
+    // Brutal at Recruit too, behind every gun: with the enemy's handicap (cheaper units that hit half again as hard) the
+    // Easy commander fielded three dozen units by minute ten and no autopilot or player stand-in ever won)
+    const slow = m.eased || m.tightened;
+    aiProfile(m, 1, slow ? 'recruit' : 'easy');
     m.player(1).allowedTypes = allExcept('mslo', 'pdox', 'atek', 'e7', 'proc', 'harv', 'arty');
     const ab = layout(m, 1, e, s, [
       ['fact', 0, 0], ['powr', -3.5, 3], ['powr', -3.5, -3], ...(m.eased ? [] : [['powr', -1, 6.5]] as [string, number, number][]), ['tent', 3.5, 3], ['weap', 3.5, -2.5], ['proc', 0, -7.5], ['dome', -3.5, -7.5],
@@ -473,6 +499,9 @@ const IRON_ROAD: MissionDef = {
     ]);
     for (const p of ab) if (p?.bt.id === 'proc') m.spawnUnit(1, 'harv', p.x, p.cy + p.h + 1);
     squad(m, 1, m.eased ? ['1tnk', 'jeep', 'e1', 'e1', 'e3'] : ['2tnk', '1tnk', '1tnk', 'jeep', 'e1', 'e1', 'e1', 'e3', 'e3'], e, s, 5, 0);
+    // (Brutal: three more Medium Tanks hold the airbase: with the Recruit commander alone Brutal played like Hard, the
+    // casual stand-in won 7 of 8; with them 6 of 16, an Easy commander instead left it unwinnable, 0 of 8)
+    if (m.level === 'brutal') squad(m, 1, ['2tnk', '2tnk', '2tnk'], e, s, 7, 4);
     if (m.eased) m.player(1).cash = 600;
     m.reveal(0, oasis[0], oasis[1], 5);
     m.objective('escort', 'Escort the MCV to the oasis');
@@ -495,7 +524,7 @@ const IRON_ROAD: MissionDef = {
       if (!m.isDone('escort')) m.complete('escort');
       if (m.state('fast') === 'active') m.complete('fast');
       say(m, C.morozov, near ? 'The base stands at the oasis. Build quickly: the airbase will have seen you.' : 'Not where I asked, but it will do. Build quickly: the airbase will have seen you.');
-      m.setAI(1, m.eased ? 'recruit' : 'easy');
+      m.setAI(1, m.eased || m.tightened ? 'recruit' : 'easy');
     }
     if (!m.isDone('deploy') && !mcv && m.once('mcvLost')) {
       m.fail('escort');
@@ -568,13 +597,17 @@ const STOLEN_FIRE: MissionDef = {
     m.spawnUnit(0, 'mcv', s.x, s.y, Math.atan2(e.y - s.y, e.x - s.x));
     squad(m, 0, ['3tnk', '3tnk', '3tnk', '3tnk', '3tnk', '3tnk', '3tnk'], s, e, 4, 0);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e1', 'e1', 'e2', 'e2', 'e3', 'e3', 'e6', 'e6', 'e6'], s, e, 2, 4);
-    aiProfile(m, 1, 'easy', 'defensive');
+    // (campaign difficulty: at Hard and Brutal the base's commander plays at Recruit: with the enemy's handicap the Easy
+    // one's rebuilt turrets and bunkers held against every assault the autopilots and stand-ins made, 0 wins in 8)
+    aiProfile(m, 1, m.tightened ? 'recruit' : 'easy', 'defensive');
     // the research base trains infantry; its armour is what you see
     m.player(1).allowedTypes = allExcept('mslo', 'pdox', 'proc', 'harv', '1tnk', '2tnk', 'jeep', 'apc', 'arty', 'heli', 'hpad', 'e7', 'mcv');
     const lg = layout(m, 1, e, s, [
       ['fact', 2, 0], ['pdox', -3, 1], ['atek', -3, -3.5], ['powr', -0.5, 5.5], ['powr', -0.5, -7], ['apwr', -5.5, 6], ['apwr', 2.5, -10], ['apwr', 3, 9],
       ['tent', 5.5, 3], ['weap', 5.5, -3], ['proc', 6, -9], ['dome', -5.5, -7.5],
-      ['gun', 10, -1], ['gun', 9, 6], ['pbox', 11, 3], ['agun', 6, 9.5], ['agun', 7, -12],
+      // (campaign difficulty: one turret fewer at Brutal, where each hits about twice as hard as your tanks: with both no
+      // assault by any autopilot cracked the line)
+      ...(m.level === 'brutal' ? [] : [['gun', 10, -1]] as [string, number, number][]), ['gun', 9, 6], ['pbox', 11, 3], ['agun', 6, 9.5], ['agun', 7, -12],
     ]);
     for (const p of lg) if (p?.bt.id === 'proc') m.spawnUnit(1, 'harv', p.x, p.cy + p.h + 1);
     m.flags.pdox = lg.find((b) => b?.bt.id === 'pdox')?.id;
@@ -768,11 +801,14 @@ const IRON_CURTAIN: MissionDef = {
     }
     // Allied pressure
     for (const [t, types] of [[75, ['1tnk', 'jeep', 'e1', 'e1', 'e3']], [200, ['2tnk', '2tnk', 'arty', 'e1', 'e1', 'e3']], [400, ['2tnk', '2tnk', '1tnk', 'arty', 'e1', 'e1', 'e1', 'e3']], [540, ['2tnk', '2tnk', '2tnk', 'jeep', 'e3', 'e3', 'e1']]] as [number, string[]][]) {
-      // (campaign difficulty: at Hard and Brutal each wave brings one more Medium Tank)
-      if (m.after(t, 'wave' + t) && structures(m, 1).length) huntWave(m, 1, m.tightened ? [...types, '2tnk'] : types, edgeNear(m, ...m.toward(al, s, 8, t % 360 > 100 ? 25 : -25)), iron ? [iron.x, iron.y] : [s.x, s.y]);
+      // (campaign difficulty: at Brutal each wave brings one more Medium Tank; at Hard too it left the expert autopilot
+      // two wins in eight, the handicap already makes every tank count half again)
+      if (m.after(t, 'wave' + t) && structures(m, 1).length) huntWave(m, 1, m.level === 'brutal' ? [...types, '2tnk'] : types, edgeNear(m, ...m.toward(al, s, 8, t % 360 > 100 ? 25 : -25)), iron ? [iron.x, iron.y] : [s.x, s.y]);
     }
     if (m.after(150, 'heli') && structures(m, 1, ['hpad']).length && iron) {
-      const helis = m.spawnGroup(1, m.tightened ? ['heli', 'heli'] : ['heli'], ...edgeNear(m, al.x, al.y));
+      // (campaign difficulty: a second Longbow at Hard; at Brutal one again, against your handicap: two took the device
+      // down within minutes in every run)
+      const helis = m.spawnGroup(1, m.level === 'hard' ? ['heli', 'heli'] : ['heli'], ...edgeNear(m, al.x, al.y));
       m.attack(helis, iron);
       say(m, C.orlova, 'Longbows inbound on the device. I suggest SAM sites, Comrade.');
     }
@@ -869,6 +905,9 @@ const RED_HORIZON: MissionDef = {
       ...(m.eased ? [['gun', 9, 1], ['pbox', 10, 3.5], ['agun', 6, -11]] : [['gun', 9, 1], ['gun', 9, -4], ['gun', 8, 5.5], ['pbox', 10, -1.5], ['pbox', 10, 3.5], ['agun', 6, -11], ['agun', 7, 10]]) as [string, number, number][],
     ]);
     if (m.eased) aiProfile(m, 1, m.level === 'recruit' ? 'recruit' : 'easy');
+    // (at Brutal too its commander plays a level lower, and the Channel Guards play at Recruit: against your handicap the
+    // full strength of both flattened every autopilot's base by minute fourteen)
+    if (m.level === 'brutal') { aiProfile(m, 1, 'easy'); aiProfile(m, 2, 'recruit'); }
     for (const p of hb) if (p?.bt.id === 'proc') m.spawnUnit(1, 'harv', p.x, p.cy + p.h + 1);
     m.flags.pdox = hb.find((b) => b?.bt.id === 'pdox')?.id;
     m.flags.hqStart = hb.filter((b) => !!b).length;

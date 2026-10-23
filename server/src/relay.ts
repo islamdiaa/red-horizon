@@ -89,6 +89,8 @@ interface Seat {
   resigned: boolean;
   loaded: boolean;
   over: boolean;
+  /** The round-trip estimates of the seat's last connection, carried over to a resumed one (onResume). */
+  net?: { rtt: number; jitter: number; recent: number[] };
 }
 
 interface Slot {
@@ -145,6 +147,12 @@ class Client {
   jitter = 0;
   /** The last raw round trips (the median of three feeds the averages: one stall of the page is not the network). */
   recent: number[] = [];
+  /**
+   * This connection's page has the match built and running (its `loaded`). Per connection, not per seat: a page
+   * reloaded mid-match rebuilds the match and re-simulates it, and answers heartbeats late meanwhile, while its seat
+   * was loaded long ago. The client says `loaded` again after every resume once it has caught up (src/net/session.ts).
+   */
+  loaded = false;
   msgs: TokenBucket;
   chat: TokenBucket;
   constructor(readonly id: number, readonly conn: RelayConn, readonly ip: string, now: number, l: RelayLimits) {
@@ -233,11 +241,23 @@ export class Relay {
     if (!room || !seat || seat.conn !== c) return;
     seat.conn = null;
     seat.disconnectedAt = this.opts.now();
+    if (c.rtt) seat.net = { rtt: c.rtt, jitter: c.jitter, recent: [...c.recent] };
     if (room.phase === 'lobby') this.broadcastRoom(room); // (the seat waits a little for a reconnect: roomTick)
     else {
-      if (room.phase === 'over' && room.host === seat.id) { const next = [...room.seats.values()].find((s) => s.conn); if (next) room.host = next.id; } // someone can reopen the lobby
+      this.passHost(room, seat); // someone still here can reopen the lobby after the match
       this.broadcastRoom(room);
     }
+  }
+
+  /**
+   * After a match has started, the host's seat can lose its connection for good (a host who surrendered and closed the
+   * game, or left): hand the host to a player who is still connected, so the room can go back to its lobby for a
+   * rematch. (In the lobby a seat that leaves is removed and the next player hosts: leaveLobby.)
+   */
+  private passHost(room: Room, seat: Seat) {
+    if (room.host !== seat.id) return;
+    const next = [...room.seats.values()].find((s) => s.conn && s !== seat);
+    if (next) room.host = next.id;
   }
 
   private onMessage(c: Client, text: string) {
@@ -258,7 +278,7 @@ export class Relay {
       case 'chat': return this.onChat(c, room, seat, m.text, now);
       case 'kick': return this.onKick(c, room, seat, m.seat);
       case 'start': return this.onStart(c, room, seat, now);
-      case 'loaded': seat.loaded = true; return;
+      case 'loaded': seat.loaded = true; c.loaded = true; return;
       case 'in': return this.onIn(c, room, seat, m.upTo, m.cmds, now);
       case 'hash': return this.onHash(room, seat, m.tick, m.h);
       case 'drop': return this.onDropVote(c, room, seat, m.seat, now);
@@ -445,7 +465,7 @@ export class Relay {
     const delay = measured.length ? Math.max(DEFAULT_DELAY, delayFor(Math.max(...measured.map((c) => c.rtt)), Math.max(...measured.map((c) => c.jitter)))) : DEFAULT_DELAY;
     room.phase = 'match';
     const committed = new Map<number, number>();
-    for (const s of room.seats.values()) { committed.set(s.id, -1); s.loaded = false; s.over = false; s.dropped = false; s.resigned = false; }
+    for (const s of room.seats.values()) { committed.set(s.id, -1); s.loaded = false; s.over = false; s.dropped = false; s.resigned = false; if (s.conn) s.conn.loaded = false; }
     room.match = {
       start, startedAt: now, closed: -1, committed, pending: [], seq: 0, log: [], drops: [], hashes: new Map(),
       lastAdvance: now, stallSeat: -1, delay, lastLat: now, pace: new TokenBucket(20, 60, now), ended: null,
@@ -595,7 +615,7 @@ export class Relay {
     if (room.phase !== 'over' || seat.id !== room.host) { this.violation(c, 'not-host'); return; }
     for (const s of [...room.seats.values()]) {
       if (!s.conn) room.seats.delete(s.id);
-      else { s.ready = false; s.dropped = false; s.resigned = false; s.over = false; s.loaded = false; }
+      else { s.ready = false; s.dropped = false; s.resigned = false; s.over = false; s.loaded = false; s.conn.loaded = false; }
     }
     room.match = null;
     room.phase = 'lobby';
@@ -610,7 +630,7 @@ export class Relay {
     if (seat.conn === c) seat.conn = null;
     seat.disconnectedAt = now;
     if (room.phase !== 'match') this.leaveLobby(room, seat); // (after a match too: the room carries on without them)
-    else this.broadcastRoom(room);
+    else { this.passHost(room, seat); this.broadcastRoom(room); }
     this.kill(c, 1000, 'bye');
   }
 
@@ -619,7 +639,14 @@ export class Relay {
     const seat = room ? [...room.seats.values()].find((s) => s.token === r.token) : undefined;
     if (!room || !seat) { this.error(c, 'no-room', 'That match is over or no longer exists.'); this.kill(c, 1000, 'no room'); return; }
     if (build !== room.build) { this.error(c, 'build', 'Your game version differs from this room\'s.'); this.kill(c, 1000, 'build'); return; }
-    if (seat.conn && seat.conn !== c) { const old = seat.conn; old.room = null; old.seat = null; this.kill(old, 1000, 'replaced'); }
+    if (seat.conn && seat.conn !== c) {
+      const old = seat.conn;
+      if (old.rtt) seat.net = { rtt: old.rtt, jitter: old.jitter, recent: [...old.recent] };
+      old.room = null; old.seat = null; this.kill(old, 1000, 'replaced');
+    }
+    // the network is the same as a moment ago: keep its estimates rather than start from nothing (the first answers of a
+    // page that is still rebuilding the match are ignored anyway: Client.loaded)
+    if (seat.net && !c.rtt) { c.rtt = seat.net.rtt; c.jitter = seat.net.jitter; c.recent = [...seat.net.recent]; }
     seat.conn = c;
     c.room = room;
     c.seat = seat;
@@ -661,8 +688,9 @@ export class Relay {
     const raw = Math.max(0, now - c.pingAt - frameMs / 2);
     c.pingAt = 0;
     c.lastPong = now;
-    // a page building the match (compiling shaders, loading models) answers late: that says nothing about the network
-    if (c.room?.phase === 'match' && c.seat && !c.seat.loaded) return;
+    // a page building the match (compiling shaders, loading models; after a reload also re-simulating it) answers late:
+    // that says nothing about the network
+    if (c.room?.phase === 'match' && c.seat && !c.loaded) return;
     c.recent.push(raw);
     if (c.recent.length > 3) c.recent.shift();
     let rtt = c.recent.length < 3 ? raw : [...c.recent].sort((a, b) => a - b)[1];
@@ -681,7 +709,7 @@ export class Relay {
     const now = this.opts.now(), l = this.limits;
     for (const c of [...this.clients]) {
       // a player still building the match (a slow machine compiling shaders) may not answer for a while
-      const loading = c.room?.phase === 'match' && !!c.seat && !c.seat.loaded;
+      const loading = c.room?.phase === 'match' && !!c.seat && !c.loaded;
       if (now - c.lastPong > l.pongTimeoutMs * (loading ? 6 : 1)) { this.kill(c, 1001, 'timeout'); continue; }
       if (!c.pingAt && now - c.lastPong >= l.pingEveryMs - 1) { c.pingN++; c.pingAt = now; this.send(c, { t: 'ping', n: c.pingN }); }
       else if (c.pingAt && now - c.pingAt > l.pingEveryMs * 2) { c.pingN++; c.pingAt = now; this.send(c, { t: 'ping', n: c.pingN }); }
@@ -712,7 +740,8 @@ export class Relay {
     // input delay from the room's round trips
     if (now - m.lastLat >= 2000) {
       m.lastLat = now;
-      const live = [...room.seats.values()].filter((s) => s.conn && !s.dropped && s.conn.rtt > 0);
+      // the players still playing: a seat that surrendered or finished only watches, and its link must not slow the others
+      const live = [...room.seats.values()].filter((s) => s.conn && !s.dropped && !s.resigned && !s.over && s.conn.rtt > 0);
       if (live.length) {
         const want = delayFor(Math.max(...live.map((s) => s.conn!.rtt)), Math.max(...live.map((s) => s.conn!.jitter)));
         // up at once; down by half the gap every 2 s (from 15 ticks back to 2 within about 8 s), so a short bad spell -

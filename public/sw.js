@@ -1,10 +1,11 @@
 /* Red Horizon service worker: offline play + instant start.
  *
  * Registered only in production builds by src/platform/pwa.ts as `sw.js?v=<build id>`.
- *  - One versioned cache per build ("red-horizon-<build id>"); older caches are deleted on activate.
+ *  - One versioned cache per build ("red-horizon-<build id>"); older ones are deleted on activate, or later if another
+ *    tab still has the game open (it may run the older build and load that build's chunks: dropOldCaches).
  *  - install: precaches the app shell (index.html, manifest, icons, fonts) plus every same-origin asset
- *    index.html references, and the assets those JS/CSS bundles reference (worker chunks), so the
- *    game works offline right after the first visit.
+ *    index.html references, and the chunks those JS/CSS bundles load, three imports deep (worker and lazy chunks; the
+ *    language catalogues stay on demand), so the game works offline right after the first visit.
  *  - fetch: same-origin GET only, cache-first. Page navigations are cache-first too, but revalidate
  *    in the background (the new index.html is only stored once all of its assets are cached, so an
  *    offline start never sees HTML whose bundles are missing). That background refresh is what makes
@@ -82,24 +83,44 @@ function bundleRefs(text, base) {
       if (u.origin === self.location.origin && ASSET_RE.test(u.pathname)) out.add(u.href);
     } catch { /* not a URL */ }
   }
+  // A lazy chunk with nothing to preload appears only as `import("./name-<hash>.js")`, relative to the chunk that
+  // imports it, and never in a preload list (e.g. the portable maths every ranked run loads: without this, the Daily
+  // Challenge and Survival could not start offline). Language catalogues are imported the same way: those stay on
+  // demand (precacheLang adds the player's own), so the codes named by the catalogue map ("./locales/de.json") are skipped.
+  const langs = new Set([...text.matchAll(/["'`]\.\/locales\/([\w-]+)\.json["'`]/g)].map((m) => m[1]));
+  for (const m of text.matchAll(/["'`](\.\.?\/[\w.@-]+-[\w-]{8,}\.(?:m?js|css))["'`]/g)) {
+    const file = m[1].split('/').pop();
+    if (langs.has(file.replace(/-[\w-]{8}\.(?:m?js|css)$/, ''))) continue; // ("pt-BR-<hash>.js": the hash is the last 8 characters)
+    try {
+      const u = new URL(m[1], base);
+      if (u.origin === self.location.origin && ASSET_RE.test(u.pathname)) out.add(u.href);
+    } catch { /* not a URL */ }
+  }
   return [...out];
 }
 
-/** Fetch `urls` into `cache` (skipping ones already there); follows JS/CSS references one level deep. */
-async function cacheAll(cache, urls, depth = 1) {
-  const nested = [];
+/**
+ * Fetch `urls` into `cache` (skipping ones already there), following JS/CSS references `depth` levels deep: lazy chunks
+ * import further lazy chunks (the challenge list -> its leaderboard, a moment -> the research tree).
+ */
+async function cacheAll(cache, urls, depth = 3, seen = new Set()) {
+  const nested = new Set();
   const content = await caches.open(CONTENT);
-  await Promise.all(urls.map(async (u) => {
+  const todo = [...new Set(urls)].filter((u) => !seen.has(u));
+  for (const u of todo) seen.add(u);
+  await Promise.all(todo.map(async (u) => {
     const c = isContent(u) ? content : cache;
+    // (a file already cached is not scanned again: hashed names change with their content, and with the names they import)
     if (await c.match(u, MATCH)) return;
     try {
       const res = await fetch(u, { cache: 'no-cache', credentials: 'same-origin' });
       if (!cacheable(res, u)) return;
-      if (depth > 0 && /\.(?:m?js|css)$/i.test(new URL(u).pathname)) nested.push(...bundleRefs(await res.clone().text(), u));
+      if (depth > 0 && /\.(?:m?js|css)$/i.test(new URL(u).pathname)) for (const r of bundleRefs(await res.clone().text(), u)) nested.add(r);
       await store(c, u, res);
     } catch { /* offline or 404: best effort */ }
   }));
-  if (nested.length) await cacheAll(cache, nested.filter((u) => !urls.includes(u)), depth - 1);
+  const next = [...nested].filter((u) => !seen.has(u));
+  if (next.length) await cacheAll(cache, next, depth - 1, seen);
 }
 
 /** The language's catalogue chunk in a bundle's text: the lazy import `./<lang>-<8-char hash>.js` (src/i18n/core.ts). */
@@ -150,10 +171,23 @@ self.addEventListener('install', (event) => {
   })());
 });
 
+/**
+ * Delete older builds' caches, once this is the only open page of the game (the usual case: the page that took the
+ * update). While other tabs are open, one of them may still run an older build and load that build's lazy chunks
+ * (the server only has the new ones), so the old caches stay until a later page load finds a single page open.
+ */
+async function dropOldCaches() {
+  const keys = await caches.keys();
+  await Promise.all(keys.filter((k) => LEGACY_CACHES.includes(k)).map((k) => caches.delete(k)));
+  const old = keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE);
+  if (!old.length) return;
+  const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  if (open.length <= 1) await Promise.all(old.map((k) => caches.delete(k)));
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => (k.startsWith(PREFIX) && k !== CACHE) || LEGACY_CACHES.includes(k)).map((k) => caches.delete(k)));
+    await dropOldCaches();
     await self.clients.claim();
   })());
 });
@@ -174,7 +208,16 @@ async function cacheFirst(request) {
   const cache = await caches.open(isContent(request.url) ? CONTENT : CACHE);
   const hit = await cache.match(request, MATCH);
   if (hit) return hit;
-  const res = await fetch(request);
+  const url = new URL(request.url);
+  // a page in another tab still running an older build asks for that build's chunks: hashed names, so any cache's copy is right
+  if (url.pathname.includes('/assets/')) {
+    const old = await caches.match(request, MATCH);
+    if (old) return old;
+  }
+  // A file without a content hash in its URL (a manifest, a font, the mod list) is stored for this whole build, so take
+  // it from the server, not from an HTTP cache entry an older deploy left behind (a 304 when it has not changed).
+  const hashed = url.pathname.includes('/assets/') || url.searchParams.has('v');
+  const res = hashed ? await fetch(request) : await fetch(request, { cache: 'no-cache' }).catch(() => fetch(request));
   if (cacheable(res, request.url)) store(cache, request, res.clone()).catch(() => {});
   return res;
 }
@@ -186,7 +229,7 @@ async function navigate(event) {
   // any query string (?autostart=1, ...) maps to the same document
   const hit = (await cache.match(req, { ignoreSearch: true, ignoreVary: true })) || (new URL(req.url).pathname === new URL(SCOPE).pathname ? await cache.match(INDEX, MATCH) : null);
   if (hit) {
-    event.waitUntil(refreshShell(cache).catch(() => {}));
+    event.waitUntil(Promise.all([refreshShell(cache), dropOldCaches()]).catch(() => {}));
     return hit;
   }
   try {

@@ -102,6 +102,7 @@ function finishOrder(world: World, u: Unit) {
 function validEnemyTarget(world: World, u: Unit, t: Entity | null): boolean {
   if (!t || !t.alive) return false;
   if (!u.owner.isEnemy(t.owner)) return false;
+  if (pointlessTarget(t)) return false; // (combat.ts findTarget skips them too)
   if (!world.canSee(u.owner, t)) return false;
   return !!pickWeapon(u, t);
 }
@@ -222,6 +223,8 @@ function move(world: World, u: Unit, o: Extract<Order, { type: 'move' }>) {
       }
     }
   }
+  // a target that died is let go whatever the stance (a passive unit kept it for the whole drive, its turret on the corpse)
+  if (u.target && !u.target.alive) u.target = null;
   // opportunistic fire on the move (turreted units)
   if (u.ut.turret && u.weapons.length && !o.attackMove && u.stance !== 'passive') {
     if (u.target && !validEnemyTarget(world, u, u.target)) u.target = null;
@@ -253,9 +256,18 @@ function tryAgain(o: Extract<Order, { type: 'move' }>, d: number): boolean {
   return o.tries > 0;
 }
 
+/** An invulnerable structure without weapons (a mission's locked objective, an Iron-Curtained refinery): nothing to gain
+ *  by shooting it, nothing to fear from it. Never picked automatically; an order to attack one is still obeyed. */
+export function pointlessTarget(t: Entity): boolean {
+  return t instanceof Building && t.invulnerable > 0 && !t.weapons.length;
+}
+
 function attack(world: World, u: Unit, o: Extract<Order, { type: 'attack' }>) {
   const t = world.entities.get(o.target);
-  if (!t || !t.alive || (t instanceof Unit && t.transport) || (!o.forced && !u.owner.isEnemy(t.owner)) || (t.cloaked && !world.canSee(u.owner, t))) { // (gone into a transport or bunker: nothing left to shoot at)
+  // (a structure picked up on an attack-move that has since become pointless, e.g. a capture objective that locks at
+  // low health: the attack-move goes on)
+  const lapsed = !!t && !o.forced && o.resume?.type === 'move' && o.resume.attackMove && pointlessTarget(t);
+  if (!t || !t.alive || lapsed || (t instanceof Unit && t.transport) || (!o.forced && !u.owner.isEnemy(t.owner)) || (t.cloaked && !world.canSee(u.owner, t))) { // (gone into a transport or bunker: nothing left to shoot at)
     u.target = null;
     if (o.resume) world.setOrder(u, o.resume);
     else finishOrder(world, u);
@@ -345,11 +357,19 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
   // structures out on the water (shipyard / sub pen) are entered from the shore
   if (d > (t.bt.water ? 1.6 : 0.7)) {
     const [px, py] = t.closestPoint(u.x, u.y);
-    if (u.path || u.pathPending) return;
+    if (u.pathPending) return;
+    if (u.path) {
+      if (!enterSearchFailed(world, u, t)) return;
+      stopMoving(u); // (that way only leads somewhere else: try another side)
+    }
     // right next to the structure: its edge is inside a blocked cell, so the path search can't
     // help (no path / throttled failure) -- walk straight at the wall instead
     if (d < 1.6 && stepToward(world, u, px, py)) return;
-    if (!u.hasGoal) world.requestPath(u, px, py);
+    if (!u.hasGoal) {
+      const g = enterApproach(world, u, t, o, px, py);
+      if (!g) return finishOrder(world, u); // (no way in from anywhere it tried)
+      world.requestPath(u, g[0], g[1]);
+    }
     return;
   }
   stopMoving(u);
@@ -390,6 +410,58 @@ function enter(world: World, u: Unit, o: Extract<Order, { type: 'enter' }>) {
 }
 
 const C4_FUSE = 1.6;
+
+/** Cells round a structure an enter order tries when the side facing the unit can't be reached. */
+const ENTER_TRIES = 6;
+
+/** The last path search for (gx, gy) did not get there (within the last 2 s). */
+function searchFailed(world: World, u: Unit, gx: number, gy: number): boolean {
+  const W = world.map.w, H = world.map.h;
+  return u.pathFailKey >= 0 && world.tick - u.pathFailTick < TICK_HZ * 2 && u.pathFailKey % W === gx && Math.floor(u.pathFailKey / W) % H === gy;
+}
+
+/** The path just found for an enter order stops short, and not beside the structure (a partial path to the nearest
+ *  point it could reach: across a cliff or water from where it wants to go). */
+function enterSearchFailed(world: World, u: Unit, t: Building): boolean {
+  if (!u.path?.length || !searchFailed(world, u, Math.floor(u.goalX), Math.floor(u.goalY))) return false;
+  const e = u.path[u.path.length - 1];
+  return t.distTo(e.x, e.y) >= 1.6;
+}
+
+/**
+ * Where a unit sent into a structure heads for. Normally the point of the structure nearest to it (as before). When
+ * the search there fails - that side is cliff, water or other structures, e.g. a bunker on a ledge whose door side
+ * faces the base - it tries the other free cells beside the structure, nearest first (RA's units path to any cell next
+ * to their target), each once, and after ENTER_TRIES gives up (null) instead of standing there searching for ever (an
+ * AI squad sent into such a bunker stood for the rest of the match, a full-map search each every 2 s).
+ */
+function enterApproach(world: World, u: Unit, t: Building, o: Extract<Order, { type: 'enter' }>, px: number, py: number): [number, number] | null {
+  const m = world.map, W = m.w;
+  if (o.via === undefined) {
+    if (!searchFailed(world, u, Math.floor(px), Math.floor(py))) return [px, py];
+    o.via = -1;
+    o.tried = [m.idx(Math.floor(px), Math.floor(py))];
+  } else if (o.via >= 0 && !searchFailed(world, u, o.via % W, Math.floor(o.via / W))) {
+    return [(o.via % W) + 0.5, Math.floor(o.via / W) + 0.5];
+  }
+  const tried = (o.tried ??= []);
+  if (tried.length > ENTER_TRIES) return null;
+  // the nearest free cell round the footprint it has not tried yet
+  let best = -1, bd = Infinity;
+  const x0 = t.cx - 1, y0 = t.cy - 1, x1 = t.cx + t.w, y1 = t.cy + t.h;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (x > x0 && x < x1 && y > y0 && y < y1) continue; // (the footprint itself)
+    if (!m.inBounds(x, y) || !m.passable(x, y)) continue;
+    const i = m.idx(x, y);
+    if (tried.includes(i)) continue;
+    const dd = Math.hypot(x + 0.5 - u.x, y + 0.5 - u.y);
+    if (dd < bd) { bd = dd; best = i; }
+  }
+  if (best < 0) return null;
+  o.via = best;
+  tried.push(best);
+  return [(best % W) + 0.5, Math.floor(best / W) + 0.5];
+}
 
 /** Vehicles waiting for a busy Service Depot stop this far from its pad, clear of the way in. */
 const DEPOT_QUEUE = 3.2;

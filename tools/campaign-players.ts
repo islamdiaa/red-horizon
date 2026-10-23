@@ -64,18 +64,19 @@ function newbieBase(w: World, s: Record<string, any>, spec: BaseSpec) {
     }
   } else {
     const q = p.queues.structure;
+    s.noRoom ??= {};
     if (q.ready) {
       const bt = BUILDINGS[q.ready];
-      const spot = bt.water ? aiPlacement(w, p, bt) : s.placer.findPlacement(bt);
+      const spot = bt.water ? aiPlacement(w, p, bt) : aiPlacement(w, p, bt) ?? s.placer.findPlacement(bt);
       if (spot) w.issue({ c: 'place', player: 0, type: q.ready, cx: spot[0], cy: spot[1] });
-      else w.issue({ c: 'cancel', player: 0, type: q.ready });
+      else { w.issue({ c: 'cancel', player: 0, type: q.ready }); s.noRoom[q.ready] = w.time; }
     } else if (!q.items.length) {
       const count = (t: string) => w.buildings.filter((b) => b.alive && b.owner === p && b.bt.id === t).length;
       const seen: Record<string, number> = {};
       let next: string | null = null;
       for (const t of spec.order) {
         seen[t] = (seen[t] ?? 0) + 1;
-        if (count(t) < seen[t] && p.canBuild(t)) { next = t; break; }
+        if (count(t) < seen[t] && p.canBuild(t) && !(w.time - (s.noRoom[t] ?? -1e9) < 60)) { next = t; break; }
       }
       // power only once the lights have been low for a while (half a minute of "low power")
       if (p.lowPower) s.lowSince ??= w.time; else s.lowSince = undefined;
@@ -191,6 +192,8 @@ interface MissionPlan {
   target?: (w: World, rt: MissionRuntime) => Target;
   /** Casual: the army value to gather before a wave. */
   wave?: number;
+  /** The HUD countdown (timer key) that loses the mission when it runs out (the casual player attacks sooner). */
+  deadline?: string | ((w: World, rt: MissionRuntime) => string | null);
   /** Mission actions; return true to take over the army for this tick. */
   act?: (w: World, rt: MissionRuntime, s: Record<string, any>, skill: Skill, log: (t: string) => void) => boolean;
 }
@@ -199,9 +202,21 @@ const PLANS: Record<string, MissionPlan> = {};
 
 // ---- Allied ----------------------------------------------------------------------------------------
 PLANS['allied-01'] = {
-  base: { order: ['powr', 'tent', 'proc', 'powr', 'pbox', 'proc', 'pbox', 'powr'], inf: ['e1', 'e3', 'e3'], veh: [] },
+  // (the tips: riflemen for infantry, rockets for the tanks; the outpost and its raids are mostly infantry)
+  base: { order: ['powr', 'tent', 'proc', 'powr', 'pbox', 'proc', 'pbox', 'powr'], inf: ['e1', 'e1', 'e3'], veh: [] },
   newbieOrder: 4,
   wave: 4500, // (the starting squad waits for the rest: "when you are strong enough")
+  act: (w, rt, s, skill) => {
+    // the casual player answers Brandt's call: the vehicles and whoever is near go for the supply column
+    const trucks = rt.livingUnits(rt.flags.trucks);
+    if (skill !== 'casual' || !trucks.length || rt.state('convoy') !== 'active') return false;
+    if (every(w, s, 'convoy', 3)) {
+      const who = troops(w).filter((u) => u.kind === 'vehicle' || Math.hypot(u.x - trucks[0].x, u.y - trucks[0].y) < 25);
+      const c = cen(who);
+      attack(w, who, nearestTo(trucks, c.x, c.y)!);
+    }
+    return true;
+  },
 };
 PLANS['allied-02'] = {
   base: { order: ['gun', 'gun', 'powr', 'pbox', 'gun', 'proc'], inf: ['e1', 'e3'], veh: ['1tnk'] },
@@ -322,6 +337,12 @@ PLANS['allied-04'] = {
       const t = nearestTo(threats, lead.x, lead.y)!;
       attackMove(w, esc, t.x, t.y);
       if (rt.flags.betrayed) moveTo(w, apcs, lz[0], lz[1]);
+      else {
+        // shooting ahead: the APCs pull up behind the escort instead of driving into it
+        const back = rt.toward(lead, rt.start(0), 5);
+        const close = apcs.filter((a) => Math.hypot(a.x - t.x, a.y - t.y) < 9 || a.order.type === 'move');
+        if (close.length) moveTo(w, close, back[0], back[1]);
+      }
     } else {
       const step = Math.min(8, toLz);
       attackMove(w, esc, lead.x + ((lz[0] - lead.x) / (toLz || 1)) * step, lead.y + ((lz[1] - lead.y) / (toLz || 1)) * step);
@@ -340,6 +361,22 @@ PLANS['allied-05'] = {
     return nearestTo(w.units.filter((u) => u.alive && u.owner.id === 1 && u.ut.harvester), h.x, h.y) ?? (rt.flags.camp as Pt);
   },
   wave: 4000,
+  deadline: 'reserve',
+  act: (w, rt, s, skill) => {
+    if (skill !== 'casual') return false;
+    // the tips: Longbows hunt the trucks, away from the SAM sites
+    const helis = mine(w).filter((u) => u.kind === 'aircraft' && u.weapons.length);
+    if (helis.length && every(w, s, 'heli', 4)) {
+      const sams = w.buildings.filter((b) => b.alive && b.owner.id === 1 && b.bt.id === 'sam');
+      const open = w.units.filter((u) => u.alive && u.owner.id === 1 && u.ut.harvester && sams.every((b) => b.distTo(u.x, u.y) > 9));
+      for (const h of helis) {
+        if (h.order.type === 'attack' && w.getEntity((h.order as { target: number }).target)?.alive) continue;
+        const t = nearestTo(open, h.x, h.y);
+        if (t && h.ammo >= (h.ut.ammo ?? 1)) attack(w, [h], t); // (full racks: a player sends them out after they rearm)
+      }
+    }
+    return false;
+  },
 };
 PLANS['allied-06'] = {
   base: { order: ['powr', 'tent', 'proc', 'weap', 'powr', 'proc', 'dome', 'powr', 'weap', 'fix'], ...ALLIED_MIX, veh: ['2tnk', '2tnk', 'arty'] },
@@ -347,6 +384,7 @@ PLANS['allied-06'] = {
   // the newcomer goes for the silo; the casual player follows the tips: the generator yard, then the silo
   target: (w, rt) => flagEnt(w, rt.flags.silo),
   wave: 7000,
+  deadline: 'launch',
   act: (w, rt, s, skill) => {
     if (skill !== 'casual') return false;
     const silo = flagEnt<Building>(w, rt.flags.silo);
@@ -361,6 +399,7 @@ PLANS['allied-07'] = {
   base: { order: ['proc', 'weap', 'apwr'], ...ALLIED_MIX, veh: ['2tnk', '2tnk', 'arty'] },
   newbieOrder: 0,
   wave: 9000,
+  deadline: 'silo',
   act: (w, rt, s, skill) => {
     if (skill === 'casual') {
       const silo = flagEnt(w, rt.flags.silo);
@@ -391,7 +430,8 @@ PLANS['soviet-01'] = {
   },
 };
 PLANS['soviet-02'] = {
-  base: { order: ['powr', 'barr', 'proc', 'powr', 'ftur', 'proc', 'ftur', 'powr', 'kenn'], inf: ['e1', 'e1', 'e4', 'dog'], veh: [] },
+  // (the tips: riflemen and grenadiers; flamethrowers burn their own side in a crowd, measured 0/8 with them in the mix)
+  base: { order: ['powr', 'barr', 'proc', 'powr', 'ftur', 'proc', 'ftur', 'powr'], inf: ['e1', 'e1', 'e2', 'e2'], veh: [] },
   newbieOrder: 4,
   wave: 2800,
 };
@@ -476,7 +516,10 @@ PLANS['soviet-05'] = {
     const critical = pd.healthFrac <= 0.25;
     if (engs.length && (skill === 'newcomer' ? (s.lastPush ?? 0) > 0 : critical) && every(w, s, 'eng', 6)) attack(w, engs.filter((e) => e.order.type !== 'enter'), pd);
     if (skill === 'casual' && !critical) s.casualTarget = pd;
-    if (skill === 'newcomer' && !engs.length && w.players[0].canBuild('e6') && !w.players[0].queues.infantry.items.length) w.issue({ c: 'build', player: 0, type: 'e6' });
+    // (the objective names an engineer: with none left, both train one; the casual player keeps two)
+    const p0 = w.players[0], want = skill === 'newcomer' ? 1 : 2;
+    const queued = p0.queues.infantry.items.filter((i) => i.type === 'e6').length;
+    if (engs.length + queued < want && p0.canBuild('e6') && (skill === 'casual' || !p0.queues.infantry.items.length)) w.issue({ c: 'build', player: 0, type: 'e6' });
     return false;
   },
 };
@@ -499,6 +542,7 @@ PLANS['soviet-07'] = {
   base: { order: ['proc', 'apwr', 'weap', 'tsla', 'apwr'], ...SOVIET_MIX, veh: ['3tnk', '3tnk', '4tnk', 'v2rl'] },
   newbieOrder: 0,
   wave: 9000,
+  deadline: 'overload',
   target: (w, rt) => (rt.state('chrono') === 'active' ? flagEnt(w, rt.flags.pdox) : nearestEnemy(w, rt)),
   act: (w, rt, s) => {
     s.casualTarget = rt.state('chrono') === 'active' ? flagEnt(w, rt.flags.pdox) : null;
@@ -651,7 +695,9 @@ const SURVIVAL_PLAN: MissionPlan = {
 function survivalBase(w: World): BaseSpec {
   return w.players[0].faction === 'soviet'
     ? { order: ['powr', 'barr', 'proc', 'weap', 'powr', 'ftur', 'proc', 'tsla', 'powr', 'ftur', 'tsla', 'dome', 'apwr', 'sam', 'tsla'], ...SOVIET_MIX, veh: ['3tnk', '3tnk', 'v2rl'] }
-    : { order: ['powr', 'tent', 'proc', 'weap', 'powr', 'gun', 'proc', 'pbox', 'gun', 'powr', 'dome', 'gun', 'agun', 'apwr', 'gun'], ...ALLIED_MIX, veh: ['2tnk', '2tnk', 'arty'] };
+    // (the briefings warn of MiGs: an AA gun with the first defences; with it last the casual lost its refineries to the
+    // first air raid in the desert and survived fewer waves than the newcomer, 7 against 8)
+    : { order: ['powr', 'tent', 'proc', 'weap', 'powr', 'proc', 'gun', 'dome', 'agun', 'pbox', 'gun', 'powr', 'agun', 'apwr', 'gun'], ...ALLIED_MIX, veh: ['2tnk', '2tnk', 'arty'] };
 }
 
 // =====================================================================================================
@@ -685,9 +731,17 @@ export function skillPilot(skill: Skill): Pilot {
       // the first wave waits until the army is well past what the mission handed over ("when you are strong enough")
       // (with no base to build more, what the mission gave is the army: it goes at once)
       s.threshold ??= hasBase ? Math.max(plan.wave ?? 3500, 1.6 * army(w).filter((u) => !u.ut.hero && u.ut.id !== 'e6').reduce((v, u) => v + u.ut.cost, 0)) : 0;
+      s.bar0 ??= s.threshold;
       const pick = () => (s.casualTarget && (Array.isArray(s.casualTarget) || s.casualTarget.alive) ? s.casualTarget : (plan.target ?? nearestEnemy)(w, rt));
+      // a countdown on the HUD that ends the mission: the casual player goes once half of it has run
+      const clock = plan.deadline ? (typeof plan.deadline === 'function' ? plan.deadline(w, rt) : plan.deadline) : null;
+      if (clock && rt.timeLeft(clock) !== null) s.clockMax = Math.max(s.clockMax ?? 0, rt.timeLeft(clock)!);
       commander(w, rt, s, log, {
         noBrain: true, threshold: plan.wave ?? 3500,
+        // (a player does not wait for an ever larger army after a broken wave: one raise of the bar, and after four
+        // quiet minutes the army goes again with half of it)
+        maxThreshold: s.bar0 + 2500, patience: 240, waves: true, micro: false, countDefences: true,
+        deadline: clock ? () => { const left = rt.timeLeft(clock); return left !== null && left < 0.5 * (s.clockMax ?? left); } : undefined,
         pickTarget: () => { const t = pick(); return t && !Array.isArray(t) ? t : t ? (nearestTo([...enemyStructures(w), ...enemyUnits(w)], t[0], t[1]) ?? null) : null; },
       });
     }

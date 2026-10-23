@@ -32,6 +32,8 @@ export default strings('settings', {
   // interface layout options
   layoutModern: 'Modern',
   layoutClassic: 'Classic',
+  // added to the layout setting's description when the window is too narrow, short or tall for the Classic sidebar
+  layoutNarrow: 'Classic needs a wider window: this one shows Modern until it is wide enough',
   // volume sliders
   volume: {
     master: 'Master',

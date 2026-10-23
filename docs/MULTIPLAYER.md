@@ -29,7 +29,13 @@ tick. Multiplayer builds on that.
   heartbeats only between frames, so each answer carries the page's frame time and the relay takes half of it off
   the round trip: the delay follows the network, not one slow page. The relay averages the median of the last three
   answers, so one very late answer (a page that froze for a moment) does not move the delay, and it ignores the
-  answers of a page still building the match.
+  answers of a page still building the match, also a page reloaded mid-match until it has caught up (a reconnected
+  player keeps the round trip measured before). Only players still playing count: a player who surrendered and
+  stays to watch on a slow link does not slow the others down.
+- **Hiccups are made up.** A page stalls a frame now and then (a garbage collection, a busy tab). A client that
+  waits for the relay to close the next tick keeps up to 5 ticks (a quarter second) of the time it waited and runs
+  them as soon as the tick arrives, so the match keeps real time on average instead of losing every hiccup of every
+  player for good.
 - **The relay orders everything.** Each client sends its orders together with a commit: "nothing more from me for
   ticks up to *U*". Once every player has committed a tick, the relay closes it and sends its orders to everyone,
   in one order (tick, seat, arrival). A client steps from tick *T* only once *T* is closed. So all clients run
@@ -104,6 +110,12 @@ unchanged.
   progress. The takeover happens at the same tick on every client and is recorded in the replay.
 - **A hidden tab does not stop the match.** While it is in the background it keeps committing ahead (it issues
   nothing meanwhile), and it catches up when it is shown again.
+- **If the relay goes away, the battle can go on offline.** When the relay restarts or shuts down mid-match (a
+  redeploy, a crash), or the reconnect gives up, every player still in command is offered **Play on vs AI** next to
+  **Leave**. The AI then takes over every other human from that tick, exactly as when a player drops, and the match
+  continues on that machine only. The takeovers are recorded in the replay, so it reproduces the whole battle, the
+  online part and the rest. Players who left the battle (surrendered, dropped) only have **Leave**. Leaving keeps
+  the replay as usual.
 
 ### Surrender
 
@@ -225,8 +237,11 @@ forward everything (including `/relay/`) to the game container. The proxy must:
   `RELAY_ALLOWED_ORIGINS`.
 - **allow long-lived connections.** Use an idle timeout above 30 s; the relay sends a heartbeat every 2 s.
 
-The relay's per-address limits see the address nginx reports (`X-Real-IP`). Behind a tunnel, that is the tunnel's
-address. Configure nginx's `real_ip` module for your proxy if you want per-player limits there.
+The relay's per-address limits see the address nginx reports (`X-Real-IP`). Behind a tunnel or a reverse proxy, that
+is the proxy's address, so every player shares one address's limits: 12 connections at once in total (about 12
+players across all rooms), one leaderboard-read burst, 30 submissions an hour and one join bucket. A client cannot
+lift these by sending its own `X-Real-IP` or `X-Forwarded-For`: nginx overwrites them. Configure nginx's `real_ip`
+module for your proxy's address to get per-player limits, or raise `RELAY_MAX_PER_IP`.
 
 ### Configuration
 

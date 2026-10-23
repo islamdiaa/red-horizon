@@ -106,6 +106,16 @@ const CSS = `
   border: 1px solid rgba(255, 207, 63, .32); box-shadow: 0 1.4rem 3.2rem rgba(0, 0, 0, .6), 0 0 2rem rgba(255, 200, 60, .12), inset 0 1px 0 rgba(255, 255, 255, .1);
   animation: rhxSumIn .7s cubic-bezier(.2, 1.3, .3, 1) both; }
 .rhx-sum.out { animation: rhxOut .45s ease-in forwards; }
+/* phones and short windows: a slim strip along the top (XP and the rank bar) that goes after a few seconds; the full
+   card covered the debrief's title (a tap dismisses either) */
+.rhx-sum.compact { left: .5rem; right: .5rem; top: .35rem; bottom: auto; width: auto; max-width: 26rem; margin: 0 auto; padding: .3rem .8rem; display: flex; align-items: center; gap: .8rem; border-radius: 2rem; }
+.rhx-sum.compact .rhx-sum-h, .rhx-sum.compact .rhx-lines, .rhx-sum.compact .rhx-ct, .rhx-sum.compact .rhx-tz, .rhx-sum.compact .rhx-promo, .rhx-sum.compact .rhx-rank > svg { display: none; }
+.rhx-sum.compact .rhx-sum-xp { font-size: 1.1rem; margin: 0; white-space: nowrap; }
+.rhx-sum.compact .rhx-rank { flex: 1; min-width: 0; }
+.rhx-sum.compact .rhx-rk-n { font-size: .72rem; }
+.rhx-sum.compact .rhx-bar { height: .32rem; margin-top: .15rem; }
+/* (and the medal toasts in the middle of the screen, off a debrief's title and its buttons: they let taps through) */
+@media (max-width: 700px), (max-height: 500px) { .rhx-toasts { top: 40%; } .rhx-t { width: 26rem; } }
 @keyframes rhxSumIn { from { opacity: 0; transform: translateY(1.5rem) scale(.94); } }
 .rhx-sum-h { display: flex; align-items: center; justify-content: space-between; font-size: .66rem; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #ffd34d; }
 .rhx-sum-h span:last-child { color: #7d8c9d; letter-spacing: .2em; }
@@ -217,7 +227,9 @@ export function showXpSummary(s: XpSummary, ms = 11000) {
   ensureCss();
   document.querySelector('.rhx-sum')?.remove();
   const el = document.createElement('div');
-  el.className = 'rhx-sum';
+  // (phones and short windows: the compact strip, a shorter life)
+  const compact = typeof matchMedia === 'function' && matchMedia('(max-width: 700px), (max-height: 500px)').matches;
+  el.className = compact ? 'rhx-sum compact' : 'rhx-sum';
   const promoted = s.rankAfter > s.rankBefore;
   const lines = s.lines.filter((l) => l.xp > 0).slice(0, 7);
   el.innerHTML = `<div class="rhx-sum-h"><span>${tMeta.html('card.serviceRecord')}</span><span>${tMeta.html(s.won ? 'card.victory' : 'card.debrief')}</span></div>
@@ -232,7 +244,7 @@ export function showXpSummary(s: XpSummary, ms = 11000) {
   try { sfx?.('xp'); } catch { /* ignore */ }
   const close = () => { el.classList.add('out'); window.setTimeout(() => el.remove(), 420); };
   el.onclick = close;
-  window.setTimeout(close, ms + (s.contracts?.length ? 3000 : 0));
+  window.setTimeout(close, compact ? 8000 : ms + (s.contracts?.length ? 3000 : 0));
 }
 
 /** Contracts that moved this battle, Commendations, and the next unlock (XP card). */

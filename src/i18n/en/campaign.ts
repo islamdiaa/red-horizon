@@ -127,7 +127,8 @@ export default strings('campaign', {
     noObjectives: 'No objective record.',
     primary: 'PRIMARY',
     optional: 'OPTIONAL',
-    mainMenu: 'Main menu',
+    /** The debrief's way out: back to the campaign screen (map and next missions). */
+    toCampaign: 'Campaign',
     replay: 'Replay',
     retry: 'Retry',
     next: 'Next mission',

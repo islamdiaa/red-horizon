@@ -12,6 +12,8 @@ import { Building, Unit } from '../../src/sim/entities';
 import type { Player } from '../../src/sim/player';
 import { TICK_HZ } from '../../src/sim/types';
 import type { World } from '../../src/sim/world';
+import type { AIController } from '../../src/sim/ai';
+import { waveNeeds } from '../../src/sim/ai-engage';
 
 export interface TeamsProbe {
   /** Per human slot: attacks on the base (enemy force of $600+ within 13 cells of the yard), how many an AI teammate sent help to, and how many saw its army arrive within 150 s (median seconds to arrive). */
@@ -34,6 +36,20 @@ export interface TeamsProbe {
   defeatedAt: number[];
 }
 
+/**
+ * 'ai': what each skirmish AI thinks and does (round 4 diagnosis of the Classic levels): every 30 s its army (all, and
+ * idle at home), the enemies' true land army, its own estimate of it (Classic, ai-engage.ts), what its next wave would
+ * need, its state; every wave it launched (value, how it ended, what it killed and lost); Ore Trucks it lost and where.
+ */
+export interface AIProbe {
+  series: { slot: number; min: number; army: number; idle: number; enemyArmy: number; est: number; need: number; state: string; bank: number; structures: number; known: number; hunt: boolean }[];
+  waves: { slot: number; min: number; value: number; endMin: number; end: string; killed: number; lost: number; reached: boolean }[];
+  /** Ore Trucks lost: minute, and where (distance to its own yard vs the nearest enemy yard: home < 18 cells, enemy side, middle). */
+  harvLost: { slot: number; min: number; where: 'home' | 'mid' | 'enemy' }[];
+  /** Every player at the end: what is left of it (structures and units by type), its bank, how far its structures and units are spread from its yard (or their centre), structures placed after minute 15. */
+  end: { slot: number; structures: Record<string, number>; units: Record<string, number>; credits: number; spreadB: number; spreadU: number; lateBuilt: number; yard: boolean }[];
+}
+
 export interface NavalProbe {
   /** Per player: ships built, ships lost, value destroyed by its ships (ships / everything else). */
   built: number[];
@@ -53,6 +69,8 @@ function yardOf(w: World, p: Player): Building | undefined {
 export class Probe {
   teams?: TeamsProbe;
   naval?: NavalProbe;
+  ai?: AIProbe;
+  private openWave = new Map<number, AIProbe['waves'][number] & { ids: Set<number> }>();
   private attackOpen: Map<number, number> = new Map(); // human slot -> tick the current attack began (-1 = helped)
   private sentFor = new Set<number>(); // attack start ticks help was sent for
   private pushOpen: Map<number, number> = new Map();
@@ -62,11 +80,13 @@ export class Probe {
   constructor(private w: World, kind: string) {
     const n = w.players.length;
     if (kind === 'teams') this.teams = { baseAttacks: 0, helpSent: 0, helped: 0, helpSeconds: [], pushes: 0, joined: 0, allyIdle: 0, allySamples: 0, allyOreNearHuman: 0, allyOreSamples: 0, waveTargets: [], defeatedAt: Array(n).fill(-1) };
+    if (kind === 'ai') this.ai = { series: [], waves: [], harvLost: [], end: [] };
     if (kind === 'naval') this.naval = { built: Array(n).fill(0), lost: Array(n).fill(0), killedShips: Array(n).fill(0), killedOther: Array(n).fill(0), yard: Array(n).fill(false) };
   }
 
   /** A unit or structure died (lib.ts wraps World.kill). */
   onKill(victim: Unit | Building, killer: Unit | Building | undefined) {
+    if (this.ai) this.aiKill(victim, killer);
     const nv = this.naval;
     if (!nv) return;
     if (victim instanceof Unit && victim.kind === 'naval' && victim.owner.id >= 0) nv.lost[victim.owner.id]++;
@@ -82,6 +102,91 @@ export class Probe {
     if (w.tick % (5 * TICK_HZ) !== 0) return;
     if (this.naval) this.navalStep();
     if (this.teams) this.teamsStep();
+    if (this.ai) this.aiStep();
+  }
+
+  private lateBuilt = new Map<number, number>();
+
+  /** Called once after the match (lib.ts). */
+  finish() {
+    const w = this.w, pr = this.ai;
+    if (!pr) return;
+    for (const p of w.players) {
+      const structures: Record<string, number> = {}, units: Record<string, number> = {};
+      const bs = w.buildings.filter((b) => b.alive && b.owner === p && !b.bt.wall && !b.bt.mine);
+      const us = w.units.filter((u) => u.alive && u.owner === p && !u.ut.supportPlane);
+      for (const b of bs) structures[b.bt.id] = (structures[b.bt.id] ?? 0) + 1;
+      for (const u of us) units[u.ut.id] = (units[u.ut.id] ?? 0) + 1;
+      const yard = bs.find((b) => b.bt.id === 'fact');
+      const all = [...bs, ...us];
+      const cx = yard ? yard.x : all.reduce((s, e) => s + e.x, 0) / Math.max(1, all.length), cy = yard ? yard.y : all.reduce((s, e) => s + e.y, 0) / Math.max(1, all.length);
+      const spread = (es: { x: number; y: number }[]) => Math.round(es.reduce((m, e) => Math.max(m, Math.hypot(e.x - cx, e.y - cy)), 0));
+      pr.end.push({ slot: p.id, structures, units, credits: Math.round(p.credits), spreadB: spread(bs), spreadU: spread(us), lateBuilt: this.lateBuilt.get(p.id) ?? 0, yard: !!yard });
+    }
+  }
+
+  /** A structure was placed (lib.ts). */
+  onPlaced(b: Building) {
+    if (this.ai && this.w.time >= 900) this.lateBuilt.set(b.owner.id, (this.lateBuilt.get(b.owner.id) ?? 0) + 1);
+  }
+
+  private aiKill(victim: Unit | Building, killer: Unit | Building | undefined) {
+    const w = this.w;
+    for (const wv of this.openWave.values()) {
+      if (victim instanceof Unit && wv.ids.has(victim.id)) wv.lost += victim.type.cost;
+      if (killer instanceof Unit && wv.ids.has(killer.id) && killer.owner !== victim.owner) wv.killed += victim.type.cost;
+    }
+    if (victim instanceof Unit && victim.ut.harvester && w.ais.some((a) => a.player === victim.owner)) {
+      const own = yardOf(w, victim.owner);
+      let enemy = Infinity;
+      for (const b of w.buildings) if (b.alive && b.bt.id === 'fact' && victim.owner.isEnemy(b.owner)) enemy = Math.min(enemy, Math.hypot(b.x - victim.x, b.y - victim.y));
+      const home = own ? Math.hypot(own.x - victim.x, own.y - victim.y) : Infinity;
+      this.ai!.harvLost.push({ slot: victim.owner.id, min: Math.round(w.time / 6) / 10, where: home < 18 ? 'home' : enemy < home ? 'enemy' : 'mid' });
+    }
+  }
+
+  private aiStep() {
+    const w = this.w, pr = this.ai!;
+    const min = Math.round(w.time / 6) / 10;
+    for (const ai of w.ais as unknown as AIController[]) {
+      if (typeof (ai as { waves?: number }).waves !== 'number' || !ai.army) continue;
+      const slot = ai.player.id;
+      if (ai.player.defeated) continue;
+      // waves: open on launch, close when the AI is back to building
+      const open = this.openWave.get(slot);
+      if (open && ai.state !== 'attack') {
+        const chat = ai.chatter.filter((c) => c.tick >= Math.round(open.min * 60 * TICK_HZ));
+        open.end = chat.some((c) => c.kind === 'broken') ? 'broken' : chat.some((c) => c.kind === 'fallback') ? 'fallback' : 'done';
+        open.endMin = min;
+        const { ids, ...rec } = open;
+        void ids;
+        pr.waves.push(rec);
+        this.openWave.delete(slot);
+      }
+      if (ai.state === 'attack' && !this.openWave.has(slot)) {
+        const units = ai.waveUnits();
+        this.openWave.set(slot, { slot, min, value: units.reduce((s, u) => s + u.ut.cost, 0), endMin: -1, end: 'open', killed: 0, lost: 0, reached: false, ids: new Set(units.map((u) => u.id)) });
+      }
+      const wv = this.openWave.get(slot);
+      if (wv) {
+        for (const u of ai.waveUnits()) wv.ids.add(u.id);
+        if (!wv.reached && ai.waveUnits().some((u) => w.buildings.some((b) => b.alive && b.bt.id === 'fact' && ai.player.isEnemy(b.owner) && Math.hypot(b.x - u.x, b.y - u.y) < 16))) wv.reached = true;
+      }
+      if (w.tick % (30 * TICK_HZ) !== 0) continue;
+      const army = ai.army();
+      const value = army.reduce((s, u) => s + u.ut.cost, 0);
+      const idle = ai.available().filter((u) => u.order.type === 'idle' || u.order.type === 'guard').reduce((s, u) => s + u.ut.cost, 0);
+      let enemyArmy = 0;
+      for (const u of w.units) if (ARMY(u) && ai.player.isEnemy(u.owner) && u.owner.id >= 0) enemyArmy += u.ut.cost;
+      const target = ai.pickAttackTarget();
+      const need = target && ai.classicPro ? waveNeeds(ai, target, 1) : 0;
+      let structures = 0;
+      for (const b of w.buildings) if (b.alive && b.owner === ai.player && !b.bt.wall && !b.bt.mine) structures += b.bt.cost;
+      let known = 0;
+      for (const k of ai.intel.structures.values()) if (!w.players[k.owner]?.defeated) known++;
+      const hunt = typeof ai.huntNow === 'function' ? ai.huntNow() : false;
+      pr.series.push({ slot, min, army: value, idle, enemyArmy, est: Math.round(ai.enemyEst), need: Math.round(need), state: `${ai.state}/${ai.stage}`, bank: ai.player.credits, structures, known, hunt });
+    }
   }
 
   private navalStep() {

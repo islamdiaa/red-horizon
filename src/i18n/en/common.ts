@@ -1,5 +1,7 @@
 /** Words shared by many screens. Screen-specific text belongs in that screen's namespace. */
 import { strings } from '../core';
+// generated names (operation code names, call signs) translate wherever text is shown: register them with the basics
+import './codenames';
 
 export default strings('common', {
   back: 'Back',

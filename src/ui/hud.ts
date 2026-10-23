@@ -18,6 +18,7 @@ import { ARIA_TEXT } from './a11y-strings';
 import { Toasts, classifyMessage, type ToastKind } from './toasts';
 import { factionTypes, missingRequirements, rankName, statLines, xpThresholds } from './tech';
 import { applyUiSettings, hudLayoutOf, loadSettings, onSettingsChanged, type HudLayout } from './settings';
+import { fitLayout } from './layout-fit';
 import { CTRL_ICONS, FORMATION_INFO, formationBar, refreshFormationBar } from './orderui';
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../platform/fullscreen';
 import { BOOT_CAMP_HUD } from '../missions/tutorial'; // Boot Camp drill highlights
@@ -35,6 +36,9 @@ import tCommon from '../i18n/en/common';
 import { englishOf, fmtInt, fmtMoney, onLanguageChange, trSource } from '../i18n/core';
 import { resolveTypeNames, typeDesc, typeName } from '../i18n/names';
 import { playerName } from '../i18n/en/players'; // built-in names (Commander, the AI commanders) in the interface language
+
+/** A touch-first device (ui/touch.ts isTouchDevice, inlined: touch.ts imports this module). */
+const touchScreen = () => typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && matchMedia('(hover: none)').matches));
 
 // unit and structure names inside emitted English (mission objectives, radio) translate too
 resolveTypeNames(UNITS, BUILDINGS);
@@ -246,7 +250,7 @@ export class Hud {
     this.army.dispose();
     this.research?.dispose();
     // the next screen (menus, another battle's HUD) starts from a clean body
-    document.body.classList.remove('hud-modern');
+    document.body.classList.remove('hud-modern', 'hud-fallback', 'coach-loop');
     for (const v of ['--dock-h', '--tl-h', '--bb-h', '--sel-h']) document.body.style.removeProperty(v);
   }
   readonly root: HTMLElement;
@@ -307,6 +311,8 @@ export class Hud {
 
   // ---- layout: the same widgets mounted as the Classic sidebar or the Modern corner panels
   private layout: HudLayout = 'classic';
+  /** The layout the settings ask for (Classic shows as Modern while the window is too small for it: ui/layout-fit.ts). */
+  private chosen: HudLayout = 'classic';
   private ui: HTMLElement;
   private sbHead: HTMLElement;
   private tabsEl: HTMLElement;
@@ -528,7 +534,12 @@ export class Hud {
 
     // build-bar hotkeys (Modern) and live layout switching from the settings screen
     window.addEventListener('keydown', this.onKeyDown, true);
-    const offSettings = onSettingsChanged((s) => { const l = hudLayoutOf(s); if (l !== this.layout && this.sidebar.isConnected) this.mount(l); });
+    const refit = () => { const l = fitLayout(this.chosen); if (l !== this.layout && this.sidebar.isConnected) this.mount(l); };
+    const offSettings = onSettingsChanged((s) => { this.chosen = hudLayoutOf(s); refit(); });
+    // Classic needs a wide enough landscape window: a resize can switch between it and Modern (ui/layout-fit.ts)
+    let fitRaf = 0;
+    const onResize = () => { if (!fitRaf) fitRaf = requestAnimationFrame(() => { fitRaf = 0; refit(); }); };
+    window.addEventListener('resize', onResize);
     // a language change: the fixed labels, then everything else re-renders
     const offLang = onLanguageChange(() => {
       if (!this.sidebar.isConnected) return;
@@ -537,9 +548,10 @@ export class Hud {
       this.mount(this.layout);
     });
     const prev = this.detachListeners;
-    this.detachListeners = () => { prev?.(); offSettings(); offLang(); window.removeEventListener('keydown', this.onKeyDown, true); };
+    this.detachListeners = () => { prev?.(); offSettings(); offLang(); window.removeEventListener('keydown', this.onKeyDown, true); window.removeEventListener('resize', onResize); cancelAnimationFrame(fitRaf); };
 
-    this.mount(hudLayoutOf(loadSettings()));
+    this.chosen = hudLayoutOf(loadSettings());
+    this.mount(fitLayout(this.chosen));
 
     this.shownCredits = host.local.credits;
     this.odo.set(this.shownCredits);
@@ -617,6 +629,7 @@ export class Hud {
     const modern = layout === 'modern';
     const body = document.body;
     body.classList.toggle('hud-modern', modern);
+    body.classList.toggle('hud-fallback', modern && this.chosen === 'classic'); // (Classic chosen, the window too small for it)
     const sb = this.sidebar, tb = this.topbar, tr = this.topright;
     this.tabsEl.replaceChildren(...this.tabDefs().map((t) => this.tabEls.get(t.id)!), this.tabInd);
     for (const t of this.tabDefs()) this.tabEls.get(t.id)!.setAttribute('aria-label', t.title());
@@ -1197,7 +1210,7 @@ export class Hud {
       const head = q.items[0];
       if (head && head.type === id && head.paused) { this.host.issue({ c: 'pause', player: p.id, type: id }); return; }
       if (q.items.length >= QUEUE_LIMIT) { // say so instead of silently dropping the click
-        this.message(tHud('msg.queueFull', { n: QUEUE_LIMIT }), true);
+        this.message(tHud(touchScreen() ? 'msg.queueFullTouch' : 'msg.queueFull', { n: QUEUE_LIMIT }), true);
         this.host.audio.play('error');
         replay(card.el, 'shake', 450);
         return;

@@ -78,6 +78,9 @@ def write(font, unicodes, out, family):
     sub.subset(font)
     rename(font, family)
     font.flavor = 'woff2'
+    # reproducible output: keep the source's timestamp (fontTools writes "now" into head.modified otherwise)
+    font.recalcTimestamp = False
+    font['head'].modified = font['head'].created
     font.save(out)
     print(f'{os.path.relpath(out, ROOT)}: {os.path.getsize(out) / 1024:.1f} KB, {len(font.getBestCmap())} characters')
 
@@ -106,6 +109,7 @@ def noto_sc():
 
 
 if __name__ == '__main__':
+    # (the Cyrillic set is fixed: `subset.py cjk` after a Chinese catalogue change rebuilds only what changed)
     which = sys.argv[1:] or ['tektur', 'cjk']
     if 'tektur' in which:
         tektur()

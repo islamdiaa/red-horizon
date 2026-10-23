@@ -47,7 +47,7 @@ const GREY_DAWN: MissionDef = {
     'A Soviet forward outpost on the north-east ridge is shelling the refugee roads. When you are strong enough, wipe it off the map.',
   ],
   tips: [
-    'Deploy the MCV with D (or click it again). Build a Power Plant first.',
+    'Deploy the MCV first: select it and press D or click it again (on a touch screen, press and hold it and pick Deploy). Then build a Power Plant.',
     'An Ore Refinery comes with a free Ore Truck. Ore is money.',
     'Rocket Soldiers kill tanks, Riflemen kill infantry. Flame towers roast anything on foot.',
     'You cannot build tanks yet. Keep your two Light Tanks alive: flame towers hardly scratch them, so they lead the assault.',
@@ -71,8 +71,9 @@ const GREY_DAWN: MissionDef = {
     m.spawnUnit(0, 'mcv', s.x, s.y, Math.atan2(e.y - s.y, e.x - s.x));
     squad(m, 0, ['1tnk', '1tnk', 'jeep'], s, e, 3.5, 0);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e3', 'e3', 'e6'], s, e, 2, 3.5);
-    // the outpost (campaign difficulty: the easy levels face one flame tower, Recruit a smaller garrison, with less money for recruits)
-    const towers: [string, number, number][] = m.eased ? [['ftur', 6.5, 0]] : [['ftur', 6.5, 2.5], ['ftur', 6.5, -2.5]];
+    // the outpost (campaign difficulty: the easy levels face one flame tower, Recruit a smaller garrison, with less money for recruits;
+    // Brutal one flame tower too, and the light tank platoon below: with two towers no autopilot took the ridge)
+    const towers: [string, number, number][] = m.eased || m.level === 'brutal' ? [['ftur', 6.5, 0]] : [['ftur', 6.5, 2.5], ['ftur', 6.5, -2.5]];
     const [barr] = layout(m, 1, e, s, [['barr', 1, 0], ['powr', -2, 3.5], ['powr', -2.5, -3], ['kenn', 2, 4], ...towers]);
     const [w1x, w1y] = m.toward(e, s, 9, -5), [w2x, w2y] = m.toward(e, s, 9, -1.5);
     m.wall(1, 'barb', Math.round(w1x), Math.round(w1y), Math.round(w2x), Math.round(w2y));
@@ -161,8 +162,9 @@ const GREY_DAWN: MissionDef = {
       const n = Math.min(4, Math.floor((m.time - 600) / 170));
       huntWave(m, 1, ['e1', 'e1', 'e2', 'dog', ...(n >= 1 ? ['3tnk'] : []), ...(n >= 3 ? ['3tnk', 'e2'] : [])], edgeNear(m, e.x, 0), [s.x, s.y]);
     }
-    // the easy levels: a light tank platoon joins (tanks are what burns down flame towers)
-    if (m.eased && m.after(m.byLevel(330, { recruit: 270 }), 'platoon')) {
+    // up to Normal (and at Brutal) a light tank platoon joins (tanks are what burns down flame towers; measured, a casual
+    // player's infantry won Normal in about half the runs without it, every run with it)
+    if (m.level !== 'hard' && m.after(m.byLevel(330, { recruit: 270, normal: 360, brutal: 360 }), 'platoon')) {
       m.reinforce(0, m.byLevel(['1tnk', '1tnk'], { recruit: ['1tnk', '1tnk', '1tnk'] }), edgeNear(m, s.x, s.y), m.toward(s, e, 4), false);
       say(m, C.rourke, 'Commander, a light tank platoon got through to you. Tanks shrug off those flame towers: put them in front of your infantry.');
     }
@@ -274,7 +276,9 @@ const KASSEL: MissionDef = {
     for (const w of KASSEL_WAVES) {
       if (m.after(w.t, 'wave' + w.t)) {
         const target = yard ?? s;
-        const extra = m.tightened && w.t >= 165 ? (m.level === 'brutal' ? ['3tnk', '3tnk'] : ['3tnk']) : [];
+        // (campaign difficulty: at Hard a heavy tank more from the third wave on; not at Brutal, where the handicaps make
+        // every wave about twice as deadly already: with one or two more the expert autopilot never held the yard)
+        const extra = m.level === 'hard' && w.t >= 165 ? ['3tnk'] : [];
         const units = huntWave(m, 1, [...w.types, ...extra], spawns[w.from], [target.x, target.y]);
         if (w.types.includes('4tnk')) {
           m.flags.mammoth = units.find((u) => u.ut.id === '4tnk')?.id;
@@ -588,7 +592,9 @@ const LOOKING_GLASS: MissionDef = {
     m.flags.team = ids(team);
     const apcs = squad(m, 0, ['apc', 'apc'], s, e, 5, -2);
     m.flags.apcs = ids(apcs);
-    squad(m, 0, ['2tnk', '2tnk', '2tnk', 'jeep'], s, e, 7, 2);
+    // (campaign difficulty: up to Normal a fourth Medium Tank rides with the escort; measured, the casual pilot lost
+    // Saarinen in five runs of eight at Normal with three, two heavy tanks wait on the road)
+    squad(m, 0, m.tightened ? ['2tnk', '2tnk', '2tnk', 'jeep'] : ['2tnk', '2tnk', '2tnk', '2tnk', 'jeep'], s, e, 7, 2);
     squad(m, 0, ['e1', 'e1', 'e1', 'e1', 'e3', 'e3'], s, e, 5, 4.5);
     // Home Guard harbour
     const hg = layout(m, 2, e, s, [['tent', 0, 0], ['powr', -2.5, 3], ['pbox', 6, 2.5], ['pbox', 6, -2.5], ['gun', 5, 5.5], ['gun', 5, -5.5]]);
@@ -699,7 +705,7 @@ const DRY_SEASON: MissionDef = {
   date: '19 May 1953 · 12:40',
   briefing: [
     'Morozov\'s southern army has pushed through the Caucasus into Turkey, and it runs on Anatolian ore. Its refineries on the Konya plain are fed by a fleet of ore trucks.',
-    'Kill the trucks and the southern offensive starves. You have fifteen minutes before their armoured reserve arrives to escort them.',
+    'Kill the trucks and the southern offensive starves. You have until their armoured reserve arrives to escort them: fifteen minutes, less if the front is hotter than we think.',
     'New equipment has reached the theatre: Medium Tanks, artillery and Longbow helicopters. Ore trucks are tough. Bring enough guns.',
   ],
   tips: [
@@ -753,14 +759,19 @@ const DRY_SEASON: MissionDef = {
     squad(m, 1, ['e1', 'e1', 'e3', 'e3'], mid, s, 3, 0);
     m.objective('trucks', 'Destroy every Soviet ore truck');
     m.objective('refineries', 'Destroy both refineries at the mining camp', false);
-    m.startTimer('reserve', 900, 'Armoured reserve');
+    // (campaign difficulty: the reserve comes sooner at Hard and Brutal; with the trucks kept in the open, fifteen
+    // minutes left Brutal to the casual stand-in in eight runs of eight)
+    m.startTimer('reserve', m.byLevel(900, { hard: 780, brutal: 600 }), 'Armoured reserve');
     m.reveal(0, mid[0], mid[1], 8);
   },
   update(m) {
     const s = m.start(0), e = m.start(1);
     if (m.after(1, 'hello')) {
       say(m, C.brandt, 'Six ore trucks working a mining camp in the middle of the plain, two heavy tanks riding shotgun. Their main base is in the far corner and well defended. You do not need the base. You need the trucks.');
-      say(m, C.rourke, 'Fifteen minutes, Commander. After that their reserve arrives and this becomes a very different fight.');
+      say(m, C.rourke, m.byLevel('Fifteen minutes, Commander. After that their reserve arrives and this becomes a very different fight.', {
+        hard: 'Thirteen minutes, Commander: the reserve is moving early. After that this becomes a very different fight.',
+        brutal: 'Ten minutes, Commander: the reserve is already on the road. After that this becomes a very different fight.',
+      }));
     }
     // track all harvesters of the southern front (convoy trucks included)
     const all = m.units(1, 'harv');
@@ -776,6 +787,14 @@ const DRY_SEASON: MissionDef = {
         let ward = entity<Unit>(m, h);
         if (!ward) ward = m.nearest(m.livingUnits(known), guard?.x ?? 0, guard?.y ?? 0);
         if (guard && ward) escort(m, [guard], ward, 3.5);
+      }
+    }
+    // the trucks work the plain, as the briefing says: one that drifts onto the ore under the main base's guns is sent
+    // back to the camp's fields (a last truck parked in the base made the mission a base assault after all)
+    if (m.every(5, 'plain')) {
+      const [cx, cy] = m.flags.camp as [number, number];
+      for (const h of m.livingUnits(known)) {
+        if (m.dist(h, e) < 16 && Math.hypot(h.x - cx, h.y - cy) > 12) m.world.issue({ c: 'harvest', player: 1, units: [h.id], x: cx, y: cy });
       }
     }
     // the convoy twist
@@ -915,7 +934,8 @@ const MIDNIGHT: MissionDef = {
       m.setTimeLeft('launch', Math.max(0, m.flags.left));
       if (low !== !!m.flags.paused) {
         m.flags.paused = low;
-        if (low) say(m, C.brandt, 'Their grid is down! The coils are dark and the launch sequence has slowed to a crawl. Keep it that way.');
+        // (once: a fortress grid at the edge of its power flickers in and out as plants take damage, and the line repeated)
+        if (low && m.once('gridDown')) say(m, C.brandt, 'Their grid is down! The coils are dark and the launch sequence has slowed to a crawl. Keep it that way.');
       }
       if (m.flags.left <= 0 && m.once('launch')) {
         m.flags.launched = m.time;
@@ -1063,7 +1083,9 @@ const DAWNBREAK: MissionDef = {
     squad(m, 3, ['2tnk', '2tnk', '2tnk', '1tnk', 'e1', 'e1', 'e1', 'e3'], pl, center, 7, 0);
     // the Soviets are cut off: no new refineries or ore trucks, no new silos
     for (const p of [1, 2]) m.player(p).allowedTypes = allExcept('mslo', 'proc', 'harv', '4tnk');
-    aiProfile(m, 1, 'easy');
+    // (campaign difficulty: at Hard and Brutal Morozov plays at Recruit: with the enemy's handicap his Easy commander's
+    // waves flattened the base while the army was away, the expert autopilot won 2 runs in 8 at Hard, none at Brutal)
+    aiProfile(m, 1, m.tightened ? 'recruit' : 'easy');
     m.objective('morozov', 'Destroy Morozov\'s Northern Front');
     m.objective('directorate', 'Destroy the Horizon Directorate');
     m.objective('silo', 'Destroy the Directorate missile silo', false);

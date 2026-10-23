@@ -8,6 +8,16 @@ import { appliedModSet, onTypesChanged, typeModInfo } from './engine';
 import { activeModSet } from './store';
 import type { ModSet } from './format';
 import tMods from '../i18n/en/mods';
+import { MUTATORS } from '../modes/mutators';
+import { mutatorName } from '../i18n/names';
+
+/** A mod's name for display: the skirmish mutators' generated mod ("Mutators: Glass Cannons", src/modes/mutators.ts
+ *  mutatorMod) in the active language; any other mod's own name. (L10N) */
+function modName(name: string): string {
+  const m = /^Mutators: (.+)$/.exec(name);
+  if (!m) return name;
+  return tMods('marker.mutators', { names: m[1].split(', ').map((n) => { const d = MUTATORS.find((x) => x.name === n); return d ? mutatorName(d) : n; }).join(', ') });
+}
 
 export { showMods } from './ui';
 export { activeModSet } from './store';
@@ -49,7 +59,7 @@ export function modCardTag(typeId: string): string {
   const info = typeModInfo(typeId);
   if (!info) return '';
   injectCss();
-  return `<span class="bi-mod" title="${esc(tMods('marker.moddedBy', { mods: info.mods.join(', ') }))}">${tMods.html(info.variant ? 'marker.newTag' : 'marker.modTag')}</span>`;
+  return `<span class="bi-mod" title="${esc(tMods('marker.moddedBy', { mods: info.mods.map(modName).join(', ') }))}">${tMods.html(info.variant ? 'marker.newTag' : 'marker.modTag')}</span>`;
 }
 
 /** Tooltip section listing what the active mods changed on a type ('' when unmodded). */
@@ -57,7 +67,7 @@ export function modTipHtml(typeId: string): string {
   const info = typeModInfo(typeId);
   if (!info) return '';
   injectCss();
-  const head = tMods(info.variant ? 'marker.variantHead' : 'marker.moddedHead', { mods: info.mods.join(', ') });
+  const head = tMods(info.variant ? 'marker.variantHead' : 'marker.moddedHead', { mods: info.mods.map(modName).join(', ') });
   return `<div class="tt-mod"><b>${esc(head.toUpperCase())}</b>${info.lines.slice(0, 8).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
 }
 
@@ -69,7 +79,7 @@ export function showModBadge(set: ModSet | null | undefined) {
   const b = document.createElement('div');
   b.id = 'rh-modbadge';
   b.className = 'rh-modbadge';
-  b.innerHTML = `${tMods.html('marker.badge')}<span>${esc(set.mods.map((m) => m.name).join(' + '))}</span>`;
+  b.innerHTML = `${tMods.html('marker.badge')}<span>${esc(set.mods.map((m) => modName(m.name)).join(' + '))}</span>`;
   b.title = tMods('marker.badgeTip', { hash: set.hash.slice(0, 8) });
   document.body.appendChild(b);
 }
@@ -81,7 +91,7 @@ export function activeModsChip(onClick: () => void): HTMLElement | null {
   injectCss();
   const c = document.createElement('div');
   c.className = 'mods-chip';
-  c.innerHTML = `<b>${tMods.html('marker.chip')}</b><span>${esc(set.mods.map((m) => m.name).join(' + '))}</span>`;
+  c.innerHTML = `<b>${tMods.html('marker.chip')}</b><span>${esc(set.mods.map((m) => modName(m.name)).join(' + '))}</span>`;
   c.title = tMods('marker.chipTip');
   c.onclick = onClick;
   return c;

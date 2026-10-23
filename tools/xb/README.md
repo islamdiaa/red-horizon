@@ -19,6 +19,14 @@ arguments but not the environment.
 | `lowend.mjs` | VM | A 300-unit battle at 1x, 2x and 5x: frame rate and cost, simulation ms per tick, main-thread ms per subsystem, ticks per second against the target, input delay, long tasks |
 | `pwa.mjs` | VM | Chrome / Edge: the service worker, installability (DevTools), `PWA.install` and launch, then offline: menu and a Quick Battle |
 | `hidpi.mjs` | VM desktop | Headed, at the OS display scale (`lab.sh display win11 1920x1080 150`): pixel ratio, canvas backing size, layout outside the window, screenshots |
+| `vme2e.sh` | host → VM | Copies `tools/e2e` and `tools/xb` into a VM's Playwright folder and runs a script that needs the E2E bot there |
+| `vmplay.mjs` | VM | The E2E bot plays a mode in real time through the UI (skirmish, campaign, co-op): frame rate, game clock against real time, input to next frame, memory and renderer resources every minute |
+| `vmmenus.mjs` | VM or rig | Every main-menu screen in each locale the browser announces: raw keys, clipped or off-screen text, sideways scrolling, screenshots |
+| `vmload.mjs` | VM | Where the loading time goes on a slow machine: the menu, then each loading-screen stage of a match, with long tasks |
+| `vmnotice.mjs` | VM | The "graphics acceleration is off" notice on a software renderer: shown by itself, hidden in battle, dismissed for good |
+| `vmcold.mjs`, `vmctxdiag.mjs` | VM | Cold launches (a fresh browser each time): menu or "can't start", WebGL 2 retries; and why a first context fails, per Chromium flag set, on a blank page |
+| `settingsprobe.mjs` | VM or rig | Clicks every enabled Settings control in turn and records console errors per control |
+| `soakseg.mjs`, `soakseg.sh` | rig | `soak.mjs` in segments for a shared machine: one page, active only while the driver holds the shared lock for a segment, idle between |
 
 `probe-core.mjs`, `sweep-core.mjs`, `look-core.mjs` and `vmlib.mjs` are the shared parts. The rig scripts in
 `tools/gpu-rig/` use the first two.

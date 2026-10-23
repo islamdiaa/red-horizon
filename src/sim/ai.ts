@@ -10,10 +10,10 @@ import { aiNavalStructure, aiNavalThink, aiPlacement } from './ai-naval';
 import { contentAI } from './ai-content';
 import { aftermathAI, aiManaged } from './aftermath'; // Aftermath units: production share + special-unit use
 import { apparentType } from './infiltration';
-import { AIIntel } from './ai-intel';
+import { AIIntel, type KnownStructure } from './ai-intel';
 import { bestFitness, counterWeights } from './ai-counter';
 import { DEFAULT_TUNING, resolvePersonality, trait, type AITuning, type Personality } from './ai-personality';
-import { canReach, expansionStructure, expansionPlacement, focusFire, harass, manageExpansion, manageRepairs, retreatDamaged, scouting } from './ai-ops';
+import { canReach, expansionStructure, expansionPlacement, focusFire, harass, landZones, lanesOpen, manageExpansion, manageRepairs, onRepairPad, retreatDamaged, scouting } from './ai-ops';
 import { ceasefireActive, hostileTarget, inHomeArea } from './ceasefire';
 import { commanderAI } from './ai-commander';
 import { costOf, doctrineDefences, doctrinePrefer } from './doctrine';
@@ -111,6 +111,14 @@ export interface DiffParams {
   /** Seconds an intruder must have been at the base before the army answers, and before a lost structure is rebuilt. */
   defendDelay: number;
   rebuildDelay: number;
+  /**
+   * Classic skirmish, normal and up (AIController.classicPro, version 6): the army masses until this many seconds into
+   * the match before its first wave, unless an enemy attack has just broken on its base (0 = firstAttack decides); and
+   * in the first 25 minutes, while its army is under `classicThrift` times its estimate of the enemy's, the luxuries wait
+   * whatever the bank (tech centre, extras, a second war factory, a third refinery, expansions; 0 = off).
+   */
+  classicFirst: number;
+  classicThrift: number;
 }
 
 const UNCAPPED = 1e9;
@@ -121,6 +129,7 @@ const FULL = {
   doctrine: true, powerTier: 3, powerUse: 1, offensivePowers: true, powers: null, powerGap: 0,
   raids: true, agents: true, siege: true, waveCap: UNCAPPED, armyCap: UNCAPPED, defendDelay: 0, rebuildDelay: 0,
   armyStart: UNCAPPED, armyRamp: 0, infOpening: UNCAPPED, capAll: false, maxOf: null, defenceAfter: 0, maxStructures: UNCAPPED, rallyAhead: 5, noUnits: [], maxVehicles: UNCAPPED,
+  classicFirst: 0, classicThrift: 0,
 };
 
 /** Recruit and easy (version 5): one barracks, war factory, airfield and helipad; no kennel, decoys or gap generator. */
@@ -143,6 +152,7 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
     doctrine: false, powerTier: 0, powerUse: 0, offensivePowers: false, powers: [], powerGap: 120,
     raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 4000, defendDelay: 15, rebuildDelay: 150,
     armyStart: 1200, armyRamp: 250, infOpening: 6, capAll: true, maxOf: LOW_STRUCTURES, defenceAfter: 600, maxStructures: 10, rallyAhead: -3, noUnits: LOW_UNITS, maxVehicles: 2,
+    classicFirst: 0, classicThrift: 0,
   },
   easy: {
     buildSpeed: 0.6, income: 0.75, firstAttack: 540, waveValue: 1800, waveGrowth: 700, defenses: 1, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150,
@@ -151,6 +161,7 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
     doctrine: false, powerTier: 1, powerUse: 0.35, offensivePowers: false, powers: ['repair'], powerGap: 120,
     raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 6000, defendDelay: 6, rebuildDelay: 60,
     armyStart: 1500, armyRamp: 300, infOpening: 8, capAll: true, maxOf: LOW_STRUCTURES, defenceAfter: 600, maxStructures: 12, rallyAhead: -3, noUnits: LOW_UNITS, maxVehicles: 4,
+    classicFirst: 0, classicThrift: 0,
   },
   normal: {
     buildSpeed: 1.0, income: 1.05, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70,
@@ -159,11 +170,13 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
     tierPace: 1.3, researchMax: 4, projects: 2, processors: 2, econPlus: false, bunkers: 2,
     powerUse: 0.6, powerGap: 45, powers: ['recon', 'repair', 'funds', 'rally', 'elite', 'barrage', 'reinforce', 'aegis'], // (no Tesla Storm or Sabotage)
     waveCap: 12000, armyCap: 30000, defendDelay: 2, rebuildDelay: 20,
+    classicThrift: 1,
   },
   hard: {
     buildSpeed: 1.05, income: 1.05, firstAttack: 300, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true, skill: 0.85, scoutAt: 45,
     ...FULL,
     expansions: 2, outposts: 2, events: 0.8, tierPace: 1.1, processors: 3, powerUse: 0.8, powerGap: 30,
+    classicFirst: 780, classicThrift: 1,
   },
   brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true, skill: 1, scoutAt: 30, ...FULL },
 };
@@ -501,11 +514,13 @@ export class AIController {
       const e = this.intel.enemyBase(bx, by);
       this.say('scouted', e?.[0], e?.[1]);
     }
+    if (this.tune.endConcede > 0 && this.due(TICK_HZ * 2) && this.lastStand()) return;
     this.handleMcv();
     this.placeReadyStructure();
     if (this.d.rebuildDelay > 0 && this.due(TICK_HZ * 2)) this.noteLosses();
     this.planStructures();
     this.planUnits();
+    this.recoverEconomy();
     this.repairBase();
     aiNavalThink(this.world, this.p, this.thinks, this.difficulty, this.behaviour !== 'full' || this.ceasefire, this); // (ceasefire: home waters only)
     if (this.behaviour === 'defensive') { this.defendOnly(); return; }
@@ -525,6 +540,91 @@ export class AIController {
     if (this.world.econ) econAI(this); // tiers, upgrades, research, bunker garrisons (Commander economy)
     aftermathAI(this); // builds ttnk/qtnk/dtrk/shok/msub/ctnk/stnk/mech, drives qtnk/dtrk/ctnk/mech/msub
     if (this.chatter.length > 40) this.chatter.splice(0, this.chatter.length - 40);
+  }
+
+  /**
+   * Version 6: beaten. With no Construction Yard or MCV to rebuild with and no factory it can pay to train an army in, an AI can't
+   * come back: what army it has goes for the enemy (the last stand), and once that is down to less than
+   * tune.endConcede credits it concedes, as a player would (resign.ts), instead of keeping the match alive with a
+   * helicopter over the map, an Ore Truck in a corner or a power plant nobody has found. Skirmishes only; never while a
+   * human teammate plays on (the side fights on), and with an AI teammate still in the game it fights on without
+   * conceding (a surrender concedes for the whole side). Returns true when it has nothing else to do.
+   */
+  private lastStand(): boolean {
+    const w = this.world, p = this.p;
+    if (!this.levelled || w.mission || this.ceasefire) return false;
+    // (a factory keeps it in the game while it can pay for units: a refinery, or money in the bank)
+    let factory = false;
+    for (const b of w.buildings) {
+      if (!b.alive || b.owner !== p) continue;
+      if (b.bt.id === 'fact') return false;
+      // (a helipad or an airfield alone doesn't: aircraft can't take back a map)
+      if (b.bt.factory && b.bt.factory !== 'building' && b.bt.factory !== 'aircraft') factory = true;
+    }
+    if (factory && (p.credits >= 1000 || p.has('proc'))) return false;
+    const units = this.myUnits();
+    if (units.some((u) => u.ut.deploysInto)) return false;
+    if (humanMates(this).length) return false;
+    const army = this.army();
+    // (a teammate still in the game: no surrender, which would concede for the whole side, resign.ts)
+    const mates = w.players.some((q) => q !== p && q.team === p.team && !q.defeated);
+    if (!mates && this.armyValue(army) < this.tune.endConcede) {
+      w.issue({ c: 'resign', player: p.id });
+      return true;
+    }
+    const idle = army.filter((u) => (u.order.type === 'idle' || u.order.type === 'guard') && !u.target);
+    if (idle.length) {
+      const t = this.pickAttackTarget(idle[0].x, idle[0].y);
+      if (t) w.issue({ c: 'move', player: p.id, units: idle.map((u) => u.id), x: t[0], y: t[1], attackMove: true });
+    }
+    return true;
+  }
+
+  /**
+   * Classic, normal and up: the army-to-estimate ratio under which the luxuries wait (DiffParams.classicThrift;
+   * tune.proThrift experiments), for the first 25 minutes: in a longer war the tech centre and the rest come back.
+   */
+  thrift(): number {
+    return this.world.time >= 1500 ? 0 : this.tune.proThrift || this.d.classicThrift;
+  }
+
+  /**
+   * Version 6: broke. No Ore Truck left, an empty bank and ore still on the map: an expansion MCV waiting in the queue is
+   * cancelled (what was paid comes back), and what the base can spare is sold, one structure at a time, until a truck is
+   * paid for. AIs used to sit out the rest of the match with $2 and an Ore Truck half paid for in the queue. Skirmishes
+   * only (scripted missions keep the AI they were balanced with).
+   */
+  private recoverEconomy() {
+    const w = this.world, p = this.p;
+    if (!this.skirmish || !this.due(TICK_HZ * 5) || p.credits >= 100 || !p.has('proc') || !p.has('fact')) return;
+    const mine = this.myBuildings();
+    if (mine.some((b) => b.selling >= 0)) return; // (one sale at a time)
+    if (this.myUnits().some((u) => u.ut.harvester)) return;
+    if (this.oreCellsNear(36) < 12) return; // (a mined-out map: a truck would not pay for itself)
+    const vq = p.queues.vehicle;
+    if (vq.items.some((i) => i.type === 'mcv')) {
+      w.issue({ c: 'cancel', player: p.id, type: 'mcv' });
+      this.expansion = null;
+      return;
+    }
+    if (!vq.items.some((i) => i.type === 'harv')) return; // (planUnits queues the truck first)
+    const n = (t: string) => mine.filter((b) => b.bt.id === t).length;
+    const spare = (b: Building): number => {
+      const t = b.bt.id;
+      if (t === 'fact' || t === 'proc' || b.bt.wall || b.bt.mine || !b.active) return -1;
+      if ((t === 'weap' || t === 'tent' || t === 'barr') && n(t) <= 1) return -1;
+      if ((t === 'powr' || t === 'apwr') && p.powerOut - (b.bt.power ?? 0) < p.powerUse) return -1;
+      // (luxuries first, then a second factory, then the defences)
+      if (b.bt.superweapon || t === 'silo' || t === 'gap' || t === 'kenn' || t === 'hpad' || t === 'afld' || t === 'atek' || t === 'stek' || t === 'fix') return 3;
+      if (t === 'weap' || t === 'tent' || t === 'barr' || t === 'dome') return 2;
+      return 1;
+    };
+    let best: Building | null = null, bs = 0;
+    for (const b of mine) {
+      const v = spare(b);
+      if (v > bs || (v === bs && v > 0 && best && b.bt.cost > best.bt.cost)) { bs = v; best = b; }
+    }
+    if (best) w.issue({ c: 'sell', player: p.id, building: best.id });
   }
 
   /** Which structure types were lost (for the rebuild delay of the easier levels). */
@@ -599,10 +699,41 @@ export class AIController {
       this.world.issue({ c: 'deploy', player: this.p.id, units: [mcv.id] });
     } else {
       this.deployTries++;
+      // (version 6: straight to the nearest spot where the yard fits; the spiral alone wandered round a cramped start
+      // on ore and trees for the whole match without ever stopping where it could deploy)
+      const spot = this.deploySpot(mcv);
+      if (spot && Math.hypot(spot[0] - mcv.x, spot[1] - mcv.y) > 0.3) { this.world.issue({ c: 'move', player: this.p.id, units: [mcv.id], x: spot[0], y: spot[1] }); return; }
       const a = this.deployTries * 2.1;
       const r = 1.5 + this.deployTries * 0.5;
       this.world.issue({ c: 'move', player: this.p.id, units: [mcv.id], x: mcv.x + Math.cos(a) * r, y: mcv.y + Math.sin(a) * r });
     }
+  }
+
+  /** The nearest place (up to 16 cells away, on the MCV's own ground) where its Construction Yard fits; the MCV's position there. */
+  private deploySpot(mcv: Unit): [number, number] | null {
+    const w = this.world, m = w.map, bt = BUILDINGS[mcv.ut.deploysInto!];
+    const [sw, sh] = bt.size;
+    const zones = landZones(m);
+    const fx = Math.floor(mcv.x), fy = Math.floor(mcv.y), z = zones[m.idx(fx, fy)];
+    for (let r = 0; r <= 16; r++) {
+      let best: [number, number] | null = null, bd = Infinity;
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const tx = fx + dx - (sw >> 1), ty = fy + dy - (sh >> 1);
+        let ok = true;
+        for (let y = ty; y < ty + sh && ok; y++) for (let x = tx; x < tx + sw; x++) if (!m.buildable(x, y)) { ok = false; break; }
+        const cx = tx + sw / 2, cy = ty + sh / 2;
+        if (!ok || (z && zones[m.idx(Math.floor(cx), Math.floor(cy))] !== z)) continue;
+        // (another side's units standing there block the deployment, as World.canDeploy)
+        let blocked = false;
+        w.grid.query(cx, cy, 2.5, (o) => { if (o !== mcv && o.alive && !o.isAir && o.owner !== mcv.owner && o.x >= tx && o.x < tx + sw && o.y >= ty && o.y < ty + sh) blocked = true; });
+        if (blocked) continue;
+        const d = Math.hypot(cx - mcv.x, cy - mcv.y);
+        if (d < bd) { bd = d; best = [cx, cy]; }
+      }
+      if (best) return best;
+    }
+    return null;
   }
 
   private placeReadyStructure() {
@@ -713,6 +844,9 @@ export class AIController {
     // (version 5, tune.proLean: in the first 15 minutes the tech centre, a third refinery and a second Tesla Coil wait
     // the same way: a casual player who spends his money on tanks had twice the army of the Classic AI at minute 10)
     const lean = this.tune.proLean > 0 && this.world.time < 900 && (t === 'stek' || t === 'atek' || (t === 'proc' && this.count('proc') >= 2) || (t === 'tsla' && this.count('tsla') >= 1));
+    // (version 6, DiffParams.classicThrift: behind on army, they wait whatever the bank)
+    if (this.classicPro && this.thrift() > 0 && (PRO_EXTRAS.has(t) || t === 'stek' || t === 'atek' || t === 'gap' || t === 'hbox' || (t === 'proc' && this.count('proc') >= 2) || (t === 'weap' && this.count('weap') >= 1)) &&
+      this.armyValue() < this.enemyEst * this.thrift()) return false;
     if (this.classicPro && (PRO_EXTRAS.has(t) || lean || (t === 'weap' && this.count('weap') >= 1)) && this.p.credits < BUILDINGS[t].cost * 0.8 &&
       this.armyValue() < this.enemyEst * 1.2 + 3000) return false;
     // (easier levels take their time to replace what they lost)
@@ -775,6 +909,7 @@ export class AIController {
         if (score >= bestScore) continue;
         if (!w.canPlace(this.p, bt.id, px, py)) continue;
         if (!isDef && !this.hasMargin(bt, px, py)) continue;
+        if (!lanesOpen(w, this.p, bt, px, py)) continue; // (docks and factory exits stay reachable, version 6)
         bestScore = score;
         best = [px, py];
       }
@@ -848,6 +983,9 @@ export class AIController {
     if (next && this.classicPro) reserve = Math.max(reserve, Math.min(nextCost, 2000) * 0.5 + 100);
     // (short of money before the first refinery: the refinery's price stays in the bank, version 5)
     if (this.refineryFirst()) reserve = Math.max(reserve, costOf(p, BUILDINGS.proc) + 100);
+    // (a vehicle on the Service Depot's pad: the repairs get paid before new units, version 6; production used to take
+    // every credit first and a broke AI's tank stood on the pad for the rest of the match)
+    if (onRepairPad(this)) reserve = Math.max(reserve, 150);
     const underThreat = this.world.tick - this.lastDefend < TICK_HZ * 10;
     if (this.world.econ && p.credits < reserve + econReserve(this) && !underThreat) return; // (saving for upgrades / research)
     if (p.credits < reserve && !underThreat) return;
@@ -1122,8 +1260,9 @@ export class AIController {
     const pers = this.personality;
     const army = this.army();
     const [bx, by] = this.baseCenter();
-    const [ex, ey] = this.enemyDir();
-    const gx = bx + ex * this.d.rallyAhead, gy = by + ey * this.d.rallyAhead;
+    const [gx, gy] = this.rallyPoint();
+    // (version 6: Recruit and Easy with a human teammate play his support, see supportPoint)
+    const support = !!this.supportPoint();
 
     // set rally points for factories
     if (this.due(TICK_HZ * 5)) {
@@ -1148,6 +1287,9 @@ export class AIController {
     const mates = this.skirmish && !this.ceasefire ? humanMates(this) : [];
     if (mates.length) helpMates(this, mates);
 
+    // --- nothing left of the enemy that it knows of: search parties (version 6)
+    if (this.huntNow()) { this.hunt(); return; }
+
     // --- attack waves
     if (this.state === 'build') {
       const idle = this.available().filter((u) => u.order.type === 'idle' || u.order.type === 'guard');
@@ -1161,10 +1303,12 @@ export class AIController {
         }
         return;
       }
-      // a human teammate's army is at an enemy base: go with him (version 5)
-      if (mates.length && this.due(TICK_HZ * 2) && value >= Math.min(this.d.waveValue * 0.5, 1500)) {
+      // a human teammate's army is at an enemy base: go with him (version 5; version 6: three units at least, a lone unit
+      // counted as a broken wave on the next think and went home, to be sent again 2 s later; and a push the human
+      // leads doesn't raise the size of the AI's own next wave)
+      if (mates.length && this.due(TICK_HZ * 2) && idle.length >= 3 && value >= Math.min(this.d.waveValue * 0.5, 1500)) {
         const push = matePush(this, mates);
-        if (push) { this.launchWave(idle, push, bx, by); return; }
+        if (push) { this.launchWave(idle, push, bx, by, true); return; }
       }
       // the ceasefire is over: the army built up goes in, whatever the clock or the scouts say
       if (this.grandWave && value >= BUILDUP[this.difficulty].min) {
@@ -1188,7 +1332,8 @@ export class AIController {
       if (this.classicPro) {
         // (Classic, normal and up: a wave goes only when it outweighs what it has seen of the enemy army and the
         // defences at the target; until then the army stays home beside its own defences, ai-engage.ts)
-        const ready = (w.time >= firstAt && value >= need) || broke;
+        // (version 6: the army masses until DiffParams.classicFirst before its first wave, unless an attack broke on the base)
+        const ready = (w.time >= Math.max(firstAt, this.waves ? 0 : this.tune.proFirst || this.d.classicFirst) && value >= need) || broke;
         // (and never on a guess: the scouts find the enemy base first)
         const unseen = this.intel.foundTick < 0 && !this.intel.omniscient && w.time < 900;
         const target = ready && !unseen ? this.pickAttackTarget() : null;
@@ -1204,7 +1349,7 @@ export class AIController {
         }
         return;
       }
-      if (((w.time >= firstAt && value >= need && !outmatched) || strong || broke) && !blind) {
+      if (((w.time >= firstAt && value >= need && !outmatched) || strong || broke) && !blind && !support) {
         const target = this.pickAttackTarget();
         // a wave too weak for the fortress it knows is waiting holds back for reinforcements (up to a point)
         const known = target && this.d.skill >= 0.6 && this.skirmish ? this.intel.strengthNear(target[0], target[1], 10, 240) : 0;
@@ -1237,6 +1382,7 @@ export class AIController {
       let waiting = false;
       if (this.siegeNeed > 0) {
         if (this.due(TICK_HZ * 4)) this.reinforce();
+        if (this.tune.proBombard > 0 && this.classicPro && this.due(TICK_HZ * 2)) this.bombard(main);
         waiting = main.reduce((s, u) => s + u.ut.cost * u.healthFrac, 0) < this.siegeNeed && w.tick - this.stageStart < TICK_HZ * 120;
       }
       if (!waiting && (near >= main.length * 0.75 || w.tick - this.stageStart > TICK_HZ * 60)) {
@@ -1271,6 +1417,7 @@ export class AIController {
           return;
         }
         if (this.fallBack(alive)) return;
+        if (this.tune.proBombard > 0 && this.classicPro) this.bombard(alive);
         if (this.tune.artyOn && alliedTools(this)) alliedArtillery(this, alive); // howitzers stay behind the tanks
       }
       if (this.due(TICK_HZ)) focusFire(this, alive);
@@ -1304,8 +1451,50 @@ export class AIController {
     }
   }
 
+  /**
+   * Version 6: an enemy is still in the game but the AI knows nothing of him (no structure, no start left to look at,
+   * no unit seen in the last 30 seconds): a beaten player's last units hiding somewhere, a base moved by MCV.
+   */
+  huntNow(): boolean {
+    const w = this.world, p = this.p;
+    if (!this.skirmish || this.ceasefire || this.intel.omniscient) return false;
+    if (!w.players.some((o) => o !== p && !o.defeated && p.isEnemy(o))) return false;
+    for (const s of this.intel.structures.values()) if (!w.players[s.owner]?.defeated) return false;
+    const since = w.tick - TICK_HZ * 30;
+    for (const s of this.intel.units.values()) if (s.seen >= since && !w.players[s.owner]?.defeated) return false;
+    const [bx, by] = this.baseCenter();
+    return !this.intel.enemyBase(bx, by);
+  }
+
+  /**
+   * The hunt (version 6): the whole army fans out in parties of three, each to a different square of open ground it
+   * has gone longest without seeing (AIIntel.huntPoint), attack-moving so that whatever they find is engaged. One wave
+   * searching the map as a single column, while the rest of the army waited at home, could take most of an hour to
+   * find a beaten player's last units hiding in a corner.
+   */
+  private hunt() {
+    const w = this.world, p = this.p;
+    if (this.state === 'attack') { this.state = 'build'; this.wave.clear(); this.flank.clear(); this.siegeNeed = 0; }
+    if (!this.due(TICK_HZ * 2)) return;
+    const units = this.available();
+    const claimed: [number, number][] = [];
+    for (const u of units) if (u.order.type === 'move') claimed.push([u.order.x, u.order.y]);
+    const idle = units.filter((u) => (u.order.type === 'idle' || u.order.type === 'guard') && !u.target).sort((a, b) => a.id - b.id);
+    const zones = landZones(w.map);
+    while (idle.length) {
+      const lead = idle.shift()!;
+      const party = [lead, ...idle.filter((u) => Math.hypot(u.x - lead.x, u.y - lead.y) < 10).sort((a, b) => Math.hypot(a.x - lead.x, a.y - lead.y) - Math.hypot(b.x - lead.x, b.y - lead.y) || a.id - b.id).slice(0, 2)];
+      for (const u of party) { const k = idle.indexOf(u); if (k >= 0) idle.splice(k, 1); }
+      const z = zones[w.map.idx(Math.floor(lead.x), Math.floor(lead.y))];
+      const pt = this.intel.huntPoint(lead.x, lead.y, z ? { zones, id: z } : undefined, claimed);
+      if (!pt) continue;
+      claimed.push(pt);
+      w.issue({ c: 'move', player: p.id, units: party.map((u) => u.id), x: pt[0], y: pt[1], attackMove: true });
+    }
+  }
+
   /** Commit idle units to an attack: stage outside the target, optionally split off a flanking group. */
-  private launchWave(idle: Unit[], target: [number, number], bx: number, by: number) {
+  private launchWave(idle: Unit[], target: [number, number], bx: number, by: number, mateLed = false) {
     const w = this.world, p = this.p;
     const grand = this.grandWave;
     this.state = 'attack';
@@ -1370,7 +1559,7 @@ export class AIController {
     if (main.length) w.issue({ c: 'move', player: p.id, units: main, x: spot[0], y: spot[1], attackMove: true });
     if (this.flank.size) w.issue({ c: 'move', player: p.id, units: [...this.flank], x: this.flankX, y: this.flankY, attackMove: true });
     // (growth capped: a long war of attrition must not freeze the AI at home)
-    this.nextWaveValue += this.d.waveGrowth * trait(this.personality.aggression, 1.3, 0.75);
+    if (!mateLed) this.nextWaveValue += this.d.waveGrowth * trait(this.personality.aggression, 1.3, 0.75);
     if (this.skirmish) this.nextWaveValue = Math.min(this.nextWaveValue, this.d.waveValue + this.d.waveGrowth * 5, this.d.waveCap);
     this.say('attack', target[0], target[1]);
   }
@@ -1443,6 +1632,32 @@ export class AIController {
     return true;
   }
 
+  /**
+   * (tune.proBombard, Classic) The wave's artillery shells the known defences round its target that it outranges (a V2
+   * at 10 cells against a Tesla Coil's 8.5, a turret's 6, a pillbox's 5; a howitzer at 6 against pillboxes and flame
+   * towers), all of them on the same one, the nearest first: an attack order on a structure it has seen is obeyed
+   * through the fog, as a player's would be.
+   */
+  private bombard(units: Unit[]) {
+    const w = this.world;
+    const guns = units.filter((u) => u.kind === 'vehicle' && u.ut.noMovingFire && u.weapons.length && !(u.order.type === 'attack' && w.entities.get(u.order.target)?.alive));
+    if (!guns.length) return;
+    let cx = 0, cy = 0;
+    for (const g of guns) { cx += g.x; cy += g.y; }
+    cx /= guns.length; cy /= guns.length;
+    const range = Math.min(...guns.map((g) => g.weapons[0].def.range));
+    let best: KnownStructure | null = null, bd = Infinity;
+    for (const s of this.intel.structures.values()) {
+      if (!s.armed || s.aa || w.players[s.owner]?.defeated || this.intel.dark(s) || s.range >= range - 0.5) continue;
+      const d = Math.hypot(s.x - cx, s.y - cy) + Math.hypot(s.x - this.stageTarget[0], s.y - this.stageTarget[1]) * 0.5;
+      if (d < bd && Math.hypot(s.x - this.stageTarget[0], s.y - this.stageTarget[1]) < 16) { bd = d; best = s; }
+    }
+    if (!best) return;
+    const b = w.entities.get(best.id);
+    if (!(b instanceof Building) || !b.alive) return;
+    w.issue({ c: 'attack', player: this.p.id, units: guns.map((g) => g.id), target: b.id });
+  }
+
   /** The army at home (idle, or walking back to the rally point) joins the wave at its staging point. */
   private reinforce() {
     const [gx, gy] = this.rallyPoint();
@@ -1455,11 +1670,40 @@ export class AIController {
     if (add.length) this.world.issue({ c: 'move', player: this.p.id, units: add, x: this.stageX, y: this.stageY });
   }
 
-  /** The army's rally point in front of the base. */
+  /** The army's rally point in front of the base (Recruit and Easy supporting a human teammate: supportPoint). */
   rallyPoint(): [number, number] {
+    const sp = this.supportPoint();
+    if (sp) return sp;
     const [bx, by] = this.baseCenter();
     const [ex, ey] = this.enemyDir();
     return [bx + ex * this.d.rallyAhead, by + ey * this.d.rallyAhead];
+  }
+
+  /**
+   * Version 6: Recruit and Easy with a human teammate play his support, a modest helper's role: no waves of their own
+   * (they still join his pushes, ai-team.ts matePush), and the army waits a third of the way from their base towards
+   * his, so that it reaches either base in time when one is attacked. A Recruit ally used to send its few units at the
+   * enemy, and had none left, or too far away, when the human's base was hit. Null otherwise.
+   */
+  supportPoint(): [number, number] | null {
+    if (this.d.skill >= 0.5 || !this.skirmish || this.ceasefire) return null;
+    const mates = humanMates(this);
+    if (!mates.length) return null;
+    let yard: Building | null = null;
+    for (const b of this.world.buildings) {
+      if (!b.alive || b.bt.wall || b.bt.mine || !mates.includes(b.owner)) continue;
+      if (b.bt.id === 'fact') { yard = b; break; }
+      yard ??= b;
+    }
+    if (!yard) return null;
+    const [bx, by] = this.baseCenter();
+    const x = bx + (yard.x - bx) / 3, y = by + (yard.y - by) / 3;
+    // (the open ground nearest that point: a fixed spot, whoever stands there)
+    const m = this.world.map, fx = Math.floor(x), fy = Math.floor(y);
+    for (let r = 0; r <= 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) === r && m.passable(fx + dx, fy + dy)) return [fx + dx + 0.5, fy + dy + 0.5];
+    }
+    return null;
   }
 
   /** A wave outmatched by what it runs into falls back to its staging point and regroups with reinforcements. */

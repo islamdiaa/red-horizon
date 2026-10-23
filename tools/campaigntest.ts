@@ -68,16 +68,20 @@ export function runMission(def: MissionDef, minutes: number, pilotMode: string, 
   let error: string | undefined;
   const maxTicks = minutes * 60 * TICK_HZ;
   const known = new Map<number, string>();
+  const refs = new Map<number, { lastAttacker: number }>(); // (DEATHS=1: who killed it)
   try {
     for (let t = 0; t < maxTicks && !world.gameOver; t++) {
       world.step();
       if (pilot && t % 10 === 0) pilot(world, rt, state, log);
       if (verbose) {
-        if (t % 10 === 0) for (const u of world.units) known.set(u.id, `${u.owner.id}:${u.ut.id}`);
+        if (t % 10 === 0) {
+          for (const u of world.units) { known.set(u.id, `${u.owner.id}:${u.ut.id}`); refs.set(u.id, u); }
+          if (t % 200 === 0) for (const b of world.buildings) known.set(b.id, `${b.owner.id}:${b.bt.id}`);
+        }
         for (const ev of world.events) {
           if (ev.e === 'death' && ev.how !== 'sold') {
             const k = known.get(ev.id);
-            if (k && k.startsWith('0:') && process.env.DEATHS) log(`death ${k} at ${ev.x.toFixed(1)},${ev.y.toFixed(1)} (${ev.how})`);
+            if (k && k.startsWith('0:') && process.env.DEATHS) log(`death ${k} at ${ev.x.toFixed(1)},${ev.y.toFixed(1)} (${ev.how}) by ${known.get(refs.get(ev.id)?.lastAttacker ?? 0) ?? '?'}`);
           }
         }
       }

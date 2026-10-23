@@ -149,8 +149,12 @@ describe('AI levels (version 5)', () => {
     const [bx, by] = ai.baseCenter();
     const h = ai.intel.huntPoint(bx, by);
     assert.ok(h, 'a point to search');
+    // (version 6: the open cell nearest the centre of a 4-cell square whose open ground is not all in view)
     const m = w.map, i = m.idx(Math.floor(h![0]), Math.floor(h![1]));
-    assert.ok(!w.players[0].visible[i] && m.passable(Math.floor(h![0]), Math.floor(h![1])), 'out of sight, on land');
+    const gx = Math.floor(h![0] / 4) * 4, gy = Math.floor(h![1] / 4) * 4;
+    let hidden = 0;
+    for (let y = gy; y < gy + 4; y++) for (let x = gx; x < gx + 4; x++) if (m.inBounds(x, y) && m.terrainPassable(m.idx(x, y)) && !w.players[0].visible[m.idx(x, y)]) hidden++;
+    assert.ok(m.terrainPassable(i) && hidden > 0, `on land, in a square not all in view (${hidden} open cells out of sight)`);
   });
 
   test('without a human teammate nothing changes: team play keeps its state idle', () => {

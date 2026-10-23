@@ -196,6 +196,8 @@ export default strings('hud', {
     requires: '{name} requires {list}',
     alreadyBuilding: 'Already building',
     queueFull: 'Queue full ({n}): Alt-click a card to loop it instead',
+    // the same on touch screens (the card's loop button)
+    queueFullTouch: 'Queue full ({n}): tap the card\'s loop button to keep it building instead',
     gpsAuto: 'The GPS satellite launches by itself when it is ready',
     notReady: '{name} not ready',
     activated: '{name} activated',

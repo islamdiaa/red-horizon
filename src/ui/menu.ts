@@ -6,10 +6,11 @@ import { formatTime } from '../core/util';
 import type { Game, GameSetup } from '../game'; // (types only: the engine loads after the menu)
 import type { AudioSystem } from '../audio';
 import { ICONS, alliedEmblem, medalSvg, rankBadge, sovietEmblem, type MedalTier } from './icons';
-import { UiSound, bindTilt, countUp, el as h, esc, hexColor, replay as replayAnim } from './dom';
+import { UiSound, bindTilt, countUp, el as h, esc, hexColor, reducedMotion, replay as replayAnim } from './dom';
 import { Embers } from './embers';
 import { initLoadingScreen } from './loading';
 import { applyUiSettings, loadSettings, modelDetailOf, saveSettings, type ModelDetail, type Settings } from './settings'; // model detail
+import { fitLayout } from './layout-fit'; // (Classic falls back to Modern on small windows)
 import { clampUiScale, focusTrap, subtitleSizeOf, type SubtitleSize, type TeamPalette } from './a11y'; // accessibility settings
 import { groupModLabel, groupMods, keysLabel, type ActionId } from './keymap';
 import { buildKeysPanel } from './a11y-controls';
@@ -426,30 +427,51 @@ export class Menus {
       <p class="mm-tag">${tMenu.html('main.tagline')}</p>`;
     const nav = h('nav', 'mm-nav');
     const pill = (text: string, cls = '') => `<em class="rh-daily-pill${cls}">${esc(text)}</em>`;
+    let navId = '';
     const navItem = (n: string, label: string, icon: string, fn: () => void, active = false) => { // (label: HTML)
       const b = h('button', 'mm-nav-btn' + (active ? ' on' : ''), `<span class="nb-idx">${n}</span><span class="nb-ic">${icon}</span><span class="nb-label">${label}</span><span class="nb-arrow">${ICONS.arrowR}</span>`);
+      b.dataset.nav = navId; // (a stable name for tests: tools/e2e journeys in any language)
       b.onclick = fn;
       nav.appendChild(b);
     };
     const cont = this.cb.continueInfo?.();
     const bootDone = bootCampDone();
     const T = (k: Parameters<typeof tMenu>[0]) => tMenu.html(k);
+    navId = 'continue';
     if (cont) navItem('▶', esc(tMenu('main.continue', { label: trSource(cont.label) })), ICONS.play, () => { this.hide(); this.cb.continueGame!(); });
+    navId = 'bootcamp';
     if (this.cb.openBootCamp && !bootDone) navItem('00', `${T('main.nav.bootCamp')}${pill(tMenu('main.nav.startHere'), ' rh-new-pill')}`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
+    navId = 'quick';
     navItem('»', `${T('main.nav.quickBattle')}${pill(tMenu('main.nav.oneClick'))}`, ICONS.dice, () => this.quickBattle()); // one click into a rolled skirmish
+    navId = 'campaign';
     if (this.cb.openCampaign) navItem('01', T('main.nav.campaign'), ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
+    navId = 'conquest';
     if (this.cb.openConquest) { const ci = this.cb.conquestInfo?.(); navItem('★', `${T('main.nav.conquest')}${ci ? pill(ci) : ''}`, picto('globe', 'ic'), () => { this.hide(); this.cb.openConquest!(); }); }
-    navItem('02', T('main.nav.skirmish'), ICONS.target, () => { panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn'); }, true);
+    navId = 'skirmish';
+    navItem('02', T('main.nav.skirmish'), ICONS.target, () => {
+      panel.classList.remove('attn'); void panel.offsetWidth; panel.classList.add('attn');
+      // one-column menus (phones): the panel sits below the fold, where the pulse alone showed nothing
+      if (panel.getBoundingClientRect().top > window.innerHeight * 0.6) panel.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    }, true);
+    navId = 'multiplayer';
     if (this.cb.openMultiplayer) navItem('MP', `${T('main.nav.multiplayer')}${pill(tMenu('main.nav.online'))}`, ICONS.people, () => { this.hide(); this.cb.openMultiplayer!(); });
+    navId = 'challenges';
     navItem('03', `${T('main.nav.challenges')}${dailyPending() ? pill(tMenu('main.nav.daily')) : ''}`, picto('trophy', 'ic'), () => this.openChallenges());
+    navId = 'replays';
     navItem('04', T('main.nav.replays'), ICONS.replay, () => this.showReplays());
+    navId = 'commander';
     navItem('05', T('main.nav.commander'), picto('chevrons', 'ic'), () => this.openProfile());
+    navId = 'bootcamp';
     if (this.cb.openBootCamp && bootDone) navItem('06', T('main.nav.bootCamp'), ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
+    navId = 'settings';
     navItem(bootDone && this.cb.openBootCamp ? '07' : '06', tCommon.html('settings'), ICONS.gear, () => this.showSettings(() => this.showMain()));
+    navId = 'controls';
     navItem(bootDone && this.cb.openBootCamp ? '08' : '07', T('main.nav.controls'), ICONS.keyboard, () => this.showHelp(() => this.showMain()));
     // map editor and mods: numbered on from the last numbered entry (the ▶ » ★ MP entries carry no number)
     const nextIdx = () => String(Math.max(0, ...[...nav.querySelectorAll('.nb-idx')].map((e) => parseInt(e.textContent ?? '', 10)).filter(Number.isFinite)) + 1).padStart(2, '0');
+    navId = 'editor';
     if (this.cb.openEditor) navItem(nextIdx(), T('main.nav.mapEditor'), ICONS.map, () => { this.hide(); this.cb.openEditor!(); });
+    navId = 'mods';
     if (this.cb.openMods) { const n = enabledModIds().length; navItem(nextIdx(), `${T('main.nav.mods')}${n ? pill(tMenu('main.nav.modsOn', { n })) : ''}`, ICONS.gear, () => { this.hide(); this.cb.openMods!(); }); }
     nav.classList.toggle('dense', nav.childElementCount > 7);
     nav.querySelectorAll<HTMLElement>('.mm-nav-btn').forEach((b, i) => { b.style.animationDelay = `${(0.65 + i * 0.08).toFixed(2)}s`; });
@@ -922,7 +944,7 @@ export class Menus {
     gfx.append(...offlineContentRows(settingRow)); // download HD content for offline play (src/ui/offline-setting.ts)
     gfx.appendChild(settingRow(ICONS.gauge, tS('perfOverlay'), tS('perfOverlaySub'), toggle(this.settings.showFps !== false, (v) => { this.settings.showFps = v; apply(); })));
     gfx.appendChild(settingRow(ICONS.motion, tS('reduceMotion'), tS('reduceMotionSub'), toggle(!!this.settings.reduceMotion, (v) => { this.settings.reduceMotion = v; apply(); })));
-    gfx.appendChild(settingRow(ICONS.map, tS('layout'), tS('layoutSub'), seg<'modern' | 'classic'>([['modern', tS('layoutModern')], ['classic', tS('layoutClassic')]], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); })));
+    gfx.appendChild(settingRow(ICONS.map, tS('layout'), fitLayout('classic') === 'classic' ? tS('layoutSub') : `${tS('layoutSub')} · ${tS('layoutNarrow')}`, seg<'modern' | 'classic'>([['modern', tS('layoutModern')], ['classic', tS('layoutClassic')]], this.settings.hudLayout === 'classic' ? 'classic' : 'modern', (v) => { this.settings.hudLayout = v; apply(); })));
     const aud = sec(ICONS.volume, tS('audio'));
     const vols = this.audio.getVolumes();
     const VOL: Record<string, [string, string]> = { master: [tS('volume.master'), ICONS.volume], sfx: [tS('volume.sfx'), ICONS.bolt], music: [tS('volume.music'), ICONS.music], voice: [tS('volume.voice'), ICONS.mic], ambience: [tS('volume.ambience'), ICONS.tree] };

@@ -1,9 +1,10 @@
 /**
- * Team play with human teammates (simulation version 5; skirmish-based modes: 2v2 and co-op lobbies with AI seats).
- * An AI commander with a human on its team:
+ * Team play with human teammates (simulation version 5; skirmishes: the 2v2 and team lobbies with AI seats, and a
+ * skirmish with an AI ally. King of the Hill, challenges and scripted missions, co-op included, script their AIs' roles
+ * themselves and don't use this). An AI commander with a human on its team:
  *
- *  - comes to the human's base when it is attacked (after the level's reaction delay, with enough of its free army to
- *    outweigh the attackers, as it would for its own base);
+ *  - comes to the human's base when it is attacked (after the level's reaction delay; from Normal up with enough of
+ *    its free army to outweigh the attackers, as it would for its own base; Recruit and Easy with half of it);
  *  - joins the human's pushes: when the human's army is at an enemy base, its own idle army goes for the same base
  *    (the level's wave cap still applies);
  *  - leaves the human's ore alone: its Ore Trucks don't mine the fields around the human's refineries while another
@@ -68,13 +69,15 @@ export function helpMates(ai: AIController, mates: Player[]) {
   const [sx, sy] = spot;
   const free = ai.available().filter((u) => (!ai.wave.has(u.id) || ai.state !== 'attack') && u.order.type !== 'attack')
     .sort((a, b) => Math.hypot(a.x - sx, a.y - sy) - Math.hypot(b.x - sx, b.y - sy) || a.id - b.id);
-  // (at least half the free army, or the level's reaction share if higher, and enough to outweigh the attackers)
+  // (at least half the free army, or the level's reaction share if higher; from Normal up also enough to outweigh the
+  // attackers, version 6: a cap at `most` units used to stop it short of that whatever they were worth. Recruit and
+  // Easy stay modest helpers: half their free army)
   const most = Math.ceil(free.length * Math.max(0.5, Math.min(1, ai.d.reaction * ai.tune.reactionMul)));
+  const modest = ai.d.skill < 0.5;
   const ids: number[] = [];
   let v = 0;
   for (const u of free) {
-    if (ids.length >= most && v >= value * 1.5) break;
-    if (ids.length >= most && ids.length >= 2) break;
+    if (ids.length >= most && (modest || v >= value * 1.5)) break;
     ids.push(u.id);
     v += u.ut.cost * u.healthFrac;
   }

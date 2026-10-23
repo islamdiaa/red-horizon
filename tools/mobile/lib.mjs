@@ -147,19 +147,36 @@ export class AdbTouch {
       d.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); d.remove(); });
       document.body.appendChild(d);
     });
-    shell(`input tap ${sx} ${sy}`);
+    // (a busy host can starve the emulator for many seconds: wait, and tap once more before giving up)
     let c = null;
-    for (let i = 0; i < 40 && !c; i++) { await sleep(250); c = await this.page.evaluate(() => window.__cal); }
+    for (let k = 0; k < 3 && !c; k++) {
+      // the page must be drawing (a match start compiles shaders for many seconds on a software GPU)
+      await this.page.evaluate(() => new Promise((r) => { requestAnimationFrame(() => requestAnimationFrame(r)); setTimeout(r, 60000); })).catch(() => {});
+      shell(`input tap ${sx} ${sy}`);
+      for (let i = 0; i < 120 && !c; i++) { await sleep(250); c = await this.page.evaluate(() => window.__cal).catch(() => null); }
+    }
     await sleep(400);
     await this.page.evaluate(() => document.getElementById('__rh_cal')?.remove());
     if (!c) throw new Error('adb calibration tap not seen by the page');
-    this.k = { dpr, ox: sx - c[0] * dpr, oy: sy - c[1] * dpr };
+    this.k = { dpr, ox: sx - c[0] * dpr, oy: sy - c[1] * dpr, vp: await this.viewport() };
     return this.k;
   }
+  /** What moves the page on the screen: the viewport size (Chrome's toolbar hiding or showing, a rotation, full screen). */
+  viewport() { return this.page.evaluate(() => `${innerWidth}x${innerHeight}:${!!document.fullscreenElement}`).catch(() => ''); }
+  /** Recalibrate when the page moved on the screen since the last calibration (a scroll hid Chrome's toolbar...). */
+  async ensure() { if (!this.k || (await this.viewport()) !== this.k.vp) await this.calibrate(); }
+  /**
+   * A tap in the middle of the physical screen, without calibration: for overlays that take any tap on the window
+   * (the intro cinematic's skip listens in the capture phase, so a calibration tap would only skip it).
+   */
+  centreTap() {
+    const size = shell('wm size').match(/(Override|Physical) size: (\d+)x(\d+)/g).pop().match(/(\d+)x(\d+)/);
+    shell(`input tap ${Math.round(+size[1] / 2)} ${Math.round(+size[2] / 2)}`); // (the middle is the middle in both orientations)
+  }
   px(x, y) { const k = this.k; return [Math.round(x * k.dpr + k.ox), Math.round(y * k.dpr + k.oy)]; }
-  async tap(x, y) { const [a, b] = this.px(x, y); shell(`input tap ${a} ${b}`); await sleep(250); }
-  async swipe(ax, ay, bx, by, ms = 400) { const [a, b] = this.px(ax, ay), [c, d] = this.px(bx, by); shell(`input swipe ${a} ${b} ${c} ${d} ${ms}`); await sleep(250); }
-  async hold(x, y, ms = 900) { const [a, b] = this.px(x, y); shell(`input swipe ${a} ${b} ${a} ${b} ${ms}`); await sleep(250); }
+  async tap(x, y) { await this.ensure(); const [a, b] = this.px(x, y); shell(`input tap ${a} ${b}`); await sleep(250); }
+  async swipe(ax, ay, bx, by, ms = 400) { await this.ensure(); const [a, b] = this.px(ax, ay), [c, d] = this.px(bx, by); shell(`input swipe ${a} ${b} ${c} ${d} ${ms}`); await sleep(250); }
+  async hold(x, y, ms = 900) { await this.ensure(); const [a, b] = this.px(x, y); shell(`input swipe ${a} ${b} ${a} ${b} ${ms}`); await sleep(250); }
 }
 
 /** Screenshot of the page (CSS viewport) and, optionally, the whole device screen (Android UI included). */

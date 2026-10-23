@@ -16,7 +16,7 @@ import { launchSortie } from '../sim/powers';
 import { MISSIONS } from '../missions';
 import { edgeNear, ground, hunt, huntWave, layout, quietSetup } from '../missions/common';
 import type { Climate, Terrain } from './geo';
-import { ENEMY_POOLS, PERSONALITIES, type PersonalityId } from './data';
+import { ENEMY_POOLS, PERSONALITIES, type Difficulty, type PersonalityId } from './data';
 import { BATTLE as T, BATTLE_LOCAL as TL } from '../i18n/en/conquest-battle'; // the English these battles emit
 import { fill as en } from './text';
 
@@ -100,6 +100,8 @@ export interface BattleSpec {
   superweapon: 'nuke' | 'iron' | 'chrono' | null;
   fort: number;
   parTime: number;
+  /** The run's difficulty (absent in battles planned before it was recorded: Normal). */
+  difficulty?: Difficulty;
 }
 
 /** What GameSetup.conquest carries (src/game.ts). */
@@ -260,7 +262,7 @@ function topUpPower(m: MissionRuntime, p: number, anchor: { x: number; y: number
   for (let k = 0; k < 4 && pl.powerUse > pl.powerOut; k++) layout(m, p, anchor, facing, [[k % 2 ? 'apwr' : 'powr', -6 - k, k % 2 ? 7 : -7]]);
 }
 
-interface BaseOpts { capture?: boolean; superweapon?: 'nuke' | 'iron' | 'chrono' | null; sea?: boolean }
+interface BaseOpts { capture?: boolean; superweapon?: 'nuke' | 'iron' | 'chrono' | null; sea?: boolean; /** At most this many defences. */ maxDefences?: number }
 
 /** A pre-built enemy base sized by garrison strength and shaped by the commander's personality. */
 function enemyBase(m: MissionRuntime, p: number, anchor: { x: number; y: number }, facing: { x: number; y: number }, str: number, pers: PersonalityId, opts: BaseOpts) {
@@ -294,7 +296,7 @@ function enemyBase(m: MissionRuntime, p: number, anchor: { x: number; y: number 
     }
   }
   // defences in an arc facing the attacker (the heavy ones only for stronger garrisons)
-  const n = Math.max(1, Math.min(11, str + (pers === 'fortress' ? 2 : 0) - (pers === 'blitz' || pers === 'raider' ? 1 : 0) + (str >= 6 ? 2 : 0)));
+  const n = Math.max(1, Math.min(opts.maxDefences ?? 11, str + (pers === 'fortress' ? 2 : 0) - (pers === 'blitz' || pers === 'raider' ? 1 : 0) + (str >= 6 ? 2 : 0)));
   const list = DEFENCES[f];
   const defs: [string, number, number][] = [];
   for (let k = 0; k < n; k++) {
@@ -382,6 +384,13 @@ function landingForce(m: MissionRuntime, S: BattleSpec) {
       (m.flags.navyPaid as number[]).push(u.id);
     }
   }
+  // an Easy run's sea battle lands with its own harbour: a shipyard / sub pen on the water by the beach (a newcomer whose
+  // base sat out of reach of the sea never got a fleet: 1 win in 8)
+  if (S.kind === 'naval' && S.difficulty === 'easy' && isSeaBattle(S)) {
+    const [wx, wy] = m.toward(s, { x: m.mapW / 2, y: m.mapH / 2 }, 7);
+    const yard = placeOnWater(m, 0, f === 'allies' ? 'syrd' : 'spen', wx, wy);
+    if (yard) (m.flags.navyPaid as number[]).push(yard.id);
+  }
 }
 
 function deployCore(m: MissionRuntime, S: BattleSpec) {
@@ -420,8 +429,14 @@ function setupBattle(m: MissionRuntime, S: BattleSpec) {
   if (S.neutral) m.setAI(1, 'defensive');
   const sea = isSeaBattle(S);
   // ---- the enemy
-  enemyBase(m, 1, e, s, S.strength, S.personality, { capture: S.kind === 'capture', superweapon: S.kind === 'boss' ? S.superweapon ?? (S.enemy === 'soviet' ? 'iron' : 'chrono') : S.superweapon, sea: sea && (S.kind === 'naval' || S.personality === 'naval') });
-  if (S.kind === 'boss') enemyBase(m, 2, m.start(2), s, Math.max(3, S.strength - 1), 'steamroller', {});
+  // (an Easy run's capital is a strength-3 base behind three guns, without its superweapon: the full strength-6
+  // fortress fielded fifty units by minute eight and beat every newcomer and casual stand-in)
+  const easyCapital = S.kind === 'boss' && S.difficulty === 'easy';
+  enemyBase(m, 1, e, s, easyCapital ? Math.min(3, S.strength) : S.strength, S.personality, {
+    capture: S.kind === 'capture', superweapon: S.kind === 'boss' ? (easyCapital ? null : S.superweapon ?? (S.enemy === 'soviet' ? 'iron' : 'chrono')) : S.superweapon,
+    sea: sea && (S.kind === 'naval' || S.personality === 'naval'), maxDefences: easyCapital ? 3 : undefined,
+  });
+  if (S.kind === 'boss') enemyBase(m, 2, m.start(2), s, S.difficulty === 'easy' ? 3 : Math.max(3, S.strength - 1), 'steamroller', {});
   if (S.kind === 'hold') {
     const [zx, zy] = ground(m, ...m.between(s, e, 0.52), 10);
     m.flags.zone = [zx, zy];
@@ -569,7 +584,8 @@ function waves(m: MissionRuntime, S: BattleSpec) {
     case 'hold': start = 110; every = 80; budget = 300 + 200 * str + 90 * m.flags.wave; break;
     case 'defend': start = 40; every = 72 - 3 * str; budget = 450 + 260 * str + 170 * m.flags.wave; break;
     case 'naval': start = 200; every = 150; budget = 600 + 300 * str; break;
-    case 'boss': start = 150; every = 100; budget = 1100 + 280 * m.flags.wave; break;
+    // (an Easy run's capital: later, sparser, smaller waves; the full ones flattened the landing before it had a factory)
+    case 'boss': if (S.difficulty === 'easy') { start = 360; every = 180; budget = 700 + 200 * m.flags.wave; } else { start = 150; every = 100; budget = 1100 + 280 * m.flags.wave; } break;
   }
   start *= early * slow;
   every *= slow;
@@ -578,6 +594,10 @@ function waves(m: MissionRuntime, S: BattleSpec) {
   if (m.time < m.flags.nextWave) return;
   m.flags.nextWave = m.time + every;
   const n = ++m.flags.wave;
+  // (the capital's waves alternate between its two bases; a base whose construction yard is gone sends no more)
+  const yardUp = (p: number) => m.buildings(p, 'fact').length > 0;
+  const fromGuard = S.kind === 'boss' && (n % 2 === 0 ? yardUp(2) : !yardUp(1)) && yardUp(2);
+  if (S.kind === 'boss' && !fromGuard && !yardUp(1)) return;
   const s = m.start(0), e = m.start(1);
   const sea = isSeaBattle(S);
   const air = pers === 'air' ? n % 2 === 0 : n % 4 === 0 && str >= 4;
@@ -594,10 +614,10 @@ function waves(m: MissionRuntime, S: BattleSpec) {
     from = edgeNear(m, ex, ey);
     if (Math.hypot(from[0] - bx, from[1] - by) < 18) from = ground(m, ...m.toward(e, s, 4), 8);
   } else {
-    const src = S.kind === 'boss' && n % 2 === 0 ? m.start(2) : e;
+    const src = fromGuard ? m.start(2) : e;
     from = ground(m, ...m.toward(src, s, 6), 8);
   }
-  const units = huntWave(m, S.kind === 'boss' && n % 2 === 0 ? 2 : 1, ground_, from, to);
+  const units = huntWave(m, fromGuard ? 2 : 1, ground_, from, to);
   if (str >= 5) for (const u of units) if (u.kind !== 'infantry') u.rank = Math.max(u.rank, 1);
   if (planes.length) {
     const [ax, ay] = m.nearestEdge(e.x, e.y);
@@ -755,7 +775,9 @@ export function conquestMission(c: ConquestSetup): MissionDef {
     // (outlying garrisons, strength 1-2, fight by the book; the commander's own style shows from strength 3)
     { name: S.commander, faction: S.enemy, color: S.neutral ? NEUTRAL_COLOR : COLOR[S.enemy], ai: S.ai, credits: S.enemyCredits, team: 1, ...(ai && !S.neutral && S.strength >= 3 ? { personality: ai } : {}) },
   ];
-  if (S.kind === 'boss') players.push({ name: en(TL.guard, { territory: S.name }), faction: S.enemy, color: GUARD_COLOR, ai: S.ai === 'brutal' ? 'hard' : S.ai, credits: Math.round(S.enemyCredits * 0.7), team: 1, personality: 'ironfist' });
+  // (an Easy run's capital guard plays at Recruit: two full bases on top of the waves beat every newcomer and casual
+  // stand-in, 0 in 16, tools/campaign-conquest.ts)
+  if (S.kind === 'boss') players.push({ name: en(TL.guard, { territory: S.name }), faction: S.enemy, color: GUARD_COLOR, ai: S.difficulty === 'easy' ? 'recruit' : S.ai === 'brutal' ? 'hard' : S.ai, credits: Math.round(S.enemyCredits * 0.7), team: 1, personality: 'ironfist' });
   const H = hq(S);
   const def: MissionDef = quietSetup({
     id: 'conquest',

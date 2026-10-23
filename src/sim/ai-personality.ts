@@ -95,6 +95,28 @@ export interface AITuning {
   proLean: number;
   /** Classic, normal and up: waves go for the power plants a Tesla Coil base can't spare, and dark coils count for nothing (1 = on). */
   proPower: number;
+  /**
+   * Version 6, every skirmish level: a beaten AI (no structure, no Construction Yard or MCV to rebuild with) throws what
+   * army it has left at the enemy, and concedes once that is down to less than this many credits (0 = off).
+   */
+  endConcede: number;
+  /**
+   * Classic, normal and up (version 6): experiment overrides of the level's own DiffParams.classicFirst (seconds before
+   * the first wave unless an enemy attack has just broken on the base) and classicThrift (the army-to-estimate ratio under
+   * which the luxuries wait); 0 = the level's value.
+   */
+  proFirst: number;
+  proThrift: number;
+  /**
+   * Classic, normal and up (version 6): a wave's artillery (V2 rockets, howitzers) shells the known defences near its
+   * target that it outranges, from out of their reach, while the wave sieges or fights (1 = on).
+   */
+  proBombard: number;
+  /**
+   * Classic, normal and up (version 6): from this many seconds into the match, a long war, the commander takes more risk:
+   * a wave needs a quarter less to set out and turns back only from 1.5 times its own strength (0 = off).
+   */
+  proLate: number;
 }
 
 /** Defaults (tuned with tools/selfplay/optimize.ts). */
@@ -144,6 +166,11 @@ export const DEFAULT_TUNING: AITuning = {
   proTowerW: 1.5,
   proLean: 1,
   proPower: 1,
+  endConcede: 1200,
+  proFirst: 0,
+  proThrift: 0,
+  proBombard: 1,
+  proLate: 1500,
 };
 
 export interface Personality {

@@ -7,6 +7,7 @@
 //                another service may own 3000, and a client connecting there would talk to it, not to us)
 //   PEER_HEADFUL 1 = headed (run under xvfb-run; headless Firefox has no WebGL on some setups)
 //   PEER_CHANNEL an installed browser instead of Playwright's build (chrome, msedge; Chromium engine only)
+//   PEER_STOP_FILE  when this file appears, close the browser and exit (a graceful stop on Windows)
 // Chromium backends: PEER_WIN=1 Direct3D11 WARP via ANGLE (Windows, no GPU); PEER_GPU=1 (default) the host's Mesa
 // GPU through ANGLE (as tools/gpu-rig); PEER_GPU=0 SwiftShader (a GPU-less machine).
 import { chromium, firefox, webkit } from 'playwright';
@@ -34,7 +35,15 @@ if (engine === 'firefox') {
   server = await chromium.launchServer({ ...common, channel: process.env.PEER_CHANNEL || undefined, args: [...args, '--autoplay-policy=no-user-gesture-required'] });
   backend = `${process.env.PEER_CHANNEL || 'chromium'} ${win ? 'd3d11-warp' : gpu ? 'gpu' : 'swiftshader'}`;
 }
-console.log('peer', process.env.PEER, backend, 'ready', server.wsEndpoint());
-const stop = () => server.close().then(() => process.exit(0));
+console.log('peer', process.env.PEER, backend, 'browser pid', server.process()?.pid ?? '?', 'ready', server.wsEndpoint());
+let stopping = false;
+const stop = () => { if (stopping) return; stopping = true; server.close().catch(() => {}).then(() => process.exit(0)); setTimeout(() => process.exit(0), 10000).unref(); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
+// PEER_STOP_FILE: a graceful stop where signals are not available (Windows: Stop-Process only kills, and a killed server
+// leaves its browser's helper processes behind - crash handler, on-device model service - which then load the machine).
+// The runner creates the file; the server closes the browser and exits.
+if (process.env.PEER_STOP_FILE) {
+  const { existsSync, unlinkSync } = await import('node:fs');
+  setInterval(() => { if (existsSync(process.env.PEER_STOP_FILE)) { try { unlinkSync(process.env.PEER_STOP_FILE); } catch { /* */ } stop(); } }, 500).unref();
+}

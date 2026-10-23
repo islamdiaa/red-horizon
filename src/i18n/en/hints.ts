@@ -9,6 +9,8 @@ export default strings('hints', {
   manual: 'Field manual',
   // heading of a situational warning
   report: 'Field report',
+  // button on a warning that points at places on the map (moves the camera to the next one)
+  show: 'Show',
   steps: {
     deploy: 'Select your [b]MCV[/b] and press [kbd]{key:deploy}[/kbd] (or click it again) to deploy a Construction Yard.',
     power: 'Build a [b]Power Plant[/b] from the sidebar, then click the map to place it next to your base.',
@@ -31,6 +33,9 @@ export default strings('hints', {
     attackMove: 'Units on a plain move order walk past the enemy without fighting. Press and hold on the map and pick [b]Attack-move[/b]: they fight everything on the way.',
     together: 'Your attacks are beaten one small group at a time. Gather a bigger army at home, infantry and tanks together, then attack with everyone at once.',
     repair: 'A structure is badly damaged. Tap the [b]Repair[/b] wrench, then tap the structure to fix it.',
+    bankLoop: '[b]{money} in the bank[/b] buys nothing. Tap the loop button on a unit card to keep building that unit non-stop.',
+    closeFinish: '[b]The enemy is nearly beaten.[/b] Tap [b]Show[/b] to see its last structures, then press and hold on the map: [b]All units[/b] selects your army, [b]Attack-move[/b] sends it to finish the job.',
+    closeAdvantage: '[b]Your army is far stronger than the enemy\'s.[/b] Tap [b]Show[/b] to see its structures, then press and hold on the map: [b]All units[/b] selects your army, [b]Attack-move[/b] sends everyone at once.',
   },
   alerts: {
     storage: '[b]Ore storage is full.[/b] Refined ore beyond your capacity is lost — build an [b]Ore Silo[/b] or spend your credits.',
@@ -60,5 +65,17 @@ export default strings('hints', {
     together: 'Your attacks are beaten one small group at a time. Gather a bigger army at home, select it all ([kbd]{key:selectCombat}[/kbd] picks every combat unit, [kbd]{mod:assign}[/kbd]+[kbd]1[/kbd] makes it group 1), then attack-move with everyone at once.',
     // coaching: a structure under half health for a while
     repair: 'A structure is badly damaged. Press [kbd]{key:repair}[/kbd] (or the [b]Repair[/b] wrench) and click the structure to fix it.',
+    // coaching (may repeat at Recruit and Easy): money piling up; {money} is the amount, {alt} a key name
+    bankLoop: '[b]{money} in the bank[/b] buys nothing. [kbd]{alt}[/kbd]-click a unit card (or its loop button) to keep building that unit non-stop; right-click the card to stop.',
+    // the same, with units already looping: more factories build faster
+    bankFactory: '[b]{money} in the bank[/b] and your factories are busy. Build a second [b]War Factory[/b] or [b]Barracks[/b]: each extra one makes them all build faster.',
+    // coaching (may repeat at Recruit and Easy): the enemy has lost half its base; the radar pings its last known structures and the Show button looks there
+    closeFinish: '[b]The enemy is nearly beaten.[/b] Finish it: select every combat unit ([kbd]{key:selectCombat}[/kbd]) and attack-move ([kbd]{key:attackMove}[/kbd]) to its last structures, marked on the radar. [b]Show[/b] takes you there.',
+    // the same when the player's army is far stronger than the enemy's army and defences
+    closeAdvantage: '[b]Your army is far stronger than the enemy\'s.[/b] Attack now with everything: select every combat unit ([kbd]{key:selectCombat}[/kbd]) and attack-move ([kbd]{key:attackMove}[/kbd]) to the enemy structures marked on the radar. [b]Show[/b] takes you there.',
+    // the same when the player knows of no enemy structure left (all the ones seen are destroyed)
+    closeScout: '[b]The enemy is nearly beaten[/b], but you don\'t know where the rest of its base is. Send a few units to explore the dark parts of the map, then attack-move there with everything.',
+    // the same when the player's army is far stronger but no enemy structure has been seen yet
+    closeExplore: '[b]Your army is far stronger than the enemy\'s[/b], but you haven\'t found its base yet. Send a few units to explore the dark parts of the map, then attack-move there with everything.',
   },
 });

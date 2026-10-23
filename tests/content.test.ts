@@ -644,11 +644,14 @@ describe('stances', () => {
 // ---------------------------------------------------------------------------
 describe('AI use of the new content and determinism', () => {
   test('Allied AI sends spies and minelayers, Soviet AI calls in air support', () => {
-    const world = skirmish({ seed: 77, size: 96, ai: ['hard', 'hard'] });
+    // (Brutal: since version 6 Classic Hard masses until minute 13 and lets its tech centre wait while its army is
+    // behind in the first 25 minutes, so on this seed its Allied side never got to the GPS; Brutal uses every tool from
+    // the start: GPS at 9.9 minutes)
+    const world = skirmish({ seed: 77, size: 96, ai: ['brutal', 'brutal'] });
     const types = new Map<number, string>();
     const counts: Record<string, number> = {};
     // (32 minutes: since version 5 the Classic AI's tech centre waits for money or an army edge in the first 15
-    // minutes, so the Allied GPS goes up later: at 30.7 minutes on this seed)
+    // minutes)
     for (let t = 0; t < seconds(60 * 32); t++) {
       world.step();
       for (const ev of world.events) {

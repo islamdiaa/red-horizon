@@ -68,8 +68,10 @@ export function hintActions(text, faction) {
   if (/power plant/.test(t)) acts.push(['build', 'powr']);
   if (/ore refiner/.test(t)) acts.push(['build', 'proc', /two|another|second|more/.test(t) ? 2 : 1]);
   if (/ore truck/.test(t) && /more|another|extra|second|replace|lost|no ore trucks|new one/.test(t)) acts.push(['truck']);
-  if (/barracks/.test(t)) acts.push(['build', faction === 'soviet' ? 'barr' : 'tent', 1]);
-  if (/war factory/.test(t)) acts.push(['build', 'weap', 1]);
+  // (one structure per hint: "a second War Factory or Barracks" gets the first one named)
+  const second = /\bsecond\b|another/.test(t);
+  if (/barracks/.test(t) && !/war factory[^.]*\bor barracks/.test(t)) acts.push(['build', faction === 'soviet' ? 'barr' : 'tent', 1]);
+  if (/war factory/.test(t)) acts.push(['build', 'weap', second ? 2 : 1]);
   if (/\btanks?\b/.test(t)) acts.push(['tanks']);
   if (/radar dome/.test(t)) acts.push(['build', 'dome', 1]);
   // (a hint about the ENEMY's defences is not a reason to build one)
@@ -81,6 +83,10 @@ export function hintActions(text, faction) {
   if (/control group|together|bigger|regroup|wait until|larger/.test(t)) acts.push(['bigger']);
   if (/every combat unit|all (your )?combat units/.test(t)) acts.push(['selectAll']);
   if (/queue|idle/.test(t)) acts.push(['queue']);
+  // round 4: the bank reminder (loop a unit card) and the close-out alert (finish the enemy with everything)
+  if (/keep building|non-stop/.test(t)) acts.push(['loop']);
+  if (/explore the dark/.test(t)) acts.push(['explore']);
+  else if (/nearly beaten|far stronger/.test(t)) acts.push(['finish']);
   return acts;
 }
 
@@ -99,6 +105,8 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
   const basic = faction === 'soviet' ? 'ftur' : 'pbox';
   const want = new Map([['powr', 1], ['proc', 1], [barracks, 1]]); // what it means to have (grows with hints)
   let waveSize = 6, tanks = false, amove = false, queueMore = false, selectAll = false, lastPower = -1e9;
+  // round 4: loops wanted (Alt-click; the tank card once there is a War Factory), the close-out target
+  let loops = false, finish = null, lastSeq = '';
   const seen = new Set(), failed = new Map();
   const count = (me, t) => me.blds.filter((b) => b.t === t).length;
   for (let loop = 0; (await bot.simTime()) - start < maxSim; loop++) {
@@ -108,8 +116,11 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
     if (!me.blds.length && !me.units.length) return { result: 'loss', notes };
     // ---- read the Field Manual
     if (readHints) {
-      const hint = await bot.page.evaluate(() => document.querySelector('.hint.on .hint-t')?.textContent?.trim() ?? '').catch(() => '');
-      if (hint && !seen.has(hint)) {
+      const { hint, seq } = await bot.page.evaluate(() => { const e = document.querySelector('.hint.on'); return { hint: e?.querySelector('.hint-t')?.textContent?.trim() ?? '', seq: e?.dataset.seq ?? '' }; }).catch(() => ({ hint: '', seq: '' }));
+      // (a reminder that comes back, the bank or close-out alert, is acted on again each time it appears)
+      const again = seq !== lastSeq && /keep building|non-stop|nearly beaten|far stronger/.test(hint.toLowerCase());
+      if (seq) lastSeq = seq;
+      if (hint && (!seen.has(hint) || again)) {
         seen.add(hint);
         const acts = hintActions(hint, faction);
         notes.followed.push(`${Math.round(await bot.simTime())}s: ${acts.map((a) => a.join(' ')).join(', ') || '(nothing to do)'} <- ${hint.slice(0, 90)}`);
@@ -124,7 +135,23 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
           else if (a === 'selectAll') selectAll = true;
           else if (a === 'repair') await repairWorst(bot);
           else if (a === 'truck' && count(me, 'weap')) await bot.train('harv', 1);
+          else if (a === 'loop') loops = true;
+          else if (a === 'finish') { selectAll = true; amove = true; finish = (await finishOff(bot)) ?? finish; if (finish) notes.finish = (notes.finish ?? 0) + 1; }
+          else if (a === 'explore') await explore(bot, me);
         }
+      }
+    }
+    // ---- loops (Alt-click on a unit card, as the bank reminder says): riflemen, then tanks once there is a factory
+    if (loops) {
+      const on = await bot.g((g) => g.local.repeat.slice());
+      for (const t of ['e1', ...(count(me, 'weap') ? [tank] : [])]) {
+        if (on.includes(t) || (failed.get(`loop:${t}`) ?? 0) >= 2) continue;
+        // (a card that is locked or gone, its factory lost: nothing to loop yet; not a failed click)
+        if (!await bot.findCard(t) || await bot.locked(t)) continue;
+        const ok = await bot.clickCard(t, { modifiers: ['Alt'] });
+        await bot.wait(0.3);
+        if (!ok || !(await bot.g((g, t) => g.local.repeat.includes(t), t))) { failed.set(`loop:${t}`, (failed.get(`loop:${t}`) ?? 0) + 1); bot.friction('loop', `Alt-click on the ${t} card did not start a loop`); }
+        else bot.log(`newcomer: looping ${t} (Alt-click)`);
       }
     }
     // ---- the base: what it wants, in the order it learnt about it; power when the game complains
@@ -157,18 +184,60 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
     const foes = await bot.enemies();
     const targets = foes.blds.length ? foes.blds : foes.units;
     if (!targets.length) continue;
-    const tgt = [...targets].sort((a, b) => dist(a, home) - dist(b, home))[0];
+    // (told to finish the enemy, it keeps going for the structures the alert showed it, nearest to that place first)
+    const from = finish ?? home;
+    const tgt = [...targets].sort((a, b) => dist(a, from) - dist(b, from))[0];
     // (told about the "select every combat unit" key, it uses that instead of a box around the base)
     let n;
     if (selectAll) { const a = await bot.playArea(); await bot.page.mouse.move((a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2); await bot.key('e'); n = await bot.g((g) => g.selection.size); }
     else n = await bot.boxSelectAround(home.x, home.y, 14);
-    if (!n) { bot.friction('select', `box selection around the base picked up nothing (${atHome.length} armed there)`); continue; }
+    if (!n) { bot.friction('select', `box selection around the base picked up nothing (${atHome.length} armed there; ${JSON.stringify(bot.lastBox ?? null)})`); continue; }
     if (amove) await bot.attackMove(tgt.x, tgt.y);
     else await rightClickAt(bot, tgt.x, tgt.y);
     notes.waves++;
     bot.log(`newcomer wave ${notes.waves} at ${(await bot.simTime()).toFixed(0)}s: ${n} selected, ${amove ? 'attack-move' : 'right-click'} on ${tgt.t} at ${tgt.x.toFixed(0)},${tgt.y.toFixed(0)}`);
   }
   return { result: 'timeout', notes };
+}
+
+/**
+ * The close-out alert, done as it says: select every combat unit (E), Show (the camera goes to the enemy structure it
+ * points at), then A and a click on that structure. Returns the place, or null when the alert had no Show button.
+ */
+async function finishOff(bot) {
+  const spot = await bot.page.evaluate(() => { const b = document.querySelector('.hint.on .hint-go'); return b ? { x: +b.dataset.x, y: +b.dataset.y } : null; }).catch(() => null);
+  if (!spot) return null;
+  const a = await bot.playArea();
+  await bot.page.mouse.move((a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2);
+  await bot.key('e');
+  const n = await bot.g((g) => g.selection.size);
+  if (!await bot.click('.hint.on .hint-go').then(() => true, () => false)) { bot.friction('finish', 'the Show button on the close-out alert could not be clicked'); return null; }
+  await sleep(700);
+  await bot.settleCamera();
+  const p = await bot.toScreen(spot.x, spot.y, 0.6);
+  const tx = Math.max(a.x0, Math.min(a.x1, p.x)), ty = Math.max(a.y0, Math.min(a.y1, p.y));
+  if (!p.onScreen || tx !== p.x || ty !== p.y) bot.friction('finish', `after Show the target ${spot.x.toFixed(0)},${spot.y.toFixed(0)} is not in the play area`);
+  await bot.key('a', 200);
+  await bot.page.mouse.click(tx, ty);
+  await sleep(250);
+  bot.log(`newcomer: close-out: ${n} selected (E), Show, attack-move at ${spot.x.toFixed(0)},${spot.y.toFixed(0)}`);
+  return spot;
+}
+
+/** "Send a few units to explore the dark parts of the map": one unit at home, attack-moved to the far side of the map. */
+async function explore(bot, me) {
+  const home = me.blds.find((b) => b.t === 'fact') ?? me.blds[0];
+  const u = me.units.find((u) => u.armed && (!home || dist(u, home) < 14));
+  if (!home || !u) return false;
+  const m = await bot.g((g) => ({ w: g.world.map.w, h: g.world.map.h }));
+  await bot.lookAt(u.x, u.y);
+  const p = await bot.toScreen(u.x, u.y, 0.4);
+  await bot.page.mouse.click(p.x, p.y);
+  await sleep(250);
+  if (!await bot.g((g, id) => g.selection.has(id), u.id)) { bot.friction('select', 'clicking a unit to send it exploring did not select it'); return false; }
+  await bot.attackMove(m.w - home.x, m.h - home.y);
+  bot.log(`newcomer: exploring with ${u.t} towards ${(m.w - home.x).toFixed(0)},${(m.h - home.y).toFixed(0)}`);
+  return true;
 }
 
 /** Repair mode (R), then a click on the most damaged structure, as the repair hint says. */

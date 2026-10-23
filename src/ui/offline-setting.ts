@@ -29,13 +29,20 @@ export function offlineContentRows(row: RowFn): HTMLElement[] {
   status.setAttribute('role', 'status');
   const say = (t: string) => { status.textContent = t; };
   const local = typeof location !== 'undefined' && location.protocol !== 'https:' && location.protocol !== 'http:'; // the desktop app (app://)
+  // the size, once the manifests are in (the label stays short until then)
+  const estimate = () => void offlineContentMB().then((n) => { if (n && status.isConnected && !status.textContent) say(tSettings('offline.estimate', { size: tSettings('offline.mb', { n }) })); }).catch(() => {});
   if (local || !offlineSupported()) {
     btn.disabled = true;
     say(tSettings(local ? 'offline.local' : 'offline.unsupported'));
-  } else {
-    // the size, once the manifests are in (the label stays short until then)
-    void offlineContentMB().then((n) => { if (n && status.isConnected && !status.textContent) say(tSettings('offline.estimate', { size: tSettings('offline.mb', { n }) })); }).catch(() => {});
-  }
+    // a first visit: the service worker takes control a little later (Firefox: seconds after the page) -> enable then
+    const sw = !local && typeof navigator !== 'undefined' && 'serviceWorker' in navigator ? navigator.serviceWorker : null;
+    sw?.addEventListener('controllerchange', () => {
+      if (!btn.isConnected || !offlineSupported()) return;
+      btn.disabled = false;
+      say('');
+      estimate();
+    }, { once: true });
+  } else estimate();
   btn.onclick = async () => {
     btn.disabled = true;
     try {

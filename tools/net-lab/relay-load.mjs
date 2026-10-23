@@ -11,6 +11,10 @@ import { WebSocket } from '../../server/node_modules/ws/wrapper.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+
+// the relay refuses any other protocol version ('version' error): read it from the game's source, never hard-code it
+const PROTO = Number(/export const NET_PROTOCOL = (\d+)/.exec(readFileSync(new URL('../../src/net/protocol.ts', import.meta.url), 'utf8'))[1]);
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const ROOMS = Number(arg('rooms', '30')), FOUR = Number(arg('four', '10')), MINUTES = Number(arg('minutes', '5')), APM = Number(arg('apm', '120'));
@@ -112,12 +116,12 @@ for (let r = 0; r < ROOMS; r++) {
   const room = { n: r, size, code: '' };
   const mk = (i) => { const b = new Bot(room, i, `10.99.${r}.${i + 1}`); bots.push(b); return b; };
   const hostBot = mk(0);
-  const w = await hostBot.open({ t: 'hello', proto: 1, build: 'loadtest', mods: '', name: `Host${r}`, create: { settings: { mode: size === 4 ? '2v2' : '1v1', size: 64 } } });
+  const w = await hostBot.open({ t: 'hello', proto: PROTO, build: 'loadtest', mods: '', name: `Host${r}`, create: { settings: { mode: size === 4 ? '2v2' : '1v1', size: 64 } } });
   if (!w) { log('room', r, 'create failed', stats.errors); continue; }
   room.code = w.code;
   for (let i = 1; i < size; i++) {
     const b = mk(i);
-    const jw = await b.open({ t: 'hello', proto: 1, build: 'loadtest', mods: '', name: `P${r}-${i}`, join: room.code });
+    const jw = await b.open({ t: 'hello', proto: PROTO, build: 'loadtest', mods: '', name: `P${r}-${i}`, join: room.code });
     if (jw) b.send({ t: 'me', ready: true });
   }
   rooms.push({ room, host: hostBot });

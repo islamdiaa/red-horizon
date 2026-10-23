@@ -23,7 +23,8 @@ import { LAND_D, SEA_D, VIEW, borderEdges, buildMesh, outlineLoops, partition, p
 import type { World } from '../sim/world';
 import type { Faction } from '../data/rules';
 import type { PerkDef } from '../conquest/data';
-import { fmtDateTime, fmtInt, fmtMoney } from '../i18n/core';
+import { fmtDateTime, fmtInt, fmtMoney, trSource } from '../i18n/core';
+import { callSignName } from '../i18n/en/codenames'; // (L10N: generated operation names and call signs translate on display)
 import { typeName } from '../i18n/names';
 import tCq from '../i18n/en/conquest';
 import tCommon from '../i18n/en/common';
@@ -516,10 +517,10 @@ function reportHtml(run: ConquestRun, rep: NonNullable<ConquestRun['report']>, g
   if (rep.morale) rows.push([tCq('report.morale'), rep.morale > 0 ? '+1' : '-1']);
   rows.push([tCq('report.kills'), fmtInt(rep.kills)]);
   rows.push([tCq('report.losses'), fmtInt(rep.losses)]);
-  const vets = rep.veterans.map((v) => `<span class="cq-vet ${v.fate}" title="${esc(unitName(v.type))}">${rankBadge(v.rank)}${esc(v.name)} <small>${esc(unitName(v.type))} · ${esc(tCq(`fate.${v.fate}`))}</small></span>`).join('');
+  const vets = rep.veterans.map((v) => `<span class="cq-vet ${v.fate}" title="${esc(unitName(v.type))}">${rankBadge(v.rank)}${esc(callSignName(v.name))} <small>${esc(unitName(v.type))} · ${esc(tCq(`fate.${v.fate}`))}</small></span>`).join('');
   const objs = rep.objectives.map((o) => `<div class="cq-le ${o.state === 'done' ? 'win' : o.state === 'failed' ? 'loss' : ''}"><i>${o.state === 'done' ? '✔' : o.state === 'failed' ? '✖' : '·'}</i>${esc(trRun(o.text))}${o.primary ? '' : ` <small style="color:#7c8b9b">${esc(tCq('report.optional'))}</small>`}</div>`).join('');
   return `
-    <div class="cq-big ${rep.won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('report.kick', { kind: kindName(rep.kind), operation: run.name }))}</div><h1>${esc(title)}</h1><h3>${esc(sub)}</h3></div>
+    <div class="cq-big ${rep.won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('report.kick', { kind: kindName(rep.kind), operation: trSource(run.name) }))}</div><h1>${esc(title)}</h1><h3>${esc(sub)}</h3></div>
     <div class="cq-cols">
       <div class="cq-sec"><div class="cq-h4">${esc(tCq('report.rewards'))}</div><div class="cq-rows">${rows.map(([l, v]) => `<div class="cq-row"><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</div></div>
       <div class="cq-sec"><div class="cq-h4">${esc(tCq('report.objectives'))}</div>${objs || `<div class="cq-p">${esc(tCq('report.noObjectives'))}</div>`}
@@ -707,7 +708,7 @@ class ConquestScreen {
     root.innerHTML = `
       <div class="cq-panel cq-top">
         <div class="cq-emb">${run.faction === 'allies' ? alliedEmblem() : sovietEmblem()}</div>
-        <div class="cq-ttl"><div class="cq-kick">${esc(tCq(run.faction === 'allies' ? 'map.kickAllies' : 'map.kickSoviet', { difficulty: difficultyName(run.difficulty) }))}</div><h1>${esc(run.name)}</h1></div>
+        <div class="cq-ttl"><div class="cq-kick">${esc(tCq(run.faction === 'allies' ? 'map.kickAllies' : 'map.kickSoviet', { difficulty: difficultyName(run.difficulty) }))}</div><h1>${esc(trSource(run.name))}</h1></div>
         <div class="cq-stats">
           <div class="cq-stat">${picto('calendar')}<div><small>${esc(tCq('map.turn', { n: run.turn }))}</small><b>${esc(date)}</b></div></div>
           <div class="cq-stat gold" title="${esc(tCq('map.incomeTip', { money: money(inc.credits) }))}">${picto('coin')}<div><small>${esc(tCq('map.warChest'))}</small><b>${money(run.warChest)}</b></div></div>
@@ -821,7 +822,7 @@ class ConquestScreen {
     this.meta = loadMeta();
     if (s && s.rankAfter > s.rankBefore) {
       const faction = loadProfile().faction;
-      showAchievementToast({ kind: 'rank', title: s.rankName, xp: 0, icon: insigniaSvg(s.rankAfter, faction), desc: tCq('map.promoted', { name: run.name }) });
+      showAchievementToast({ kind: 'rank', title: s.rankName, xp: 0, icon: insigniaSvg(s.rankAfter, faction), desc: tCq('map.promoted', { name: trSource(run.name) }) });
     }
   }
 
@@ -932,7 +933,7 @@ class ConquestScreen {
 
   private menuModal() {
     const run = this.run!;
-    const m = this.modal(`<div class="cq-kick">${esc(run.name)}</div><h1 style="font-size:28px">${esc(tCq('menu.title'))}</h1>
+    const m = this.modal(`<div class="cq-kick">${esc(trSource(run.name))}</div><h1 style="font-size:28px">${esc(tCq('menu.title'))}</h1>
       <p class="cq-p">${esc(tCq('menu.text'))}</p>
       <div class="cq-actions" style="justify-content:space-between"><button class="cq-btn danger" data-act="abandon">${picto('skull')}${esc(tCq('menu.abandon'))}</button><button class="cq-btn pri" data-act="leave">${picto('back')}${esc(tCq('menu.mainMenu'))}</button></div>`, 'narrow', () => {});
     (m.querySelector('[data-act="leave"]') as HTMLElement).onclick = () => { this.closeModal(); this.back(); };
@@ -967,7 +968,7 @@ class ConquestScreen {
     if (S.mods.bounty) mods.push(tCq('preview.mods.bounty'));
     const lootPreview = S.kind === 'defend' ? 800 + 300 * t.value : Math.round((600 + 700 * t.value) * (run.perks.includes('plunder') ? 1.5 : 1));
     const m = this.modal(`
-      <div class="cq-kick">${esc(S.kind === 'defend' ? tCq('preview.defence') : S.from ? tCq('preview.attackFrom', { from: S.from }) : tCq('preview.attack'))} · ${esc(monthYear(S.turn))}</div>
+      <div class="cq-kick">${esc(S.kind === 'defend' ? tCq('preview.defence') : S.from ? tCq('preview.attackFrom', { from: trSource(S.from) }) : tCq('preview.attack'))} · ${esc(monthYear(S.turn))}</div>
       <h1>${esc(tCq('info.battleOf', { territory: territoryName({ id: S.territory, name: S.name }) }))}</h1>
       <h3>${esc(kindName(S.kind))} · ${esc(kindDesc(S.kind))}</h3>
       <div class="cq-cols">
@@ -987,7 +988,7 @@ class ConquestScreen {
         </div>
         <div>
           <div class="cq-sec"><div class="cq-h4">${esc(tCq('preview.forces'))}</div>
-            <div class="cq-vets">${S.core.length ? S.core.map((c) => `<span class="cq-vet">${rankBadge(c.rank)}${esc(c.name)} <small>${esc(unitName(c.type))}</small></span>`).join('') : `<span class="cq-p">${esc(tCq('preview.noVeterans'))}</span>`}</div>
+            <div class="cq-vets">${S.core.length ? S.core.map((c) => `<span class="cq-vet">${rankBadge(c.rank)}${esc(callSignName(c.name))} <small>${esc(unitName(c.type))}</small></span>`).join('') : `<span class="cq-p">${esc(tCq('preview.noVeterans'))}</span>`}</div>
             ${run.core.length > S.core.length ? `<p class="cq-p" style="font-size:12px;color:#8a99aa">${esc(tCq('preview.inPort', { n: run.core.length - S.core.length }))}</p>` : ''}
             <p class="cq-p" style="font-size:13px">${esc(tCq(S.kind === 'defend' ? 'preview.standingBase' : 'preview.landing'))}${mods.length ? ` · ${esc(mods.join(' · '))}` : ''}</p>
           </div>
@@ -1048,7 +1049,7 @@ class ConquestScreen {
 
   private armyModal() {
     const run = this.run!;
-    const rows = run.core.map((v) => `<tr><td>${rankBadge(v.rank)} ${esc(tCq(v.rank >= 2 ? 'army.elite' : 'army.veteran'))}</td><td><b>${esc(v.name)}</b></td><td>${esc(unitName(v.type))}</td><td>${fmtInt(v.battles)}</td><td>${fmtInt(v.xp)}</td><td>${esc(tCq('army.joinedTurn', { n: v.joined }))}</td></tr>`).join('');
+    const rows = run.core.map((v) => `<tr><td>${rankBadge(v.rank)} ${esc(tCq(v.rank >= 2 ? 'army.elite' : 'army.veteran'))}</td><td><b>${esc(callSignName(v.name))}</b></td><td>${esc(unitName(v.type))}</td><td>${fmtInt(v.battles)}</td><td>${fmtInt(v.xp)}</td><td>${esc(tCq('army.joinedTurn', { n: v.joined }))}</td></tr>`).join('');
     this.modal(`<div class="cq-kick">${esc(tCq('army.kick', { n: run.core.length, max: coreCapacity(run) }))}</div><h1>${esc(tCq('army.title'))}</h1>
       <h3>${esc(tCq('army.sub'))}</h3>
       ${run.core.length ? `<table class="cq-tbl"><thead><tr><th>${esc(tCq('army.rank'))}</th><th>${esc(tCq('army.callSign'))}</th><th>${esc(tCq('army.unit'))}</th><th>${esc(tCq('army.battles'))}</th><th>${esc(tCq('army.xp'))}</th><th>${esc(tCq('army.joined'))}</th></tr></thead><tbody>${rows}</tbody></table>`
@@ -1114,7 +1115,7 @@ class ConquestScreen {
     const run = this.run!;
     const sc = run.score;
     const won = run.status === 'won';
-    const m = this.modal(`<div class="cq-big ${won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('summary.kick', { name: run.name, n: run.turn }))}</div><h1>${esc(tCommon(won ? 'victory' : 'defeat'))}</h1><h3>${esc(trRun(run.ending ?? ''))}</h3></div>
+    const m = this.modal(`<div class="cq-big ${won ? '' : 'lose'}"><div class="cq-kick">${esc(tCq('summary.kick', { name: trSource(run.name), n: run.turn }))}</div><h1>${esc(tCommon(won ? 'victory' : 'defeat'))}</h1><h3>${esc(trRun(run.ending ?? ''))}</h3></div>
       <div class="cq-cols">
         <div class="cq-sec"><div class="cq-h4">${esc(tCq('summary.score'))}</div><div class="cq-rows">
           ${(sc?.lines ?? []).map((l) => `<div class="cq-row"><span>${esc(trRun(l.label))}</span><b>${fmtInt(l.value)}</b></div>`).join('')}
@@ -1138,6 +1139,6 @@ class ConquestScreen {
 export function conquestInfo(): { label: string } | null {
   const run = loadRun();
   if (!run || run.status !== 'active') return null;
-  return { label: `${run.name} · ${monthYear(run.turn)}` };
+  return { label: `${trSource(run.name)} · ${monthYear(run.turn)}` };
 }
 

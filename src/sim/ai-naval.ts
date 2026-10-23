@@ -18,6 +18,7 @@ import type { World } from './world';
 import { scriptedMission, type AIDifficulty } from './ai';
 import type { AIIntel } from './ai-intel';
 import { trait, type Personality } from './ai-personality';
+import { lanesOpen } from './ai-ops';
 import { ceasefireActive, hostileTo, inHomeArea } from './ceasefire';
 
 /** What the naval AI reads from its AIController (optional: missions' scripted use and tests may omit it). */
@@ -228,7 +229,7 @@ function shorewardPlacement(world: World, p: Player, bt: BuildingTypeDef, ai?: N
       if (cd < 2) continue;
       const score = cd * 2 + Math.hypot(dx, dy) * 0.3;
       if (score >= bestScore) continue;
-      if (!world.canPlace(p, bt.id, px, py)) continue;
+      if (!world.canPlace(p, bt.id, px, py) || !lanesOpen(world, p, bt, px, py)) continue;
       // keep a walkway around it
       let crowded = false;
       for (let y = py - 1; y <= py + bt.size[1] && !crowded; y++) for (let x = px - 1; x <= px + bt.size[0]; x++) {

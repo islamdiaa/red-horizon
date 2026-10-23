@@ -15,7 +15,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -28,7 +28,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     browser: 'chromium', cdp: null, out: process.env.E2E_OUT ?? process.env.OUT_DIR ?? path.join(ROOT, 'screenshots/e2e'), journeys: [], headed: !!process.env.HEADED,
     channel: process.env.E2E_CHANNEL ?? null, executable: process.env.E2E_EXECUTABLE ?? null,
     width: 1280, height: 720, slow: 1, realtime: false, locale: 'en-US', shots: true, serve: null, serveB: null, list: false,
-    touch: false, mobile: false,
+    touch: false, mobile: false, lang: process.env.E2E_LANG ?? null, classic: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], v = () => argv[++i];
@@ -48,6 +48,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
     else if (a === '--serve-b') o.serveB = v(); // later builds (comma-separated), for the PWA update journey
     else if (a === '--touch') o.touch = true;
     else if (a === '--mobile') o.mobile = true;
+    else if (a === '--lang') o.lang = v(); // the interface language for a fresh profile (rh.lang): de, ru, zh-CN...
+    else if (a === '--classic') o.classic = true; // the Classic interface layout setting for a fresh profile
     else if (a === '--list') o.list = true;
     else if (a === '--help' || a === '-h') o.help = true;
     else if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
@@ -127,6 +129,15 @@ export class Bot {
         permissions: this.o.browser === 'chromium' ? ['clipboard-read', 'clipboard-write'] : [],
       });
     }
+    // (a language or the Classic layout for a fresh profile: set before the game reads its settings)
+    if ((this.o.lang || this.o.classic) && !keep) {
+      await this.context.addInitScript(([lang, classic]) => {
+        try {
+          if (lang && !localStorage.getItem('rh.lang')) localStorage.setItem('rh.lang', lang);
+          if (classic && !localStorage.getItem('rh.e2e.classic')) { localStorage.setItem('rh.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('rh.settings') ?? '{}'), hudLayout: 'classic' })); localStorage.setItem('rh.e2e.classic', '1'); }
+        } catch { /* storage blocked */ }
+      }, [this.o.lang, this.o.classic]).catch(() => {});
+    }
     this.page = await this.context.newPage();
     this.attach(this.page);
     if (this.o.cdp && !keep) { // a shared real browser: start from empty storage on the game's origin
@@ -196,6 +207,55 @@ export class Bot {
     this.allErrors.push(...errs);
     this.errors = []; this.csp = [];
     return errs.length === 0 && csp.length === 0;
+  }
+
+  /**
+   * Text that doesn't fit and text that isn't text yet, on what is visible now (round 4: long German and Russian
+   * strings): an element whose own text is clipped by its box (overflow hidden / clip, or cut with an ellipsis), text
+   * that leaves the window (outside any scrolling or clipping container), and a catalogue key or an unfilled
+   * {placeholder} on screen. Each finding is recorded as friction ('overflow', 'offscreen', 'text') once per element
+   * and text; returns { clip, off, raw }.
+   */
+  async audit(where, { scope = 'body', ellipsis = true, record = true } = {}) {
+    const r = await this.page.evaluate(([scope, ellipsis]) => {
+      const out = { clip: [], off: [], raw: [] };
+      const KEY = /^(a11y|army|campaign|challenges|cinematic|commander|common|conquest|controls|doctrine|economy|editor|errors|hints|hud|loading|lobby|locker|menu|meta|mission|missions|modes|mods|moment|net|players|profile|replay|research|results|rivals|settings|share|speech|toasts|tutorial|variety)\.[a-zA-Z0-9_.]+$/;
+      const PH = /\{[a-zA-Z_][\w:]*(, *(plural|select)[^}]*)?\}/;
+      const seen = new Set();
+      const root = document.querySelector(scope) ?? document.body;
+      const clipped = (e) => { for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) { const s = getComputedStyle(a); if (s.overflowX !== 'visible' || s.overflowY !== 'visible') return true; } return false; };
+      for (const e of root.querySelectorAll('*')) {
+        if (e.closest('svg, canvas, script, style, noscript, template, [aria-hidden="true"], .tt, #tooltip')) continue;
+        const own = [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim();
+        if (!own) continue;
+        if (e.checkVisibility && !e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+        const cs = getComputedStyle(e);
+        const b = e.getBoundingClientRect();
+        if (b.width < 2 || b.height < 2) continue;
+        // (covered: a screen under another one, a panel behind a dialog; only what is on top is read)
+        const cx = Math.min(innerWidth - 1, Math.max(0, b.left + Math.min(b.width, 40) / 2)), cy = Math.min(innerHeight - 1, Math.max(0, b.top + b.height / 2));
+        const top = b.right > 0 && b.bottom > 0 && b.left < innerWidth && b.top < innerHeight ? document.elementFromPoint(cx, cy) : null;
+        if (top && !e.contains(top) && !top.contains(e) && !top.closest('.tt, #tooltip')) continue;
+        const text = own.slice(0, 60);
+        const id = `${e.tagName.toLowerCase()}${typeof e.className === 'string' && e.className.trim() ? `.${e.className.trim().split(/\s+/).slice(0, 2).join('.')}` : ''}`;
+        const key = `${id}|${text}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (KEY.test(own) || PH.test(own)) out.raw.push(`${id} "${text}"`);
+        const hidesX = cs.overflowX === 'hidden' || cs.overflowX === 'clip' || (ellipsis && cs.textOverflow === 'ellipsis');
+        const clipX = hidesX && e.scrollWidth > e.clientWidth + 2;
+        const clipY = (cs.overflowY === 'hidden' || cs.overflowY === 'clip') && cs.webkitLineClamp === 'none' && e.scrollHeight > e.clientHeight + 3;
+        if (clipX || clipY) out.clip.push(`${id} "${text}"${clipX ? ` w ${e.scrollWidth}>${e.clientWidth}` : ''}${clipY ? ` h ${e.scrollHeight}>${e.clientHeight}` : ''}`);
+        if ((b.right > innerWidth + 1 || b.left < -1 || b.bottom > innerHeight + 1 || b.top < -1) && !clipped(e)) out.off.push(`${id} "${text}" [${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.right)},${Math.round(b.bottom)}]`);
+      }
+      return out;
+    }, [scope, ellipsis]).catch((e) => ({ clip: [], off: [], raw: [], error: String(e).slice(0, 200) }));
+    if (record) {
+      for (const c of r.clip) this.friction('overflow', `${where}: ${c}`);
+      for (const c of r.off) this.friction('offscreen', `${where}: ${c}`);
+      for (const c of r.raw) this.friction('text', `${where}: ${c}`);
+    }
+    return r;
   }
 
   async shot(label) {
@@ -613,10 +673,12 @@ export class Bot {
     const a = await this.playArea();
     const units = (await this.mine()).units.filter((u) => u.armed && Math.hypot(u.x - x, u.y - y) <= radius);
     const pts = (await this.toScreenMany(units.map((u) => [u.x, u.y]))).filter((p) => p.onScreen);
+    this.lastBox = { near: units.length, onScreen: pts.length, inPlay: pts.filter((p) => p.inPlay).length, box: null }; // (diagnostics for a selection that picked nothing)
     if (!pts.length) return 0;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const p0 = { x: clamp(Math.min(...pts.map((p) => p.x)) - 30, a.x0, a.x1), y: clamp(Math.min(...pts.map((p) => p.y)) - 30, a.y0, a.y1) };
     const p1 = { x: clamp(Math.max(...pts.map((p) => p.x)) + 30, a.x0, a.x1), y: clamp(Math.max(...pts.map((p) => p.y)) + 30, a.y0, a.y1) };
+    this.lastBox.box = [p0.x, p0.y, p1.x, p1.y].map(Math.round);
     await this.drag(p0, p1);
     return this.g((g) => g.selection.size);
   }
@@ -661,6 +723,21 @@ export class Bot {
     await this.waitMenu();
   }
 
+  /**
+   * End the match now (a test shortcut where the results screen, not the battle, is under test): every unit and
+   * structure of the losing side is destroyed, so the simulation's own victory check ends it on the next tick.
+   * `won`: the local player's side wins. Then waits for the results screen (or a mission's debrief).
+   */
+  async forceEnd(won, timeout = 240000) {
+    await this.page.evaluate((won) => {
+      const g = window.__game, w = g.world;
+      const lose = (p) => (won ? g.local.isEnemy(p) : p.team === g.local.team);
+      for (const e of [...w.units, ...w.buildings]) if (e.alive && lose(e.owner)) w.kill(e);
+    }, won);
+    await this.wait(2);
+    return this.page.waitForSelector(':is(.end-screen, .dbf, .cq-modal .cq-dlg):not(.leaving)', { state: 'visible', timeout: timeout * this.o.slow }).then(() => true, () => false);
+  }
+
   /** Wait for the results screen after the end of a match (the finale runs a few seconds first). */
   async waitResults(timeout = 120000) {
     return this.page.waitForSelector('.end-screen:not(.leaving) .rr-again', { state: 'visible', timeout: timeout * this.o.slow }).then(() => true, () => false);
@@ -671,5 +748,5 @@ export class Bot {
 export async function loadJourney(name) {
   const file = path.join(ROOT, 'tools/e2e/journeys', `${name}.mjs`);
   if (!fs.existsSync(file)) throw new Error(`no journey ${name}`);
-  return import(file);
+  return import(pathToFileURL(file).href); // (a file URL: a bare Windows path is not an import specifier)
 }

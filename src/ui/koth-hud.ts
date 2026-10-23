@@ -11,7 +11,10 @@ import { el, esc, hexColor } from './dom';
 import { picto } from '../meta';
 import { ensureModesCss } from './modes-css';
 import tHud from '../i18n/en/hud';
-import { currentLang } from '../i18n/core';
+import { currentLang, trSource } from '../i18n/core';
+
+/** A team's name for display: "Gen. Volkov & Maj. Kane" (built-in names translate) or "Team 2". (L10N) */
+const teamLabel = (name: string): string => name.split(' & ').map(trSource).join(' & ');
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
 const SEG = 96;
@@ -105,14 +108,14 @@ export class KothHud {
     const rows = kothStandings(w, st);
     const holderRow = rows.find((r) => r.team === st.holder);
     const stateCls = st.contested ? 'contested' : st.holder >= 0 ? 'held' : 'neutral';
-    const stateText = st.contested ? tHud('koth.contested') : holderRow ? (st.holder === g.local.team && !g.setup.replay ? tHud('koth.youHold') : tHud('koth.heldBy', { name: holderRow.name })) : tHud('koth.unclaimed');
+    const stateText = st.contested ? tHud('koth.contested') : holderRow ? (st.holder === g.local.team && !g.setup.replay ? tHud('koth.youHold') : tHud('koth.heldBy', { name: teamLabel(holderRow.name) })) : tHud('koth.unclaimed');
     const key = `${stateCls}|${st.holder}|${rows.map((r) => `${r.team}:${Math.floor(r.seconds)}:${r.defeated}`).join(',')}|${g.local.team}|${currentLang()}`;
     if (key === this.key) return;
     this.key = key;
     this.box.innerHTML = `<div class="kh-head">${picto('trophy', 'ic')}<span>${tHud.html('koth.title')}</span><small>${tHud.html('koth.firstTo', { time: fmt(st.target / TICK_HZ) })}</small></div>
       <div class="kh-state ${stateCls}" style="--c:${holderRow ? hexColor(holderRow.color) : '#9aa'}"><i></i><span>${esc(stateText)}</span></div>
       <div class="kh-rows">${rows.map((r) => `<div class="kh-row${r.team === g.local.team ? ' me' : ''}${r.defeated ? ' dead' : ''}${r.team === st.holder ? ' holding' : ''}" style="--c:${hexColor(r.color)}">
-        <i></i><span class="nm">${esc(r.team === g.local.team && !g.setup.replay ? tHud('koth.you') : r.name)}</span><span class="bar"><b style="width:${(r.frac * 100).toFixed(1)}%"></b></span><span class="t">${fmt(r.seconds)}</span></div>`).join('')}</div>`;
+        <i></i><span class="nm">${esc(r.team === g.local.team && !g.setup.replay ? tHud('koth.you') : teamLabel(r.name))}</span><span class="bar"><b style="width:${(r.frac * 100).toFixed(1)}%"></b></span><span class="t">${fmt(r.seconds)}</span></div>`).join('')}</div>`;
     // radar: ping the hill when control changes
     const sig = st.contested ? -2 : st.holder;
     if (sig !== this.lastPing) {

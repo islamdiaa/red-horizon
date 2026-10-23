@@ -4,7 +4,8 @@
  * ranks it - then that every tampered variant (score, result, a single order, the tick, the hash, the board,
  * the build) is rejected. Proves submissions are re-simulated server-side and cannot be forged.
  *
- *   node --import tsx tools/net-lab/lb-forge.ts [--http http://127.0.0.1:8811/relay/] [--board survival]
+ *   node --import tsx tools/net-lab/lb-forge.ts [--http http://127.0.0.1:8811/relay/] [--board survival|daily|b-<challenge>]
+ *        [--play passive|hunt]   (--board b-decapitation --play hunt: a WON ranked run of a built-in challenge)
  */
 import { headlessGame } from '../../src/modes/headless';
 import { RunRecorder } from '../../src/net/runrecord';
@@ -20,7 +21,8 @@ const arg = (k: string, d: string) => { const i = process.argv.indexOf(`--${k}`)
 // and the per-address submit limit does not confound the forgery results; reads verify what is actually stored.
 const HTTP = arg('http', 'http://10.231.0.3:8787/relay/');
 const boardId = arg('board', 'survival');
-const kind = boardId === 'daily' ? 'daily' : 'survival';
+// 'daily', a survival front ('survival', 'survival-winter'...) or a built-in challenge ('b-last-bastion'...)
+const kind = boardId === 'daily' ? 'daily' : boardId.startsWith('b-') ? 'challenge' : 'survival';
 const day = utcDay(Date.now());
 // report: --out FILE, else $NETLAB_OUT, else tools/net-lab/out (git-ignored)
 const OUT_DIR = process.env.NETLAB_OUT || fileURLToPath(new URL('./out/', import.meta.url));
@@ -37,9 +39,24 @@ enterPortableMath();
 const g = headlessGame(setup);
 const rec = new RunRecorder(g.world, info, day);
 hookStep(g.world, null, null);
-// no commands at all: survive passively until the base falls
+// --play passive (default): no commands at all, survive until the base falls. --play hunt: every 3 s, every armed unit
+// attack-moves on the enemy (wins the built-in "Decapitation" challenge: a WON ranked run)
+const play = arg('play', 'passive');
+const w0 = g.world;
 const maxTicks = 20 * 60 * 30;
 while (!g.world.gameOver && g.world.tick < maxTicks) {
+  if (play === 'hunt' && w0.tick % 60 === 5) {
+    const me = w0.players[0];
+    const mine = w0.units.filter((u) => u.alive && u.owner === me && u.weapons.length && !u.ut.harvester);
+    const fu = w0.units.filter((u) => u.alive && u.owner.team !== me.team && !u.owner.neutral);
+    const fb = w0.buildings.filter((b) => b.alive && b.owner.team !== me.team && !b.bt.wall && !b.owner.neutral);
+    const t = fu.length ? fu : fb;
+    if (mine.length && t.length) {
+      const cmd = { c: 'move', player: 0, units: mine.map((u) => u.id), x: t.reduce((a, u) => a + u.x, 0) / t.length, y: t.reduce((a, u) => a + u.y, 0) / t.length, attackMove: true } as const;
+      rec.record(cmd);
+      w0.issue(cmd);
+    }
+  }
   g.world.step();
   g.world.events.length = 0;
   if (g.world.mission) g.world.mission.events.length = 0;

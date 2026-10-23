@@ -15,6 +15,8 @@ $RIG tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ env        # presets x clima
 $RIG tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ fx         # superweapons, Tesla, fire, explosions, photo mode
 $RIG tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ models     # every unit and structure, HD on and off
 $RIG tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ ctxloss    # WEBGL_lose_context and restore mid-match
+$RIG tools/gpu-rig/bigmatch.mjs http://127.0.0.1:5291/ high,low  # four Brutal commanders on a 128 map, late game: per preset at 100 % and Auto scale, HDR scan
+$RIG tools/gpu-rig/scenecost.mjs http://127.0.0.1:5291/ low      # what the scene pass spends its GPU time on (per object, timer queries)
 $RIG -e MASK=1 tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ env medium   # no float colour buffers / float filtering
 $RIG tools/gpu-rig/perf.mjs http://127.0.0.1:5291/ low,medium,high 150,300  # FPS and GPU time per pass at 1920x1080
 ```

@@ -2,7 +2,11 @@
 // game server the device reaches as http://localhost:<port> (RH_MOBILE_GAME).
 //
 //   node tools/mobile/run.mjs [--url http://localhost:5305/] [--profiles phone-land,phone,tablet-land,tablet]
-//        [--only menus,match,gestures,build,perf,lifecycle,rotate,keyboard,pwa] [--out <dir>] [--restart-gb 8.5]
+//        [--only menus,match,gestures,build,perf,lifecycle,rotate,keyboard,pwa,campaign] [--out <dir>] [--restart-gb 8.5]
+//        [--every-profile] [--mission-minutes 9]
+//
+// --every-profile runs every scenario on every listed profile (by default only menus, match, rotate and campaign do;
+// the others take the first profile). --mission-minutes bounds the touch play of the campaign scenario (wall clock).
 //
 // Each scenario starts Chrome fresh (Playwright force-stops it), so one failure doesn't cascade. Writes
 // <out>/report.json and screenshots; exits 1 if a check failed.
@@ -65,7 +69,8 @@ async function boot(profile, { query = '', clear = true } = {}) {
   // the launcher can put the display back to portrait while Chrome starts: make sure the profile's orientation holds
   const land = L.PROFILES[profile].rot === 1;
   let v = await L.waitViewport(s.page, (v) => (v.w > v.h) === land, 8000);
-  if ((v.w > v.h) !== land) { L.rotate(L.PROFILES[profile].rot); v = await L.waitViewport(s.page, (v) => (v.w > v.h) === land, 30000); }
+  // (a busy host can starve the emulator: ask again, and wait longer)
+  for (let k = 0; k < 3 && (v.w > v.h) !== land; k++) { L.rotate(1 - L.PROFILES[profile].rot); await L.sleep(1500); L.rotate(L.PROFILES[profile].rot); v = await L.waitViewport(s.page, (v) => (v.w > v.h) === land, 40000); }
   if ((v.w > v.h) !== land) throw new Error(`could not get ${profile} orientation (viewport ${v.w}x${v.h})`);
   await L.waitMenu(s.page);
   s.touch = new L.Touch(s.page);
@@ -101,7 +106,7 @@ async function quickBattle(s) {
     const skipText = await s.page.evaluate(() => (document.querySelector('.cine-skip, [class*="skip"]')?.textContent ?? '').trim());
     check(!/press any key/i.test(skipText), 'intro skip prompt speaks to touch players', skipText);
     await L.sleep(1500);
-    await s.at.tap(200, 200);
+    s.at.centreTap(); // (a real tap; the cinematic takes taps anywhere on the window)
     const ok = await s.page.waitForFunction(() => !document.body.classList.contains('cine-active'), null, { timeout: 60000, polling: 500 }).then(() => true, () => false);
     check(ok, 'a tap skips the intro');
   }
@@ -175,8 +180,47 @@ async function mustSpot(s, gx, gy, maxR) {
 
 /** Point the camera at map point (x, y) (test setup: aiming, not an order). */
 async function lookAt(s, x, y, dist = 18) {
-  await s.page.evaluate(([x, y, d]) => { const c = window.__game.gfx.cam; c.x = x; c.y = y + 1; c.targetDist = d; c.dist = d; c.targetYaw = 0; c.yaw = 0; window.__game.input.follow = false; }, [x, y, dist]);
+  await s.page.evaluate(([x, y, d]) => { const c = window.__game.gfx.cam; c.x = x; c.y = y + 1; c.targetDist = d; c.dist = d; c.targetYaw = 0; c.yaw = 0; c.flyTo = null; window.__game.input.follow = false; c.apply?.(); }, [x, y, dist]);
   await L.sleep(2500);
+}
+
+/**
+ * Point the camera so map point (x, y) shows in the open part of the screen (a narrow portrait HUD leaves the map
+ * only a band): aim at it, then shift the camera so the point lands on the canvas spot nearest the screen centre
+ * that has a finger's width of map around it. Returns its screen point, or null.
+ */
+async function aimFree(s, x, y) {
+  await lookAt(s, x, y);
+  for (let it = 0; it < 3; it++) {
+    const r = await s.page.evaluate(([x, y]) => {
+      const g = window.__game, cam = g.gfx.cam.camera;
+      const proj = (a, b) => { const v = cam.position.clone(); v.set(a, g.world.map.heightAt(a, b), b).project(cam); return [(v.x * 0.5 + 0.5) * innerWidth, (-v.y * 0.5 + 0.5) * innerHeight]; };
+      const open = (px, py) => [[0, 0], [-16, 0], [16, 0], [0, -16], [0, 16]].every(([dx, dy]) => document.elementFromPoint(px + dx, py + dy)?.id === 'game-canvas');
+      const p = proj(x, y);
+      if (open(p[0], p[1]) && p[0] > 20 && p[1] > 20 && p[0] < innerWidth - 20 && p[1] < innerHeight - 20) return { ok: true, x: p[0], y: p[1] };
+      let best = null;
+      for (let py = 24; py < innerHeight - 24; py += 12) for (let px = 24; px < innerWidth - 24; px += 12) {
+        if (!open(px, py)) continue;
+        const d = Math.hypot(px - innerWidth / 2, py - innerHeight / 2);
+        if (!best || d < best.d) best = { x: px, y: py, d };
+      }
+      if (!best) return { ok: false, none: true };
+      // screen motion of the point per map cell (x and y), then the camera shift that moves it to the open spot
+      const px1 = proj(x + 1, y), py1 = proj(x, y + 1);
+      const a = px1[0] - p[0], b = py1[0] - p[0], c = px1[1] - p[1], d = py1[1] - p[1];
+      const det = a * d - b * c;
+      if (Math.abs(det) < 1e-6) return { ok: false };
+      const ex = best.x - p[0], ey = best.y - p[1];
+      // moving the camera by (u, v) moves the point on screen by -(J (u, v))
+      const u = -(d * ex - b * ey) / det, v = -(-c * ex + a * ey) / det;
+      return { ok: false, u, v };
+    }, [x, y]);
+    if (r.ok) return { x: r.x, y: r.y, on: true };
+    if (r.none || r.u === undefined) break;
+    await s.page.evaluate(([u, v]) => { const c = window.__game.gfx.cam; c.x += u; c.y += v; c.apply?.(); }, [r.u, r.v]);
+    await L.sleep(2500);
+  }
+  return aimAt(s, x, y);
 }
 
 /** Point the camera so map point (x, y) shows on the canvas, not under a HUD panel; its screen point or null. */
@@ -211,11 +255,19 @@ async function menus(profile) {
       check(!a.offscreen.length, `${name}: no controls off screen`, a.offscreen.slice(0, 6));
       check(a.small.length <= 6, `${name}: tap targets at least 32 px`, a.small.slice(0, 8));
       await shot(s, name);
+      if (name === 'skirmish') {
+        // (Skirmish is a panel of the main menu, not a screen: on a phone the menu is one column, the panel below the
+        // entries; the tap must bring it into view. Back on the main menu leaves the page, by design: no Back check.)
+        const pr = await s.page.evaluate(() => { const r = document.querySelector('.mm-panel')?.getBoundingClientRect(); return r ? { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight } : null; });
+        check(pr && pr.top < pr.vh * 0.75 && pr.bottom > 40, 'tapping Skirmish brings the skirmish panel into view', pr);
+        continue;
+      }
       // back to the menu (the Android back button: the game should handle it like Esc / Back)
       L.shell('input keyevent KEYCODE_BACK');
       await L.sleep(2500);
-      const back = await s.page.evaluate(() => !!document.querySelector('.main-screen:not(.leaving) .mm-nav-btn') && location.href).catch(() => null);
-      if (!check(back && /localhost/.test(back), `Android Back from ${name} stays in the game`, back ?? 'page gone')) {
+      const st = await s.page.evaluate(() => ({ href: location.href, menu: !!document.querySelector('.main-screen:not(.leaving) .mm-nav-btn') })).catch((e) => ({ href: null, err: String(e).slice(0, 80) }));
+      const back = st.menu && /localhost:\d+\/\?/.test(st.href ?? '') ? st.href : null;
+      if (!check(back, `Android Back from ${name} stays in the game`, st)) {
         await s.page.goto(gameUrl(), { waitUntil: 'load', timeout: 240000 }); await L.waitMenu(s.page);
       }
       if (!(await s.page.locator('.main-screen:not(.leaving) .mm-nav-btn').first().isVisible().catch(() => false))) {
@@ -690,13 +742,414 @@ async function launchFromHome(s) {
   return { ok: /webapp|WebApk|webapk/i.test(activity) || standalone === true, activity: activity.slice(0, 300), standalone, pages: [pagesBefore, pages.length] };
 }
 
+// ------------------------------------------------------------------------------------------------ campaign on touch
+
+/** Footprints (cells) of the structures the campaign scenario builds (src/data/rules.ts). */
+const FOOT = { powr: [2, 2], proc: [3, 3], tent: [2, 2], barr: [2, 2], pbox: [1, 1], silo: [1, 1], weap: [3, 3], dome: [2, 2] };
+const ffGame = async (P, sec) => { for (let t = 0; t < sec; t += 2) { await P.evaluate(() => window.__game.fastForward(2)); await L.sleep(120); } };
+
+/** A build-bar card (on whichever tab lists it): tap its tab, then the card, with real taps. */
+async function tapCard(s, id) {
+  const P = s.page;
+  const cardAt = () => P.evaluate((id) => {
+    const c = document.querySelector(`#buildbar .bitem[data-id="${id}"]:not(.locked)`);
+    if (!c || c.getBoundingClientRect().width < 4) return null;
+    c.scrollIntoView({ inline: 'center', block: 'nearest' }); // (setup: the bar scrolls sideways under a finger too)
+    const r = c.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height };
+  }, id);
+  let c = await cardAt();
+  if (!c) {
+    const tabs = await P.evaluate(() => [...document.querySelectorAll('#buildbar .tab[data-tab]')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.dataset.tab));
+    for (const t of tabs) {
+      const tb = await L.centerOf(P, `#buildbar .tab[data-tab="${t}"]`);
+      if (!tb) continue;
+      await s.at.tap(tb.x, tb.y);
+      await L.sleep(1500);
+      if ((c = await cardAt())) break;
+    }
+  }
+  if (!c) return null;
+  await L.sleep(500);
+  await s.at.tap(c.x, c.y);
+  await L.sleep(1200);
+  return c;
+}
+
+/** Buy a structure from the build bar and place it near the Construction Yard, all by tap. */
+async function buyStructure(s, id, { maxGameSec = 200 } = {}) {
+  const P = s.page;
+  const q = () => P.evaluate(() => { const q = window.__game.local.queues.structure; return { ready: q.ready ?? null, items: q.items.map((i) => i.type) }; });
+  if (!(await tapCard(s, id))) return { ok: false, why: `no ${id} card` };
+  let st = await q();
+  if (!st.items.includes(id) && st.ready !== id) return { ok: false, why: `tap did not queue ${id}`, st };
+  for (let t = 0; t < maxGameSec && (st = await q()).ready !== id; t += 6) await ffGame(P, 6);
+  if (st.ready !== id) return { ok: false, why: `${id} not ready after ${maxGameSec} s`, st };
+  await clearHud(s);
+  if ((await P.evaluate(() => window.__game.input.mode)) !== 'place') await tapCard(s, id);
+  if ((await P.evaluate(() => window.__game.input.mode)) !== 'place') return { ok: false, why: 'tapping the ready card did not start placement' };
+  const [fw, fh] = FOOT[id] ?? [2, 2];
+  const yard = await P.evaluate(() => { const g = window.__game; const b = g.world.buildings.find((b) => b.alive && b.owner === g.local && b.bt.id === 'fact'); return b ? { x: b.x, y: b.y } : null; });
+  await lookAt(s, yard.x, yard.y + 3, 22);
+  const spots = await P.evaluate(([id, fw, fh]) => {
+    const g = window.__game, cam = g.gfx.cam.camera, out = [];
+    const yard = g.world.buildings.find((b) => b.alive && b.owner === g.local && b.bt.id === 'fact');
+    const free = (x, y) => [[0, 0], [-16, 0], [16, 0], [0, -16], [0, 16]].every(([dx, dy]) => document.elementFromPoint(x + dx, y + dy)?.id === 'game-canvas');
+    for (let r = 3; r <= 9 && out.length < 8; r++) for (let cy = yard.cy - r; cy <= yard.cy + r; cy++) for (let cx = yard.cx - r; cx <= yard.cx + r; cx++) {
+      if (Math.max(Math.abs(cx - yard.cx), Math.abs(cy - yard.cy)) !== r) continue;
+      if (g.world.placementIssue(g.local, id, cx, cy)) continue;
+      const x = cx + fw / 2, y = cy + fh / 2, v = cam.position.clone(); v.set(x, g.world.map.heightAt(x, y), y).project(cam);
+      const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight;
+      if (Math.abs(v.x) < 0.95 && Math.abs(v.y) < 0.95 && free(sx, sy)) out.push({ x: sx, y: sy, cx, cy });
+    }
+    return out.slice(0, 8);
+  }, [id, fw, fh]);
+  const tries = [];
+  for (const sp of spots) {
+    await s.at.tap(sp.x, sp.y);
+    await L.sleep(2500);
+    const done = await P.evaluate((id) => { const g = window.__game; return g.local.queues.structure.ready !== id && g.world.buildings.some((b) => b.alive && b.owner === g.local && b.bt.id === id); }, id);
+    tries.push(`${sp.cx},${sp.cy}${done ? ' placed' : ''}`);
+    if (done) return { ok: true, tries };
+    if ((await P.evaluate(() => window.__game.input.mode)) !== 'place') await tapCard(s, id);
+  }
+  return { ok: false, why: spots.length ? 'no tap placed it' : 'no valid cell in the open part of the screen', tries };
+}
+
+/** The Field Manual panel and its controls, as a player sees them. */
+const hintState = (P) => P.evaluate(() => {
+  const h = document.querySelector('.hint');
+  if (!h || !h.classList.contains('on')) return { on: false };
+  const r = h.getBoundingClientRect(), t = h.querySelector('.hint-t'), x = h.querySelector('.hint-x');
+  const rx = x?.getBoundingClientRect();
+  const btns = [...h.querySelectorAll('button, .hint-x, [role=button]')].map((b) => { const q = b.getBoundingClientRect(); return { c: b.className, w: Math.round(q.width), h: Math.round(q.height) }; });
+  return {
+    on: true, key: h.dataset.hint ?? '', text: (t?.textContent ?? '').trim().slice(0, 160),
+    rect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)], vw: innerWidth, vh: innerHeight,
+    font: t ? parseFloat(getComputedStyle(t).fontSize) : 0, opacity: +getComputedStyle(h).opacity,
+    x: rx ? { cx: rx.x + rx.width / 2, cy: rx.y + rx.height / 2, w: Math.round(rx.width), h: Math.round(rx.height) } : null, btns,
+  };
+});
+
+/** A canvas point just outside the hint panel (left, right, above or below it), or null. */
+const besideHint = (P, gap = 14) => P.evaluate((gap) => {
+  const h = document.querySelector('.hint.on');
+  if (!h) return null;
+  const r = h.getBoundingClientRect();
+  for (const [x, y] of [[r.left - gap, (r.top + r.bottom) / 2], [r.right + gap, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top - gap], [(r.left + r.right) / 2, r.bottom + gap]]) {
+    if (x > 4 && y > 4 && x < innerWidth - 4 && y < innerHeight - 4 && document.elementFromPoint(x, y)?.id === 'game-canvas') return { x, y };
+  }
+  return null;
+}, gap);
+
+/** The checks on a Field Manual alert that is up: readable, on screen, dismissed by its x only, map taps pass. */
+async function auditAlert(s, where) {
+  const P = s.page;
+  const h = await hintState(P);
+  if (!check(h.on, `${where}: a Field Manual alert is up`, h)) return false;
+  check(/^(alerts|touch)\./.test(h.key), `${where}: it is a battle alert (${h.key})`, h.key);
+  check(h.rect[0] >= 0 && h.rect[1] >= 0 && h.rect[2] <= h.vw && h.rect[3] <= h.vh, `${where}: alert panel on screen`, h);
+  check(h.font >= 11.5, `${where}: alert text readable (font ${h.font} px)`, h.font);
+  check(h.x && Math.min(h.x.w, h.x.h) >= 32, `${where}: close control finger-sized (${h.x?.w}x${h.x?.h})`, h.x);
+  check(!/press |click|right-click|\bkey\b/i.test(h.text), `${where}: alert text speaks to touch`, h.text);
+  const a = await L.hudAudit(P);
+  const mine = a.overlaps.filter((o) => /\.hint/.test(o));
+  check(!mine.length, `${where}: alert does not cover other HUD panels`, mine);
+  await shot(s, `${where}-alert`);
+  return h;
+}
+
+async function campaign(profile) {
+  const s = await boot(profile);
+  const P = s.page;
+  const land = L.PROFILES[profile].rot === 1;
+  try {
+    // ---- the Campaign screen and its difficulty picker
+    const cb = await L.centerOf(P, '.main-screen:not(.leaving) .mm-nav-btn', /campaign/i);
+    if (!check(cb, 'Campaign entry visible')) return;
+    await s.at.tap(cb.x, cb.y);
+    await P.waitForSelector('.cmp-brief', { timeout: 60000 });
+    await L.sleep(3000);
+    const sel = await P.evaluate(() => document.querySelector('.node.sel, .node.selected, .cmp-sp.sel')?.getAttribute('data-id') ?? document.querySelector('.cmp-brief h1')?.textContent);
+    log('campaign screen, selected', sel);
+    const picker = async () => P.evaluate(() => {
+      const box = document.querySelector('.cmp-lvl');
+      if (!box) return null;
+      box.scrollIntoView({ block: 'center', behavior: 'instant' }); // (the briefing panel scrolls; a player scrolls to it)
+      return true;
+    }).then(async (ok) => { if (!ok) return null; await L.sleep(800); return P.evaluate(() => {
+      const box = document.querySelector('.cmp-lvl');
+      const btns = [...box.querySelectorAll('[data-level]')].map((b) => { const r = b.getBoundingClientRect(); return { l: b.dataset.level, on: b.classList.contains('on'), x: r.x + r.width / 2, y: r.y + r.height / 2, w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), font: parseFloat(getComputedStyle(b).fontSize), clipped: b.scrollWidth > b.clientWidth + 1 }; });
+      const d = box.querySelector('.cmp-lvl-desc'), dr = d?.getBoundingClientRect();
+      return { btns, vw: innerWidth, vh: innerHeight, desc: d ? { text: d.textContent.trim().slice(0, 140), font: parseFloat(getComputedStyle(d).fontSize), w: Math.round(dr.width), bottom: Math.round(dr.bottom) } : null, stored: localStorage.getItem('rh.campaign.level') };
+    }); });
+    await L.sleep(1200);
+    let pk = await picker();
+    if (!check(pk && pk.btns.length === 5, 'difficulty picker shows the five levels', pk?.btns?.map((b) => b.l))) return;
+    await shot(s, 'picker');
+    check(pk.btns.find((b) => b.on)?.l === 'easy', 'a new player starts on Easy', pk.btns.find((b) => b.on)?.l);
+    check(pk.btns.every((b) => b.left >= 0 && b.right <= pk.vw && b.top >= 0 && b.bottom <= pk.vh), 'picker fits on screen', pk.btns.map((b) => [b.l, b.left, b.right, b.top, b.bottom]));
+    check(pk.btns.every((b) => Math.min(b.w, b.h) >= 40), `picker tap targets at least 40 px (${pk.btns.map((b) => `${b.w}x${b.h}`).join(' ')})`, pk.btns.map((b) => [b.l, b.w, b.h]));
+    check(pk.btns.every((b) => !b.clipped && b.font >= 11), 'level names readable, not cut off', pk.btns.map((b) => [b.l, b.font, b.clipped]));
+    check(pk.desc && pk.desc.font >= 11 && pk.desc.w > 120, 'level description readable', pk.desc);
+    let overl = 0;
+    for (let i = 0; i < pk.btns.length; i++) for (let j = i + 1; j < pk.btns.length; j++) { const a = pk.btns[i], b = pk.btns[j]; if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2) overl++; }
+    check(!overl, 'picker buttons do not overlap', overl);
+    // pick Normal, then Easy, by tap: the choice shows at once and is stored
+    const nb = pk.btns.find((b) => b.l === 'normal');
+    await s.at.tap(nb.x, nb.y);
+    await L.sleep(1500);
+    pk = await picker();
+    check(pk.btns.find((b) => b.on)?.l === 'normal' && pk.stored === 'normal', 'a tap picks Normal (shown and stored)', { on: pk.btns.find((b) => b.on)?.l, stored: pk.stored });
+    const eb = pk.btns.find((b) => b.l === 'easy');
+    await s.at.tap(eb.x, eb.y);
+    await L.sleep(1500);
+    pk = await picker();
+    check(pk.btns.find((b) => b.on)?.l === 'easy' && pk.stored === 'easy', 'a tap picks Easy (shown and stored)', { on: pk.btns.find((b) => b.on)?.l, stored: pk.stored });
+    // remembered: leave the screen (Android Back) and come back
+    L.shell('input keyevent KEYCODE_BACK');
+    await L.sleep(2500);
+    await L.waitMenu(P, 60000).catch(() => {});
+    const cb2 = await L.centerOf(P, '.main-screen:not(.leaving) .mm-nav-btn', /campaign/i);
+    if (cb2) { await s.at.tap(cb2.x, cb2.y); await P.waitForSelector('.cmp-brief', { timeout: 60000 }); await L.sleep(2500); }
+    pk = await picker();
+    check(pk?.btns.find((b) => b.on)?.l === 'easy', 'the level is remembered after leaving the Campaign screen', pk?.btns.find((b) => b.on)?.l);
+    // the briefing is readable on a phone
+    const brief = await P.evaluate(() => {
+      const t = document.querySelector('.cmp-text p'), tips = document.querySelector('.cmp-tips div'), dep = document.querySelector('.cmp-brief [data-act="deploy"]');
+      dep?.scrollIntoView({ block: 'center' });
+      const r = dep?.getBoundingClientRect();
+      return { textFont: t ? parseFloat(getComputedStyle(t).fontSize) : 0, tipFont: tips ? parseFloat(getComputedStyle(tips).fontSize) : 0, deploy: r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, w: Math.round(r.width), h: Math.round(r.height), on: r.bottom <= innerHeight && r.top >= 0 && r.right <= innerWidth } : null };
+    });
+    check(brief.textFont >= 12 && brief.tipFont >= 11, `briefing text readable (${brief.textFont} / tips ${brief.tipFont} px)`, brief);
+    check(brief.deploy?.on && Math.min(brief.deploy.w, brief.deploy.h) >= 40, `Deploy button on screen and finger-sized (${brief.deploy?.w}x${brief.deploy?.h})`, brief.deploy);
+    const audit = await L.layoutAudit(P, '.cmp-brief');
+    check(audit.overflowX <= 0 && !audit.offscreen.length, 'campaign screen: nothing off screen sideways', { overflowX: audit.overflowX, off: audit.offscreen.slice(0, 5) });
+    await shot(s, 'briefing');
+    errorsCheck(s, 'campaign screen');
+
+    // ---- deploy Allied mission 1 at Easy
+    await L.sleep(800);
+    const dep = await L.centerOf(P, '.cmp-brief [data-act="deploy"]');
+    // (does Deploy take the mission full screen, as Deploy does for a skirmish? log what the page asks and gets)
+    await P.evaluate(() => {
+      window.__fs = [];
+      const el = document.documentElement, rf = el.requestFullscreen.bind(el);
+      el.requestFullscreen = (o) => { const a = navigator.userActivation?.isActive; const pr = rf(o); pr.then(() => window.__fs.push(`ok active=${a}`), (e) => window.__fs.push(`refused active=${a}: ${String(e).slice(0, 80)}`)); return pr; };
+    });
+    await s.at.tap(dep.x, dep.y);
+    const tq = Date.now();
+    await L.waitMatch(P);
+    log(`mission up after ${((Date.now() - tq) / 1000).toFixed(0)} s`);
+    if (await P.evaluate(() => document.body.classList.contains('cine-active'))) {
+      await L.sleep(1500);
+      s.at.centreTap();
+      await P.waitForFunction(() => !document.body.classList.contains('cine-active'), null, { timeout: 60000, polling: 500 }).catch(() => {});
+    }
+    await P.waitForFunction(() => { const c = window.__game?.gfx?.cam; return !c || (!c.flyTo && Math.abs(c.dist - c.targetDist) < 0.5); }, null, { timeout: 60000, polling: 500 }).catch(() => {});
+    await L.sleep(2000);
+    await s.at.calibrate();
+    const fsLog = await P.evaluate(() => ({ calls: window.__fs ?? 'page reloaded', now: !!document.fullscreenElement, setting: JSON.parse(localStorage.getItem('rh.settings') ?? '{}').fullscreen ?? 'default' }));
+    check(fsLog.now, 'the mission goes full screen on Deploy (as a skirmish does)', fsLog);
+    const mi = await P.evaluate(() => { const g = window.__game, m = g.world.mission; return { id: g.setup.mission, level: m?.level, lvlTag: document.querySelector('.mh-lvl')?.textContent ?? null }; });
+    check(mi.id === 'allied-01', 'Allied mission 1 started', mi.id);
+    check(mi.level === 'easy', 'the mission runs at the level picked (Easy)', mi);
+    check(/easy/i.test(mi.lvlTag ?? ''), 'the objectives panel names the level', mi.lvlTag);
+    // objectives readable, the HUD leaves the map free
+    const obj = await P.evaluate(() => {
+      const o = document.querySelector('.mh-obj'), rows = [...document.querySelectorAll('.mh-row .tx')];
+      const r = o?.getBoundingClientRect();
+      return o ? { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)], vw: innerWidth, vh: innerHeight, rows: rows.length, font: rows[0] ? parseFloat(getComputedStyle(rows[0]).fontSize) : 0, clipped: rows.filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).textOverflow !== 'ellipsis').length } : null;
+    });
+    check(obj && obj.rows >= 3 && obj.font >= 11, `objectives listed and readable (${obj?.rows} rows, ${obj?.font} px)`, obj);
+    check(obj && obj.rect[0] >= 0 && obj.rect[2] <= obj.vw && obj.rect[3] <= obj.vh, 'objectives panel on screen', obj);
+    await shot(s, 'mission-hud');
+    let a = await L.hudAudit(P);
+    check(!a.overlaps.length, 'mission HUD panels do not overlap', a.overlaps);
+    check(!Object.keys(a.invisibleBlockers).length, 'no invisible element swallows taps on the map', a.invisibleBlockers);
+    check(a.coverage < 0.66, `mission HUD leaves the map at least a third of the screen (covers ${Math.round(a.coverage * 100)}%)`, a.coverage);
+
+    // ---- pause and resume with Android Back (= Esc; in full screen Chrome takes the first press to leave it)
+    const pst = () => P.evaluate(() => ({ t: window.__game.world.time, paused: !!window.__game.paused, menu: !!document.querySelector('.pause-screen, .pause-panel'), fs: !!document.fullscreenElement }));
+    if ((await pst()).fs) { L.shell('input keyevent KEYCODE_BACK'); await L.sleep(3000); }
+    L.shell('input keyevent KEYCODE_BACK');
+    await P.waitForFunction(() => !!document.querySelector('.pause-screen, .pause-panel'), null, { timeout: 30000, polling: 500 }).catch(() => {});
+    await L.sleep(1000);
+    const p0 = await pst();
+    await L.sleep(3000);
+    const p1 = await pst();
+    check(p0.menu && p1.t === p0.t, 'Back pauses the mission (pause menu up, clock stopped)', { p0, p1 });
+    await shot(s, 'paused');
+    L.shell('input keyevent KEYCODE_BACK');
+    await P.waitForFunction(() => !document.querySelector('.pause-screen, .pause-panel'), null, { timeout: 30000, polling: 500 }).catch(() => {});
+    await L.sleep(3000);
+    const p2 = await pst();
+    check(!p2.menu && p2.t > p1.t, 'Back again resumes', p2);
+    await s.at.calibrate();
+
+    // ---- play by touch: deploy the MCV, a Power Plant, a Barracks and a Refinery
+    await clearHud(s);
+    const mcv = (await L.ownUnits(P)).find((u) => u.t === 'mcv');
+    let p = mcv && await aimFree(s, mcv.x, mcv.y);
+    if (p) { await s.at.tap(p.x, p.y); await L.sleep(2500); }
+    const dbtn = await P.evaluate(() => { const b = [...document.querySelectorAll('#selpanel .cmds .cmd')].find((e) => e.dataset.key === 'D' || /deploy/i.test(e.getAttribute('aria-label') ?? '')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    if (dbtn) { await s.at.tap(dbtn.x, dbtn.y); await ffGame(P, 8); }
+    const fact = await P.evaluate(() => { const g = window.__game; return g.world.buildings.some((b) => b.alive && b.owner === g.local && b.bt.id === 'fact'); });
+    check(fact, 'MCV deployed by touch (tap the MCV, Deploy in the selection panel)', { mcv: !!mcv, onScreen: !!p, deployBtn: !!dbtn });
+    if (!fact) return;
+    await ffGame(P, 4);
+    const built = {};
+    for (const id of ['powr', 'tent', 'proc']) {
+      const r = await buyStructure(s, id);
+      built[id] = r.ok;
+      check(r.ok, `${id} bought and placed by tap`, r);
+      await ffGame(P, 4);
+    }
+    const objs = await P.evaluate(() => window.__game.world.mission.objectives.map((o) => `${o.id}:${o.state}`));
+    check(objs.includes('deploy:done') && (!built.proc || objs.includes('refinery:done')), 'objectives tick off (deploy, refinery)', objs);
+    await shot(s, 'base');
+
+    // ---- a battle alert: the Barracks idles with money in the bank (alerts.idle / touch.idle, also in missions)
+    let alertUp = false;
+    if (built.tent) {
+      for (let t = 0; t < 150 && !(await hintState(P)).on; t += 6) await ffGame(P, 6);
+      const h = await auditAlert(s, `alert-${land ? 'land' : 'port'}`);
+      alertUp = !!h;
+      if (h) {
+        // a tap on the panel's text does not dismiss it on a touch screen (only the x does)
+        const body = await P.evaluate(() => { const r = document.querySelector('.hint.on .hint-t')?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; });
+        if (body) { await s.at.tap(body.x, body.y); await L.sleep(1500); }
+        check((await hintState(P)).on, 'a tap on the alert text does not dismiss it (touch: the x only)', body);
+        // taps and drags on the map right beside it reach the map, and leave the alert up
+        const near = await besideHint(P);
+        if (check(near, 'open map right beside the alert', near)) {
+          await P.evaluate(() => { window.__taps = 0; const c = document.getElementById('game-canvas'); c.addEventListener('pointerdown', () => { window.__taps++; }, { capture: true }); });
+          await s.at.tap(near.x, near.y);
+          await L.sleep(1500);
+          const c0 = await L.camState(P);
+          const dx = near.x > (await P.evaluate(() => innerWidth / 2)) ? -110 : 110;
+          await s.at.swipe(near.x, near.y, near.x + dx, near.y + 30, 350);
+          await L.sleep(2500);
+          const c1 = await L.camState(P);
+          const taps = await P.evaluate(() => window.__taps);
+          check(taps >= 2, 'taps beside the alert reach the map', { taps });
+          check(Math.hypot(c1.x - c0.x, c1.y - c0.y) > 0.5, 'a drag starting beside the alert pans the map', { from: [c0.x, c0.y], to: [c1.x, c1.y] });
+          check((await hintState(P)).on, 'the alert stays up after map taps and drags beside it', '');
+        }
+        // the other orientation: the alert re-lays out and stays readable
+        L.rotate(land ? 0 : 1);
+        await L.waitViewport(P, (v) => (v.w > v.h) === !land, 30000);
+        await L.sleep(5000);
+        await s.at.calibrate();
+        if ((await hintState(P)).on) await auditAlert(s, `alert-rotated-${land ? 'port' : 'land'}`);
+        else check(false, 'the alert is still up after rotating', '');
+        L.rotate(land ? 1 : 0);
+        await L.waitViewport(P, (v) => (v.w > v.h) === land, 30000);
+        await L.sleep(4000);
+        await s.at.calibrate();
+        // the x dismisses it
+        const hx = (await hintState(P)).x;
+        if (hx) { await s.at.tap(hx.cx, hx.cy); await L.sleep(2000); }
+        check(!(await hintState(P)).on, 'the alert\'s x dismisses it', hx);
+      }
+    }
+    check(alertUp, 'a battle alert showed in the mission (Barracks idle with money)', '');
+    errorsCheck(s, 'mission build-up');
+
+    // ---- an army by touch: Rocket Soldiers from the Barracks, then everything at the outpost
+    if (built.tent) {
+      for (let i = 0; i < 5; i++) await tapCard(s, 'e3');
+      const q = await P.evaluate(() => window.__game.local.queues.infantry.items.length);
+      check(q >= 3, 'card taps queue infantry', q);
+    }
+    const target = () => P.evaluate(() => {
+      const g = window.__game, me = g.local;
+      const foe = g.world.buildings.filter((b) => b.alive && me.isEnemy(b.owner) && !b.bt.wall);
+      if (!foe.length) return null;
+      const ar = g.world.units.filter((u) => u.alive && u.owner === me && u.weapons.length);
+      const cx = ar.reduce((a, u) => a + u.x, 0) / Math.max(1, ar.length), cy = ar.reduce((a, u) => a + u.y, 0) / Math.max(1, ar.length);
+      foe.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+      return { x: foe[0].x, y: foe[0].y, left: foe.length, army: ar.length };
+    });
+    const tEnd = Date.now() + (+(args['mission-minutes'] ?? 9)) * 60000;
+    const waves = [];
+    let over = null;
+    while (Date.now() < tEnd) {
+      await ffGame(P, 20);
+      over = await P.evaluate(() => { const g = window.__game, w = g.world; return w.gameOver || g.local.defeated ? { over: w.gameOver, won: w.winnerTeam === g.local.team && !g.local.defeated, t: Math.round(w.time) } : null; });
+      if (over) break;
+      const tg = await target();
+      if (!tg || tg.army < 3) continue;
+      await clearHud(s);
+      const tp = await aimFree(s, tg.x, tg.y);
+      if (!tp) { waves.push('target not on screen'); continue; }
+      const all = await L.centerOf(P, '#touch-bar button:nth-child(8)');
+      const atk = await L.centerOf(P, '#touch-bar button:nth-child(3)');
+      if (!all || !atk) { waves.push('no touch toolbar'); break; }
+      await s.at.tap(all.x, all.y); await L.sleep(1200);
+      await s.at.tap(atk.x, atk.y); await L.sleep(1200);
+      const mode = await P.evaluate(() => window.__game.input.mode);
+      const tp2 = await L.project(P, tg.x, tg.y);
+      await s.at.tap(tp2.x, tp2.y); await L.sleep(2000);
+      const sel = (await L.selection(P)).length;
+      waves.push(`t${Math.round(await P.evaluate(() => window.__game.world.time))}: ${sel} sel, ${mode}, ${tg.left} left`);
+      // more Rocket Soldiers while the money lasts
+      if (built.tent && await P.evaluate(() => window.__game.local.queues.infantry.items.length < 2 && window.__game.local.credits > 600)) for (let i = 0; i < 3; i++) await tapCard(s, 'e3');
+    }
+    const objs2 = await P.evaluate(() => window.__game.world.mission.objectives.map((o) => `${o.id}:${o.state}`));
+    log('attack waves', waves.join(' | '));
+    check(waves.some((w) => /attackMove/.test(w)), 'All + Attack + tap orders the army by touch', waves.slice(0, 4));
+    check(true, `mission outcome after ${args['mission-minutes'] ?? 9} min of touch play`, { over, objectives: objs2, waves: waves.length });
+    if (over) {
+      check(over.won, 'Allied mission 1 at Easy won by touch', over);
+      const end = await P.waitForSelector('.end-screen', { timeout: 90000 }).then(() => true, () => false);
+      if (end) { await L.sleep(3000); await shot(s, 'results'); const lay = await L.layoutAudit(P, '.end-screen'); check(lay.overflowX <= 0 && !lay.offscreen.length, 'results screen fits the phone', { overflowX: lay.overflowX, off: lay.offscreen.slice(0, 5) }); }
+      check(end, 'results screen shown', '');
+    }
+    await shot(s, 'end');
+    errorsCheck(s, 'mission');
+  } finally { await close(s); }
+}
+
+/** Triage: where does a real tap on the campaign difficulty picker land, and does a CDP touch on it pick the level? */
+async function pickerprobe(profile) {
+  const s = await boot(profile);
+  const P = s.page;
+  try {
+    const cb = await L.centerOf(P, '.main-screen:not(.leaving) .mm-nav-btn', /campaign/i);
+    await s.at.tap(cb.x, cb.y);
+    await P.waitForSelector('.cmp-lvl', { timeout: 60000 });
+    await L.sleep(2500);
+    await P.evaluate(() => {
+      document.querySelector('.cmp-lvl').scrollIntoView({ block: 'center', behavior: 'instant' });
+      window.__pp = [];
+      for (const t of ['pointerdown', 'click']) document.addEventListener(t, (e) => { const el = e.target; window.__pp.push(`${t} ${Math.round(e.clientX)},${Math.round(e.clientY)} ${el.tagName}.${[...el.classList].join('.')}[${el.dataset?.level ?? ''}]`); }, true);
+    });
+    await L.sleep(1000);
+    await s.at.ensure();
+    const nb = await P.evaluate(() => { const r = document.querySelector('.cmp-lvl [data-level="normal"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, top: r.top, bottom: r.bottom, vp: `${innerWidth}x${innerHeight}`, scrollY }; });
+    await P.evaluate(() => { window.__pp.length = 0; });
+    await s.at.tap(nb.x, nb.y);
+    await L.sleep(2500);
+    const r1 = await P.evaluate(() => ({ log: window.__pp.slice(), stored: localStorage.getItem('rh.campaign.level'), on: document.querySelector('.cmp-lvl .on')?.dataset.level }));
+    check(r1.stored === 'normal', 'adb tap on Normal picks it', { aim: nb, cal: s.at.k, ...r1 });
+    const hb = await P.evaluate(() => { const r = document.querySelector('.cmp-lvl [data-level="hard"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await P.evaluate(() => { window.__pp.length = 0; });
+    await s.touch.tap(hb.x, hb.y);
+    await L.sleep(2500);
+    const r2 = await P.evaluate(() => ({ log: window.__pp.slice(), stored: localStorage.getItem('rh.campaign.level'), on: document.querySelector('.cmp-lvl .on')?.dataset.level }));
+    check(r2.stored === 'hard', 'CDP touch on Hard picks it', { aim: hb, ...r2 });
+    await shot(s, 'pickerprobe');
+  } finally { await close(s); }
+}
+
 // ------------------------------------------------------------------------------------------------ run
-const SCEN = { menus, match, gestures, build, perf, lifecycle, rotate, keyboard, pwa };
+const SCEN = { pickerprobe, menus, match, gestures, build, perf, lifecycle, rotate, keyboard, pwa, campaign };
 // gestures, build and the app-level checks need one profile each; layout checks run on every profile
-const PER_PROFILE = new Set(['menus', 'match', 'rotate']);
+const PER_PROFILE = new Set(['menus', 'match', 'rotate', 'campaign']);
 for (const name of Object.keys(SCEN)) {
   if (!ONLY.has(name)) continue;
-  const profs = PER_PROFILE.has(name) ? PROFILES : [PROFILES[0]];
+  const profs = PER_PROFILE.has(name) || args['every-profile'] ? PROFILES : [PROFILES[0]];
   for (const prof of profs) {
     cur = `${name}/${prof}`;
     log('start');

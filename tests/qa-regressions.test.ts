@@ -468,11 +468,12 @@ describe('skirmish AI first wave', () => {
     const army: Unit[] = [];
     for (let k = 0; k < 12; k++) army.push(unit(world, '2tnk', p0, 12.5 + (k % 4), 12.5 + Math.floor(k / 4)));
     const ai = world.ais[0] as any;
-    world.tick = seconds(290); // hard: first attack at 5:00
+    // (version 6: Classic Hard masses until 13:00 before its first wave, DiffParams.classicFirst; its timer says 5:00)
+    world.tick = seconds(770);
     run(world, seconds(5));
-    assert.equal(ai.state, 'build', 'no attack before 5:00 on hard');
+    assert.equal(ai.state, 'build', 'no attack before 13:00 on Classic hard');
     run(world, seconds(10));
-    assert.equal(ai.state, 'attack', 'attacks after 5:00');
+    assert.equal(ai.state, 'attack', 'attacks after 13:00');
     const value = [...ai.wave].reduce((s: number, id: number) => s + (world.getEntity(id) as Unit).ut.cost, 0);
     // (version 4, Classic normal and up: no capped first wave; the wave was weighed against the enemy, ai-engage.ts.
     // Commander rules keep the ~1.3x wave-value cap.)

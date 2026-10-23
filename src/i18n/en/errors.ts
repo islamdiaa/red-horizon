@@ -53,6 +53,13 @@ export default strings('errors', {
     stillWaiting: 'Still waiting for the GPU',
     reload: 'Reload game',
   },
+  // a banner when the browser draws without the graphics card (src/platform/webgl.ts showSlowRendererNotice)
+  slowGpu: {
+    title: 'Graphics acceleration is off',
+    body: 'Your browser is drawing {game} without the graphics card, so it will run very slowly.',
+    advice: 'Turn on hardware acceleration (Chrome / Edge: Settings › System › "Use graphics acceleration when available"; Firefox: Settings › General › Performance), update your graphics driver, then restart the browser.',
+    dismiss: 'Got it',
+  },
   // an imported file refused by the safety limits (src/platform/untrusted.ts): replays, mods, challenges, maps
   file: {
     notText: 'Not a text file.',

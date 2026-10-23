@@ -113,5 +113,7 @@ export default strings('mods', {
     badgeTip: 'Rules changed by mods (set {hash}); saves and replays of this match keep these rules.',
     chip: 'MODDED',
     chipTip: 'These mods change the rules of the next match. Click to manage mods.',
+    // the rule changes of the skirmish mutators, shown as a mod: {names} = the mutators' names
+    mutators: 'Mutators: {names}',
   },
 });

@@ -34,6 +34,9 @@ export default strings('net', {
     // {reason}: why it ended (see reason.*)
     goneReason: 'The connection to the match ended ({reason}).',
     leave: 'Leave',
+    // the relay is gone for good (restarted, shut down, or the reconnect gave up): the battle can go on on this computer
+    offlineOffer: 'You can finish the battle on this computer: the AI takes over the other players.',
+    playOffline: 'Play on vs AI',
     rejoinKicker: 'Rejoining',
     catchingUp: 'Catching up with the match… {pct}%',
     pausedKicker: 'Match paused · {s} s',
@@ -53,6 +56,8 @@ export default strings('net', {
     // chat typed while reconnecting (src/net/client.ts keeps up to four lines)
     queued: 'Not sent yet: reconnecting. It goes out when the connection is back.',
     dropped: 'Not sent: the connection is down.',
+    // after "Play on vs AI" (banner.playOffline)
+    offline: 'Playing on offline: the AI commands the other players. This battle continues on this computer only.',
   },
   // the in-match menu's Surrender entry and its confirmation (src/net/surrender.ts)
   surrender: {
@@ -102,6 +107,8 @@ export default strings('net', {
     finished: 'finished',
     lost: 'connection lost',
     closed: 'closed',
+    // the relay no longer knows the match (it restarted)
+    noRoom: 'the server no longer has this match',
   },
   board: {
     daily: 'Daily Challenge',

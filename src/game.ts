@@ -519,6 +519,7 @@ export class Game {
         this.hud?.message(text, warn, undefined, !!this.hud && showSubtitle(text, { warn })); // captioned: the event log keeps it, no toast
       };
       this.hints = new Hints(document.getElementById('ui')!, this.world, this.local); // (missions: the battle alerts only)
+      this.hints.pointAt = { ping: (x, y) => this.hud?.minimap.ping(x, y, '#ffd34d'), look: (x, y) => this.gfx.cam.flyToPoint(x, y) }; // (PLAY: alerts that point at places, e.g. the close-out alert's last known enemy structures)
       if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // rival radio + habit tracking (not in replay branches / challenges)
       if (this.world.commander) this.attachments.push(attachCommanderPanel(this)); // commander powers panel (Commander rules)
       if (this.world.mission) {
@@ -582,7 +583,7 @@ export class Game {
     const n = Math.round(seconds / DT);
     for (let i = 0; i < n; i++) {
       this.world.step();
-      if (i > n - 40) this.processEvents();
+      if (i > n - 40 || this.world.gameOver) this.processEvents(); // (never drop the end of the match: its finale and results)
       else this.world.events.length = 0;
     }
     this.gfx.fog.snap(this.local);
@@ -743,7 +744,8 @@ export class Game {
 
   private frame(now: number) {
     // rAF timestamps can be older than a performance.now() taken just before (start, resume): never go negative
-    const dt = Math.max(0, Math.min(0.1, (now - this.last) / 1000));
+    const elapsed = Math.max(0, (now - this.last) / 1000);
+    const dt = Math.min(0.1, elapsed);
     this.last = now;
     const world = this.world;
     if (this.net?.active) { // multiplayer: the lockstep paces the simulation
@@ -752,7 +754,9 @@ export class Game {
       this.acc = this.net.alpha * DT;
     } else if (!this.paused) {
       this.time += dt;
-      this.acc += dt * this.speed;
+      // the battle keeps up to 0.25 s a frame (a software renderer at 1-2 fps ran the clock at 0.15x with the visuals'
+      // 0.1 s cap); still fixed 20 Hz ticks, so nothing about the simulation changes
+      this.acc += Math.min(0.25, elapsed) * this.speed;
       let steps = 0;
       // up to 12 ticks a frame: x5 (100 ticks/s) still holds down to ~9 fps before time is dropped
       while (this.acc >= DT && steps < 12) {
@@ -878,7 +882,7 @@ export class Game {
     this.audio.update(dt);
 
     if (this.endTimer > 0) {
-      this.endTimer -= dt;
+      this.endTimer -= Math.min(0.5, elapsed); // (wall time: at a few frames a second the capped dt stretched 4.5 s into minutes)
       if (this.endTimer <= 0) {
         this.endCine?.();
         this.endCine = null;

@@ -240,7 +240,7 @@ async function write() {
   // registered by another module (the cast, Boot Camp, Conquest...): the same English under a key outside missions.*
   // (templates compare without their placeholder names: "{left} left" is "{n} left")
   const norm = (t: string) => t.replace(/\{\w+\}/g, '{}');
-  for (const f of found) if (core.isSourceText(f.text) || core.isSourceText(f.text.replace(/\{\w+\}/g, '1'))) others.add(f.text);
+  for (const f of found) if (registeredElsewhere(core, f.text)) others.add(f.text);
   const seenNorm = new Set<string>();
   const groups: Record<string, Map<string, string>> = {};
   for (const f of found) {
@@ -269,12 +269,21 @@ ${body}
   console.log(`${n} mission texts -> ${path.relative(ROOT, OUT)} (${others.size} already registered elsewhere)`);
 }
 
+/**
+ * Whether a mission text is registered source English. A template ("Wave {n}: {what}") must be registered as the
+ * same template (placeholder names aside): matching it against registered patterns would let a shorter one swallow
+ * it ("Daily Challenge #{n}" matches "Daily Challenge #{number}, operation {codename}. ..." with n = the rest).
+ */
+function registeredElsewhere(core: typeof import('../../src/i18n/core'), text: string): boolean {
+  return /\{\w+\}/.test(text) ? core.isSourceTemplate(text) : core.isSourceText(text);
+}
+
 async function check(): Promise<Found[]> {
   const core = await import(pathToFileURL(path.join(ROOT, 'src/i18n/core.ts')).href) as typeof import('../../src/i18n/core');
   for (const f of fs.readdirSync(path.join(ROOT, 'src/i18n/en')).filter((x) => x.endsWith('.ts'))) await import(pathToFileURL(path.join(ROOT, 'src/i18n/en', f)).href);
   const raw = await collect();
   const { extra, skip } = composed(raw);
-  return [...raw.filter((f) => !skip.has(f.text)), ...extra].filter((f) => !core.isSourceText(f.text));
+  return [...raw.filter((f) => !skip.has(f.text)), ...extra].filter((f) => !registeredElsewhere(core, f.text));
 }
 export { check as unregisteredMissionText };
 

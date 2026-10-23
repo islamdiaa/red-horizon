@@ -13,7 +13,7 @@
  *    PMREM environment map from RoomEnvironment in render/renderer.ts) must be re-baked.
  */
 import { GAME_TITLE } from '../config';
-import { readGpuStrings } from './gpu';
+import { classifyGpu, readGpuStrings } from './gpu';
 import {
   ACCENT_RGB, DANGER_RGB, FONT, MONO, Z_TOP, backdrop, button, buttonRow, codeBox, emblem, fadeIn, fadeOutAndRemove, glassPanel,
   h, paragraph, spinner, title,
@@ -33,6 +33,8 @@ export interface SupportResult {
   /** Non-fatal problems (performance caveat, missing optional extensions...). */
   warnings: string[];
   renderer?: string;
+  /** The browser refused a context with failIfMajorPerformanceCaveat (software rendering or a blocklisted driver). */
+  caveat?: boolean;
 }
 
 /** Minimum limits the renderer relies on (shadow maps, post-processing targets, model textures). */
@@ -51,12 +53,14 @@ export function checkSupport(): SupportResult {
   canvas.width = canvas.height = 1;
   let gl: WebGL2RenderingContext | null = null;
   let creationError = '';
+  let caveat = false;
   const onErr = (e: Event) => { creationError = (e as WebGLContextEvent).statusMessage || creationError; };
   canvas.addEventListener('webglcontextcreationerror', onErr);
   try {
     gl = canvas.getContext('webgl2', { failIfMajorPerformanceCaveat: true });
     if (!gl) {
       gl = canvas.getContext('webgl2');
+      caveat = !!gl;
       if (gl) warnings.push('The browser reports a major performance caveat (software rendering or a blocklisted GPU driver): expect a low frame rate.');
     }
   } catch (e) {
@@ -98,7 +102,85 @@ export function checkSupport(): SupportResult {
   if (missing.length) {
     return { ok: false, reason: 'missing-feature', message: tErrors('unsupported.missingFeature', { game: GAME_TITLE }), detail: `${missing.join('; ')} (${detail})`, warnings, renderer };
   }
-  return { ok: true, message: 'WebGL 2 available', detail, warnings, renderer };
+  return { ok: true, message: 'WebGL 2 available', detail, warnings, renderer, caveat };
+}
+
+/**
+ * WebGL 2 works, but without the graphics card: a software rasteriser (SwiftShader, llvmpipe, Windows' Basic Render
+ * Driver) or a context the browser flags with a major performance caveat (hardware acceleration off, a blocklisted
+ * driver). The game then runs at a few frames per second at best, and its clock with it.
+ */
+export function isSlowRenderer(s: SupportResult): boolean {
+  if (!s.ok) return false;
+  return !!s.caveat || (!!s.renderer && classifyGpu(s.renderer).tier === 'software');
+}
+
+const SLOW_NOTICE_KEY = 'rh.slowGpuNotice';
+
+/**
+ * Tell a player whose browser draws in software why the game is slow and how to fix it: a dismissible banner over
+ * the loading screen and the menus, shown until dismissed for this renderer (a new driver or browser shows it again).
+ * It steps aside while a battle runs (it never covers the HUD) and comes back in the menus. Automated browsers
+ * (navigator.webdriver: the test bots, which run on software GPUs) don't get it unless the URL asks for it
+ * (?slowgpu=1, which also shows it on a fast GPU; a dismissal still counts). Returns the banner, or null when none is shown.
+ */
+export function showSlowRendererNotice(s: SupportResult, parent: HTMLElement = document.body): HTMLElement | null {
+  const forced = typeof location !== 'undefined' && new URLSearchParams(location.search).get('slowgpu') === '1';
+  if (!forced && (!isSlowRenderer(s) || (typeof navigator !== 'undefined' && navigator.webdriver))) return null;
+  const id = (s.renderer || 'unknown').slice(0, 160);
+  try { if (localStorage.getItem(SLOW_NOTICE_KEY) === id) return null; } catch { /* storage blocked: show it */ }
+  const box = h('div', {
+    position: 'fixed', left: '50%', top: '0.75rem', transform: 'translateX(-50%)', zIndex: String(Z_TOP - 3),
+    width: 'min(36rem, calc(100vw - 1.5rem))', boxSizing: 'border-box', padding: '0.9rem 1.1rem 0.85rem', borderRadius: '0.7rem',
+    background: 'linear-gradient(180deg, rgba(20, 28, 39, 0.95), rgba(8, 12, 18, 0.97))', border: '1px solid rgba(255, 176, 64, 0.45)',
+    boxShadow: '0 1rem 2.6rem rgba(0, 0, 0, 0.55)', color: '#e9f0f7', font: `500 0.95rem/1.4 ${FONT}`, pointerEvents: 'auto',
+  }, [], { role: 'status', 'aria-live': 'polite', 'data-notice': 'slow-gpu' });
+  const head = h('div', { font: `700 1rem/1.2 ${FONT}`, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#ffb040', marginBottom: '0.35rem' }, [tErrors('slowGpu.title')]);
+  const body = h('div', { marginBottom: '0.35rem' }, [tErrors('slowGpu.body', { game: GAME_TITLE })]);
+  const advice = h('div', { color: '#b9c7d6', fontSize: '0.88rem', marginBottom: '0.6rem' }, [tErrors('slowGpu.advice')]);
+  const ok = button(tErrors('slowGpu.dismiss'), () => {
+    try { localStorage.setItem(SLOW_NOTICE_KEY, id); } catch { /* not remembered */ }
+    clearInterval(timer);
+    fadeOutAndRemove(box);
+  }, 'primary', '255, 176, 64');
+  ok.style.padding = '0.55rem 1rem 0.5rem';
+  box.append(head, body, advice, h('div', { display: 'flex', justifyContent: 'flex-end' }, [ok]));
+  parent.append(box);
+  fadeIn(box);
+  // out of the way during a battle (the in-match top bar is visible), back in the menus
+  const timer = setInterval(() => {
+    if (!box.isConnected) { clearInterval(timer); return; }
+    const bar = document.getElementById('topbar');
+    const inBattle = !!bar && bar.getClientRects().length > 0 && getComputedStyle(bar).visibility !== 'hidden';
+    box.style.display = inBattle ? 'none' : '';
+  }, 1000);
+  return box;
+}
+
+/**
+ * checkSupport(), retried when the browser has WebGL 2 but could not create a context: on a cold start the GPU process
+ * can still be coming up, or have just been lost (seen on Windows: Chrome on Direct3D 11 WARP failed some first launches
+ * with "Web page caused context loss and was blocked" even on a blank page; Chrome blocks every page's 3D APIs for about
+ * 10 s after a GPU-process loss it cannot blame on one page). Waits `delaysMs` between attempts (a fresh canvas each
+ * time; 12 s in all by default, longer than that block) and only then reports 'context-failed', with every attempt's
+ * creation error in `detail`. Other results return at once. The loading screen stays up meanwhile.
+ */
+export async function checkSupportRetrying(delaysMs: number[] = [500, 1500, 4000, 6000], check: () => SupportResult = checkSupport, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<SupportResult> {
+  let res = check();
+  const fails: string[] = [];
+  for (const ms of delaysMs) {
+    if (res.ok || res.reason !== 'context-failed') break;
+    fails.push(res.detail);
+    await wait(ms);
+    res = check();
+  }
+  if (!fails.length) return res;
+  if (res.ok) {
+    const w = `WebGL 2 started on attempt ${fails.length + 1} (earlier: ${fails.join(' | ')})`;
+    console.warn(`[webgl] ${w}`);
+    return { ...res, warnings: [...res.warnings, w] };
+  }
+  return { ...res, detail: [...fails, res.detail].map((d, i) => `attempt ${i + 1}: ${d}`).join('\n') };
 }
 
 /** What to try, per reason (catalogue keys: looked up when the screen is shown). */
@@ -133,7 +215,10 @@ export function renderUnsupported(reason: SupportResult | UnsupportedReason, par
   ]));
   panel.append(paragraph(res.message));
   const list = h('ul', { margin: '0 0 1.1rem', paddingLeft: '1.2rem', color: '#d5e1ee', fontSize: '0.98rem', lineHeight: '1.45', fontWeight: '500' });
-  for (const a of ADVICE[why]) list.append(h('li', { marginBottom: '0.35rem' }, [tErrors(a)]));
+  // Chrome "...context loss and was blocked": its GPU process failed and 3D stays off for this page until the browser
+  // restarts, so restarting the browser goes first
+  const advice = why === 'context-failed' && /was blocked/i.test(res.detail) ? ['unsupported.contextAdvice3', 'unsupported.contextAdvice1', 'unsupported.contextAdvice2'] as const : ADVICE[why];
+  for (const a of advice) list.append(h('li', { marginBottom: '0.35rem' }, [tErrors(a)]));
   panel.append(list);
   if (res.detail || res.warnings.length) {
     const det = h('details', { margin: '0 0 1rem', color: '#7d8c9d', fontFamily: MONO, fontSize: '0.75rem' });

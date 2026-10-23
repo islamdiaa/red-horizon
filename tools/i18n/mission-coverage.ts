@@ -70,10 +70,17 @@ await import('../../src/i18n/en/players');
 const en = englishCatalog();
 const unregistered = [...seen].filter(([t]) => !isSourceText(t));
 const untranslated: string[] = [];
+// translated only in part: a shorter template swallowed an unregistered line ("Daily Challenge #{n}" + the rest), or a
+// name inside stayed English; English words left in a Russian or Chinese result show it
+const partial: string[] = [];
 for (const l of OTHER_LANGS) {
   registerLocale(l, loadLocale(l));
   await setLanguage(l);
-  for (const [t] of seen) if (isSourceText(t) && trSource(t) === t && !/^[\p{Lu}\d\s.·:/-]{1,12}$/u.test(t)) untranslated.push(`${l}: ${t}`);
+  for (const [t] of seen) {
+    const tr = trSource(t);
+    if (isSourceText(t) && tr === t && !/^[\p{Lu}\d\s.·:/-]{1,12}$/u.test(t)) untranslated.push(`${l}: ${t}`);
+    else if ((l === 'ru' || l === 'zh-CN') && tr !== t && /[A-Za-z]{3,}[\s,.:;!?-]+[A-Za-z]{3,}/.test(tr)) partial.push(`${l}: ${t}  ->  ${tr}`);
+  }
 }
 await setLanguage('auto');
 const out = path.join(ROOT, 'screenshots/l10n/mission-coverage.txt');
@@ -84,5 +91,7 @@ fs.writeFileSync(out, [
   ...unregistered.map(([t, w]) => `${t}    <- ${[...w].slice(0, 3).join(', ')}`),
   '', '# registered, but trSource leaves them in English',
   ...untranslated,
+  '', '# translated only in part (English words left in the Russian / Chinese text)',
+  ...partial,
 ].join('\n') + '\n');
-console.log(`${seen.size} texts seen; ${unregistered.length} not registered; ${untranslated.length} untranslated -> ${path.relative(ROOT, out)} (${Object.keys(en).length} English keys)`);
+console.log(`${seen.size} texts seen; ${unregistered.length} not registered; ${untranslated.length} untranslated; ${partial.length} partly translated -> ${path.relative(ROOT, out)} (${Object.keys(en).length} English keys)`);

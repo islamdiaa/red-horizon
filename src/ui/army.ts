@@ -32,6 +32,9 @@ import tCommon from '../i18n/en/common';
 import { fmtMoney, hasKey, onLanguageChange, tx } from '../i18n/core';
 import { typeName } from '../i18n/names';
 
+/** A touch-first device (ui/touch.ts isTouchDevice, inlined: touch.ts imports this module). */
+const touchScreen = () => typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && matchMedia('(hover: none)').matches));
+
 /** The overlay hook the factory badges draw through (render/overlay.ts `extra`, chained after the order layer). */
 type ExtraDraw = (ctx: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => [number, number] | null) => boolean;
 export interface OverlayHook { extra: ExtraDraw | null; groups: Map<number, number> }
@@ -744,7 +747,7 @@ export class IdleWatch {
       st.nag = true;
       if (now - st.toast >= TOAST_EVERY_KIND && now - this.lastToast >= TOAST_EVERY_ANY) {
         st.toast = this.lastToast = now;
-        this.host.message(tArmy('msg.factoryIdle', { name: idleNow.get(kind), money: money(p.credits) }));
+        this.host.message(tArmy(touchScreen() ? 'msg.factoryIdleTouch' : 'msg.factoryIdle', { name: idleNow.get(kind), money: money(p.credits) }));
       }
     }
     // harvesters standing idle, refineries without one

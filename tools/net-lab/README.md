@@ -42,6 +42,11 @@ The real VMs (`tools/lab`) do have `tc netem`, so `vm-match.sh` uses it there fo
 | `relay-robust.mjs` | malformed/oversize/flood/rate/impersonation/replay/origin checks against a lab relay |
 | `lb-forge.ts` | plays a real ranked run, submits it, then confirms every tampered variant is rejected |
 | `vm-match.sh` | a cross-machine match: a browser in a test VM vs one on the host or in the other VM (real NAT, real `tc netem` both ways on the Ubuntu side, Chromium/Firefox/WebKit on Ubuntu, Chrome on Direct3D 11 on Windows). Every peer's Playwright server listens on `NETLAB_PEER_PORT` (default 8818), checked free on each machine first: the script stops with a clear message rather than talk to another service |
+| `party.mjs` | two to four real browsers in one match through the lobby (1v1, 2v2, free for all, co-op, AI seats): per-peer hashes, end state, results screens, pace and latency, plus events (surrender, a cut link, a relay restart, an injected desync) |
+| `vm-party.sh` | `party.mjs` across the host and both test VMs: starts each peer on its own port, cut/restore commands per VM, `NETEM_<i>` for Ubuntu peers; takes the VM locks and, with a host peer, the shared heavy lock |
+| `peer-probe.mjs` | WebGL 2 and renderer of every peer, before a long run (`PARTY_SCRIPT=tools/net-lab/peer-probe.mjs vm-party.sh ...`) |
+| `ranked-ui.mjs` | a won ranked run through the real UI (the "Decapitation" scenario), submitted from the result card, checked on the server and on the Leaderboards screen |
+| `win-peer-stop.ps1` | stops a Windows peer and its browser's helper processes (a killed server leaves them running) |
 
 ## Running
 

@@ -8,6 +8,10 @@ import { WebSocket } from '../../server/node_modules/ws/wrapper.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+
+// the relay refuses any other protocol version ('version' error): read it from the game's source, never hard-code it
+const PROTO = Number(/export const NET_PROTOCOL = (\d+)/.exec(readFileSync(new URL('../../src/net/protocol.ts', import.meta.url), 'utf8'))[1]);
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const DIRECT = arg('url', 'ws://10.231.0.3:8787/relay/ws');
@@ -58,9 +62,9 @@ const err = (c) => c.msgs.filter((m) => m.t === 'error').map((m) => m.code);
 async function room(start = true) { // a 1v1 in the lobby; start=true begins the match
   const a = conn('10.50.0.1'), b = conn('10.50.0.2');
   await Promise.all([a.ready, b.ready]);
-  a.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'A', create: { settings: { mode: '1v1', size: 64 } } });
+  a.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'A', create: { settings: { mode: '1v1', size: 64 } } });
   await sleep(300);
-  b.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'B', join: a.code });
+  b.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'B', join: a.code });
   await sleep(300);
   b.send({ t: 'me', ready: true });
   await sleep(300);
@@ -82,7 +86,7 @@ const run = async (name, fn) => { if (!want.includes(name)) return; log('case', 
 await run('malformed', async () => {
   const c = conn('10.51.0.1');
   await c.ready;
-  c.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'M', create: {} });
+  c.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'M', create: {} });
   await sleep(200);
   for (let i = 0; i < 60; i++) { c.send('not json at all {{{'); c.send(JSON.stringify({ t: 'nonsense', x: i })); c.send(JSON.stringify({ t: 'slot', slot: 99 })); }
   await sleep(1500);
@@ -93,7 +97,7 @@ await run('malformed', async () => {
 await run('oversize', async () => {
   const c = conn('10.51.0.2');
   await c.ready;
-  c.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'O', create: {} });
+  c.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'O', create: {} });
   await sleep(200);
   const big = JSON.stringify({ t: 'chat', text: 'x'.repeat(20000) }); // > MAX_CLIENT_MSG (16 KB)
   c.send(big);
@@ -107,7 +111,7 @@ await run('oversize', async () => {
 await run('msgflood', async () => {
   const c = conn('10.51.0.3');
   await c.ready;
-  c.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'F', create: {} });
+  c.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'F', create: {} });
   await sleep(200);
   const t = Date.now();
   for (let i = 0; i < 4000; i++) c.send({ t: 'me', faction: i % 2 ? 'allies' : 'soviet' });
@@ -124,7 +128,7 @@ await run('codeguess', async () => {
     const c = conn('10.52.0.1');
     const ok = await c.ready;
     if (!ok) { limited++; continue; }
-    c.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'G', join: 'ZZZZZZ' });
+    c.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'G', join: 'ZZZZZZ' });
     await sleep(80);
     tries++;
     const e = err(c);
@@ -190,7 +194,7 @@ await run('slowreader', async () => {
   const c = conn('10.53.0.1');
   await c.ready;
   c.ws._socket?.pause?.(); // stop reading from the kernel buffer
-  c.send({ t: 'hello', proto: 1, build: 'robust', mods: '', name: 'S', create: {} });
+  c.send({ t: 'hello', proto: PROTO, build: 'robust', mods: '', name: 'S', create: {} });
   await sleep(300);
   // make it chatty so the relay has data to push back (many rooms worth of pings): wait out the ping backlog
   await sleep(8000);

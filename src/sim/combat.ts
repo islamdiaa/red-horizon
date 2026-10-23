@@ -153,6 +153,10 @@ export function findTarget(world: World, e: Entity, range: number, buildingRange
     const size = b.bt.size;
     if (b.cx - ex > far || ex - (b.cx + size[0]) > far || b.cy - ey > far || ey - (b.cy + size[1]) > far) continue;
     if (!b.alive || !owner.isEnemy(b.owner) || b.buildAnim < 0.1 || b.bt.wall || b.bt.mine) continue;
+    // an invulnerable structure without weapons (a mission's locked objective, an Iron-Curtained refinery) is nothing
+    // to shoot at: no damage to do, no threat. Units on attack-move used to plink at it while the enemy picked them
+    // off from just out of range. (An order to attack it is still obeyed; armed or vulnerable ones are targets.)
+    if (b.invulnerable > 0 && !b.weapons.length) continue;
     const d = b.distTo(ex, ey);
     if (d > buildingRange) continue;
     if (!pickWeapon(e, b)) continue;

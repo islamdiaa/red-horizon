@@ -49,7 +49,7 @@ export default async function challenges(bot) {
     const n1 = await cards(bot);
     const note = (await bot.page.locator('.chx-foot .note').textContent().catch(() => '')).trim();
     // (the first card is a built-in challenge: importing it again keeps one copy)
-    bot.check(n1 === n0 && /import/i.test(note) && !await bot.sees('.chx-foot .note.bad'), 'the exported challenge file imports back (a built-in one is not duplicated)', `${n0} -> ${n1}; "${note}"`);
+    bot.check(n1 === n0 && /import|already in your list/i.test(note) && !await bot.sees('.chx-foot .note.bad'), 'the exported challenge file imports back (a built-in one is not duplicated)', `${n0} -> ${n1}; "${note}"`);
   }
 
   // ---- a share link for the first challenge

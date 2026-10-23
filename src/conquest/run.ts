@@ -210,20 +210,23 @@ export function planBattle(run: ConquestRun, targetId: string, committed = defau
     commander: pers.commander,
     personality: pers.personality,
     strength,
-    ai: neutral ? 'easy' : aiFor(strength, run.difficulty),
+    // (an Easy run's capital commander plays at Recruit with less in the bank: at Normal, with $10,000 and a second
+    // base, it beat every newcomer and casual stand-in, tools/campaign-conquest.ts)
+    ai: neutral ? 'easy' : kind === 'boss' && run.difficulty === 'easy' ? 'recruit' : aiFor(strength, run.difficulty),
     terrain: t.terrain,
     climate,
     map,
     mapLabel: label,
     credits,
-    enemyCredits: kind === 'boss' ? 10000 : 1500 + 900 * strength,
+    enemyCredits: kind === 'boss' ? (run.difficulty === 'easy' ? 6000 : 10000) : 1500 + 900 * strength,
     core,
     allowed: allowedTypes(run, ALL_TYPES),
     mods: battleMods(run, sea),
     partisans: action === 'attack' && !!t.partisans,
-    superweapon: run.superThreat && run.superThreat.territory === t.id ? run.superThreat.kind : kind === 'boss' ? (run.enemy === 'soviet' ? 'iron' : 'chrono') : null,
+    superweapon: run.superThreat && run.superThreat.territory === t.id ? run.superThreat.kind : kind === 'boss' && run.difficulty !== 'easy' ? (run.enemy === 'soviet' ? 'iron' : 'chrono') : null,
     fort: action === 'defend' ? t.fort : 0,
     parTime: par,
+    difficulty: run.difficulty,
   };
 }
 

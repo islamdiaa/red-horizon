@@ -31,8 +31,18 @@
  *     start positions (starts.ts); campaign difficulty with Red Alert's handicaps and per-mission tuning (handicap.ts,
  *     mission fixes in Allied 3, Iron Coast, Conquest captures, co-op waves, King of the Hill, the daily); surrender
  *     (resign.ts).
+ *  6. Remaining-items round: the Classic AI masses before its first wave (Hard holds it until 13:00), saves while its
+ *     army is behind (Normal and Hard, first 25 minutes), shells defences its V2s and artillery outrange and takes more
+ *     risk after 25 minutes; every skirmish AI hunts a beaten side's stragglers in search parties on a finer grid,
+ *     surrenders when beaten and sells spares when broke; Recruit and Easy allies play support; team pushes and help
+ *     sizes, AI bases keep refinery docks and factory exits clear, MCV deploy-spot search, depot repair reserve
+ *     (src/sim/ai*.ts). Units never auto-target an unarmed invulnerable structure, enter orders try the other sides of a
+ *     structure, a moving unit drops a dead target, a loaded game restores mission AI levels (combat.ts, unitlogic.ts,
+ *     save.ts). Missions: per-level tuning across the campaign, no-base missions fail when nothing left can finish them
+ *     (soviet-01, soviet-03), allied-05's trucks stay on the plain, Conquest's Easy naval harbour and Easy capital, and
+ *     capital waves stop with the yard (src/missions, src/conquest).
  */
-export const SIM_VERSION = 5;
+export const SIM_VERSION = 6;
 
 /** The version of records made before the stamp existed. */
 export const LEGACY_SIM_VERSION = 1;

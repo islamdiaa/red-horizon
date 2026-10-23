@@ -1,6 +1,7 @@
 // Every mission at every campaign difficulty, played by pilots of three skills (tools/campaign-players.ts):
 //   node --import tsx tools/campaign-levels.ts [--missions all|allies|soviet|special|<id,id>] [--levels recruit,easy,normal,hard,brutal]
 //        [--pilots newcomer,casual,expert] [--seeds 6] [--minutes 45] [--out file.json] [--table]
+//        [--days 2026-10-01:30]   (with --missions daily: that many daily challenges from that date, one seed each)
 // Seeds perturb the simulation RNG (as JITTER does in campaigntest.ts). WORKERS=n caps the worker threads.
 // Prints one row per mission x level: wins / runs for each pilot, and writes every run to --out (JSON).
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
@@ -9,7 +10,7 @@ import { writeFileSync } from 'node:fs';
 import { campaignMissions, getMission } from '../src/missions';
 import { MISSION_LEVELS, type MissionLevel } from '../src/sim/handicap';
 
-export interface LevelJob { mission: string; level: MissionLevel; pilot: string; seed: number; minutes: number }
+export interface LevelJob { mission: string; level: MissionLevel; pilot: string; seed: number; minutes: number; /** daily challenge date (YYYY-MM-DD) */ day?: string }
 export interface LevelRun extends LevelJob { won: boolean; ended: boolean; time: number; reason: string | null; stars: number; objectives: string[]; error?: string; waves?: number; score?: number; ms: number }
 
 const LEVELED = ['allies', 'soviet'] as const;
@@ -97,8 +98,18 @@ if (isMainThread && process.argv[1]?.endsWith('campaign-levels.ts')) {
   const outFile = arg('out', '');
   const workers = +(process.env.WORKERS ?? 0) || Math.max(1, Math.min(6, availableParallelism() - 4));
   const jobs: LevelJob[] = [];
+  const daysArg = arg('days', '');
   for (const mission of missions) {
     if (!getMission(mission)) { console.error('unknown mission', mission); process.exit(1); }
+    if (mission === 'daily' && daysArg) {
+      const [from, n] = daysArg.split(':');
+      const t = Date.parse(from + 'T00:00:00Z');
+      for (let k = 0; k < +(n ?? 1); k++) {
+        const day = new Date(t + k * 86400000).toISOString().slice(0, 10);
+        for (const pilot of pilots) jobs.push({ mission: `daily`, level: 'normal', pilot, seed: 0, minutes, day });
+      }
+      continue;
+    }
     for (const level of levels) for (const pilot of pilots) for (let seed = 0; seed < seeds; seed++) jobs.push({ mission, level, pilot, seed, minutes });
   }
   const t0 = Date.now();
@@ -108,5 +119,14 @@ if (isMainThread && process.argv[1]?.endsWith('campaign-levels.ts')) {
     if (done % 25 === 0 || done === jobs.length) console.error(`  ${done}/${jobs.length} (${Math.round((Date.now() - t0) / 1000)} s)`);
   });
   if (outFile) writeFileSync(outFile, JSON.stringify(runs));
-  console.log(tabulate(runs, pilots));
+  const days = runs.filter((r) => r.day);
+  if (days.length) {
+    // daily challenges: one row per date (result, time, score per pilot)
+    console.log(`| day | ${pilots.join(' | ')} |\n|---|${pilots.map(() => '---').join('|')}|`);
+    for (const day of [...new Set(days.map((r) => r.day))]) {
+      console.log(`| ${day} | ${pilots.map((p) => { const r = days.find((x) => x.day === day && x.pilot === p); return r ? `${r.error ? 'ERROR' : r.won ? 'won' : r.ended ? 'lost' : 'open'} ${Math.round(r.time / 60)}m ${r.score ?? 0}` : ''; }).join(' | ')} |`);
+    }
+  }
+  const rest = runs.filter((r) => !r.day);
+  if (rest.length) console.log(tabulate(rest, pilots));
 }

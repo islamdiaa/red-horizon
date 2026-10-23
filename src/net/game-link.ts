@@ -16,7 +16,7 @@ import tNet from '../i18n/en/net';
 import { trSource } from '../i18n/core';
 
 const REASON_KEYS: Record<string, Parameters<typeof tNet>[0]> = {
-  kicked: 'reason.kicked', empty: 'reason.empty', idle: 'reason.idle', over: 'reason.over', 'server shutting down': 'reason.shutdown',
+  'no-room': 'reason.noRoom', kicked: 'reason.kicked', empty: 'reason.empty', idle: 'reason.idle', over: 'reason.over', 'server shutting down': 'reason.shutdown',
   desync: 'reason.desync', 'everyone left': 'reason.everyoneLeft', 'time limit': 'reason.timeLimit', finished: 'reason.finished',
   'connection lost': 'reason.lost', closed: 'reason.closed',
 };
@@ -47,6 +47,7 @@ const CSS = `
 .net-banner .sp { flex: 1; } .net-banner small { display: block; color: var(--muted); font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .15rem; }
 .net-banner .spin { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 2px solid rgba(var(--warn-rgb), .3); border-top-color: var(--warn); animation: netSpin 1s linear infinite; flex-shrink: 0; }
 .net-banner button { height: 2.1rem; padding: 0 .8rem; border-radius: .5rem; cursor: pointer; font: 700 .72rem var(--font); letter-spacing: .18em; text-transform: uppercase; color: #fff; border: 1px solid rgba(var(--danger-rgb), .6); background: rgba(var(--danger-rgb), .2); }
+.net-banner button[data-a="offline"] { border-color: rgba(var(--accent-rgb), .6); background: rgba(var(--accent-rgb), .2); }
 .net-banner .bar { height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); margin-top: .4rem; overflow: hidden; } .net-banner .bar i { display: block; height: 100%; background: var(--accent); }
 .net-chat { position: fixed; left: 1rem; bottom: 15rem; z-index: 6; width: 24rem; display: flex; flex-direction: column; gap: .25rem; pointer-events: none; }
 .net-chat .ln { align-self: flex-start; max-width: 100%; padding: .25rem .55rem; border-radius: .45rem; background: rgba(5,8,12,.72); font-size: .88rem; color: var(--text); text-shadow: 0 1px 2px #000; animation: netIn .25s var(--ease) both; overflow-wrap: anywhere; }
@@ -103,6 +104,8 @@ export class GameLink implements NetLink {
   private offs: (() => void)[] = [];
   private disposed = false;
   private endSeen = false;
+  /** When the current catch-up began (0: not catching up). */
+  private cuSince = 0;
   private names = new Map<number, string>();
 
   constructor(private game: Game, readonly client: NetClient, readonly start: MatchStart, private host: NetMatchHost) {
@@ -152,17 +155,49 @@ export class GameLink implements NetLink {
   }
 
   issue(cmd: Command) {
+    if (this.session.ls.status === 'offline') { // (playing on without the relay: our orders run directly, as in a skirmish)
+      const c = { ...cmd, player: this.game.local.id } as Command;
+      this.game.recorder?.record(c);
+      this.game.world.issue(c);
+      return;
+    }
     this.session.issue(cmd);
   }
 
   get canSurrender(): boolean {
     const ls = this.session.ls;
+    if (ls.status === 'offline') { const me = this.game.local; return !me.defeated && !me.resigned && !this.game.world.gameOver; }
     return ls.status === 'live' && !ls.watching && !ls.surrendered;
   }
 
   /** Surrender (sim/resign.ts): our last command; we watch once it runs. */
   surrender(): boolean {
+    if (this.session.ls.status === 'offline') { if (!this.canSurrender) return false; this.issue({ c: 'resign', player: this.game.local.id }); return true; }
     return this.session.ls.resign();
+  }
+
+  /** The connection ended for good while we still command our forces: the match can go on here, against the AI. */
+  get canPlayOffline(): boolean {
+    const ls = this.session.ls;
+    return this.client.state === 'closed' && ls.status === 'live' && !ls.watching && !ls.surrendered && !this.game.world.gameOver;
+  }
+
+  /**
+   * Play on without the relay (it restarted or shut down, the room is gone, or the reconnect gave up): the AI takes
+   * over every other human from this tick (recorded as drops, so the replay reproduces the rest of the battle) and
+   * the match continues on this machine only, like a skirmish (not saved: multiplayer matches never are).
+   */
+  playOffline(): boolean {
+    if (!this.canPlayOffline) return false;
+    const tick = this.game.world.tick;
+    const handed = this.session.ls.goOffline();
+    if (!handed) return false;
+    const net = this.game.setup.net!;
+    for (const p of handed) (net.drops ??= []).push([tick, p]);
+    this.session.catchingUp = false;
+    this.line(tNet('chat.offline'), true);
+    this.render();
+    return true;
   }
 
   frame(dt: number, step: (fast: boolean) => void) {
@@ -178,6 +213,7 @@ export class GameLink implements NetLink {
       if (w.gameOver) this.endSeen = true;
     }, this.session.catchingUp ? 30 : 12);
     if (was && !this.session.catchingUp) this.caughtUp();
+    this.cuSince = this.session.catchingUp ? this.cuSince || performance.now() : 0;
     if (this.game.speed !== 1 && !this.game.world.gameOver) this.game.speed = 1; // one pace for everybody
   }
 
@@ -226,11 +262,20 @@ export class GameLink implements NetLink {
       }
     }
     // one banner at a time, most important first
-    let bk = '', html = '', btn: { label: string; fn: () => void } | null = null;
+    type Btn = { label: string; fn: () => void; act: string } | null;
+    let bk = '', html = '', btn: Btn = null as Btn, btn2: Btn = null as Btn;
     if (ls.status === 'desync') { bk = ''; }
     else if (c.state === 'reconnecting') { bk = 'rc'; html = `<span class="spin"></span><div class="sp"><small>${tNet.html('banner.lostKicker')}</small>${tNet.html('banner.reconnecting')}</div>`; }
-    else if (c.state === 'closed' && ls.status === 'live') { bk = 'gone'; html = `<div class="sp"><small>${tNet.html('banner.goneKicker')}</small>${c.endReason ? tNet.html('banner.goneReason', { reason: reasonText(c.endReason) }) : tNet.html('banner.gone')}</div>`; btn = { label: tNet('banner.leave'), fn: () => this.host.quit() }; }
-    else if (s.catchingUp) {
+    else if (c.state === 'closed' && ls.status === 'live') {
+      const solo = this.canPlayOffline; // (a player still in command can finish the battle here, against the AI)
+      bk = `gone${solo}`; html = `<div class="sp"><small>${tNet.html('banner.goneKicker')}</small>${c.endReason ? tNet.html('banner.goneReason', { reason: reasonText(c.endReason) }) : tNet.html('banner.gone')}${solo ? `<br>${tNet.html('banner.offlineOffer')}` : ''}</div>`;
+      if (solo) btn2 = { label: tNet('banner.playOffline'), fn: () => { this.host.play('click'); this.playOffline(); }, act: 'offline' };
+      btn = { label: tNet('banner.leave'), fn: () => this.host.quit(), act: 'leave' };
+    }
+    // (a catch-up that ends within a second and a half - a slow machine's long frame - is not worth a banner: on a
+    // 3 fps machine it flashed "Rejoining" over the battle every few minutes; a reload or a tab back from the background
+    // catches up for longer)
+    else if (s.catchingUp && this.cuSince && performance.now() - this.cuSince > 1500) {
       const pct = Math.min(99, Math.round((100 * this.game.world.tick) / Math.max(1, ls.confirmed)));
       bk = `cu${pct}`; html = `<span class="spin"></span><div class="sp"><small>${tNet.html('banner.rejoinKicker')}</small>${tNet.html('banner.catchingUp', { pct })}<div class="bar"><i style="width:${pct}%"></i></div></div>`;
     } else if (s.stall && s.stall.seat !== c.seat && ls.status === 'live') {
@@ -238,7 +283,7 @@ export class GameLink implements NetLink {
       const why = st.loading ? 'banner.stallLoading' : st.gone ? 'banner.stallGone' : 'banner.stallSlow';
       bk = `st${st.seat}|${secs}|${st.canDrop}`;
       html = `<span class="spin"></span><div class="sp"><small>${tNet.html('banner.pausedKicker', { s: secs })}</small>${tNet.html(why, { name: st.name })}</div>`;
-      if (st.canDrop) btn = { label: tNet('banner.drop'), fn: () => { this.host.play('click'); s.dropStalled(); } };
+      if (st.canDrop) btn = { label: tNet('banner.drop'), fn: () => { this.host.play('click'); s.dropStalled(); }, act: 'drop' };
     }
     if (bk !== this.bannerKey) {
       this.bannerKey = bk;
@@ -246,7 +291,7 @@ export class GameLink implements NetLink {
       this.banner = null;
       if (bk) {
         this.banner = el('div', 'net-banner', html);
-        if (btn) { const b = el('button', '', esc(btn.label)); b.onclick = btn.fn; this.banner.appendChild(b); }
+        for (const x of [btn2, btn]) if (x) { const b = el('button', '', esc(x.label)); b.dataset.a = x.act; b.onclick = x.fn; this.banner.appendChild(b); }
         document.body.appendChild(this.banner);
       }
     }

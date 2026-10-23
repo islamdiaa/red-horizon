@@ -1,7 +1,8 @@
 // Allied campaign autopilots (registered into PILOTS).
 import type { Building, Unit } from '../src/sim/entities';
 import { ground } from '../src/missions/common';
-import { PILOTS, army, attack, attackMove, brain, builder, commander, enemyThings, every, genericPilot, moveTo, nearestTo } from './campaign-pilots';
+import { skillPilot } from './campaign-players';
+import { PILOTS, army, attack, attackMove, brain, builder, commander, enemyThings, every, expertMicro, genericPilot, moveTo, nearestTo } from './campaign-pilots';
 
 const cen = (l: { x: number; y: number }[]) => ({ x: l.reduce((a, u) => a + u.x, 0) / Math.max(1, l.length), y: l.reduce((a, u) => a + u.y, 0) / Math.max(1, l.length) });
 const enemyUnitsNear = (world: any, x: number, y: number, r: number): Unit[] =>
@@ -20,6 +21,7 @@ PILOTS['allied-01'] = (world, rt, s, log) => {
 // 2. defend: defensive brain, army holds a line in front of the rail yard
 PILOTS['allied-02'] = (world, rt, s) => {
   brain(world, s, 'defensive');
+  expertMicro(world, s, army(world));
   if (every(world, s, 'hold', 5)) {
     const yard = world.getEntity(rt.flags.yard) as Building | undefined;
     const st = rt.start(0), e = rt.start(1);
@@ -195,6 +197,8 @@ PILOTS['allied-04'] = (world, rt, s, log) => {
 
 // 5. truck hunt: lean base with Longbows, and a hunter group of tanks and helicopters
 PILOTS['allied-05'] = (world, rt, s, log) => {
+  // (at Brutal, against a ten-minute clock, the casual plan's Longbows and kept-together waves measured 3/8 against 0/8)
+  if (rt.level === 'brutal') { s.cas ??= skillPilot('casual'); s.cas(world, rt, s, log); return; }
   builder(world, s, ['powr', 'proc', 'weap', 'powr', 'proc', 'tent', 'dome', 'powr', 'hpad', 'hpad', 'fix'], ['e3'], ['2tnk', '2tnk', '1tnk'], ['heli']);
   if (!every(world, s, 'hunt', 3)) return;
   const harvs = world.units.filter((u) => u.alive && u.owner.id === 1 && u.ut.harvester);

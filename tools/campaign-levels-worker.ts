@@ -6,6 +6,7 @@ import type { LevelJob, LevelRun } from './campaign-levels';
 import { runKoth, type KothJob, type KothRun } from './campaign-koth';
 import { runChallenge, type ChallengeJob, type ChallengeRun } from './campaign-challenges';
 import { runConquest, type ConquestJob, type ConquestRun } from './campaign-conquest';
+import { setDailyDay } from '../src/missions/special';
 
 parentPort!.on('message', (m: { k: number; job: LevelJob | KothJob }) => {
   if ((m.job as KothJob).kind === 'koth') {
@@ -29,6 +30,7 @@ parentPort!.on('message', (m: { k: number; job: LevelJob | KothJob }) => {
     return;
   }
   const j = m.job as LevelJob;
+  setDailyDay(j.day ?? null); // (the daily challenge of that date)
   const t0 = performance.now();
   let run: LevelRun;
   try {

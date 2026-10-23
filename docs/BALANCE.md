@@ -37,9 +37,198 @@ How Red Horizon keeps its matches fair, and the numbers it is measured by.
 | Each level where players meet it: Quick Battle rolls and the skirmish menu's defaults, against the stand-in each level is measured against | `node --import tsx tools/selfplay/levels.ts --games 60` (`--cond qb,custom`, `--rules commander,classic`, `--pairs all`, `--patch`, `--tune`) |
 | Team play (2v2 with an AI teammate), free-for-alls and navies at every level | `node --import tsx tools/selfplay/teams.ts --games 16` (`--mode 2v2,ffa,naval`, `--map archipelago`) |
 | One match as the game sets it up, with snapshots of both sides (what the AI spent, fields and builds) | `node --import tsx tools/selfplay/trace.ts --qb 77 --diff recruit --vs newcomer --at 3,7,15` (`--autostart <seed>`, `--vs ai:<level>`) |
+| Why the AI wins or loses (its waves and how they ended, armies against its estimate, Ore Trucks lost, spending) and what is left of a beaten side | `levels.ts ... --probe ai` (and `run.ts ... --probe ai`: why AI-vs-AI games time out) |
+| A beaten player's last units hiding: how long each level takes to find and finish them | `node --import tsx tools/selfplay/endgame.ts --games 16` |
 
 `MatchSpec.rules` (tools/selfplay/lib.ts) can patch any rule or Commander number for one batch (`patches`, e.g.
 `['POWERS.funds.cooldown', 300]`), so a change can be tried before it is made.
+
+## Finishing matches and Classic Hard (simulation version 6)
+
+The user's words after version 5: *"fix remaining items, test further extensively, ensure it's flawless"*. Version 5
+left Classic Hard off the curve (38% against the casual stand-in, 68% against the experienced one), most Classic
+AI-vs-AI games on the curated maps running to the time limit, newcomers who beat Recruit or Easy unable to finish
+them, a beaten player's last units never hunted down, and AI teammates on the easy levels that rarely came to help.
+
+### Why Classic Hard lost to the casual player
+
+`levels.ts --probe ai` records what the AI thinks and does. Classic Hard against the casual stand-in (120 games,
+version 5 judgement plus this round's hunting and surrender, before the changes below):
+
+| | Against the casual stand-in | Against the experienced one |
+|---|---|---|
+| AI army against the human's, minutes 8 / 12 / 20 (median) | 0.8 / 0.8 / 0.2 (96×96) and 0.8 / 0.9 / 0.7 (Quick Battle) | 1.1–1.3 / 1.4–1.8 / 1.4–1.7 |
+| Its estimate of the enemy army against the truth (minute 12) | 1.0 | 1.0–1.1 |
+| Waves a game; how they ended (broken / fell back / went on) | 1.7–2.1; 17–20% / 77–78% / 3–6% | 2.0–2.3; 25–28% / 66–68% / 6–7% |
+| Value its waves destroyed for each unit of value they lost | 1.5–1.8 | 2.5 |
+| Ore Trucks lost a game (at home / mid-map / enemy side) | 6.2 (2.4 / 2.7 / 0.6) | 3.1 |
+| Spent on structures / on units (a game) | $29,000–30,000 / $40,000–60,000; the casual player $16,000–17,000 / $61,000–65,000 | about even |
+
+The AI read the enemy correctly and its waves traded well, but it threw its first wave at minute 5–6 into a base with
+the casual player's whole army at home, then met his first attack (minute 8–10, heavy and medium tanks) with what was
+left, and kept buying structures (a third and fourth refinery, expansions, a second war factory, the tech centre,
+rebuilt turrets: four refineries placed a game) while it was behind. Experiments, 120 games each (Classic Hard; the
+Quick Battle rolls and the 96×96 menu default; the same seeds in every row):
+
+| Classic Hard | vs casual | vs experienced |
+|---|---|---|
+| Before (this round's hunting, surrender and review fixes, nothing else) | 42% [33–51] | 75% [67–82] |
+| First wave not before 10:00 / 11:00 / 13:00 / 15:00 unless an enemy attack broke on its base | 48% / 51% / 51% / 50% | 68% / 64% / 58% / 58% |
+| A counter-attack after the enemy's attack broke goes in with 70% of what it would need | 43% | 76% |
+| The luxuries wait while its army is behind its estimate of the enemy's ("thrift") | 45% | 78% |
+| First wave at 11:00 + thrift (two seed sets: 63% and 53%) / 13:00 + thrift | 58% / 60% | 69% / 64% |
+| … + its artillery shells the defences it outranges (V2 rockets 10 cells, against a Tesla Coil's 8.5) | 50% (11:00, no thrift) | 62% |
+| … + Ore Trucks flee an enemy column seen within 12 cells (truck losses did not change) | 70% (noise) | 71% |
+
+The lever was patience: an early wave thrown into a fortified base is an army missing when the enemy's first attack
+comes, and the thrift keeps the money in tanks while the army is behind. Holding later than 13:00 bought nothing more;
+the counter-attack and the truck flight did nothing measurable and were left out.
+
+### What changed (judgement only; no rules number moved)
+
+- **The Classic commander masses first** (`DiffParams.classicFirst`, Hard: 13:00). Its waves still wait until they
+  outweigh what it knows of the enemy; an enemy attack that breaks on its base is still answered at once.
+- **Thrift** (`DiffParams.classicThrift`, Normal and Hard, the first 25 minutes): while its army is behind its estimate
+  of the enemy's, the tech centre, the extras (helipad, kennel, gap generator, AA, superweapons), a second war factory, a
+  third refinery and expansions wait whatever the bank, unless the ore at home is running out or the commander is an
+  economist by taste. After 25 minutes, a long war, they come back.
+- **Artillery sieges** (`AITuning.proBombard`, Classic Normal and up): a wave's V2 rockets and howitzers shell the
+  known defences round its target that they outrange, all on the same one, from out of their reach. An attack order
+  on a structure it has seen is obeyed through the fog, as a player's would be (a V2 kills a Tesla Coil from 10 cells
+  without being touched).
+- **A long war** (`AITuning.proLate`, from 25 minutes, Classic Normal and up): a wave needs a quarter less to set out
+  and turns back only from 1.5 times its own strength.
+- **Broke** (every skirmish level): with no Ore Truck left, an empty bank and ore still on the map, the AI cancels an
+  expansion MCV waiting in its queue and sells what it can spare, one structure at a time, until a truck is paid for.
+  Two Hard AIs on a mined-out 96×96 map used to sit out the rest of the match with $2 and a truck half paid for.
+
+`tools/selfplay/levels.ts --games 60` (240 games a row: Quick Battle rolls and the menu default, Classic and Commander
+rules), version 5 against version 6:
+
+| Level vs stand-in | Target | Version 5 | Version 6 | Classic (v5 → v6) | Commander (v5 → v6) |
+|---|---|---|---|---|---|
+| Recruit vs newcomer | ≤ 15% | 9% [6–13] | 9% [6–13] | 8% → 7% | 10% → 11% |
+| Recruit vs novice | ≤ 5% | 2% [1–5] | 2% [1–5] | 2% → 3% | 2% → 2% |
+| Easy vs newcomer | ≤ 40% | 31% [26–37] | 33% [27–39] | 28% → 30% | 34% → 36% |
+| Easy vs novice | ≤ 20% | 7% [4–11] | 8% [5–12] | 12% → 10% | 2% → 5% |
+| Easy vs casual | ≤ 10% | 0% [0–2] | 0% [0–2] | 0% → 0% | 0% → 0% |
+| Normal vs casual | 40–60% | 47% [41–53] | 45% [38–51] | 46% → 45% | 48% → 44% |
+| Hard vs casual | ≥ 60% | 55% [49–62] | **63% [57–69]** | 38% → **47%** | 72% → 79% |
+| Hard vs experienced | 40–65% | 60% [53–66] | **52% [46–59]** | 68% → **56%** | 52% → 49% |
+| Brutal vs experienced | ≥ 80% | 92% [88–95] | 90% [86–94] | 92% → 89% | 93% → 92% |
+
+A second set of seeds for Classic (`--seed 2`, 120 games a row) gave Normal 48%, Hard against the casual player 54% and
+against the experienced one 61%. Both sets pooled, Classic Hard is at **50% [44–57]** against the casual stand-in (38% in
+version 5) and **58% [52–64]** against the experienced one (68%); Classic Normal 47% [40–53]. The 96×96 menu default stays
+the hard case for Classic Hard against the casual player (38% and 47% on the two sets; 27% in version 5), the Quick Battle
+rolls the easier one (55% and 62%; 50%).
+
+### A beaten side ends
+
+- **Hunting** (every skirmish level): with an enemy still in the game and nothing of him known (no structure, no start
+  left to look at, no unit seen for 30 seconds), the whole army fans out in parties of three, each to a different square
+  of open ground it has gone longest without seeing, attack-moving. The version-5 search sent one wave as a single
+  column while the rest of the army waited at home, and judged each 8-cell square by its centre cell, so a square whose
+  centre was a tree or rock was never searched: a rifleman in a map corner was never found. The squares are now 4 cells,
+  seen once all their open ground is in view, and only ground the searchers can drive to counts.
+- **A beaten AI surrenders** (every skirmish level): with no Construction Yard, no MCV and no factory it can pay for
+  (a refinery or $1,000; a helipad or airfield alone doesn't count), its army goes for the enemy, and once that is worth
+  less than $1,200 it concedes (`resign.ts`), never while a teammate of its side still plays. What kept a beaten
+  Recruit or Easy AI alive against the newcomer after 30 minutes (version 5, `--probe ai`): no structure at all, and a
+  helicopter, a MiG or an Ore Truck somewhere on the map.
+
+Against the newcomer and novice stand-ins (the same 240-game batches as above):
+
+| | Recruit vs newcomer | Recruit vs novice | Easy vs newcomer | Easy vs novice |
+|---|---|---|---|---|
+| Games the human had won by minute 25, version 5 → 6 | 60% → **87%** | 38% → 90% | 29% → **60%** | 23% → 68% |
+| Still undecided at 30 minutes | 33% → **6%** | 54% → 6% | 45% → 15% | 70% → 20% |
+| Still running at 45 minutes | 25% → 5% | 48% → 4% | 30% → 5% | 60% → 7% |
+| The human's wins: median length | 13 → 11 min | 21 → 18 min | 19 → 14 min | 22 → 19 min |
+| The AI's wins | 9% → 9% | 2% → 2% | 31% → 33% | 7% → 8% |
+
+**A beaten player's last units** (`endgame.ts`, 16 games a cell: the AI against the casual stand-in, who at minute 15 is
+reduced to two units, an Ore Truck and his farthest fighter, hiding in the map's far corners):
+
+| | Normal | Hard | Brutal |
+|---|---|---|---|
+| Classic: not found in 30 minutes, version 5 → 6 | 31% → **0%** | 40% → **6%** | 19% → **0%** |
+| Classic: found within 10 minutes | 25% → 67% | 27% → 69% | 50% → 80% |
+| Commander: not found in 30 minutes | 13% → 0% | 19% → 0% | 0% → 0% |
+| Commander: found within 10 minutes | 38% → 100% | 69% → 94% | 87% → 100% |
+
+(Recruit and Easy rarely get to crush the casual player by minute 15, so their cells are a handful of games.) The one
+Classic Hard miss left: the crush removes his structures unseen, and the Classic commander waits out its five-minute hold
+before attacking structures it still believes are there; in a real match it sees them fall.
+
+### Classic AI-vs-AI on the curated maps
+
+`run.ts --mode faction --maps curated --diff normal,hard --games 48`, two sets of seeds (192 games):
+
+| Curated maps, Classic, Normal and Hard | Timeouts | Allied share (timeouts by material) |
+|---|---|---|
+| Version 5 (96 games) | 57% | 56% [46–66] |
+| Version 6 | **44% [37–51]** | 62% [55–69] |
+| (experiments, 96 games each:) thrift and the 13:00 first wave alone | 49% | 69% |
+| … + artillery sieges (two seed sets) | 52% | 60% |
+| … + artillery sieges + the long-war risk from 25 minutes (two seed sets) | 47% | 62% |
+| Without thrift | 43% | 62% |
+| Hold the first wave for the Allied commander only | 45% | 66% (and Hard against the casual player down to 49%) |
+
+What remains (`run.ts --probe ai`): of the 84 timeouts, 35 are lopsided (the leader at 1.5 times the trailer's material
+or more), and in nearly all of them the leader's waves go in and fall back from a Tesla Coil or turret base it can't
+break; nobody is left searching any more. The Allied share drifted up because the 13:00 first wave takes away the Soviet
+commander's early armour push; the V2 sieges give some of it back.
+
+### Team play
+
+**Recruit and Easy allies play support** (`AIController.supportPoint`): with a human teammate they send no waves of
+their own (they still join his pushes), and their army waits a third of the way from their base towards his. A Recruit
+ally used to spend its few units on its own waves and had none left, or too far away, when his base was hit; teammates'
+bases are 70-odd cells apart on a 96×96 map. The newcomer stand-in with an AI teammate in a 2v2 against two AIs of the
+same level (`teams.ts --mode 2v2 --diff recruit,easy --vs newcomer --games 32`), version 5 → 6:
+
+| | Recruit ally (Commander / Classic) | Easy ally (Commander / Classic) |
+|---|---|---|
+| Attacks on the human's base: help arrived within 150 s | 25% → 43% (of 16 → 7) / 14% → 44% (7 → 9) | 53% → **74%** (72 → 65) / 52% → **72%** (71 → 65) |
+| Help sent | 50% → 43% / 29% → 44% | 78% → 82% / 70% → 80% |
+| Ally's army idle at home | 22% → 0% / 9% → 0% | 12% → 3% / 8% → 0% |
+| Human team wins | 91% → 94% / 94% → 94% | 34% → 50% / 44% → 41% |
+
+The team's results move within the noise: an ally at Recruit or Easy is a better-placed helper, not a stronger one.
+From Normal up, help now outweighs the attackers (the review fix below); against two Normal AIs (`--enemy normal`) a
+Normal ally sent help to 74% of the attacks on the human's base (53–57% in version 5).
+
+Everything else in `teams.ts --games 16` (all modes, every AI at the level) stays where version 5 left it: 2v2 help sent
+to 63–75% of the attacks on the human's base from Normal up (53–72% in version 5); navies unchanged (no ships at Recruit, 7–8.5 a side
+at Hard and Brutal). In free-for-alls the low levels' waves at the human read 35–44% (29–35% in version 5) because more
+of the AIs are gone by minute 45 (2.1–2.3 of 3, was 1.1–1.6: they now hunt down each other's last units), and the
+survivors have only the human left to attack; the share comes out the same with surrender switched off, and the version-5
+tie-break that spreads the first scouts round the map is unchanged.
+
+### Code review fixes (in this round's AI review)
+
+- An AI teammate's "push with the human" could start a wave of one unit, counted as a broken wave on the next think and
+  sent home: 17 one-unit waves by minute 15, each raising the size of its next real wave. Three units at least now, and
+  a push the human leads doesn't raise it.
+- Help for a human teammate's base stopped at half the free army whatever it was worth; from Normal up it now sends
+  enough to outweigh the attackers (Recruit and Easy: half, a modest helper).
+- AI bases could box their own Ore Truck in (a power plant below the refinery's dock and a turret on either side):
+  the 3×3 round each refinery dock and war-factory exit now takes no structure, and a new refinery or war factory goes
+  only where its own lane is open.
+- An MCV that couldn't deploy where it stood spiralled round its start for the whole match; it now drives to the nearest
+  spot where the yard fits. A damaged tank on a broke AI's Service Depot pad waited for ever (production took every
+  credit first): the AI keeps $150 back while a vehicle waits there.
+
+### Still open
+
+- **Classic Hard on the 96×96 menu default** against the casual stand-in: 38–47% depending on the seeds (27% in version 5),
+  against 55–62% on the Quick Battle rolls; pooled, Classic Hard is 50%, ten points under the 60% aimed for. The AI still loses about six Ore Trucks a game (the casual player two to three),
+  most of them on mid-map fields his columns cross; making trucks flee a column seen nearby did not change that.
+- **Curated-map AI-vs-AI timeouts** are 44%, above the 35% aimed for, and the Allied share is 62%, just above 40–60%:
+  the leader can't break a fortified base late in a match on mined-out maps.
+- Seed sets move Classic Hard by ten points (53–63% for the same version on two sets); differences under about ten
+  points between single 120-game batches here are noise.
 
 ## Where players meet the AI (simulation version 5)
 
@@ -184,7 +373,7 @@ which is why they wait for a clear lead.
 
 The Allied share is back inside 40–60%, but timeouts stay far above the 35% aimed for: in half of the remaining ones
 the leader is 1.5 times ahead on material or more (a quarter 2.3 times), the rest are even games in which two fortified
-commanders trade waves. *Still open.*
+commanders trade waves. *Still open* (44% in version 6: *Finishing matches and Classic Hard*, above).
 
 **Normal** now builds at 1.0 and earns 1.05 (was 0.95 / 1.0): on this round's tree the unit-behaviour fixes had taken
 Normal against the casual stand-in from 33% to 27% in Classic and from 45% to 38% under Commander rules (version-4 AI
@@ -196,7 +385,8 @@ on the Quick Battle rolls (38% / 53% before). The casual player has twice the Cl
 destroys its Ore Trucks and refineries at home: the AI harvests $48,000 a game to his $65,000 and builds 12 tanks to
 his 45. Raising Classic Hard's economy to 1.15 (tried) brings the Quick Battle rolls to 68% but the custom default
 only to 30%, and lifts Hard over the experienced stand-in to 75–88%: the AI's judgement against a tank-massing,
-counter-attacking player is what is missing, not money. *Still open.*
+counter-attacking player is what is missing, not money. *Still open* (version 6: 50% [44–57], see *Finishing matches
+and Classic Hard*, above).
 
 ### Team play, free-for-alls and navies
 

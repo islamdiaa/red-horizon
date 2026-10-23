@@ -52,14 +52,15 @@ export function makeCase(seed: number, minutes: number, forceSize = 0): FuzzCase
   const r = new FRng(seed * 7919 + 13);
   const size = forceSize || r.pick([48, 64, 64, 96, 96, 128, 128, 192]);
   const curated = r.chance(0.15) ? r.pick(CURATED_MAPS) : null;
-  const maxP = curated ? Math.max(2, (curated as any).players ?? 2) : size <= 48 ? 2 : 4;
+  const maxP = curated ? Math.max(2, (curated as any).players ?? 2) : size <= 48 ? 2 : 4; // (the game's limit: 4 players)
   const nP = r.int(2, maxP);
+  const teams = nP >= 3 && r.chance(0.35); // some opponents on the player's side (2v2, 3v5...)
   const diffs: AIDifficulty[] = ['recruit', 'easy', 'normal', 'hard', 'brutal'];
   const rules = r.chance(0.6) ? 'commander' : 'classic';
   const sea = r.chance(0.2);
   const setup: GameSetup = {
     faction: r.chance(0.5) ? 'allies' : 'soviet', color: 0x3d7be0,
-    opponents: Array.from({ length: nP - 1 }, () => ({ faction: r.pick(['allies', 'soviet', 'random'] as const), difficulty: r.pick(diffs) })),
+    opponents: Array.from({ length: nP - 1 }, (_, i) => ({ faction: r.pick(['allies', 'soviet', 'random'] as const), difficulty: r.pick(diffs), ...(teams && i < Math.floor((nP - 1) / 2) ? { ally: true } : {}) })),
     mapSize: size, water: sea ? 0.9 : r.pick([0.2, 0.4, 0.6]), trees: r.pick([0.2, 0.5, 0.8]), ore: r.pick([0.4, 0.6, 0.9]),
     credits: r.pick([5000, 10000, 30000, 100000]), startUnits: r.pick(['mcv', 'light', 'heavy'] as const), fog: r.chance(0.6),
     timeOfDay: 'day', quality: 'low', seed: r.int(1, 1e6), intro: false,
@@ -84,6 +85,7 @@ export function prepare(world: World, fc: FuzzCase) {
       const i = m.idx(Math.floor(u.x), Math.floor(u.y));
       if (u.kind !== 'aircraft' && (u.kind === 'naval' ? !m.navalTerrain(i) : !m.terrainPassable(i))) { u.alive = false; world.entities.delete(u.id); }
     }
+    for (const u of world.units) if (!u.alive) world.entities.delete(u.id); // (the scenario's MCVs, marked dead)
     world.units = world.units.filter((u) => u.alive);
   }
   if (!fc.zoo) return;
@@ -137,6 +139,7 @@ export function genCommand(w: World, r: FRng, pi: number, dead: number[]): Comma
     return [Math.round(x), Math.round(y)];
   };
   const P = pi;
+  if (r.chance(0.0004)) return { c: 'resign', player: P }; // surrender (rare: it ends that side's game)
   switch (r.int(0, 33)) {
     case 0: case 1: case 2: { const [x, y] = pos(); return { c: 'move', player: P, units: units(), x, y, attackMove: r.chance(0.4), queue: r.chance(0.15) }; }
     case 3: case 4: return { c: 'attack', player: P, units: units(), target: anyId(), forced: r.chance(0.2) };
@@ -231,7 +234,9 @@ export function invariants(w: World, stale?: Map<number, number>): string[] {
       if (ps.transport !== u.id) out.push(`${u.ut.id} carries ${ps.ut.id} whose transport is ${ps.transport}`);
       if (w.units.includes(ps)) out.push(`passenger ${ps.ut.id} also on the map`);
     }
-    if (u.dockAt && !(w.entities.get(u.dockAt)?.alive) && held(2e9 + u.id)) out.push(`${u.ut.id} docked at a missing structure for 5 s`);
+    // (a truck heading home whose refinery is gone keeps the old id until another refinery exists: it looks again
+    // every tick, harmless; any other state must have let go of it)
+    if (u.dockAt && u.hstate !== 'toRefinery' && !(w.entities.get(u.dockAt)?.alive) && held(2e9 + u.id)) out.push(`${u.ut.id} docked at a missing structure for 5 s (${u.hstate})`);
     if (u.order.type === 'attack' || u.order.type === 'enter' || u.order.type === 'escort') {
       const t = w.entities.get((u.order as any).target);
       if ((!t || !t.alive) && held(-(u.id * 65536 + (u.order as any).target))) out.push(`${u.ut.id} keeps an ${u.order.type} order on a missing target for 5 s`);
@@ -251,8 +256,29 @@ export function invariants(w: World, stale?: Map<number, number>): string[] {
     if (!b.alive) continue;
     if (bad(b.hp) || b.hp > b.maxHp + 1e-6) out.push(`${b.bt.id} bad hp ${b.hp}/${b.maxHp}`);
     if (b.garrison) for (const id of b.garrison) if (!w.entities.get(id)) out.push(`${b.bt.id} garrison holds missing #${id}`);
-    if (b.dockOccupant && !(w.entities.get(b.dockOccupant)?.alive)) out.push(`${b.bt.id} dock held by a missing unit`);
+    // (a Service Depot's pad reservation lapses lazily: the next vehicle to come takes it over, unitlogic serviceDepot)
+    if (b.dockOccupant && !b.bt.repairPad && !(w.entities.get(b.dockOccupant)?.alive)) out.push(`${b.bt.id} dock held by a missing unit`);
   }
+  const tkey = (t: string) => { let h = 7; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 999983; return h; };
+  // tech counts: every player's owned map is exactly its finished (counted) living structures
+  const owned = new Map<object, Map<string, number>>();
+  for (const b of w.buildings) {
+    if (!b.alive || !b.counted) continue;
+    let m2 = owned.get(b.owner);
+    if (!m2) owned.set(b.owner, (m2 = new Map()));
+    m2.set(b.bt.id, (m2.get(b.bt.id) ?? 0) + 1);
+  }
+  for (const p of w.players) {
+    const want = owned.get(p) ?? new Map<string, number>();
+    for (const [t, n] of p.owned) if ((want.get(t) ?? 0) !== n && held(3e9 + p.id * 1e6 + tkey(t))) out.push(`${p.name} owned ${t}=${n} but has ${want.get(t) ?? 0} counted`);
+    for (const [t, n] of want) if ((p.owned.get(t) ?? 0) !== n && held(3e9 + p.id * 1e6 + tkey(t))) out.push(`${p.name} has ${n} counted ${t} but owned says ${p.owned.get(t) ?? 0}`);
+  }
+  // the entity map holds the listed units and structures plus carried / garrisoned infantry, nothing dead
+  let carried = 0;
+  for (const u of w.units) carried += u.passengers.length;
+  for (const b of w.buildings) carried += b.garrison?.length ?? 0;
+  for (const e of w.entities.values()) if (!e.alive && held(4e9 + e.id)) { out.push(`dead ${e.type.id} #${e.id} kept in the entity map`); break; }
+  if (w.entities.size > w.units.length + w.buildings.length + carried + 8 && held(5e9)) out.push(`entity map ${w.entities.size} > listed ${w.units.length + w.buildings.length} + carried ${carried}`);
   for (const pr of w.projectiles) if (bad(pr.x) || bad(pr.y) || bad(pr.z)) out.push(`projectile ${pr.weapon.id} non-finite`);
   if (w.projectiles.length > 1500) out.push(`projectile count ${w.projectiles.length}`);
   if (stale) for (const k of [...stale.keys()]) if (!nowStale.has(k)) stale.delete(k);
@@ -299,7 +325,7 @@ const key = (s: string) => s.replace(/#\d+/g, '#').replace(/-?\d+(\.\d+)?(e[-+]?
 export function runCase(fc: FuzzCase): CaseResult {
   const t0 = performance.now();
   const s = fc.setup;
-  const desc = `size=${s.mapSize}${(s as any).mapId ? ' map=' + (s as any).mapId : ''} p=${1 + s.opponents.length} ${s.rules}${s.mutators?.length ? ' mut=' + s.mutators.join(',') : ''}${s.koth ? ' koth' : ''}${s.water >= 0.9 ? ' sea' : ''}${fc.dmath ? ' dmath' : ''} prep=${fc.prep}${fc.zoo ? '+zoo' : ''} cf=${s.ceasefire}`;
+  const desc = `size=${s.mapSize}${(s as any).mapId ? ' map=' + (s as any).mapId : ''} p=${1 + s.opponents.length}${s.opponents.some((o) => o.ally) ? ' teams' : ''} ${s.rules}${s.mutators?.length ? ' mut=' + s.mutators.join(',') : ''}${s.koth ? ' koth' : ''}${s.water >= 0.9 ? ' sea' : ''}${fc.dmath ? ' dmath' : ''} prep=${fc.prep}${fc.zoo ? '+zoo' : ''} cf=${s.ceasefire}`;
   const issues = new Map<string, string>();
   const add = (kind: string, msg: string, tick: number) => { const k = kind + ':' + key(msg); if (!issues.has(k)) issues.set(k, `[${kind}] t=${(tick / TICK_HZ).toFixed(1)}s ${msg}`); };
   if (fc.dmath) enterPortableMath();

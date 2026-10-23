@@ -1,5 +1,6 @@
 // Autopilot for the Boot Camp tutorial: performs each drill the way a new player would.
 import { PILOTS, army, attack, attackMove, builder, every, moveTo, nearestTo, enemyThings } from './campaign-pilots';
+import { skillPilot } from './campaign-players';
 
 PILOTS['bootcamp'] = (world, rt, s) => {
   const step = rt.flags.step as string;
@@ -30,7 +31,9 @@ PILOTS['bootcamp'] = (world, rt, s) => {
 };
 
 // Wolfpack: keep the submarines on the transports, replace losses at the sub pen.
-PILOTS['wolfpack'] = (world, rt, s) => {
+PILOTS['wolfpack'] = (world, rt, s, log) => {
+  // (at Brutal the whole pack on the lead transport, every boat at once, measured 6/16 against 2/16 for the ambush below)
+  if (rt.level === 'brutal') { s.pack ??= skillPilot('newcomer'); s.pack(world, rt, s, log); return; }
   const p = world.players[0];
   const subs = world.units.filter((u) => u.alive && u.owner === p && u.ut.id === 'ss');
   const transports = world.units.filter((u) => u.alive && u.owner.id === 1 && u.ut.id === 'lst');

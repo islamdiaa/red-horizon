@@ -61,6 +61,12 @@ const LEAK_LIMIT = 5;
 const DOCK_SECONDS = 25;
 /** Convoys sail at a laden pace (cells/s) so the flotilla can intercept them. */
 const CONVOY_SPEED = 1.15;
+/**
+ * At Brutal the convoys take a little over half the enemy's speed handicap: with your boats slowed by a fifth, the full
+ * one made them faster than a submarine and no plan caught them (measured: 1.12 and up left the autopilots one win in
+ * eight or none; 1.11, three in eight).
+ */
+const BRUTAL_CONVOY = 1.11;
 
 export const WOLFPACK: MissionDef = {
   id: 'wolfpack',
@@ -102,7 +108,9 @@ export const WOLFPACK: MissionDef = {
     if (pen) {
       const b = m.placeBuilding(0, 'spen', pen[0], pen[1]);
       m.flags.pen = b?.id;
-      const subs = m.spawnGroup(0, ['ss', 'ss', 'ss', 'ss'], pen[0] + 1.5, pen[1] + 1.5);
+      // (campaign difficulty: at Hard a fifth boat joins the flotilla, at Brutal a sixth; with the convoys sailing a fifth
+      // faster and hitting harder, four left the expert autopilot three wins in eight at Hard, none at Brutal)
+      const subs = m.spawnGroup(0, m.level === 'brutal' ? ['ss', 'ss', 'ss', 'ss', 'ss', 'ss'] : m.tightened ? ['ss', 'ss', 'ss', 'ss', 'ss'] : ['ss', 'ss', 'ss', 'ss'], pen[0] + 1.5, pen[1] + 1.5);
       m.flags.subs = ids(subs);
     }
     // the Allied port: shipyard, defences and a destroyer screen
@@ -149,7 +157,7 @@ export const WOLFPACK: MissionDef = {
     // --- convoy waves
     if (f.wave < WAVES.length && m.time >= 75 + f.wave * WAVE_GAP) {
       // (campaign difficulty: at Brutal every group from the second on has one more gunboat)
-      const types = m.level === 'brutal' && f.wave >= 1 ? [...WAVES[f.wave], 'pt'] : WAVES[f.wave];
+      const types = WAVES[f.wave]; // (Brutal used to add a gunboat to each group: no autopilot sank enough with it)
       const [ox, oy] = f.origins[f.wave % 2];
       const units = m.spawnGroup(1, types, ox, oy);
       const transports = units.filter((u) => u.type.id === 'lst');
@@ -195,7 +203,7 @@ export const WOLFPACK: MissionDef = {
     f.convoys = alive;
     // keep the group together at convoy pace (escorts break formation to fight)
     // (the convoy's pace carries the campaign difficulty's speed handicap like any other ship: sim/handicap.ts)
-    for (const u of m.livingUnits([...alive, ...(f.escorts ?? [])])) if (u.order.type === 'move') u.speedCap = CONVOY_SPEED * (u.owner.hc?.ground ?? 1);
+    for (const u of m.livingUnits([...alive, ...(f.escorts ?? [])])) if (u.order.type === 'move') u.speedCap = CONVOY_SPEED * (m.level === 'brutal' ? BRUTAL_CONVOY : (u.owner.hc?.ground ?? 1));
     if (m.every(10, 'escorts')) f.escorts = ids(m.livingUnits(f.escorts));
     // escorts break off to hunt any submarine they can see (surfaced to fire, or inside sonar range)
     if (m.every(2, 'escortHunt')) {

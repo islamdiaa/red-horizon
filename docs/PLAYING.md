@@ -6,7 +6,7 @@
 |---|---|
 | **Skirmish** | Up to 3 AI opponents on five difficulties (*Recruit*, for your first battles, then Easy, Normal, Hard and Brutal), on generated or hand-made maps (temperate, winter or desert; land or sea). Any AI but one can be switched to your side (the handshake button on its row), for example a 2 vs 2 with an AI ally. Options: King of the Hill, and a build-up ceasefire of 5–30 minutes or unlimited, during which the AI builds up and only defends. |
 | **Quick Battle** | One click from the main menu into a tuned random match at your level (see [Quick Battle](#quick-battle)). |
-| **Multiplayer** | Up to four players through your own server: 1 vs 1, 2 vs 2, free for all, or co-op against the AI ([MULTIPLAYER.md](MULTIPLAYER.md)). **Surrender** is in the in-match menu (Esc) and counts as a loss: your side concedes, or, if a team-mate still plays, the AI takes over your forces. Skirmishes and ranked runs offer it too. |
+| **Multiplayer** | Up to four players through your own server: 1 vs 1, 2 vs 2, free for all, or co-op against the AI ([MULTIPLAYER.md](MULTIPLAYER.md)). **Surrender** is in the in-match menu (Esc) and counts as a loss: your side concedes, or, if a team-mate still plays, the AI takes over your forces. Skirmishes and ranked runs offer it too. If the server goes away mid-match, **Play on vs AI** finishes the battle on your machine. |
 | **Campaigns** | 7 Allied and 7 Soviet missions with briefings, primary and optional objectives, radio transmissions and up to three stars each, on five difficulties (see [Campaign difficulty](#campaign-difficulty)). |
 | **Boot Camp** | An interactive tutorial in nine drills. |
 | **Special operations** | *Wolfpack*, *Iron Coast*, and Survival in three climates, alone or with AI teammates. |
@@ -45,6 +45,11 @@
 - **Dynamic difficulty** keeps matches close. It is on by default when every AI is Recruit or Easy:
   there it only eases off when you are struggling and never pushes harder. From Normal up it works
   both ways. Once you flip the switch, your choice is kept.
+- **A beaten AI surrenders.** An AI left with no Construction Yard, no MCV and no factory it can pay for throws
+  what army it has left at you, then surrenders, so you never have to hunt down its last helicopter or Ore Truck.
+  It hunts down yours the same way: with nothing of yours in sight, its army splits up and searches the map.
+- **AI allies on Recruit and Easy** play your support: they keep their army between your base and theirs, come
+  to your base when it is attacked and join your attacks, but don't attack on their own.
 
 ## Quick Battle
 
@@ -75,11 +80,14 @@ their leaderboards compare; co-op survival has its allies' own setting, and Conq
   | Brutal (Red Alert's Hard) | −20% firepower, −17% rate of fire, −20% speed | +20% firepower, +25% rate of fire, +20% speed, −20% build cost and time |
 
 - **The missions adapt too.** On Recruit and Easy some missions field fewer defences and smaller raids, give you more
-  time or send you reinforcements. On Hard and Brutal some send more against you. Normal plays every mission as
-  designed.
+  time or send you reinforcements. On Hard and Brutal some send more against you, and where an enemy commander
+  builds its own army it plays a level more cautiously, so the handicap above is what makes it hard. Brutal is meant
+  for excellent players: some missions trim the enemy there so that it stays winnable.
+- **When a mission is lost.** Besides its own conditions, a mission without a base is lost when nothing you have
+  left could finish it (in *First Snow*, every heavy tank and the V2 gone while a gun still stands).
 - **When to change it.** You can change the level between missions, or before a retry. A new commander starts on
-  Easy; once you have won a campaign mission the picker starts on Normal until you choose another level. Your choice
-  is remembered.
+  Easy, and until you pick a level the next mission starts at the level of your last win (Normal for a commander
+  whose wins predate the picker). Your choice is remembered.
 - **Records.** The briefing shows the hardest level you have won each mission at, the mission screen shows the level
   you are playing at, and the debrief shows it too. Stars, medals and unlocks don't depend on the level: every level
   completes the mission. Saved games keep their level.
@@ -105,10 +113,19 @@ their leaderboards compare; co-op survival has its allies' own setting, and Conq
   enemy attack is coming and you have no defences, when your last Ore Truck is gone, when your
   infantry keeps dying to enemy defences (tanks are the answer), when units die on plain move orders
   (use attack-move), when your attacks are beaten one small group at a time, and when a structure
-  stays badly damaged. Each shows at most once a match and for under a minute, never more than one
-  a minute, and a click dismisses it. Campaign missions get the battle and base-keeping ones (infantry
-  against defences, attack-move, attacking together, power, idle factories, Ore Trucks, repairs), and
-  only advice the mission lets you follow; the economy race and the build-order steps are skirmish-only.
+  stays badly damaged. When money piles up ($1,500 in the bank for a minute) it points you to
+  Alt-click looping (the loop button on touch screens), and once loops run, to a second War Factory or
+  Barracks. When you are winning (the enemy has lost half its structures, or your army is worth twice
+  its army and defences, from 8:00) it tells you to finish the job: select every combat unit and
+  attack-move on the enemy's last structures. The radar pings the ones you have seen (never what the
+  fog hides) and the alert's *Show* button takes the camera there; if you have seen none, it suggests
+  scouting. Each shows at most once a match and for under a minute, never more than one a minute,
+  and a click dismisses it; against Recruit and Easy opponents the money and close-out reminders may
+  come back (up to three times, a few minutes apart) unless you dismiss them. Campaign missions get the
+  battle and base-keeping ones (infantry against defences, attack-move, attacking together, power, idle
+  factories, money in the bank, Ore Trucks, repairs), and only advice the mission lets you follow; the
+  economy race, the close-out and the build-order steps are skirmish-only. A side you surrendered (or
+  an AI runs) gets no coaching.
 
 ## Armies and mechanics
 
@@ -195,14 +212,20 @@ All controls are also listed in-game under **Controls**, which always shows your
   or dialog that is open.
 - **Any screen:** the menus fit phones and tablets in portrait or landscape, from 390 px wide to ultrawide.
   On a phone, menu controls are at least 44 px tall.
+- **Interface layout** (*Settings › Graphics*): *Modern* (the build bar at the bottom) or *Classic* (Red
+  Alert's sidebar on the right). Classic needs a landscape window at least 500 px tall where the sidebar
+  takes at most 40% of the width (800×600 and up); on a smaller, narrower or portrait window the battle
+  shows Modern and switches back when the window grows again (the setting is kept).
 - **Performance overlay:** the FPS and renderer stats chip is off by default (*Settings › Graphics*).
 - **Reduce motion:** calmer animations, and no camera shake or slow motion.
 - **Copy diagnostics** (in Settings and on the crash screen): a plain-text report to paste into a bug
   report. It contains no personal data and is never sent anywhere.
 - **Language:** English, Russian, German, Spanish, Brazilian Portuguese, French or Simplified Chinese, in
   *Settings › Gameplay › Language*. *Auto* follows the browser. Change it from the main menu (it is locked
-  during a battle). Campaign mission briefings, objectives and radio, and the map editor, are still in
-  English.
+  during a battle). Everything is translated, missions and the map editor included. The announcer and the
+  units speak your language when your browser has a voice for it; otherwise they speak English and the
+  subtitles are in your language. (Some browser voices are online: they receive only the game's fixed lines,
+  such as "Unit ready.")
 
 ## Maps, editor and mods
 

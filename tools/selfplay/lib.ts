@@ -26,7 +26,7 @@ import { resolvePersonality } from '../../src/sim/ai-personality';
 import { ceasefireTicks } from '../../src/sim/ceasefire';
 import { applyModSet } from '../../src/mods/engine';
 import { mutateSetup, varietyOptions, withEconFlag, withMutatorMods } from '../../src/modes/mutators';
-import { Probe, type NavalProbe, type TeamsProbe } from './probes';
+import { Probe, type AIProbe, type NavalProbe, type TeamsProbe } from './probes';
 import { ceasefireForSetup } from '../../src/sim/ceasefire';
 import { arrangeStarts } from '../../src/sim/starts';
 import type { GameSetup } from '../../src/game';
@@ -95,8 +95,14 @@ export interface MatchSpec {
   teams?: number[];
   /** Simulated minutes at which to record a snapshot of every player (MatchResult.trace). */
   trace?: number[];
-  /** Extra measurements while the match plays (tools/selfplay/probes.ts): 'teams' or 'naval'. */
-  probe?: 'teams' | 'naval';
+  /**
+   * Endgame scenarios (tools/selfplay/endgame.ts): at `atMin` the side in `slot` is crushed: every structure gone and
+   * every unit but `keep` (the ones farthest from its enemies, an Ore Truck among them when it has one), which head for
+   * the far corners of the map and wait there; its stand-in stops playing (a beaten player hiding his last units).
+   */
+  crush?: { slot: number; atMin: number; keep: number };
+  /** Extra measurements while the match plays (tools/selfplay/probes.ts): 'teams', 'naval' or 'ai'. */
+  probe?: 'teams' | 'naval' | 'ai';
 }
 
 /** The GameSetup fields a skirmish World is built from (src/game.ts). */
@@ -187,11 +193,14 @@ export interface MatchResult {
   msPerTick: number;
   /** Material score per player every 5 simulated minutes (comeback analysis). */
   samples?: { min: number; score: number[] }[];
+  /** MatchSpec.crush: minute the side was crushed (-1 = the match ended before). */
+  crushedMin?: number;
   /** Dynamic difficulty: the lowest and highest level it reached (sampled every 30 s; absent when off). */
   dynRange?: [number, number];
   /** MatchSpec.probe results. */
   teams?: TeamsProbe;
   naval?: NavalProbe;
+  ai?: AIProbe;
 }
 
 const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d];
@@ -443,8 +452,11 @@ function playMatchInner(spec: MatchSpec): MatchResult {
   const traceAt = new Set((spec.trace ?? []).map((m) => Math.round(m * 60 * TICK_HZ)));
   const chatSeen: number[] = [];
   let dynRange: [number, number] | undefined;
+  const crushAt = spec.crush ? Math.round(spec.crush.atMin * 60 * TICK_HZ) : -1;
+  let crushedMin = -1;
   const yards = (pid: number) => world.buildings.filter((b) => b.alive && b.bt.id === 'fact' && world.players[pid].isEnemy(b.owner));
   for (let t = 1; t <= maxTicks; t++) {
+    if (t === crushAt) { crushSide(world, spec.crush!); crushedMin = world.time / 60; }
     stepMatch(world);
     probe?.step();
     if (t % (5 * 60 * TICK_HZ) === 0) samples.push({ min: t / (60 * TICK_HZ), score: world.players.map((p) => Math.round(materialScore(world, p.id))) });
@@ -473,6 +485,7 @@ function playMatchInner(spec: MatchSpec): MatchResult {
       if (ev.e === 'placed') {
         const b = world.entities.get(ev.id);
         if (b instanceof Building && res[b.owner.id] && !b.bt.mine) res[b.owner.id].structures[b.bt.id] = (res[b.owner.id].structures[b.bt.id] ?? 0) + 1;
+        if (b instanceof Building && !b.bt.mine && !b.bt.wall) probe?.onPlaced(b);
       }
     }
     if (world.econ) for (const ev of world.events) {
@@ -494,6 +507,7 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     }
     if (world.gameOver) break;
   }
+  probe?.finish();
   const scores = world.players.map((p) => materialScore(world, p.id));
   for (const p of world.players) {
     const r = res[p.id];
@@ -522,8 +536,43 @@ function playMatchInner(spec: MatchSpec): MatchResult {
     id: spec.id, seed: spec.seed, map: spec.map === 'curated' ? spec.curated! : `${spec.map}${spec.size ?? 96}`,
     winnerTeam: world.gameOver ? world.winnerTeam : -1, leader: world.gameOver && world.winnerTeam >= 0 ? world.winnerTeam : leader,
     minutes: world.time / 60, timedOut: !world.gameOver, players: res, wallMs, msPerTick: wallMs / Math.max(1, world.tick),
-    samples, teams: probe?.teams, naval: probe?.naval, dynRange,
+    samples, teams: probe?.teams, naval: probe?.naval, ai: probe?.ai, dynRange, crushedMin: spec.crush ? crushedMin : undefined,
   };
+}
+
+/** MatchSpec.crush: the side is reduced to its `keep` units farthest from its enemies, which go and hide. */
+export function crushSide(world: World, c: NonNullable<MatchSpec['crush']>) {
+  const p = world.players[c.slot];
+  if (!p || p.defeated) return;
+  standIns.set(world, (standIns.get(world) ?? []).filter((s) => s.p !== p));
+  const enemyYards = world.buildings.filter((b) => b.alive && b.bt.id === 'fact' && p.isEnemy(b.owner));
+  const far = (e: { x: number; y: number }) => enemyYards.reduce((m, y) => Math.min(m, Math.hypot(y.x - e.x, y.y - e.y)), Infinity);
+  for (const b of world.buildings) if (b.alive && b.owner === p) world.kill(b, 'sold');
+  const land = world.units.filter((u) => u.alive && u.owner === p && u.kind !== 'aircraft' && u.kind !== 'naval' && !u.ut.supportPlane)
+    .sort((a, b) => far(b) - far(a) || a.id - b.id);
+  const truck = land.find((u) => u.ut.harvester);
+  const keep: Unit[] = [];
+  if (truck && c.keep > 1) keep.push(truck);
+  for (const u of land) if (keep.length < c.keep && !keep.includes(u)) keep.push(u);
+  for (const u of world.units) if (u.alive && u.owner === p && !keep.includes(u)) world.kill(u, 'sold');
+  // hiding spots: the passable cells nearest the map's corners, farthest from the enemies' yards first
+  const m = world.map;
+  const corners: [number, number][] = [];
+  for (const [cx, cy] of [[2, 2], [m.w - 3, 2], [2, m.h - 3], [m.w - 3, m.h - 3]]) {
+    let best: [number, number] | null = null, bd = Infinity;
+    for (let r = 0; r < 16 && !best; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (!m.inBounds(x, y) || !m.passable(x, y)) continue;
+      const d = Math.hypot(dx, dy);
+      if (d < bd) { bd = d; best = [x + 0.5, y + 0.5]; }
+    }
+    if (best) corners.push(best);
+  }
+  corners.sort((a, b) => far({ x: b[0], y: b[1] }) - far({ x: a[0], y: a[1] }));
+  keep.forEach((u, i) => {
+    const [x, y] = corners[i % Math.max(1, corners.length)] ?? [u.x, u.y];
+    world.issue({ c: 'move', player: p.id, units: [u.id], x, y });
+  });
 }
 
 /** A player's state for MatchSpec.trace. */

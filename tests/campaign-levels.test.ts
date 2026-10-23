@@ -156,6 +156,26 @@ describe('campaign difficulty: Red Alert handicaps', () => {
     recordResult('allied-01', { won: true, stars: 3, time: 500, level: 'hard' });
     assert.equal(loadProgress()['allied-01'].level, 'hard', 'a harder win replaces it');
   });
+
+  test('a new player who never touches the picker keeps the level they won at', () => {
+    mem.clear();
+    recordResult('allied-01', { won: true, stars: 2, time: 600, level: 'easy' });
+    assert.equal(loadLevel(), 'easy', 'won Grey Dawn at Easy: the next mission starts at Easy, not Normal');
+    assert.equal(missionLevelFor(getMission('allied-02')!), 'easy', 'the next campaign mission plays at Easy');
+    recordResult('survival', { won: true, stars: 1, time: 900, score: 5000, level: 'normal' });
+    assert.equal(loadLevel(), 'easy', 'a survival win (no campaign level) does not move it');
+    recordResult('allied-02', { won: false, stars: 0, time: 300, level: 'recruit' });
+    assert.equal(loadLevel(), 'easy', 'a loss does not move it');
+    recordResult('allied-02', { won: true, stars: 1, time: 700, level: 'recruit' });
+    assert.equal(loadLevel(), 'recruit', 'the last win counts, even an easier one');
+    saveLevel('hard');
+    recordResult('allied-03', { won: true, stars: 1, time: 400, level: 'normal' });
+    assert.equal(loadLevel(), 'hard', 'an explicit pick wins over the last win');
+    mem.clear();
+    recordResult('allied-01', { won: true, stars: 2, time: 600, level: 'easy' });
+    recordResult('soviet-01', { won: true, stars: 1, time: 300 });
+    assert.equal(loadLevel(), 'normal', 'a win from before the levels existed (no level) still means Normal');
+  });
 });
 
 describe('the newcomer and Allied mission 1', () => {
@@ -188,5 +208,49 @@ describe('challenge import', () => {
     const r = await importChallenge(file);
     assert.equal(r.already, 'builtin', 'reported as already there');
     assert.equal(r.challenge.id, b.id, 'the built-in itself (its card is shown)');
+  });
+});
+
+describe('missions without a base end when the forces that can finish them are gone (RA)', () => {
+  test('First Snow: with every heavy tank and the V2 lost while a gun stands, the strike has failed', () => {
+    const { world, rt } = createMissionWorld(getMission('soviet-01')!);
+    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0 && (u.ut.id === '3tnk' || u.ut.id === 'v2rl'))) world.kill(u, 'sold');
+    assert.ok(world.units.some((u) => u.alive && u.owner.id === 0), 'the infantry company is still there');
+    for (let t = 0; t < 40 && !rt.ended; t++) world.step();
+    assert.ok(rt.ended && !rt.won, `lost at once (ended ${rt.ended}, won ${rt.won})`);
+    assert.match(rt.endReason ?? '', /Riflemen alone/, `the reason names it (${rt.endReason})`);
+  });
+  test('First Snow: a tank left keeps the mission open', () => {
+    const { world, rt } = createMissionWorld(getMission('soviet-01')!);
+    const tanks = world.units.filter((u) => u.alive && u.owner.id === 0 && u.ut.id === '3tnk');
+    for (const u of [...tanks.slice(1), ...world.units.filter((u) => u.alive && u.owner.id === 0 && u.ut.id === 'v2rl')]) world.kill(u, 'sold');
+    for (let t = 0; t < 40; t++) world.step();
+    assert.ok(!rt.ended, 'one heavy tank can still take the hill: no defeat');
+  });
+  test('structure breakers: dogs, engineers and medics cannot take a camp; riflemen can', async () => {
+    const { structureBreakers } = await import('../src/missions/common');
+    const { world, rt } = createMissionWorld(getMission('soviet-03')!);
+    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0 && !u.ut.dog && !u.ut.engineer)) world.kill(u, 'sold');
+    world.step();
+    assert.ok(world.units.some((u) => u.alive && u.owner.id === 0 && u.ut.dog), 'dogs left');
+    assert.equal(structureBreakers(rt, 0).length, 0, 'dogs and engineers cannot damage a structure');
+    rt.spawnUnit(0, 'e1', rt.start(0).x, rt.start(0).y);
+    assert.equal(structureBreakers(rt, 0).length, 1, 'a rifleman can');
+  });
+});
+
+describe('round 4 level tuning (each measured: tools/campaign-levels.ts)', () => {
+  const aiLevel = (w: World, id: number) => (w.ais.find((a) => a.player.id === id) as unknown as { difficulty: string } | undefined)?.difficulty;
+  test('skirmish-AI enemies play a level lower at Hard and Brutal; the timers and boats follow the level', () => {
+    for (const [mission, p] of [['soviet-04', 1], ['soviet-05', 1], ['allied-07', 1]] as const) {
+      assert.equal(aiLevel(createMissionWorld(getMission(mission)!, { level: 'normal' }).world, p), 'easy', `${mission}: Easy commander at Normal`);
+      for (const level of ['hard', 'brutal'] as MissionLevel[]) assert.equal(aiLevel(createMissionWorld(getMission(mission)!, { level }).world, p), 'recruit', `${mission}: Recruit commander at ${level}`);
+    }
+    const subs = (level: MissionLevel) => createMissionWorld(getMission('wolfpack')!, { level }).world.units.filter((u) => u.owner.id === 0 && u.ut.id === 'ss').length;
+    assert.deepEqual([subs('normal'), subs('hard'), subs('brutal')], [4, 5, 6], 'Wolfpack: 4 / 5 / 6 submarines');
+    const clock = (level: MissionLevel) => createMissionWorld(getMission('allied-05')!, { level }).rt.timeLeft('reserve');
+    assert.deepEqual([clock('normal'), clock('hard'), clock('brutal')], [900, 780, 600], 'Dry Season: the reserve at 15, 13 and 10 minutes');
+    const tanks = (level: MissionLevel) => createMissionWorld(getMission('allied-04')!, { level }).world.units.filter((u) => u.owner.id === 0 && u.ut.id === '2tnk').length;
+    assert.deepEqual([tanks('easy'), tanks('normal'), tanks('hard')], [4, 4, 3], 'Looking Glass: a fourth Medium Tank up to Normal');
   });
 });

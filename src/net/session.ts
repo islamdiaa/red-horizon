@@ -37,6 +37,8 @@ export interface MatchSessionOptions {
 
 /** Catch-up mode when this many ticks are known but not simulated yet. */
 const CATCHUP_AT = 12;
+/** Ticks of waiting time a client keeps while the relay has not closed the next tick yet (see frame). */
+export const WAIT_BANK = 5;
 
 export class MatchSession {
   readonly ls: Lockstep;
@@ -59,6 +61,14 @@ export class MatchSession {
   private unsub: () => void;
   private readonly now: () => number;
   private names = new Map<number, string>();
+  /**
+   * `loaded` is owed to the relay: the page has built the match, or the connection was resumed. It is sent once the
+   * simulation has caught up, because the relay ignores this connection's heartbeat times until then (a page that
+   * rebuilds and re-simulates the match after a reload answers late, which says nothing about the network).
+   */
+  private loadPending = false;
+  /** Past the backlog: messages now arrive live (a resume's welcome then means a reconnect of this running page). */
+  private attached = false;
 
   constructor(private o: MatchSessionOptions) {
     this.world = o.world;
@@ -74,9 +84,12 @@ export class MatchSession {
     o.client.have = () => this.ls.confirmed;
     o.client.frameMs = () => this.frameMs;
     // what arrived while the world was being built (a resume's welcome and closed ticks), then live messages
-    for (const m of o.client.takeBacklog()) this.onMessage(m);
+    const backlog = o.client.takeBacklog();
+    for (const m of backlog) this.onMessage(m);
+    this.attached = true;
     o.client.attached = true;
-    this.unsub = o.client.on((m) => this.onMessage(m));
+    // (a session built synchronously inside the welcome's own dispatch would also get that welcome live: once is enough)
+    this.unsub = o.client.on((m) => { if (!backlog.includes(m)) this.onMessage(m); });
   }
 
   private onMessage(m: ServerMessage) {
@@ -86,7 +99,9 @@ export class MatchSession {
         this.idleCommit();
         return;
       case 'welcome':
-        if (m.resume) { this.ls.resume(m.resume); this.ls.flush(); }
+        // a reconnect of this running page: say `loaded` again once caught up (a page that resumes after a reload says
+        // it from its first frame: game-link.ts)
+        if (m.resume) { this.ls.resume(m.resume); this.ls.flush(); if (this.attached) this.loadPending = true; }
         break;
       case 'lat':
         this.ls.setDelay(m.delay);
@@ -121,6 +136,7 @@ export class MatchSession {
    * issue nothing meanwhile) so the others keep playing. Does nothing while the client plays live.
    */
   idleCommit() {
+    this.flushLoaded();
     if (this.ls.status !== 'live' || !this.idle()) return;
     this.ls.commit(this.ls.confirmed + this.ls.delay - 1);
     this.ls.flush();
@@ -158,11 +174,16 @@ export class MatchSession {
     } else {
       this.acc = Math.min(this.acc + Math.max(0, dt), DT * 12);
       while (this.acc >= DT && ls.canStep() && steps < 12) { run(); this.acc -= DT; }
-      if (!ls.canStep()) this.acc = Math.min(this.acc, DT); // waiting for the relay: no time banked for a burst later
+      // waiting for the relay: keep up to WAIT_BANK ticks of the time waited, so the match keeps real time on average. (It
+      // kept one: then every hiccup of any player - a garbage collection, a slow frame - longer than the delay's margin
+      // cost everybody that much for good, about 5-10 % of real time in real browsers. A longer stall, someone lost,
+      // still resumes with at most a quarter-second step.)
+      if (!ls.canStep()) this.acc = Math.min(this.acc, DT * WAIT_BANK);
       this.alpha = Math.min(1, this.acc / DT);
     }
     if (ls.status === 'live') ls.commit(this.catchingUp ? ls.confirmed + ls.delay - 1 : w.tick + ls.delay - 1 + this.frameSlack);
     ls.flush();
+    this.flushLoaded();
     if (steps && this.o.onChange && (this.catchingUp || ls.status !== 'live')) this.o.onChange();
     return steps;
   }
@@ -177,8 +198,20 @@ export class MatchSession {
     return Math.min(8, Math.max(0, Math.ceil(this.frameMs / 50) - 1));
   }
 
-  /** Tell the relay the match is loaded on this client. */
+  /** Tell the relay the match is loaded on this client (once it has caught up with the match: flushLoaded). */
   loaded() {
+    this.loadPending = true;
+    this.flushLoaded();
+  }
+
+  /** Far enough behind the closed ticks to re-simulate in catch-up mode (frame). */
+  private behind(): boolean {
+    return this.ls.confirmed - this.world.tick + 1 > CATCHUP_AT + this.ls.delay;
+  }
+
+  private flushLoaded() {
+    if (!this.loadPending || this.catchingUp || this.behind()) return;
+    this.loadPending = false;
     this.client.send({ t: 'loaded' });
   }
 

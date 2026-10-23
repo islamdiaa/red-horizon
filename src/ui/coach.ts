@@ -11,6 +11,7 @@ import type { ReportSample } from '../meta/report';
 import { idleFactories } from './army';
 import { BUILDINGS } from '../data/rules';
 import { typeName } from '../i18n/names';
+import { fmtMoney } from '../i18n/core';
 import type tHints from '../i18n/en/hints';
 
 /** A Field Manual text (src/i18n/en/hints.ts). */
@@ -99,6 +100,59 @@ export const NO_TRUCK_SECS = 15;
 /** A structure under half health, out of the fight, for this long (with money for the repair). */
 export const DAMAGED_SECS = 25;
 
+/**
+ * Closing out a match the player is winning (the UI newcomer of tools/e2e often outlasted Recruit and Easy and timed
+ * out at 30 minutes without finishing): from CLOSE_FROM, with at least CLOSE_MIN_ARMED armed units, when the
+ * enemies have lost half the most structures they had (and the player's army is worth at least theirs), or when the
+ * player's army is worth CLOSE_ADVANTAGE times the enemies' army and armed structures together.
+ */
+export const CLOSE_FROM = 480;
+export const CLOSE_MIN_ARMED = 8;
+export const CLOSE_LOST_SHARE = 0.5;
+export const CLOSE_ADVANTAGE = 2;
+/**
+ * Money piling up: this much in the bank for this long, with a barracks or war factory to spend it in, from BANK_FROM
+ * (the starting money goes into the base first).
+ */
+export const BANK_CREDITS = 1500;
+export const BANK_SECS = 60;
+export const BANK_FROM = 180;
+/**
+ * Alerts that may come back at Recruit and Easy (gentleLevel) while their condition holds: this many seconds after
+ * they were last raised, unless the player dismissed them.
+ */
+export const CLOSE_REPEAT = 150;
+export const BANK_REPEAT = 180;
+/** A repeating alert comes at most this many times a match (a player who lets it go three times has heard it). */
+export const REPEAT_MAX = 3;
+
+/** Whether this is an enemy structure that keeps its owner in the game (victory counts these: world.checkVictory). */
+const counts = (b: { bt: { wall?: unknown; mine?: unknown; tech?: unknown } }) => !b.bt.wall && !b.bt.mine && !b.bt.tech;
+
+/** An enemy structure as the player last saw it. */
+export interface KnownStructure { id: number; type: string; owner: number; x: number; y: number; cx: number; cy: number; w: number; h: number }
+
+/**
+ * The close-out advice: the enemy is nearly beaten / the player's army is far stronger; 'scout' and 'explore' are
+ * the same two when the player knows of no enemy structure to hit (all seen ones are gone / none seen yet).
+ */
+export type CloseOut = 'finish' | 'advantage' | 'scout' | 'explore';
+
+/** Recruit and Easy: every living enemy AI plays at one of them (a campaign mission: its level). */
+export function gentleLevel(w: World, p: Player): boolean {
+  if (w.mission) return w.mission.level === 'recruit' || w.mission.level === 'easy';
+  const foes = w.ais.filter((ai) => !ai.player.defeated && p.isEnemy(ai.player));
+  return foes.length > 0 && foes.every((ai) => ai.difficulty === 'recruit' || ai.difficulty === 'easy');
+}
+
+/** Whether any cell of a footprint is in the player's view right now. */
+function inView(w: World, p: Player, k: { cx: number; cy: number; w: number; h: number }): boolean {
+  if (!w.fog) return true;
+  const m = w.map;
+  for (let y = k.cy; y < k.cy + k.h; y++) for (let x = k.cx; x < k.cx + k.w; x++) if (m.inBounds(x, y) && p.visible[m.idx(x, y)]) return true;
+  return false;
+}
+
 /** A match's losses, summed up for the results screen (CoachWatch.lessons). */
 export interface Lessons {
   /** Armed units lost in the whole match. */
@@ -168,9 +222,22 @@ export class CoachWatch {
   private kills: { t: number; k: number }[] = [];
   /** Whole-match totals for the results screen's advice (see lessons()). */
   private totals = { armed: 0, moving: 0, byDefence: new Map<string, number>() };
+  /**
+   * Enemy structures the player has seen, where it saw them (like the fog "ghosts" on screen): kept until the player
+   * looks at the spot again and finds them gone. The close-out alert points at these only (no fog cheating).
+   */
+  readonly known = new Map<number, KnownStructure>();
+  /** Living enemies' structures (those victory counts): now, and the most they ever had. */
+  private foeNow = 0;
+  private foePeak = 0;
+  private bankSince = -1;
 
   update(w: World, p: Player) {
     const t = w.time;
+    this.watchEnemy(w, p);
+    // money piling up with a barracks or war factory to spend it in (busy or not: the bank reminder)
+    const bank = p.credits >= BANK_CREDITS && w.buildings.some((b) => b.alive && b.owner === p && (b.bt.factory === 'infantry' || b.bt.factory === 'vehicle'));
+    this.bankSince = bank ? (this.bankSince < 0 ? t : this.bankSince) : -1;
     const last = this.income[this.income.length - 1];
     if (!last || t - last.t >= 5) {
       this.income.push({ t, h: w.players.map((o) => o.stats.harvested) });
@@ -209,8 +276,69 @@ export class CoachWatch {
     this.noTruckSince = noTruck ? (this.noTruckSince < 0 ? t : this.noTruckSince) : -1;
     // a structure under half health, not being repaired, with no enemy near it, and money for the repair
     const damaged = p.credits >= 300 && w.buildings.some((b) => b.alive && b.owner === p && !b.bt.wall && b.buildAnim >= 1 && b.healthFrac < 0.5 && !b.repairing
-      && !w.units.some((u) => u.alive && p.isEnemy(u.owner) && Math.abs(u.x - b.x) < 10 && Math.abs(u.y - b.y) < 10));
+      && !w.units.some((u) => u.alive && p.isEnemy(u.owner) && Math.abs(u.x - b.x) < 10 && Math.abs(u.y - b.y) < 10 && (!w.fog || w.canSee(p, u))));
     this.damagedSince = damaged ? (this.damagedSince < 0 ? t : this.damagedSince) : -1;
+  }
+
+  /** The enemy structures in sight join `known`; known ones gone (or no longer hostile) are forgotten once in view. */
+  private watchEnemy(w: World, p: Player) {
+    let n = 0;
+    for (const b of w.buildings) {
+      if (!b.alive || !counts(b) || !p.isEnemy(b.owner) || b.owner.defeated) continue;
+      n++;
+      if (w.fog && !w.canSee(p, b)) continue;
+      const k = this.known.get(b.id);
+      if (k) { k.x = b.x; k.y = b.y; continue; }
+      this.known.set(b.id, { id: b.id, type: b.bt.id, owner: b.owner.id, x: b.x, y: b.y, cx: b.cx, cy: b.cy, w: b.w, h: b.h });
+    }
+    this.foeNow = n;
+    this.foePeak = Math.max(this.foePeak, n);
+    for (const [id, k] of this.known) {
+      const e = w.getEntity(id);
+      if (e && e.alive && p.isEnemy(e.owner) && !e.owner.defeated) continue;
+      if (inView(w, p, k)) this.known.delete(id);
+    }
+  }
+
+  /**
+   * Whether (and how) to tell the player to finish the enemy (skirmish-like matches): null while the match is still
+   * open; 'finish' when the enemies have lost half their structures and the player's army is worth at least theirs;
+   * 'advantage' when the player's army is worth CLOSE_ADVANTAGE times the enemies' army and armed structures;
+   * 'scout' / 'explore' instead when the player knows of no enemy structure (they must be found first).
+   */
+  closeOut(w: World, p: Player): CloseOut | null {
+    if (w.time < CLOSE_FROM || w.mission) return null;
+    let mine = 0, armed = 0, foeArmy = 0, foeDef = 0;
+    for (const u of w.units) {
+      if (!u.alive || !u.weapons.length || u.ut.harvester) continue;
+      if (u.owner === p) { mine += u.ut.cost; armed++; } else if (p.isEnemy(u.owner) && !u.owner.defeated) foeArmy += u.ut.cost;
+    }
+    if (armed < CLOSE_MIN_ARMED || !this.foeNow) return null;
+    for (const b of w.buildings) if (b.alive && b.weapons.length && !b.bt.wall && p.isEnemy(b.owner) && !b.owner.defeated) foeDef += b.bt.cost;
+    const finish = this.foePeak >= 4 && this.foeNow <= this.foePeak * (1 - CLOSE_LOST_SHARE) && mine >= foeArmy;
+    const ahead = mine >= CLOSE_ADVANTAGE * (foeArmy + foeDef);
+    if (!finish && !ahead) return null;
+    if (!this.known.size) return finish ? 'scout' : 'explore';
+    return finish ? 'finish' : 'advantage';
+  }
+
+  /**
+   * Up to `n` known enemy structures to attack, nearest to the player's base first (its Construction Yard, else any
+   * structure, else its army).
+   */
+  targets(w: World, p: Player, n = 3): { x: number; y: number }[] {
+    let home: { x: number; y: number } | undefined = w.buildings.find((b) => b.alive && b.owner === p && b.bt.id === 'fact') ?? w.buildings.find((b) => b.alive && b.owner === p);
+    if (!home) home = w.units.find((u) => u.alive && u.owner === p);
+    const hx = home?.x ?? 0, hy = home?.y ?? 0;
+    return [...this.known.values()]
+      .sort((a, b) => Math.hypot(a.x - hx, a.y - hy) - Math.hypot(b.x - hx, b.y - hy) || a.id - b.id)
+      .slice(0, n)
+      .map((k) => ({ x: k.x, y: k.y }));
+  }
+
+  /** Seconds $1,500+ has sat in the bank with a barracks or war factory to spend it (0 = less). */
+  bankFor(w: World): number {
+    return this.bankSince < 0 ? 0 : w.time - this.bankSince;
   }
 
   /** What the whole match taught (the results screen's advice): armed units lost, and how. */
@@ -284,6 +412,23 @@ export interface Alert {
   coach?: boolean;
   /** ...unless this is set: battle and base-keeping lessons hold whatever a mission's script does. */
   mission?: boolean;
+  /**
+   * May come back at Recruit and Easy (gentleLevel) this many seconds after it was last raised, while its condition
+   * holds and unless the player dismissed it (calm reminders for the players who need them most).
+   */
+  repeat?: number;
+  /** Places the alert points at (the Hints panel pings them on the radar and its Show button looks there). */
+  targets?(w: World, p: Player, c: CoachWatch): { x: number; y: number }[];
+  /**
+   * Its trigger reads what the fog hides (the enemy's true army, structures, income, an AI's plans): fine coaching
+   * against the computer, an unfair edge against a person, so never raised while a human enemy is in the game.
+   */
+  hidden?: boolean;
+}
+
+/** A living, not surrendered human among the player's enemies (multiplayer, a replay branch against people). */
+export function humanFoe(w: World, p: Player): boolean {
+  return w.players.some((o) => o !== p && p.isEnemy(o) && o.isHuman && !o.defeated && !o.resigned);
 }
 
 // a mission may restrict building, or give no base at all (a commando raid): advice it can't follow stays unsaid
@@ -304,6 +449,7 @@ export const ALERTS: Alert[] = [
     text: (p) => (p.faction === 'soviet' ? 'alerts.attackSoviet' : 'alerts.attackAllies'),
     group: 'defence',
     coach: true,
+    hidden: true, // (an AI's wave orders)
     when: (w, p) => !hasDefences(w, p) && firstWaveIncoming(w, p),
   },
   // coaching from what went wrong (the newcomer's usual mistakes, seen by tools/e2e's play matrix): no Ore Truck
@@ -357,6 +503,26 @@ export const ALERTS: Alert[] = [
     mission: true,
     when: (w, _p, c) => c.idleFor(w) >= IDLE_SECS,
   },
+  // coaching: money piling up (the UI newcomer kept $1,000+ in the bank 40-90% of the time): loop a unit card, or,
+  // with loops running and the money still growing, a second factory (each extra one builds faster)
+  {
+    text: (p) => (p.repeat.length ? 'alerts.bankFactory' : 'alerts.bankLoop'),
+    coach: true,
+    mission: true,
+    repeat: BANK_REPEAT,
+    vars: (_w, p) => ({ money: fmtMoney(Math.floor(p.credits / 100) * 100) }),
+    when: (w, p, c) => w.time >= BANK_FROM && c.bankFor(w) >= BANK_SECS && (!w.mission || buildsArmy(p)),
+  },
+  // coaching: the enemy is nearly beaten (or far weaker): finish it with everything, at the structures the player
+  // has seen (skirmish-like matches; a mission's script decides how it ends)
+  {
+    text: (p, c, w) => { const k = c.closeOut(w, p); return k === 'scout' ? 'alerts.closeScout' : k === 'explore' ? 'alerts.closeExplore' : k === 'advantage' ? 'alerts.closeAdvantage' : 'alerts.closeFinish'; },
+    coach: true,
+    hidden: true, // (the enemy's true army and structure count)
+    repeat: CLOSE_REPEAT,
+    targets: (w, p, c) => c.targets(w, p),
+    when: (w, p, c) => !!c.closeOut(w, p),
+  },
   {
     text: 'alerts.refinery',
     coach: true,
@@ -365,6 +531,7 @@ export const ALERTS: Alert[] = [
   {
     text: 'alerts.income',
     coach: true,
+    hidden: true, // (the enemy's true income)
     when: (w, p, c) => c.enemyOutEarning(w, p),
   },
   {
@@ -395,13 +562,30 @@ export class AlertQueue {
   private groups = new Set<string>();
   /** When the last alert was raised (world seconds). */
   private last = -1e9;
+  /** When each alert was last raised and how often, and the ones the player dismissed (those never repeat). */
+  private raisedAt = new Map<number, number>();
+  private raised = new Map<number, number>();
+  private dismissed = new Set<number>();
   /** The alert showing (index into ALERTS), or -1. */
   current = -1;
 
   /** The player dismissed the alert on show. */
   dismiss() {
+    if (this.current >= 0) { this.shown.set(this.current, false); this.dismissed.add(this.current); }
+    this.current = -1;
+  }
+
+  /** The Field Manual was switched off: the alert on show goes (as if it had run its time). */
+  hide() {
     if (this.current >= 0) this.shown.set(this.current, false);
     this.current = -1;
+  }
+
+  /** Whether alert i may be raised now (not shown yet, or a repeat that is due). */
+  private due(i: number, w: World, p: Player): boolean {
+    const a = ALERTS[i];
+    if (!this.shown.has(i)) return !(a.group && this.groups.has(a.group));
+    return !!a.repeat && !this.dismissed.has(i) && (this.raised.get(i) ?? 0) < REPEAT_MAX && w.time - (this.raisedAt.get(i) ?? 0) >= a.repeat && gentleLevel(w, p);
   }
 
   /**
@@ -414,17 +598,43 @@ export class AlertQueue {
       this.shown.set(this.current, false);
       this.current = -1;
     }
+    const people = humanFoe(w, p);
     for (let i = 0; i < ALERTS.length && w.time - this.last >= ALERT_GAP; i++) {
       const a = ALERTS[i];
-      if (this.shown.has(i) || (a.group && this.groups.has(a.group)) || (a.coach && (!coach || (coach === 'mission' && !a.mission))) || !a.when(w, p, c)) continue;
+      if (a.hidden && people) continue;
+      if ((a.coach && (!coach || (coach === 'mission' && !a.mission))) || !this.due(i, w, p) || !a.when(w, p, c)) continue;
       this.shown.set(i, true);
       if (a.group) this.groups.add(a.group);
       this.last = w.time;
+      this.raisedAt.set(i, w.time);
+      this.raised.set(i, (this.raised.get(i) ?? 0) + 1);
       this.current = i;
       return { idx: i, fresh: true };
     }
     return { idx: -1, fresh: false };
   }
+}
+
+/**
+ * Whether coaching applies to the player now: not once the match is over or the player is out of it (defeated, or
+ * surrendered: a team game hands the side to an AI, sim/resign.ts, and the alerts would be about the AI's units);
+ * in a campaign mission only the alerts marked `mission`.
+ */
+export function coachMode(w: World, p: Player): boolean | 'mission' {
+  if (w.gameOver || p.defeated || p.resigned || !p.isHuman) return false;
+  return w.mission ? 'mission' : true;
+}
+
+/**
+ * One check of the Hints panel (DOM-free): the watch follows the match whenever coaching applies, also while the
+ * Field Manual is switched off (else turning it back on would count every loss since as just now and raise stale
+ * alerts, and the results advice would miss them); alerts only while it is on.
+ */
+export function coachTick(c: CoachWatch, q: AlertQueue, w: World, p: Player, enabled: boolean): { idx: number; fresh: boolean } {
+  const mode = coachMode(w, p);
+  if (mode) c.update(w, p);
+  if (!enabled) { q.hide(); return { idx: -1, fresh: false }; }
+  return q.update(w, p, c, mode);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

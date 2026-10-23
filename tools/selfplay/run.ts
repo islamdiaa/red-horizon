@@ -66,6 +66,8 @@ function pers(id?: string): string | Personality | undefined {
 const seed0 = +opt('seed', '1');
 const workers = +opt('workers', '0') || undefined;
 const jsonOut = opt('json', '');
+// (--probe ai: what each AI thinks and does, tools/selfplay/probes.ts, and why the timed-out games did not finish)
+const probeArg = opt('probe', '');
 
 const CURATED_2P = ['proving-grounds', 'bridgewater', 'frozen-lakes', 'red-canyon', 'pocket-valley', 'archipelago'];
 
@@ -79,7 +81,7 @@ function buildSpecs(): MatchSpec[] {
   const specs: MatchSpec[] = [];
   let id = 0;
   const add = (seed: number, kind: MapKind, size: number, k: number, players: PlayerSpec[]) => {
-    specs.push({ id: id++, seed, ...mapFields(kind, k, size), players, maxMinutes: minutes, rules });
+    specs.push({ id: id++, seed, ...mapFields(kind, k, size), players, maxMinutes: minutes, rules, probe: probeArg === 'ai' ? 'ai' : undefined });
   };
   for (const kind of maps) for (const size of kind === 'curated' ? [0] : sizes) for (const diff of diffs) {
     for (let g = 0; g < games; g++) {
@@ -311,3 +313,34 @@ const results = await runPool(specs, {
 console.log(`done in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
 report(results);
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(results));
+if (probeArg === 'ai') stalemates(results);
+
+/**
+ * --probe ai: the timed-out games, lopsided (the leader at 1.5x the trailer's material or more) or even, and what the
+ * leader was doing in the last 15 minutes: searching (nothing known of the enemy), attacking, or holding at home.
+ */
+function stalemates(results: MatchResult[]) {
+  const tos = results.filter((r) => r.timedOut && r.ai);
+  let lop = 0;
+  const rows: string[] = [];
+  const cat = { hunt: 0, nothingKnown: 0, waves: 0, holding: 0 };
+  for (const r of tos) {
+    const sc = r.players.map((p) => p.score);
+    const lead = sc[0] >= sc[1] ? 0 : 1, trail = 1 - lead;
+    const ratio = sc[lead] / Math.max(1, sc[trail]);
+    if (ratio < 1.5) continue;
+    lop++;
+    const late = r.ai!.series.filter((x) => x.slot === lead && x.min >= r.minutes - 15);
+    const hunt = late.filter((x) => x.hunt).length, none = late.filter((x) => x.known === 0).length, atk = late.filter((x) => x.state.startsWith('attack')).length;
+    const waves = r.ai!.waves.filter((x) => x.slot === lead && x.min >= r.minutes - 15);
+    const ends = waves.map((x) => x.end[0]).join('');
+    const kind = hunt > late.length / 2 ? 'hunt' : none > late.length / 2 ? 'nothingKnown' : waves.length ? 'waves' : 'holding';
+    cat[kind]++;
+    const last = late[late.length - 1];
+    rows.push(`| ${r.map} | ${r.players[lead].faction} | ${ratio.toFixed(1)} | ${kind} | ${waves.length} (${ends}) | ${Math.round(100 * atk / Math.max(1, late.length))}% | ${last?.known ?? '-'} | ${last ? `${last.army} / ${last.enemyArmy} (est ${last.est}, need ${last.need})` : '-'} |`);
+  }
+  console.log(`\n## Timed-out games (--probe ai): ${tos.length}, lopsided (leader >= 1.5x) ${lop}: searching ${cat.hunt}, nothing known ${cat.nothingKnown}, waves going in ${cat.waves}, holding at home ${cat.holding}`);
+  console.log('| map | leader | material ratio | last 15 min | leader waves (ends: b/f/d) | leader attacking | enemy structures known | leader army / enemy army at the end |');
+  console.log('|---|---|---|---|---|---|---|---|');
+  for (const row of rows) console.log(row);
+}

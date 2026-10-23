@@ -122,6 +122,8 @@ export default strings('army', {
     noOfType: 'No units of that type',
     damagedSelected: '{n, plural, one {# damaged unit selected} other {# damaged units selected}} · Shift+R: send for repairs',
     factoryIdle: '{name} idle · {money} to spend (Alt-click a card to loop it)',
+    // the same on touch screens (no Alt key: the card's loop button)
+    factoryIdleTouch: '{name} idle · {money} to spend (tap a card\'s loop button to keep it building)',
     harvesterIdle: '{name} idle · Shift+I finds it',
     noHarvester: '{n, plural, one {A refinery has no harvester: build an Ore Truck} other {# refineries without a harvester: build Ore Trucks}}',
     noRepairable: 'No damaged vehicles or ships selected',

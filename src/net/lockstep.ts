@@ -31,7 +31,9 @@ export interface LockstepOptions {
   onResign?(tick: number, player: number): void;
 }
 
-export type LockstepStatus = 'live' | 'over' | 'desync';
+/** live: the relay paces the match; over: it ended; desync: stopped; offline: the relay is gone and this client
+ *  finishes the match on its own against the AI (goOffline). */
+export type LockstepStatus = 'live' | 'over' | 'desync' | 'offline';
 
 export class Lockstep {
   readonly world: World;
@@ -198,6 +200,26 @@ export class Lockstep {
       this.o.send({ t: 'over', tick: w.tick, winner: w.winnerTeam });
     }
     return h;
+  }
+
+  /**
+   * The relay is gone for good while the match was live (it restarted or shut down, the room no longer exists, or the
+   * reconnect gave up): this client finishes the match on its own. Every other human still playing is handed to the
+   * AI at the current tick, before the world steps from it, exactly like a drop (so a replay with these drops
+   * reproduces it); ticks the relay closed but this client had not run yet are let go. The local player's orders then
+   * run directly (GameLink). Only for a player still in command. Returns the players handed to the AI, or null.
+   */
+  goOffline(): number[] | null {
+    if (this.status !== 'live' || this.watching || this.surrendered) return null;
+    this.status = 'offline';
+    this.outbox.length = 0;
+    this.sent.length = 0;
+    this.incoming = [];
+    this.head = 0;
+    this.drops = [];
+    const w = this.world, handed: number[] = [];
+    for (const p of w.players) if (p.id !== this.localPlayer && p.isHuman && !p.defeated && !p.resigned) { aiTakeover(w, p.id); handed.push(p.id); }
+    return handed;
   }
 
   /** Our own hash at a tick, if still remembered. */

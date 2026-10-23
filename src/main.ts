@@ -10,7 +10,7 @@ import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
 import type { TimeOfDay } from './render/renderer';
 import { installErrorBoundary, reportError } from './platform/errors';
-import { checkSupport, renderUnsupported } from './platform/webgl';
+import { checkSupportRetrying, renderUnsupported, showSlowRendererNotice } from './platform/webgl';
 import { detectQuality } from './platform/gpu';
 import { registerServiceWorker, serviceWorkerRegistration } from './platform/pwa';
 import { enterFullscreen } from './platform/fullscreen';
@@ -48,12 +48,13 @@ function engine(): Promise<Engine> {
 }
 
 document.title = GAME_TITLE;
-const support = checkSupport(); // before anything creates a WebGLRenderer
+const support = await checkSupportRetrying(); // before anything creates a WebGLRenderer (LAB: retried, a cold GPU process can fail the first try)
 if (!support.ok) {
   document.getElementById('loading')?.remove();
   renderUnsupported(support);
   throw new Error(`WebGL 2 unavailable: ${support.reason}`);
 }
+showSlowRendererNotice(support); // LAB: no graphics card in use (software rendering): say why it is slow and how to fix it
 // first launch: pick a quality preset that suits this GPU (must run before the menus read settings)
 try {
   if (!new URLSearchParams(location.search).get('autostart') && !JSON.parse(localStorage.getItem('rh.settings') ?? '{}').quality) saveSettings({ ...loadSettings(), quality: await detectQuality() });
@@ -67,6 +68,17 @@ const numParam = (name: string, def: number, lo: number, hi: number): number => 
 const audio = new AudioSystem();
 let game: Game | null = null;
 let lastSetup: GameSetup | null = null;
+// A tab left open across a deploy asks for chunks the server no longer has (plain-http hosts have no service worker to
+// keep them): reload into the new build instead of leaving the player on the bare backdrop. Never under a match; at
+// most once in 30 s, so a broken deploy shows its error instead of reloading in a loop.
+window.addEventListener('vite:preloadError', () => {
+  if (game && !game.setup.demo) return;
+  try {
+    if (Date.now() - Number(sessionStorage.getItem('rh.chunkReload') || 0) < 30_000) return;
+    sessionStorage.setItem('rh.chunkReload', String(Date.now()));
+  } catch { return; }
+  location.reload();
+});
 /** A playtest started from the editor: leaving the match goes back to the editor. */
 let returnToEditor = false;
 const loading = document.getElementById('loading')!;
@@ -285,7 +297,13 @@ async function startGame(setup: GameSetup) {
   lastSetup = setup;
   await preloadHd(E, setup); // the match's factions' baked models (procedural meanwhile / on failure)
   setup = withPortableFlag(setup); // multiplayer and ranked runs: the same maths on every machine, recorded with the game
-  await setPortable(portableMathFor(setup));
+  try {
+    await setPortable(portableMathFor(setup));
+  } catch (e) { // (its chunk failed to load: offline on an old cache, or a deploy that removed it)
+    reportError(e, true);
+    hideLoading();
+    return;
+  }
   try {
     game = new E.Game(setup, audio, {
       onPause: () => menus.showPause(game!),

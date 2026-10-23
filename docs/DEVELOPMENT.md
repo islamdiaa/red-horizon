@@ -118,6 +118,22 @@ The interface is translated into Russian, German, Spanish, Brazilian Portuguese,
   `src/i18n/en/missions.ts` (generated: re-run the tool after changing mission text; the test lists what is missing).
   Built-in player names (the AI commanders, the default "Commander") are shown through `playerName()`
   (`src/i18n/en/players.ts`); a name a player chose is shown as it is.
+- **Generated names** stay English where they are made (seeded, saved, shared in multiplayer) and translate where
+  they are shown: operation code names of the Daily Challenge and Conquest (`src/i18n/en/codenames.ts`: one entry
+  per adjective + noun pair, so a translation can make them agree; `trSource()` finds them, capitals included),
+  Conquest call signs (`callSignName()`, and inside Conquest text through `addParamResolver()`, which translates only
+  named parameters of chosen templates), Conquest commanders and the rivals' names (`players.ts`: `personName()`
+  writes them in Cyrillic or Chinese script; Latin-script languages keep the spelling). The word lists must match the
+  generators (`tests/i18n-generated.test.ts`).
+- **Names inside sentences.** A territory, commander or call-sign name inserted into a translated template can't be
+  declined or given an article. Write such templates so the name stands on its own, whatever the language: after a
+  colon, in parentheses, or as "{from} → {territory}" (not "Battle for {territory}" in Russian, "à {territory}" in
+  French or "in {territory}" in German).
+- **Speech.** The announcer's lines and the units' acknowledgements (`src/i18n/en/speech.ts`) are translated like
+  any other text. `src/audio/speech.ts` speaks the translation when the browser has a voice for the interface
+  language (the best-sounding one; online voices are fine: they only receive the fixed game lines), and the English
+  line with an English voice otherwise; the announcer's captions are translated either way. Translate them for the ear:
+  short, like radio chatter (`tests/speech-i18n.test.ts` checks the length).
 - **The map editor** (`src/editor`) keeps ids in the files it saves (tools, symmetries, objective and trigger kinds);
   the labels come from `src/i18n/en/editor.ts`. The defaults it fills into a new mission (player names, briefing,
   objective texts) are written in the author's language; custom missions emit English in the simulation
@@ -137,13 +153,15 @@ The interface is translated into Russian, German, Spanish, Brazilian Portuguese,
   - the setting persists;
   - no new hard-coded player-facing string appears in the UI files (`src/ui`, `src/editor` and a few more).
 
-  `tests/editor-i18n.test.ts` covers the editor in another language and `tests/i18n-missions.test.ts` the mission text.
+  `tests/editor-i18n.test.ts` covers the editor in another language, `tests/i18n-missions.test.ts` the mission text,
+  `tests/i18n-generated.test.ts` the generated names and `tests/speech-i18n.test.ts` the spoken lines and voice choice.
 
 To add a string, put it in the namespace module and translate it in each `locales/<lang>.json` (append it next to
 related keys, or batch-insert with `node --import tsx tools/i18n/catalog.ts insert <lang> <batch.json>`, which changes
 nothing else in the file). `node --import tsx tools/i18n/catalog.ts missing <lang>` lists what a language still lacks.
 `tools/i18n/sweep.mjs` walks the running game in one language and lists the English still on screen and text that does
-not fit its box; `tools/i18n/mission-coverage.ts` plays every mission headlessly and checks the text it shows.
+not fit its box; `tools/i18n/mission-coverage.ts` plays every mission headlessly and checks the text it shows;
+`tools/i18n/scan.ts` lists English-looking literals anywhere in `src` that no catalogue registers.
 
 ## HD models
 
