@@ -557,8 +557,30 @@ export function lanesOpen(world: World, p: Player, bt: BuildingTypeDef, px: numb
       if (m.terrainPassable(i)) open++;
     }
     if (open < 2) return false;
+    // (version 7: and the lane leads somewhere: trees, rock, the map edge and the new structure itself can close a corner
+    // off; a refinery's free Ore Truck sat at such a dock for the rest of a match)
+    if (!roomAround(m, lx, ly, inFoot)) return false;
   }
   return true;
+}
+
+/** Open ground (4-neighbour, passable now, the new footprint counted as blocked) reachable from (x, y): at least ROOM_MIN cells. */
+const ROOM_MIN = 30;
+function roomAround(m: GameMap, x0: number, y0: number, blocked: (x: number, y: number) => boolean): boolean {
+  const seen = new Set<number>([m.idx(x0, y0)]);
+  const q = [m.idx(x0, y0)];
+  for (let h = 0; h < q.length && seen.size < ROOM_MIN; h++) {
+    const x = q[h] % m.w, y = (q[h] / m.w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (!m.inBounds(nx, ny) || blocked(nx, ny)) continue;
+      const j = m.idx(nx, ny);
+      if (seen.has(j) || !m.passableIdx(j)) continue;
+      seen.add(j);
+      q.push(j);
+    }
+  }
+  return seen.size >= ROOM_MIN;
 }
 
 const zoneCache = new WeakMap<GameMap, { trees: number; bridges: number; zone: Int32Array }>();

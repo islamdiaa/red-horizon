@@ -41,8 +41,18 @@
  *     save.ts). Missions: per-level tuning across the campaign, no-base missions fail when nothing left can finish them
  *     (soviet-01, soviet-03), allied-05's trucks stay on the plain, Conquest's Easy naval harbour and Easy capital, and
  *     capital waves stop with the yard (src/missions, src/conquest).
+ *  7. Round 5: the Classic AI judges ore fields by the ore left in them and cares for its Ore Trucks by level (Hard
+ *     turns them back from fire and the enemy's side, Brutal also moves them off mined-out fields), sends a late "luck"
+ *     wave only when it outweighs the target's defences; beaten teams concede together; a broke AI pays for its truck
+ *     first; new refinery docks and factory exits must lead to open ground; an MCV gives up a deploy spot it can't
+ *     reach (src/sim/ai*.ts). An AI that took over a surrendered side can concede for it (resign.ts), a truck whose
+ *     ore can't be reached searches again from where it stands (harvest.ts), units sealed in small pockets by friendly
+ *     structures are moved out (world.ts), escort/guard units let go of dead targets (orders.ts). Missions: allied-05
+ *     Hard/Brutal camp Tesla Coil, soviet-01 Brutal uplink, wolfpack Brutal subs and convoy speed, Conquest Easy bases
+ *     and capital, capture-target locks, water structures placed clear of units, the Easy harbour before the fleet,
+ *     Boot Camp beacons revealed, engineers count as structure breakers in the no-base lose rules.
  */
-export const SIM_VERSION = 6;
+export const SIM_VERSION = 7;
 
 /** The version of records made before the stamp existed. */
 export const LEGACY_SIM_VERSION = 1;

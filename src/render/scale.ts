@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ModelInstance } from './models/types';
+import { patchEnvLutIrradiance } from './envlut';
 
 /**
  * Render-only unit scale and the model "look" hooks (rim light).
@@ -88,4 +89,5 @@ export function patchModelRim(mat: THREE.MeshStandardMaterial): void {
   };
   mat.customProgramCacheKey = () => `${prevKey}|rim`;
   mat.needsUpdate = true;
+  patchEnvLutIrradiance(mat); // (three's irradiance from the baked table: same light, one lookup)
 }

@@ -69,7 +69,8 @@ export function takesLevel(def: Pick<MissionDef, 'id' | 'campaign' | 'scored'>):
 
 /**
  * The campaign difficulty the player picked last. Until they pick one: Normal for a commander with wins from before the
- * levels existed (a completed record without a level: those were all played at Normal), else the level of their last
+ * levels existed (a completed record without a level, of a mission that takes the level: those were all played at
+ * Normal), else the level of their last
  * win (a new player who won Grey Dawn at Easy plays the next mission at Easy too), else Easy (Normal is a seasoned
  * player's level: tools/campaign-levels.ts).
  */
@@ -77,7 +78,8 @@ export function loadLevel(): MissionLevel {
   try {
     const v = localStorage.getItem(LEVEL_KEY);
     if (isMissionLevel(v)) return v;
-    if (Object.values(loadProgress()).some((r) => r?.completed && !r.level)) return 'normal';
+    // (only missions that take the level: Survival's five-wave record carries none and says nothing about it)
+    if (Object.entries(loadProgress()).some(([id, r]) => r?.completed && !r.level && (() => { const d = getMission(id); return !d || takesLevel(d); })())) return 'normal';
     const last = localStorage.getItem(LAST_WIN_KEY);
     return isMissionLevel(last) ? last : 'easy';
   } catch {

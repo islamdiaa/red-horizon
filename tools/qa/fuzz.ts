@@ -235,9 +235,12 @@ export function invariants(w: World, stale?: Map<number, number>): string[] {
       if (w.units.includes(ps)) out.push(`passenger ${ps.ut.id} also on the map`);
     }
     // (a truck heading home whose refinery is gone keeps the old id until another refinery exists: it looks again
-    // every tick, harmless; any other state must have let go of it)
-    if (u.dockAt && u.hstate !== 'toRefinery' && !(w.entities.get(u.dockAt)?.alive) && held(2e9 + u.id)) out.push(`${u.ut.id} docked at a missing structure for 5 s (${u.hstate})`);
-    if (u.order.type === 'attack' || u.order.type === 'enter' || u.order.type === 'escort') {
+    // every tick, harmless; so does one sent back to the ore by a harvest order while it unloaded: seek, toOre and
+    // harvesting never read it, and every way back to a refinery starts from dockAt 0. Waiting at a dock or unloading
+    // must have let go of it)
+    if (u.dockAt && (u.hstate === 'waitDock' || u.hstate === 'unloading') && !(w.entities.get(u.dockAt)?.alive) && held(2e9 + u.id)) out.push(`${u.ut.id} docked at a missing structure for 5 s (${u.hstate})`);
+    // (an aircraft's enter order is a return to base: aircraft.ts flies it home to any pad, as idle)
+    if (u.order.type === 'attack' || (u.order.type === 'enter' && u.kind !== 'aircraft') || u.order.type === 'escort') {
       const t = w.entities.get((u.order as any).target);
       if ((!t || !t.alive) && held(-(u.id * 65536 + (u.order as any).target))) out.push(`${u.ut.id} keeps an ${u.order.type} order on a missing target for 5 s`);
     }

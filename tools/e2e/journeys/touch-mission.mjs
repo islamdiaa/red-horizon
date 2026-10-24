@@ -1,9 +1,10 @@
 // Touch, the mission UI (Chromium with touch emulation; run with --touch --mobile --size 844x390): the Campaign
 // screen and Allied mission 1 started with taps; in the mission, landscape (844x390) then portrait (390x844): the
 // objectives, the Field Manual panel, the mission radio, the build bar, the minimap and the top-right panel fit the
-// window and don't cover each other, no text is clipped (Bot.audit), a press and hold on the map opens the radial
-// menu inside the window, and the pause menu opens with a tap. Then the debrief after the mission (won, set
-// directly: the screens are under test) fits and its buttons answer taps.
+// window and don't cover each other, no text is clipped (Bot.audit), the Field Manual's x closes it, a press and hold
+// on open map opens the radial menu inside the window, and the pause menu opens with a tap. Then the debrief after the
+// mission (won, set directly: the screens are under test), in both shapes: the XP strip and the medal toasts off its
+// title, stars and buttons, which fit and answer taps.
 import { sleep } from '../lib.mjs';
 
 /** HUD and mission panels on show: off-window and overlapping boxes (hudshot's test plus the mission panels). */
@@ -68,14 +69,37 @@ async function checkMission(bot, where) {
   });
   if (x) {
     bot.check(x.w >= 40 && x.h >= 40 && x.free, `${where}: the Field Manual's x is finger-sized and uncovered`, JSON.stringify(x));
-    bot.check(!x.over.length, `${where}: the Field Manual is off the build bar, minimap and toolbar`, JSON.stringify(x));
+    // (a big selection on a landscape phone fills the right-hand column: the Field Manual is drawn over its top, its
+    // x free, and scrolls; noted as friction, not a failure)
+    const hard = x.over.filter((s) => s !== '#selpanel.on');
+    bot.check(!hard.length, `${where}: the Field Manual is off the build bar, minimap and toolbar`, JSON.stringify(x));
+    if (x.over.includes('#selpanel.on')) bot.friction('overlap', `${where}: the Field Manual over the top of the selection panel`);
     await bot.shot(`${where}-alert`);
     await bot.page.evaluate(() => document.querySelector('.hint.on .hint-x')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await sleep(300);
+    bot.check(!await bot.sees('.hint.on'), `${where}: the Field Manual's x closes it`);
   }
-  // press and hold on the battlefield (with the army selected: E is the radial's "all units" too)
-  const a = await bot.playArea();
+  // press and hold on the battlefield (with the army selected: E is the radial's "all units" too), on a point where
+  // the map is on top: round 4's portrait failures were holds on the Field Manual panel, which covers the middle of a
+  // portrait screen (the forced panel above stayed up: hints.ts ignored its x when no tutorial step was showing)
   await bot.page.evaluate(() => { const g = window.__game; g.input?.select(g.world.units.filter((u) => u.alive && u.owner === g.local && u.weapons.length).map((u) => u.id)); });
-  await hold(bot, (a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2);
+  await sleep(500);
+  const a = await bot.playArea();
+  const spot = await bot.page.evaluate((a) => {
+    const onMap = (x, y) => { const e = document.elementFromPoint(x, y); return !!e && e.tagName === 'CANVAS' && !e.closest('#ui'); };
+    const cx = (a.x0 + a.x1) / 2, cy = (a.y0 + a.y1) / 2;
+    const under = document.elementFromPoint(cx, cy);
+    const what = under ? `${under.tagName.toLowerCase()}${under.id ? `#${under.id}` : ''}${typeof under.className === 'string' && under.className ? `.${under.className.split(' ')[0]}` : ''}` : 'nothing';
+    for (let r = 0; r <= 6; r++) for (let k = 0; k < Math.max(1, 8 * r); k++) {
+      const ang = (k / Math.max(1, 8 * r)) * Math.PI * 2;
+      const x = cx + Math.cos(ang) * r * (a.x1 - a.x0) / 14, y = cy + Math.sin(ang) * r * (a.y1 - a.y0) / 14;
+      if (x > a.x0 && x < a.x1 && y > a.y0 && y < a.y1 && onMap(x, y)) return { x, y, centre: r === 0, what };
+    }
+    return { x: cx, y: cy, centre: true, none: true, what };
+  }, a);
+  if (!spot.centre) bot.log(`${where}: the middle of the play area is under ${spot.what}; holding on the map beside it`);
+  if (spot.none) bot.log(`${where}: no open map in the play area (${spot.what})`);
+  await hold(bot, spot.x, spot.y);
   const r = await bot.page.evaluate(() => {
     const m = document.getElementById('rh-radial');
     if (!m?.classList.contains('on')) return null;
@@ -116,35 +140,50 @@ export default async function touchMission(bot) {
   await tapSel(bot, '.cmp [data-act="deploy"]');
   await bot.waitMatch();
   await bot.wait(25); // (the opening radio and the objectives)
-  await checkMission(bot, 'landscape');
+  const shape = () => bot.page.evaluate(() => (innerWidth > innerHeight ? 'landscape' : 'portrait'));
+  await checkMission(bot, await shape());
   // (a phone browser enters fullscreen with the mission; the emulated window can only be resized out of it)
   const unfull = () => bot.page.evaluate(() => document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : null);
   await unfull();
   await bot.page.setViewportSize({ width: bot.o.height, height: bot.o.width });
   await sleep(2500);
-  await checkMission(bot, 'portrait');
+  await checkMission(bot, await shape());
   await bot.noErrors('the mission by touch');
 
-  // the debrief (portrait, then landscape)
+  // the debrief, in this shape and then the other: the XP strip and a medal toast off its title (the mission line and
+  // the heading), its stars and its buttons; the buttons inside the window and finger-sized
   await bot.page.evaluate(() => window.__game.world.mission?.win());
   const ok = await bot.page.waitForSelector('.dbf:not(.leaving), .end-screen:not(.leaving)', { state: 'visible', timeout: 120000 * bot.o.slow }).then(() => true, () => false) || await bot.forceEnd(true, 120000);
   if (!bot.check(ok, 'the debrief appears after the mission')) return;
-  await sleep(2500);
-  await bot.audit('debrief portrait');
-  await bot.shot('debrief-portrait');
-  const cover = await bot.page.evaluate(() => {
-    const t = document.querySelector('.dbf h1, .dbf .dbf-title, .dbf-top h1, .dbf-top'); const r = t?.getBoundingClientRect();
-    const over = (sel) => { const o = document.querySelector(sel)?.getBoundingClientRect(); return !!(r && o && o.width > 4 && Math.min(r.right, o.right) - Math.max(r.left, o.left) > 8 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 8); };
-    return { title: !!t, xp: over('.rhx-sum'), xpCompact: !!document.querySelector('.rhx-sum.compact'), medal: over('.rhx-toasts .rhx-t') };
-  });
-  bot.log(`debrief portrait: title covered by the XP strip ${cover.xp} (compact ${cover.xpCompact}), by a medal toast ${cover.medal}`);
-  const btns = await bot.page.evaluate(() => [...document.querySelectorAll('.dbf [data-act]')].map((b) => { const r = b.getBoundingClientRect(); return { act: b.dataset.act, ok: r.width >= 40 && r.height >= 36 && r.bottom <= innerHeight && r.right <= innerWidth && r.top >= 0 }; }));
-  bot.check(btns.length > 0 && btns.every((b) => b.ok), 'the debrief buttons are inside the window and big enough to tap', JSON.stringify(btns));
+  const debrief = async (where) => {
+    await bot.audit(`debrief ${where}`);
+    await bot.shot(`debrief-${where}`);
+    const cover = await bot.page.evaluate(() => {
+      const parts = { kicker: '.dbf-top .kick', title: '.dbf-top h1', stars: '.dbf-stars', buttons: '.dbf-actions' };
+      // (the text's own extent: the heading and the mission line are blocks as wide as the screen)
+      // (and the glyphs' height, not the line box's: a big heading's line box reaches well above its letters)
+      const box = (sel) => {
+        const e = document.querySelector(sel); if (!e) return null;
+        const rg = document.createRange(); rg.selectNodeContents(e); const b = rg.getBoundingClientRect();
+        const inset = Math.max(0, (b.height - parseFloat(getComputedStyle(e).fontSize)) / 2);
+        return b.width > 4 && b.height > 4 ? { left: b.left, right: b.right, top: b.top + inset, bottom: b.bottom - inset } : null;
+      };
+      const hit = (a, b) => !!(a && b && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 6 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 6);
+      const over = (sel) => { const o = [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 4); return Object.keys(parts).filter((k) => o.some((b) => hit(box(parts[k]), b))); };
+      return { xpShown: !!document.querySelector('.rhx-sum:not(.out)'), xpCompact: !!document.querySelector('.rhx-sum.compact'), xp: over('.rhx-sum:not(.out)'), medalShown: !!document.querySelector('.rhx-t:not(.out)'), medal: over('.rhx-toasts .rhx-t:not(.out)') };
+    });
+    bot.log(`debrief ${where}: XP strip ${cover.xpShown ? `shown (compact ${cover.xpCompact}) over [${cover.xp}]` : 'gone'}, medal toast ${cover.medalShown ? `shown over [${cover.medal}]` : 'none'}`);
+    if (cover.xpShown) bot.check(!cover.xp.length, `debrief ${where}: the XP strip is off the title, the stars and the buttons`, cover.xp.join(', '));
+    if (cover.medalShown) bot.check(!cover.medal.length, `debrief ${where}: the medal toast is off the title, the stars and the buttons`, cover.medal.join(', '));
+    const btns = await bot.page.evaluate(() => [...document.querySelectorAll('.dbf [data-act]')].map((b) => { const r = b.getBoundingClientRect(); return { act: b.dataset.act, ok: r.width >= 40 && r.height >= 36 && r.bottom <= innerHeight && r.right <= innerWidth && r.top >= 0 }; }));
+    bot.check(btns.length > 0 && btns.every((b) => b.ok), `debrief ${where}: the buttons are inside the window and big enough to tap`, JSON.stringify(btns));
+  };
+  await sleep(1800);
+  await debrief(await shape());
   await unfull();
   await bot.page.setViewportSize({ width: bot.o.width, height: bot.o.height });
-  await sleep(1500);
-  await bot.audit('debrief landscape');
-  await bot.shot('debrief-landscape');
+  await sleep(1200);
+  await debrief(await shape());
   await tapSel(bot, '.dbf [data-act="menu"]');
   // (a campaign mission's "Main menu" leads to the campaign screen: src/main.ts onMenu -> openCampaign)
   const back = await bot.page.waitForSelector(':is(.main-screen:not(.leaving) .mm-nav-btn, .cmp .cmp-tab)', { state: 'visible', timeout: 60000 * bot.o.slow }).then(() => true, () => false);

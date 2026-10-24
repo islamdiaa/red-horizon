@@ -144,6 +144,8 @@ export function showSlowRendererNotice(s: SupportResult, parent: HTMLElement = d
     fadeOutAndRemove(box);
   }, 'primary', '255, 176, 64');
   ok.style.padding = '0.55rem 1rem 0.5rem';
+  ok.style.minHeight = '2.75rem'; // a finger-sized target on phones (44 px)
+  ok.style.minWidth = '6rem';
   box.append(head, body, advice, h('div', { display: 'flex', justifyContent: 'flex-end' }, [ok]));
   parent.append(box);
   fadeIn(box);

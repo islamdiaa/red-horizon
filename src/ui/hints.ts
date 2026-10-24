@@ -71,6 +71,7 @@ export class Hints {
       if (isTouchDevice() && !(e.target as HTMLElement | null)?.closest?.('.hint-x')) return;
       if (this.alerts.current >= 0) { this.alerts.dismiss(); this.idx = -2; this.update(); return; }
       if (this.idx >= 0) this.dismissed.add(this.idx);
+      this.idx = -2; // (so show(-1) always takes the panel down, also one put up without a step: render())
       this.show(-1);
     });
     parent.appendChild(this.el);

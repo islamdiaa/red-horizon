@@ -216,6 +216,9 @@ export class MissionHud {
         const wave = this.tx.querySelector<HTMLElement>('.wave');
         if (wave) wave.style.opacity = '0.2';
       }
+      // (lines are paced in real time and the drills in game time: with newer lines waiting, a fully typed one stays
+      // up only a moment longer, so the radio keeps up with a fast-forwarded game)
+      if (this.queue.length && this.typing >= this.full.length) this.hideT = Math.min(this.hideT, 1.2);
       this.hideT -= dt;
       if (this.hideT <= 0) {
         this.tx.classList.remove('on');

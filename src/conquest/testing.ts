@@ -10,7 +10,7 @@ import type { BattleKind, BattleOutcome, ConquestSetup } from './battle';
 import { EVENT_BY_ID, chooseEvent } from './events';
 
 /** A fresh run with a committed battle of the given kind (the territory is picked to suit it). */
-export function runWithBattle(seed: number, faction: Faction, kind: BattleKind, doctrine = 'vanguard', difficulty?: ConquestRun['difficulty']): { run: ConquestRun; setup: ConquestSetup } {
+export function runWithBattle(seed: number, faction: Faction, kind: BattleKind, doctrine = 'vanguard', difficulty?: ConquestRun['difficulty'], strength?: number): { run: ConquestRun; setup: ConquestSetup } {
   const run = generateRun({ seed, faction, doctrine, difficulty });
   let target: string;
   if (kind === 'defend') {
@@ -24,6 +24,8 @@ export function runWithBattle(seed: number, faction: Faction, kind: BattleKind, 
     const opts = attackTargets(run).map((a) => territory(run, a.target)).filter((t) => t.owner === 'enemy');
     target = (kind === 'naval' ? opts.find((t) => t.coastal) : undefined)?.id ?? opts[0]?.id ?? attackTargets(run)[0].target;
   }
+  // (a garrison strength to measure, e.g. tools/campaign-conquest.ts --strength 3; the capital keeps its own)
+  if (strength !== undefined && kind !== 'boss') territory(run, target).strength = strength;
   const setup = startBattle(run, target, Math.min(run.warChest, 6000), { force: kind });
   return { run, setup };
 }

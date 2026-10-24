@@ -39,6 +39,8 @@ export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crush
 export type PlacementIssue = 'terrain' | 'occupied' | 'exit' | 'distance' | 'no-yard';
 
 const NEIGHBOURS4: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+/** World.walledIn: a ground unit whose failed path search found at most this many cells to move in, closed off by structures, is moved out. */
+const SEALED_POCKET = 8;
 
 /** Walls must stay within this many cells of a non-wall own structure. */
 export const WALL_REACH = 10;
@@ -1064,7 +1066,7 @@ export class World {
       } else {
         u.path = null;
         u.hasGoal = false;
-        if (this.pathfinder.expandedLastSearch <= 1 && !(sx === gx && sy === gy)) this.walledIn(u);
+        if (this.pathfinder.expandedLastSearch <= SEALED_POCKET && !(sx === gx && sy === gy)) this.walledIn(u);
       }
     }
   }
@@ -1073,15 +1075,60 @@ export class World {
    * A ground unit whose cell has no way out because structures went up all round it (an AI base growing around a
    * parked tank): it can never get a path again, so it is moved to the nearest free spot, as a placement on top of
    * it would have done. Ground boxed in by terrain alone (a unit dropped on an islet) is left as it is.
+   * Version 7: also a unit sealed in a pocket of a few cells (SEALED_POCKET) that structures close off: it goes to the
+   * nearest open cell beyond the structures, over ground only they block (never across water, rock or trees). A Hard AI
+   * ringed a damaged tank by its Service Depot with defences, two cells to move in, for five minutes.
    */
   private walledIn(u: Unit) {
     if (u.kind === 'aircraft' || u.kind === 'naval' || u.exitBuilding || u.madStage > 0) return;
     const m = this.map, cx = Math.floor(u.x), cy = Math.floor(u.y);
-    if (!NEIGHBOURS4.some(([dx, dy]) => m.inBounds(cx + dx, cy + dy) && m.occupant[m.idx(cx + dx, cy + dy)] && m.terrainPassable(m.idx(cx + dx, cy + dy)))) return;
-    const [x, y] = this.findFreeSpot(u.x, u.y, 6, u.kind !== 'infantry');
-    if (Math.floor(x) === cx && Math.floor(y) === cy) return;
-    u.x = u.prevX = x;
-    u.y = u.prevY = y;
+    if (!m.inBounds(cx, cy)) return;
+    // the open ground it can still reach (orthogonal steps: a path never cuts a structure's corner)
+    const pocket = [m.idx(cx, cy)];
+    let enemyWall = false;
+    for (let h = 0; h < pocket.length; h++) {
+      const i = pocket[h], x = i % m.w, y = (i / m.w) | 0;
+      for (const [dx, dy] of NEIGHBOURS4) {
+        if (!m.inBounds(x + dx, y + dy)) continue;
+        const j = m.idx(x + dx, y + dy);
+        if (!m.passableIdx(j)) {
+          const b = m.occupant[j] ? this.entities.get(m.occupant[j]) : undefined;
+          if (b && u.owner.isEnemy(b.owner)) enemyWall = true;
+          continue;
+        }
+        if (pocket.includes(j)) continue;
+        if (pocket.length >= SEALED_POCKET) return; // (room to move: not sealed in)
+        pocket.push(j);
+      }
+    }
+    let to: [number, number] | null = null;
+    if (pocket.length === 1) {
+      if (!NEIGHBOURS4.some(([dx, dy]) => m.inBounds(cx + dx, cy + dy) && m.occupant[m.idx(cx + dx, cy + dy)] && m.terrainPassable(m.idx(cx + dx, cy + dy)))) return;
+      to = this.findFreeSpot(u.x, u.y, 6, u.kind !== 'infantry');
+    } else {
+      // (a pocket the enemy's structures close: a trap it built, as in Red Alert; the unit stays)
+      if (enemyWall) return;
+      // out through the structures: the nearest open cell, stepping over structure cells only
+      const seen = new Set(pocket), q = [...pocket], room = u.kind !== 'infantry' ? 0 : 2;
+      for (let h = 0; h < q.length && !to && q.length < 600; h++) {
+        const i = q[h], x = i % m.w, y = (i / m.w) | 0;
+        for (const [dx, dy] of NEIGHBOURS4) {
+          const nx = x + dx, ny = y + dy;
+          if (!m.inBounds(nx, ny)) continue;
+          const j = m.idx(nx, ny);
+          if (seen.has(j) || !m.terrainPassable(j)) continue;
+          seen.add(j);
+          q.push(j);
+          if (!m.passableIdx(j)) continue; // (a structure: go on through it)
+          let crowd = 0;
+          this.grid.query(nx + 0.5, ny + 0.5, 0.6, (o) => { if (o.alive && Math.floor(o.x) === nx && Math.floor(o.y) === ny) crowd++; });
+          if (crowd <= room) { to = [nx + 0.5, ny + 0.5]; break; }
+        }
+      }
+    }
+    if (!to || (Math.floor(to[0]) === cx && Math.floor(to[1]) === cy)) return;
+    u.x = u.prevX = to[0];
+    u.y = u.prevY = to[1];
     this.requestPath(u, u.goalX, u.goalY); // (on to where it was going)
   }
 

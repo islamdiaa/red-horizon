@@ -22,8 +22,9 @@ describe('first launch', () => {
 describe('main menu layout', () => {
   const css = src('ui/styles.css');
   test('portrait screens stack the navigation above the skirmish setup', () => {
-    const m = css.match(/@media \(max-aspect-ratio: 1\/1\) \{([\s\S]*?)\n\}/);
-    assert.ok(m, 'a portrait rule for the main menu exists');
+    // (also narrow landscape windows, 800x600: side by side the two columns ran off both edges)
+    const m = css.match(/@media \(max-aspect-ratio: 1\/1\), \(max-width: 900px\) \{([\s\S]*?)\n\}/);
+    assert.ok(m, 'a portrait (and narrow window) rule for the main menu exists');
     assert.match(m![1], /\.main-screen \.mm-layout \{[^}]*flex-direction: column/, 'the two columns stack');
     assert.match(m![1], /\.main-screen \{[^}]*overflow-y: auto/, 'the stacked menu scrolls');
   });

@@ -741,7 +741,9 @@ const DRY_SEASON: MissionDef = {
     ]);
     // the mining camp in the middle of the plain
     const mid = ground(m, m.mapW / 2 + (e.x - s.x) * 0.06, m.mapH / 2 + (e.y - s.y) * 0.06, 6);
-    const camp = layout(m, 1, mid, e, [['proc', 0, 4], ['proc', 0, -4], ['ftur', -4, 0], ['sam', 3, 0], ['silo', 1.5, 7], ['silo', 1.5, -7]]);
+    // (campaign difficulty: at Hard and Brutal a Tesla Coil guards the camp too; without it the newcomer stand-in's first
+    // rush took Hard fourteen times in sixteen, with it five; the Longbow plan the tips suggest is untouched)
+    const camp = layout(m, 1, mid, e, [['proc', 0, 4], ['proc', 0, -4], ['ftur', -4, 0], ['sam', 3, 0], ['silo', 1.5, 7], ['silo', 1.5, -7], ...(m.tightened ? [['tsla', -3.5, 5]] as [string, number, number][] : [])]);
     const procs = camp.filter((b): b is Building => !!b && b.bt.id === 'proc');
     m.flags.procs = ids(procs);
     m.flags.camp = mid;
@@ -866,6 +868,7 @@ const MIDNIGHT: MissionDef = {
   tips: [
     'While the fortress is low on power the countdown runs at a quarter of its speed and the Tesla Coils are silent.',
     'Tesla Coils outrange everything you have. Go for the generator yard first.',
+    'The generator yard\'s flame towers stand in its middle: the plant at your end of it can be shelled from beyond their reach.',
     'Longbows should stay clear of SAM sites.',
     'Kestrel\'s C4 destroys any structure, the silo included. Get her there alive.',
   ],

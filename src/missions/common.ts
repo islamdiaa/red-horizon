@@ -165,11 +165,12 @@ export function structures(m: MissionRuntime, p: number, types?: string[]): Buil
 }
 
 /**
- * Units of a side that can still damage structures (not dogs, medics, engineers or anti-air only). Red Alert's rule
- * for missions without a base: the mission fails when the forces that can complete it are gone.
+ * Units of a side that can still damage structures (not dogs, medics or anti-air only; engineers can: entering takes a
+ * third of a structure's health and captures it once it is weak). Red Alert's rule for missions without a base: the
+ * mission fails when the forces that can complete it are gone.
  */
 export function structureBreakers(m: MissionRuntime, p: number): Unit[] {
-  return m.units(p).filter((u) => u.weapons.some((w) => w.def.antiGround && WARHEADS[w.def.warhead].verses[ARMOR_INDEX.wood] > 0.05));
+  return m.units(p).filter((u) => u.ut.engineer || u.weapons.some((w) => w.def.antiGround && WARHEADS[w.def.warhead].verses[ARMOR_INDEX.wood] > 0.05));
 }
 
 /** Escorts stay close to the unit they protect (call every few seconds). */

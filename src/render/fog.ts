@@ -75,7 +75,39 @@ export class FogOfWar {
       }
       d[j + 3] = 255;
     }
-    if (changed) this.texture.needsUpdate = true;
+    if (changed) {
+      this.markClear();
+      this.texture.needsUpdate = true;
+    }
+  }
+
+  private clearRow = new Uint8Array(0);
+  /**
+   * Blue channel: 255 where the cell and its eight neighbours (clamped at the map edge, like the texture) are fully
+   * visible and explored. The atmosphere pass reads it to skip the fog-of-war work where the fog cannot show: its
+   * wobbled lookup stays within half a cell, so a filtered blue of 1 means every texel that lookup can reach is clear.
+   */
+  private markClear() {
+    const d = this.data, w = this.w, h = this.h;
+    if (this.clearRow.length !== w * h) this.clearRow = new Uint8Array(w * h);
+    const r = this.clearRow;
+    // separable minimum: across each row, then down each column
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let ok = 1;
+        for (let k = Math.max(0, x - 1); k <= Math.min(w - 1, x + 1); k++) {
+          const j = (y * w + k) * 4;
+          if (d[j] !== 255 || d[j + 1] !== 255) { ok = 0; break; }
+        }
+        r[y * w + x] = ok;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const ok = r[Math.max(0, y - 1) * w + x] & r[y * w + x] & r[Math.min(h - 1, y + 1) * w + x];
+        d[(y * w + x) * 4 + 2] = ok ? 255 : 0;
+      }
+    }
   }
 
   /** Smoothed visibility at a map position (0..1) used to fade units in/out. */
@@ -232,9 +264,15 @@ export class FogPass extends Pass {
 
           #if defined(USE_CLOUDS) || defined(DYN_LIGHTS)
           {
-            bool needN = true;
-            #if !defined(USE_CLOUDS)
-              needN = dynAny(vUv);
+            // the surface normal (four more depth lookups) only where a cloud shadow or a dynamic light changes the
+            // pixel: elsewhere both terms below add nothing
+            float cs = 0.0;
+            #ifdef USE_CLOUDS
+              cs = cloudShadowAt(world, uSunDir);
+            #endif
+            bool needN = cs > 0.0;
+            #ifdef DYN_LIGHTS
+              needN = needN || dynAny(vUv);
             #endif
             if (needN) {
               // surface normal from the depth buffer: the smaller of the one-sided differences on each axis
@@ -260,7 +298,6 @@ export class FogPass extends Pass {
               vec3 alb = min(c / max(E, vec3(1e-3)), vec3(0.2));
               #ifdef USE_CLOUDS
                 // clouds only take away direct sunlight
-                float cs = cloudShadowAt(world, uSunDir);
                 c *= 1.0 - cs * clamp(dot(sunIrr, vec3(0.33)) / max(dot(E, vec3(0.33)), 1e-3), 0.0, 1.0);
               #endif
               #ifdef DYN_LIGHTS
@@ -332,13 +369,16 @@ export class FogPass extends Pass {
           #endif
 
           // ---- fog of war: wobble the fog edge with drifting noise
+          vec2 ruv = world.xz / uMapSize;
+          vec2 o = max(max(-ruv, ruv - 1.0), 0.0) * uMapSize;
+          float outsideD = length(o);
+          // inside the map where the cell and its neighbours are fully visible and explored (FogOfWar blue channel)
+          // the fog of war changes nothing: skip it (the result below would be the colour unchanged)
+          if (outsideD == 0.0 && texture2D(tFog, ruv).b > 0.999) { gl_FragColor = vec4(c, col.a); return; }
           vec2 drift = vec2(tn_fbm(p * 0.35 + uTime * 0.04), tn_fbm(p * 0.35 - uTime * 0.03 + 7.0)) - 0.5;
           vec2 uv = (p + drift * 0.9) / uMapSize;
           vec2 f = texture2D(tFog, uv).rg;
           // outside the playable area: scenery, shown dimmed like explored fog
-          vec2 ruv = world.xz / uMapSize;
-          vec2 o = max(max(-ruv, ruv - 1.0), 0.0) * uMapSize;
-          float outsideD = length(o);
           float inside = 1.0 - smoothstep(0.0, 1.5, outsideD);
           float vis = mix(0.5, f.r, inside);
           float exp_ = mix(1.0, f.g, inside);

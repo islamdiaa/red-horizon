@@ -4,7 +4,8 @@
  *
  * Language. The lines are English in code (src/i18n/en/speech.ts) and translated in every interface language.
  * When the browser has a voice for the interface language, voiceFor() returns it and speak() says the translated
- * line; otherwise the English line is spoken with an English voice and only the captions are translated.
+ * line; otherwise the English line is spoken with an English voice and only the captions are translated. The player
+ * can keep the English voices in a translated interface (Settings › Gameplay › Voice language: setVoiceLanguage).
  *
  * Privacy. speechSynthesis voices are either on the device (`localService`) or online: an online voice (Chrome's
  * "Google ..." voices, Edge's "... Online (Natural)") sends the text to the browser vendor to be synthesised. The
@@ -209,6 +210,18 @@ export function pickVoice<V extends VoiceLike>(voices: readonly V[], want: 'male
   return best;
 }
 
+/**
+ * Which language the voices speak (Settings › Gameplay › Voice language): the interface language when the browser has a
+ * voice for it ('ui', the default), or always English ('en': the English announcer in a translated interface; the
+ * captions stay translated).
+ */
+export type VoiceLanguage = 'ui' | 'en';
+let voiceLanguage: VoiceLanguage = 'ui';
+/** Set from the settings (ui/settings.ts applyUiSettings). */
+export function setVoiceLanguage(v: VoiceLanguage | undefined): void { voiceLanguage = v === 'en' ? 'en' : 'ui'; }
+/** The language the voices speak: the interface language, or English when the player keeps the English voices. */
+export function spokenLang(): Lang { return voiceLanguage === 'en' ? 'en' : currentLang(); }
+
 const KEY_OF = new Map<string, string>();
 /** English line -> its catalogue key (the announcer and the unit lines; both are unique per text). */
 function keyOf(text: string): string | undefined {
@@ -302,7 +315,7 @@ export class Speech {
   /** The voice for a speaker: the interface language's when the browser has one, else English (null: the engine's). */
   voiceFor(gender: 'male' | 'female'): SpeechSynthesisVoice | null {
     if (this.synth && this.voices.length === 0) this.loadVoices();
-    const ui = currentLang();
+    const ui = spokenLang();
     const p = (ui !== 'en' && this.pair(ui)) || { female: this.female, male: this.male };
     return gender === 'female' ? p.female ?? p.male : p.male ?? p.female;
   }
@@ -312,7 +325,7 @@ export class Speech {
    * English line (a line without a translation switches to the English voice of the same gender).
    */
   plan(text: string, voice: SpeechSynthesisVoice | null): { text: string; voice: SpeechSynthesisVoice | null; lang: string } {
-    const ui = currentLang();
+    const ui = spokenLang();
     if (ui !== 'en' && voice && langFit(voice.lang, ui) > 0) {
       const tr = spokenTranslation(text);
       if (tr) return { text: tr, voice, lang: voice.lang };

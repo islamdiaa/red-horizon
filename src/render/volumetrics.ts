@@ -151,8 +151,12 @@ export class VolumetricPass extends Pass {
               vec2 wind = uFogWind;
               for (int i = 0; i < FN; i++) {
                 vec3 sp = camPos + rd * (ta + (float(i) + jit) * ds);
-                float fog = uFog.x * exp(-max(sp.y - uFog.z, -2.0) / uFog.y);
-                fog *= 1.0 - uFog.w + uFog.w * 2.0 * noise3(sp * vec3(0.11, 0.3, 0.11) + vec3(wind.x, uTime * 0.03, wind.y));
+                // (no weather fog: skip its noise, the product is zero anyway)
+                float fog = 0.0;
+                if (uFog.x > 0.0) {
+                  fog = uFog.x * exp(-max(sp.y - uFog.z, -2.0) / uFog.y);
+                  fog *= 1.0 - uFog.w + uFog.w * 2.0 * noise3(sp * vec3(0.11, 0.3, 0.11) + vec3(wind.x, uTime * 0.03, wind.y));
+                }
                 float air = uAir * smoothstep(top, top * 0.45, sp.y);
                 float sig = fog + air;
                 if (sig <= 0.0) continue;

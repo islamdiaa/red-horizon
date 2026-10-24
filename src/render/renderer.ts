@@ -4,11 +4,12 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
-import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import { FXAA_FAST } from './fxaa';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { GameMap } from '../sim/map';
 import { RTSCamera } from './camera';
 import { TerrainMesh, TerrainSkirt } from './terrain';
+import { EnvLut, patchEnvLutIrradiance, SCENE_ENV_LUT } from './envlut';
 import { Water } from './water';
 import { Vegetation } from './vegetation';
 import { OreRenderer } from './ore';
@@ -580,6 +581,8 @@ export class GameRenderer {
   vegetation!: Vegetation;
   ore!: OreRenderer;
   readonly fog: FogOfWar;
+  /** The environment's image-based lighting baked into a small table for the ground (envlut.ts). */
+  private readonly envLut = new EnvLut();
   /** Old world layers released after the next frame (their programs stay warm for the replacements). */
   private trash: (() => void)[] = [];
   readonly fogPass: FogPass;
@@ -694,6 +697,10 @@ export class GameRenderer {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = this.preset.env;
     pmrem.dispose();
+    // the ground's image-based lighting from a baked table (the full-screen terrain's costliest lighting term)
+    this.envLut.bake(this.renderer, this.scene.environment);
+    // ...and of the lit models and trees (their materials are cached for the page: only a portable table)
+    if (this.envLut.portable) SCENE_ENV_LUT.tEnvLut.value = this.envLut.texture;
 
     // lights
     const p = this.preset;
@@ -725,7 +732,7 @@ export class GameRenderer {
     const patched = new Set<THREE.Material>();
     this.vegetation.group.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-      if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); }
+      if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); patchEnvLutIrradiance(m); }
     });
 
     // post-processing: scene -> [AO] -> [volumetrics] -> atmosphere (dynamic lights, clouds, fog, fog of war)
@@ -829,7 +836,7 @@ export class GameRenderer {
     this.composer.addPass(this.final);
     if (q === 'high' && !this.taa) this.composer.addPass(new SMAAPass());
     else if (q === 'medium') {
-      this.fxaa = new ShaderPass(FXAAShader);
+      this.fxaa = new ShaderPass(FXAA_FAST);
       this.composer.addPass(this.fxaa);
     }
 
@@ -868,11 +875,13 @@ export class GameRenderer {
   private buildWorld(map: GameMap) {
     const q = this.settings.quality;
     const climate = this.settings.climate ?? 'temperate';
-    this.terrain = new TerrainMesh(map, climate, q);
+    this.terrain = new TerrainMesh(map, climate, q, this.envLut.texture);
     this.scene.add(this.terrain.mesh);
     // craters / scorch / ruts (terrain.deform...) for the effects and destruction code
     this.scene.userData.terrain = this.terrain;
-    this.skirt = new TerrainSkirt(map, this.terrain.mesh.material as THREE.Material);
+    this.skirt = new TerrainSkirt(map, this.terrain.skirtMaterial);
+    // Low: bake the ground colour now (again only where the base dressing changes)
+    this.terrain.prepare(this.renderer);
     this.scene.add(this.skirt.mesh);
     const terrain = this.terrain;
     const hFn = (x: number, y: number) => terrain.renderHeight(x, y);
@@ -913,7 +922,7 @@ export class GameRenderer {
     const patched = new Set<THREE.Material>();
     this.vegetation.group.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-      if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); }
+      if (m && m.isMeshStandardMaterial && !patched.has(m)) { patched.add(m); patchMaterialForWeather(m, this.weather.surfaceUniforms); patchEnvLutIrradiance(m); }
     });
     this.fog.resize(map.w, map.h);
     const fu = this.fogPass.material.uniforms;
@@ -1308,6 +1317,7 @@ export class GameRenderer {
       this.final.uniforms.uHazeNF.value.set(this.cam.camera.near, this.cam.camera.far);
     }
     this.terrain.flush(dt);
+    this.terrain.prepare(this.renderer);
     this.taa?.jitter(this.cam.camera);
     this.renderer.info.reset();
     for (const k in this.passCalls) this.passCalls[k] = 0;
@@ -1438,6 +1448,8 @@ export class GameRenderer {
     this.scene.environment?.dispose();
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
+    this.envLut.bake(this.renderer, this.scene.environment);
+    this.terrain.invalidateBake();
     this.renderer.shadowMap.needsUpdate = true;
     this.onResize();
   }
@@ -1449,6 +1461,7 @@ export class GameRenderer {
     this.weather.dispose();
     this.water.dispose();
     this.terrain.dispose();
+    this.envLut.dispose();
     this.dynLights.dispose();
     this.photo?.dispose();
     this.atmoTarget?.dispose();

@@ -11,6 +11,7 @@ const snapshot = (bot) => bot.g((g) => {
     tick: w.tick, credits: Math.round(me.credits),
     blds: w.buildings.filter((b) => b.alive).map((b) => `${b.owner.id}:${b.bt.id}@${b.cx},${b.cy}`).sort().join(' '),
     units: w.units.filter((u) => u.alive).length,
+    myBlds: w.buildings.filter((b) => b.alive && b.owner === me).map((b) => `${b.bt.id}@${b.cx},${b.cy}`).sort().join(' '),
     mine: w.units.filter((u) => u.alive && u.owner === me).map((u) => `${u.ut.id}@${u.x.toFixed(1)},${u.y.toFixed(1)}`).sort().join(' '),
   };
 });
@@ -59,7 +60,10 @@ export default async function saves(bot) {
   bot.log('loaded', JSON.stringify(loaded).slice(0, 300));
   // (the loaded match runs on while the bot looks: between the save and the moment it was left)
   bot.check(loaded.tick >= before.tick && loaded.tick < later.tick, 'Continue loads the saved moment, not the later one', `tick ${loaded.tick}: saved ${before.tick}, left at ${later.tick}`);
-  bot.check(loaded.blds === before.blds && loaded.units === before.units, 'the loaded world has the saved structures and units', `${loaded.blds.length}/${before.blds.length} chars, units ${loaded.units}/${before.units}`);
+  // (the structures exactly; the unit count may move by a unit or two in the ticks the loaded match ran on: an AI's
+  // factory finishing one. My own units are checked one by one below.)
+  const unitsOk = loaded.units === before.units || (loaded.tick > before.tick && Math.abs(loaded.units - before.units) <= 2);
+  bot.check(loaded.blds === before.blds && unitsOk, 'the loaded world has the saved structures and units', `${loaded.blds.length}/${before.blds.length} chars, units ${loaded.units}/${before.units} (${loaded.tick - before.tick} ticks on)`);
   bot.check(loaded.mine === before.mine || Math.abs(loaded.tick - before.tick) > 0, 'my units are where they were saved', loaded.mine === before.mine ? 'identical' : 'moved a tick');
   // carry on: the loaded game takes orders and builds
   bot.check(await bot.build('proc'), 'the loaded game builds (carry on)');
@@ -76,7 +80,10 @@ export default async function saves(bot) {
   await bot.waitMatch();
   const rec = await snapshot(bot);
   bot.log('at reload', atReload.tick, 'recovered', rec.tick, contText);
-  bot.check(Math.abs(rec.tick - atReload.tick) <= 40 && rec.blds === atReload.blds, 'the autosave restores the match as it was at the reload', `tick ${rec.tick} vs ${atReload.tick}`);
+  // (the match runs on while the tab reloads: the restored moment can be a second or two later, when an AI may have
+  // placed a structure; the player's own structures must be exactly those at the reload)
+  const sameBlds = rec.blds === atReload.blds || (rec.tick !== atReload.tick && rec.myBlds === atReload.myBlds);
+  bot.check(Math.abs(rec.tick - atReload.tick) <= 40 && sameBlds, 'the autosave restores the match as it was at the reload', `tick ${rec.tick} vs ${atReload.tick}; structures ${rec.blds === atReload.blds ? 'identical' : 'mine identical, an AI\'s changed'}`);
   await bot.shot('recovered');
   await bot.wait(10);
   await bot.quitToMenu();

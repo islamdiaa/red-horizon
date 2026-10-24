@@ -179,7 +179,13 @@ self.addEventListener('install', (event) => {
 async function dropOldCaches() {
   const keys = await caches.keys();
   await Promise.all(keys.filter((k) => LEGACY_CACHES.includes(k)).map((k) => caches.delete(k)));
-  const old = keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE);
+  // (and never the cache of a newer worker that has installed and waits for SKIP_WAITING: this one, still active,
+  // serves a reload meanwhile, and would leave the update with nothing precached)
+  const keep = new Set([CACHE]);
+  for (const w of [self.registration.installing, self.registration.waiting]) {
+    try { const v = w && new URL(w.scriptURL).searchParams.get('v'); if (v) keep.add(PREFIX + v); } catch { /* no worker */ }
+  }
+  const old = keys.filter((k) => k.startsWith(PREFIX) && !keep.has(k));
   if (!old.length) return;
   const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   if (open.length <= 1) await Promise.all(old.map((k) => caches.delete(k)));
@@ -235,6 +241,8 @@ async function navigate(event) {
   try {
     const res = await fetch(req);
     if (cacheable(res, req.url) && new URL(req.url).pathname.endsWith('.html')) cache.put(new URL(req.url).pathname, res.clone()).catch(() => {});
+    // nothing cached for the page (a cache lost to the browser's clean-up): cache the shell again, for the next offline start
+    if (cacheable(res, req.url) && new URL(req.url).pathname === new URL(SCOPE).pathname) event.waitUntil(refreshShell(cache).catch(() => {}));
     return res;
   } catch {
     const fallback = await cache.match(INDEX, MATCH);

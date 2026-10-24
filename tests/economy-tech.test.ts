@@ -111,11 +111,12 @@ describe('economy: Classic rules are untouched', () => {
     // centre, a third refinery and a second Tesla Coil wait for money or an army edge; with proLean 0 the version-4
     // hashes come back); the third and fourth moved deliberately with version 6: AI structures keep the cells round their
     // own refinery docks and war-factory exits clear (ai-ops.ts lanesOpen; with it returning true the version-5 hashes
-    // come back)
+    // come back); the fourth moved deliberately with version 7: the Classic AI's Ore Truck care (ai-harvest.ts,
+    // DiffParams.classicTrucks) and a refinery's dock that must lead to open ground (lanesOpen)
     const w = skirmish({ seed: 2024, size: 64, ai: ['hard', 'brutal'], credits: 6000 });
     const out: string[] = [];
     for (let t = 1; t <= seconds(240); t++) { w.step(); w.events.length = 0; if (t % 1200 === 0) out.push(worldHash(w)); }
-    assert.deepEqual(out, ['443ed69294a6f47c', '3b21f67f76516aa8', '64fa4a50750f5745', '1d318049023720b1'], 'Classic hashes unchanged');
+    assert.deepEqual(out, ['443ed69294a6f47c', '3b21f67f76516aa8', '64fa4a50750f5745', '19a23508ce25ca29'], 'Classic hashes unchanged');
   });
 
   test('econ: false keeps a Commander world without the economy', () => {

@@ -160,17 +160,24 @@ test('terrain shader: textured layers on medium / high, the procedural look on l
     const { fs, vs, uniforms } = patched(t);
     assert.ok(!fs.includes('#include <map_fragment>'), `${c}/${q}: the albedo chunk is replaced`);
     assert.ok(vs.includes('vWPos'), `${c}/${q}: world position varying`);
-    assert.ok(fs.includes('tRoad'), `${c}/${q}: roads drawn`);
     assert.ok('tRoad' in uniforms && 'tBase' in uniforms && 'tDeform' in uniforms, `${c}/${q}: dressing, road and damage maps bound`);
     if (q === 'low') {
       assert.equal(t.textures, null, `${c}/low: no texture downloads`);
       assert.ok(!fs.includes('sampler2DArray'), `${c}/low: procedural shading only`);
+      // the static ground (roads, base dressing, palettes) is baked into a map-space texture; per pixel only what moves
+      assert.ok(t.bake, `${c}/low: baked ground`);
+      assert.ok(t.bake.material.fragmentShader.includes('tRoad') && t.bake.material.fragmentShader.includes('tBase'), `${c}/low: roads and base dressing baked`);
+      assert.ok(fs.includes('tBake') && 'tBake' in uniforms && fs.includes('tDeform'), `${c}/low: the shader reads the bake and the damage map`);
+      assert.notEqual(t.skirtMaterial, t.mesh.material, `${c}/low: the landscape beyond the map keeps the procedural shading`);
     } else {
+      assert.ok(fs.includes('tRoad'), `${c}/${q}: roads drawn`);
+      assert.equal(t.bake, null, `${c}/${q}: no bake`);
+      assert.equal(t.skirtMaterial, t.mesh.material, `${c}/${q}: the skirt shares the material`);
       assert.ok(t.textures, `${c}/${q}: scanned materials`);
       assert.ok(fs.includes('uniform sampler2DArray tTerA') && 'tTerA' in uniforms && 'uLayT' in uniforms, `${c}/${q}: layer arrays bound`);
       assert.equal(fs.includes('ia + 1.0'), q === 'high', `${c}/${q}: anti-tiling only on high`);
       assert.equal(fs.includes('plough'), c === 'winter', `${c}/${q}: ploughed snow roads only in winter`);
-      assert.ok(fs.includes('terTri('), `${c}/${q}: triplanar cliffs`);
+      assert.ok(fs.includes('vec2(wp.z, -wp.y)') && fs.includes('if (tri)'), `${c}/${q}: triplanar cliffs`);
     }
     assert.match(String((t.mesh.material as THREE.Material).customProgramCacheKey()), new RegExp(`${c}$`), 'one program per climate');
     t.dispose();

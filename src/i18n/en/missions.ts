@@ -183,6 +183,7 @@ export const MISSION_TEXT = sourceStrings('missions', {
     theIslandHasNoGrid: 'The island has no grid of its own: everything runs off a generator yard on the fortress flank. Knock it out and the coils go dark and the launch sequence crawls. It will not stop it. Only you can do that.',
     whileTheFortressIsLow: 'While the fortress is low on power the countdown runs at a quarter of its speed and the Tesla Coils are silent.',
     teslaCoilsOutrangeEverythingYou: 'Tesla Coils outrange everything you have. Go for the generator yard first.',
+    theGeneratorYardSFlame: 'The generator yard\'s flame towers stand in its middle: the plant at your end of it can be shelled from beyond their reach.',
     longbowsShouldStayClearOf: 'Longbows should stay clear of SAM sites.',
     kestrelSC4DestroysAny: 'Kestrel\'s C4 destroys any structure, the silo included. Get her there alive.',
     alliedStrikeForce: 'Allied Strike Force',

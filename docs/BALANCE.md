@@ -43,6 +43,82 @@ How Red Horizon keeps its matches fair, and the numbers it is measured by.
 `MatchSpec.rules` (tools/selfplay/lib.ts) can patch any rule or Commander number for one batch (`patches`, e.g.
 `['POWERS.funds.cooldown', 300]`), so a change can be tried before it is made.
 
+## Ore Trucks and the Classic levels (simulation version 7)
+
+The user's word after version 6 was *"continue"*: Classic Hard was at 50% against the casual stand-in (aimed at 60% or
+more), and 44% of the Classic AI-vs-AI games on the curated maps ran to the time limit (aimed at 35% or less).
+
+### Why the Classic AI fell behind after minute 10
+
+On the 96×96 menu map the fields round both bases are mined out by minute 8–10. From then on (16 games traced, Classic
+Hard against the casual stand-in) the casual player harvested $8,000–10,000 every five minutes and the AI $3,000–5,000.
+The version-4 Ore Truck care (`ai-harvest.ts`) sent every truck bound for a field in the middle of the map back to "the
+safest field with ore left", judged by the number of cells holding any ore: a mined-out field at home keeps a trace of
+regrowth in most of its cells, so the trucks scraped about $600 a minute of regrowth at home while the casual player's
+trucks took both rich fields in the middle. Fields are now judged by the ore left in them, and how much care a level
+takes is `DiffParams.classicTrucks`:
+
+| Level (Classic) | Ore Trucks |
+|---|---|
+| Normal | left to themselves: they harvest where the ore is, as a casual player's do |
+| Hard | turned back from fire and from the enemy's side of the map, to a rich field, never to a mined-out one |
+| Brutal | as Hard, and moved off a mined-out field onto the safest rich one, and kept off the way of an enemy column it has seen |
+
+The full care (Brutal's) on Hard put it at 85% against the casual stand-in and 83% against the experienced one; only the
+Hard row above kept the experienced one near the 40–65% band (Hard without its income bonus, without raids or harass,
+with Normal's economy caps, later first waves or no counter-punch all moved it less than the noise). No rules number
+moved.
+
+`levels.ts --games 60` (seed 1, 240 games a row) plus `--rules classic --seed 2` (120 a row), Classic pooled over both
+seed sets (240 games a row), version 6 → 7:
+
+| Classic level vs stand-in | Target | Version 6 | Version 7 | 96×96 menu default / Quick Battle (seed 1) |
+|---|---|---|---|---|
+| Normal vs casual | 40–60% | 47% [40–53] | 52% [46–59] | 33 → 53% / 57 → 52% |
+| Hard vs casual | ≥ 60% | 50% [44–57] | **66% [60–72]** | 38 → 70% / 55 → 63% |
+| Hard vs experienced | 40–65% | 58% [52–64] | 67% [61–73] | 47 → 62% / 65 → 73% |
+| Brutal vs experienced | ≥ 80% | 89% (seed 1) | 99% [96–100] | 83 → 100% / 95 → 95% |
+
+Hard against the experienced stand-in is now two points above its band (the interval reaches into it); the Quick Battle
+rolls are the high cell. Commander rules (no Ore Truck care there) and Recruit and Easy are unchanged: every one of their
+cells reproduces version 6 (Recruit vs newcomer 9% [6–13], still undecided at 30 minutes 3–10%; Easy vs newcomer 33%),
+Commander Hard 79% vs casual and 49% vs experienced, Normal 45%.
+
+### Classic AI-vs-AI on the curated maps
+
+`run.ts --mode faction --maps curated --diff normal,hard --games 48`, two seed sets (192 games):
+
+| | Timeouts | Allied share |
+|---|---|---|
+| Version 6 | 44% [37–51] | 62% [55–69] |
+| Version 7 | 40% [33–47] | **53% [46–60]** |
+| (experiments, 192 games each:) Ore Truck field choice alone | 40% | 53% |
+| … + trucks kept off enemy columns (Brutal's care for both levels) | 39% | 63% |
+| … + in a long war, the luxuries and extra defences wait while the army is short of an attack | 41% | 55% |
+| … + the enemy army assumed to grow 100 a minute out of sight (300) | 42% | 46% |
+| … + a long war against a fortress: three times the artillery | 41% | 53% |
+| … + no "luck" waves into defences they can't beat (kept: `AITuning.proLuck`) | 38% | 50% |
+
+The better economy took the Allied share back into its band, but the time limit is still reached in 40% of the games:
+by then both sides are broke (three refineries and four trucks scraping regrowth, armies of $5,000–12,000), and the
+leader's waves either wait for an edge its estimate of the enemy (inflated by the unseen growth) and his defences
+deny it, or go in after five quiet minutes and break on a turret or Tesla Coil cluster. A wave held back for want of an
+edge now goes in after those five minutes only if it outweighs the known defences at its target on their own
+(`AITuning.proLuck`). Breaking a fortress late on a mined-out map (siege positions for the artillery, power, engineers)
+is still open.
+
+### Code review fixes
+
+- Two beaten AIs on one team each waited for the other to give up while the winners hunted their last trucks (4–7
+  minutes more); a teammate that is itself beaten and spent no longer keeps the side in the game (`ai.ts beaten`).
+- A broke AI with no Ore Truck split the money from its sales between the truck and a third refinery in the structure
+  queue, and both stalled at 96% for the rest of the match: until the truck is paid, everything else in the queues is
+  cancelled and refunded, and no new structure is started.
+- A refinery could be placed with its dock in a corner closed off by trees, rock and the map edge (its free truck sat
+  there for the rest of the match): a new refinery's dock or war factory's exit must lead to at least 30 cells of open
+  ground.
+- An MCV kept driving at a deploy spot it could not reach (fenced in): after three tries it takes the next one.
+
 ## Finishing matches and Classic Hard (simulation version 6)
 
 The user's words after version 5: *"fix remaining items, test further extensively, ensure it's flawless"*. Version 5

@@ -353,7 +353,8 @@ vec3 dynLight(vec2 uv, vec3 P, vec3 N, vec3 o, vec3 rd, float T, inout vec3 scat
       }
       if (d2 < r * r && spot > 0.0) {
         float d = sqrt(d2);
-        float w = clamp(1.0 - pow(d / r, 4.0), 0.0, 1.0);
+        float q = d2 / (r * r);
+        float w = clamp(1.0 - q * q, 0.0, 1.0); // 1 - (d / r)^4
         float fall = w * w / max(d2, 0.04);
         // wrapped N.L hides normal-reconstruction errors
         float ndl = clamp((dot(N, Lv / max(d, 1e-4)) + 0.2) / 1.2, 0.0, 1.0);
@@ -369,7 +370,9 @@ vec3 dynLight(vec2 uv, vec3 P, vec3 N, vec3 o, vec3 rd, float T, inout vec3 scat
           float ta = clamp(tc - hw, 0.0, T), tb = clamp(tc + hw, 0.0, T);
           if (tb > ta) {
             float h = sqrt(h2 + 0.09);
-            float I = (atan((tb - tc) / h) - atan((ta - tc) / h)) / h - (tb - ta) / (r * r);
+            // atan(a) - atan(b) as one atan2: a >= b, so the difference is the angle of (a - b, 1 + ab) in [0, pi)
+            float a = (tb - tc) / h, b = (ta - tc) / h;
+            float I = atan(a - b, 1.0 + a * b) / h - (tb - ta) / (r * r);
             scatter += col.rgb * max(I, 0.0);
           }
         }

@@ -19,7 +19,7 @@ import { commanderAI } from './ai-commander';
 import { costOf, doctrineDefences, doctrinePrefer } from './doctrine';
 import { econAI, econDocks, econPlacement, econReserve, econStructure } from './economy-ai'; // Commander economy
 import { alliedAir, alliedArtillery, alliedChrono, alliedSpies, alliedTools, coilPenalty } from './ai-allies'; // the Allied commander's own tools
-import { facingNear, outmatchedWave, powerTargets, trackEnemy, waveNeeds } from './ai-engage'; // Classic: when to fight (normal and up)
+import { defenceAt, facingNear, outmatchedWave, powerTargets, trackEnemy, waveNeeds } from './ai-engage'; // Classic: when to fight (normal and up)
 import { guardHarvesters } from './ai-harvest'; // Classic: Ore Truck care (normal and up)
 import { helpMates, humanMates, matePush, spareMatesOre } from './ai-team'; // human teammates (version 5)
 
@@ -119,6 +119,13 @@ export interface DiffParams {
    */
   classicFirst: number;
   classicThrift: number;
+  /**
+   * Classic skirmish, normal and up (version 7, ai-harvest.ts): how the commander looks after its Ore Trucks. 0 = left to
+   * themselves (they harvest where the ore is, as a casual player's do); 1 = turned back from fire and from the enemy's
+   * side of the map to a rich field; 2 = also moved off a mined-out field onto the safest rich one; 3 = also kept off the
+   * way of an enemy column it has seen.
+   */
+  classicTrucks: number;
 }
 
 const UNCAPPED = 1e9;
@@ -129,7 +136,7 @@ const FULL = {
   doctrine: true, powerTier: 3, powerUse: 1, offensivePowers: true, powers: null, powerGap: 0,
   raids: true, agents: true, siege: true, waveCap: UNCAPPED, armyCap: UNCAPPED, defendDelay: 0, rebuildDelay: 0,
   armyStart: UNCAPPED, armyRamp: 0, infOpening: UNCAPPED, capAll: false, maxOf: null, defenceAfter: 0, maxStructures: UNCAPPED, rallyAhead: 5, noUnits: [], maxVehicles: UNCAPPED,
-  classicFirst: 0, classicThrift: 0,
+  classicFirst: 0, classicThrift: 0, classicTrucks: 0,
 };
 
 /** Recruit and easy (version 5): one barracks, war factory, airfield and helipad; no kennel, decoys or gap generator. */
@@ -152,7 +159,7 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
     doctrine: false, powerTier: 0, powerUse: 0, offensivePowers: false, powers: [], powerGap: 120,
     raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 4000, defendDelay: 15, rebuildDelay: 150,
     armyStart: 1200, armyRamp: 250, infOpening: 6, capAll: true, maxOf: LOW_STRUCTURES, defenceAfter: 600, maxStructures: 10, rallyAhead: -3, noUnits: LOW_UNITS, maxVehicles: 2,
-    classicFirst: 0, classicThrift: 0,
+    classicFirst: 0, classicThrift: 0, classicTrucks: 0,
   },
   easy: {
     buildSpeed: 0.6, income: 0.75, firstAttack: 540, waveValue: 1800, waveGrowth: 700, defenses: 1, reaction: 0.4, superweapons: false, skill: 0.3, scoutAt: 150,
@@ -161,7 +168,7 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
     doctrine: false, powerTier: 1, powerUse: 0.35, offensivePowers: false, powers: ['repair'], powerGap: 120,
     raids: false, agents: false, siege: false, waveCap: 3000, armyCap: 6000, defendDelay: 6, rebuildDelay: 60,
     armyStart: 1500, armyRamp: 300, infOpening: 8, capAll: true, maxOf: LOW_STRUCTURES, defenceAfter: 600, maxStructures: 12, rallyAhead: -3, noUnits: LOW_UNITS, maxVehicles: 4,
-    classicFirst: 0, classicThrift: 0,
+    classicFirst: 0, classicThrift: 0, classicTrucks: 0,
   },
   normal: {
     buildSpeed: 1.0, income: 1.05, firstAttack: 420, waveValue: 3500, waveGrowth: 1800, defenses: 3, reaction: 0.7, superweapons: true, skill: 0.6, scoutAt: 70,
@@ -176,9 +183,9 @@ const DIFF: Record<AIDifficulty, DiffParams> = {
     buildSpeed: 1.05, income: 1.05, firstAttack: 300, waveValue: 3500, waveGrowth: 2000, defenses: 4, reaction: 0.85, superweapons: true, skill: 0.85, scoutAt: 45,
     ...FULL,
     expansions: 2, outposts: 2, events: 0.8, tierPace: 1.1, processors: 3, powerUse: 0.8, powerGap: 30,
-    classicFirst: 780, classicThrift: 1,
+    classicFirst: 780, classicThrift: 1, classicTrucks: 1,
   },
-  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true, skill: 1, scoutAt: 30, ...FULL },
+  brutal: { buildSpeed: 1.4, income: 1.35, firstAttack: 210, waveValue: 3500, waveGrowth: 2200, defenses: 5, reaction: 1, superweapons: true, skill: 1, scoutAt: 30, ...FULL, classicTrucks: 3 },
 };
 
 /**
@@ -300,6 +307,22 @@ const PRO_HOLD = 300;
 const ARTILLERY = new Set(['arty', 'v2rl']);
 const FAST_RAIDERS = new Set(['jeep', '1tnk', 'dog']);
 
+/**
+ * Version 6 (a helper since version 7): a side that can't come back. No Construction Yard, no MCV to rebuild one with,
+ * and no factory it can pay to train an army in (a refinery, or $1,000 in the bank; a helipad or an airfield alone
+ * doesn't count: aircraft can't take back a map).
+ */
+export function beaten(w: World, q: Player): boolean {
+  let factory = false;
+  for (const b of w.buildings) {
+    if (!b.alive || b.owner !== q) continue;
+    if (b.bt.id === 'fact') return false;
+    if (b.bt.factory && b.bt.factory !== 'building' && b.bt.factory !== 'aircraft') factory = true;
+  }
+  if (factory && (q.credits >= 1000 || q.has('proc'))) return false;
+  return !w.units.some((u) => u.alive && u.owner === q && u.ut.deploysInto);
+}
+
 /** Notable decisions, for the rivals' radio (UI only: never read by the simulation, not saved). */
 export interface AIChatter {
   tick: number;
@@ -332,6 +355,10 @@ export class AIController {
   nextWaveValue: number;
   lastDefend = -9999;
   deployTries = 0;
+  /** MCV deployment (version 7): spots it could not get to (cell indices), and the spot it is driving to and how often it set out for it. */
+  deployAvoid: number[] = [];
+  deployGoal = -1;
+  deployGoalTries = 0;
   behaviour: 'full' | 'passive' | 'defensive' = 'full';
   // --- strategic state (saved by saveState)
   /** Part of the current wave sent on a flanking / feint attack. */
@@ -529,7 +556,7 @@ export class AIController {
       manageExpansion(this);
     }
     this.military();
-    if (this.classicPro) guardHarvesters(this);
+    if (this.classicPro && this.truckCare() > 0) guardHarvesters(this, this.truckCare());
     if (this.skirmish && this.behaviour === 'full') { const mates = humanMates(this); if (mates.length) spareMatesOre(this, mates); } // (a human teammate's ore is his)
     if (this.skirmish) harass(this);
     this.airStrikes();
@@ -553,21 +580,14 @@ export class AIController {
   private lastStand(): boolean {
     const w = this.world, p = this.p;
     if (!this.levelled || w.mission || this.ceasefire) return false;
-    // (a factory keeps it in the game while it can pay for units: a refinery, or money in the bank)
-    let factory = false;
-    for (const b of w.buildings) {
-      if (!b.alive || b.owner !== p) continue;
-      if (b.bt.id === 'fact') return false;
-      // (a helipad or an airfield alone doesn't: aircraft can't take back a map)
-      if (b.bt.factory && b.bt.factory !== 'building' && b.bt.factory !== 'aircraft') factory = true;
-    }
-    if (factory && (p.credits >= 1000 || p.has('proc'))) return false;
-    const units = this.myUnits();
-    if (units.some((u) => u.ut.deploysInto)) return false;
+    if (!beaten(w, p)) return false;
     if (humanMates(this).length) return false;
     const army = this.army();
-    // (a teammate still in the game: no surrender, which would concede for the whole side, resign.ts)
-    const mates = w.players.some((q) => q !== p && q.team === p.team && !q.defeated);
+    // (a teammate still in the game: no surrender, which would concede for the whole side, resign.ts; version 7: unless
+    // that teammate is an AI beaten and spent as well, or two beaten AIs of one side each waited for the other while the
+    // winners hunted down their last Ore Trucks)
+    const spent = (q: Player) => { const a = w.ais.find((x) => x.player === q) as AIController | undefined; return !!a && beaten(w, q) && a.armyValue() < a.tune.endConcede; };
+    const mates = w.players.some((q) => q !== p && q.team === p.team && !q.defeated && !spent(q));
     if (!mates && this.armyValue(army) < this.tune.endConcede) {
       w.issue({ c: 'resign', player: p.id });
       return true;
@@ -588,6 +608,13 @@ export class AIController {
     return this.world.time >= 1500 ? 0 : this.tune.proThrift || this.d.classicThrift;
   }
 
+  /** How the Classic commander looks after its Ore Trucks (DiffParams.classicTrucks; tune.proTrucks in experiments). */
+  truckCare(): number {
+    return this.tune.proTrucks >= 0 ? this.tune.proTrucks : this.d.classicTrucks;
+  }
+
+
+
   /**
    * Version 6: broke. No Ore Truck left, an empty bank and ore still on the map: an expansion MCV waiting in the queue is
    * cancelled (what was paid comes back), and what the base can spare is sold, one structure at a time, until a truck is
@@ -596,12 +623,27 @@ export class AIController {
    */
   private recoverEconomy() {
     const w = this.world, p = this.p;
-    if (!this.skirmish || !this.due(TICK_HZ * 5) || p.credits >= 100 || !p.has('proc') || !p.has('fact')) return;
+    if (!this.skirmish || !this.due(TICK_HZ * 5) || !p.has('proc') || !p.has('fact')) return;
+    if (this.myUnits().some((u) => u.ut.harvester)) return;
+    const vq = p.queues.vehicle;
+    // (version 7: the truck is paid first: what else waits in the queues is cancelled and refunded; the money from a sale
+    // used to be split between the truck and a third refinery in the structure queue, and both stalled at 96% for the
+    // rest of the match)
+    if (this.payingTruck()) {
+      for (const k of ['structure', 'vehicle', 'infantry', 'aircraft', 'naval'] as const) {
+        const done = new Set<string>();
+        for (const it of p.queues[k]?.items ?? []) {
+          if (it.type === 'harv' || done.has(it.type)) continue;
+          done.add(it.type);
+          w.issue({ c: 'cancel', player: p.id, type: it.type, all: true });
+          if (it.type === 'mcv') this.expansion = null;
+        }
+      }
+    }
+    if (p.credits >= 100) return;
     const mine = this.myBuildings();
     if (mine.some((b) => b.selling >= 0)) return; // (one sale at a time)
-    if (this.myUnits().some((u) => u.ut.harvester)) return;
     if (this.oreCellsNear(36) < 12) return; // (a mined-out map: a truck would not pay for itself)
-    const vq = p.queues.vehicle;
     if (vq.items.some((i) => i.type === 'mcv')) {
       w.issue({ c: 'cancel', player: p.id, type: 'mcv' });
       this.expansion = null;
@@ -625,6 +667,19 @@ export class AIController {
       if (v > bs || (v === bs && v > 0 && best && b.bt.cost > best.bt.cost)) { bs = v; best = b; }
     }
     if (best) w.issue({ c: 'sell', player: p.id, building: best.id });
+  }
+
+  /**
+   * Version 7: no Ore Truck, one in the queue and not the money to pay for it outright, with ore still on the map (skirmish):
+   * nothing else is bought until it rolls out (recoverEconomy, planStructures).
+   */
+  private payingTruck(): boolean {
+    const p = this.p;
+    if (!this.skirmish || !p.has('proc')) return false;
+    const truck = p.queues.vehicle.items.find((i) => i.type === 'harv');
+    if (!truck || p.credits >= costOf(p, UNITS.harv) - truck.paid + 100) return false;
+    if (this.myUnits().some((u) => u.ut.harvester)) return false;
+    return this.oreCellsNear(36) >= 12;
   }
 
   /** Which structure types were lost (for the rebuild delay of the easier levels). */
@@ -701,7 +756,19 @@ export class AIController {
       this.deployTries++;
       // (version 6: straight to the nearest spot where the yard fits; the spiral alone wandered round a cramped start
       // on ore and trees for the whole match without ever stopping where it could deploy)
-      const spot = this.deploySpot(mcv);
+      let spot = this.deploySpot(mcv);
+      // (version 7: a spot it has set out for three times without getting there is fenced off: the next one; it used to
+      // drive at a walled-in pocket for the rest of the match)
+      if (spot && Math.hypot(spot[0] - mcv.x, spot[1] - mcv.y) > 0.3) {
+        const key = this.world.map.idx(Math.floor(spot[0]), Math.floor(spot[1]));
+        if (key === this.deployGoal) this.deployGoalTries++;
+        else { this.deployGoal = key; this.deployGoalTries = 1; }
+        if (this.deployGoalTries > 3) {
+          this.deployAvoid.push(key);
+          this.deployGoal = -1;
+          spot = this.deploySpot(mcv);
+        }
+      }
       if (spot && Math.hypot(spot[0] - mcv.x, spot[1] - mcv.y) > 0.3) { this.world.issue({ c: 'move', player: this.p.id, units: [mcv.id], x: spot[0], y: spot[1] }); return; }
       const a = this.deployTries * 2.1;
       const r = 1.5 + this.deployTries * 0.5;
@@ -723,7 +790,7 @@ export class AIController {
         let ok = true;
         for (let y = ty; y < ty + sh && ok; y++) for (let x = tx; x < tx + sw; x++) if (!m.buildable(x, y)) { ok = false; break; }
         const cx = tx + sw / 2, cy = ty + sh / 2;
-        if (!ok || (z && zones[m.idx(Math.floor(cx), Math.floor(cy))] !== z)) continue;
+        if (!ok || (z && zones[m.idx(Math.floor(cx), Math.floor(cy))] !== z) || this.deployAvoid.includes(m.idx(Math.floor(cx), Math.floor(cy)))) continue;
         // (another side's units standing there block the deployment, as World.canDeploy)
         let blocked = false;
         w.grid.query(cx, cy, 2.5, (o) => { if (o !== mcv && o.alive && !o.isAir && o.owner !== mcv.owner && o.x >= tx && o.x < tx + sw && o.y >= ty && o.y < ty + sh) blocked = true; });
@@ -749,6 +816,7 @@ export class AIController {
     const p = this.p;
     const q = p.queues.structure;
     if (q.items.length || q.ready || !p.has('fact')) return;
+    if (this.payingTruck()) return; // (version 7: the Ore Truck first)
     const want = aiNavalStructure(this.world, p, this) ?? this.nextStructure();
     if (want) this.world.issue({ c: 'build', player: p.id, type: want });
   }
@@ -1341,7 +1409,9 @@ export class AIController {
         // real attack on the base, scouts and paradrops aside, a ready army tries its luck, and turns back if it meets
         // more than it can beat; two such commanders would otherwise sit at home all game)
         const quiet = Math.min(w.tick - Math.max(this.stageStart, Math.round(firstAt * TICK_HZ)), w.tick - this.lastAssault);
-        const held = quiet > PRO_HOLD * TICK_HZ;
+        // (version 7, tune.proLuck: not into the defences: a wave that wouldn't outweigh the known defences at its target
+        // alone waits on, and grows; the luck waves of a long war used to break on a fortress and leave nothing to attack with)
+        const held = quiet > PRO_HOLD * TICK_HZ && (!this.tune.proLuck || !target || value >= defenceAt(this, target[0], target[1]) * 1.25);
         if (target && (held || value >= waveNeeds(this, target, trait(pers.caution, 0.8, 1.25)))) { this.launchWave(idle, target, bx, by); return; }
         if (this.due(TICK_HZ * 6)) {
           const stray = idle.filter((u) => Math.hypot(u.x - gx, u.y - gy) > gather).map((u) => u.id);
@@ -1872,6 +1942,7 @@ export class AIController {
       threatSince: this.threatSince, lostAt: { ...this.lostAt }, had: { ...this.had }, lastPower: this.lastPower,
       enemyEst: this.enemyEst, estTick: this.estTick, lastAssault: this.lastAssault,
       mateThreat: this.mateThreat, lastMateHelp: this.lastMateHelp, siegeNeed: this.siegeNeed,
+      deployTries: this.deployTries, deployAvoid: [...this.deployAvoid], deployGoal: this.deployGoal, deployGoalTries: this.deployGoalTries,
     };
   }
 
@@ -1899,6 +1970,7 @@ export class AIController {
     this.enemyEst = s.enemyEst ?? 0; this.estTick = s.estTick ?? 0; this.lastAssault = s.lastAssault ?? -99999;
     this.mateThreat = s.mateThreat ?? -1; this.lastMateHelp = s.lastMateHelp ?? -99999; this.siegeNeed = s.siegeNeed ?? 0;
     this.threatSince = s.threatSince ?? -1; this.lostAt = { ...(s.lostAt ?? {}) }; this.had = { ...(s.had ?? {}) };
+    this.deployTries = s.deployTries ?? 0; this.deployAvoid = [...(s.deployAvoid ?? [])]; this.deployGoal = s.deployGoal ?? -1; this.deployGoalTries = s.deployGoalTries ?? 0;
   }
 }
 

@@ -212,7 +212,7 @@ export function runConquestBattle(setup: ConquestSetup, minutes: number, pilot: 
   (def as any).__strength = setup.battle.strength;
   // 'auto': the strike-force autopilot for the battle kind; 'newcomer' / 'casual': the human-like pilots (no head start)
   const skill = pilot === 'newcomer' || pilot === 'casual' ? skillPilot(pilot) : null;
-  const p: ConquestPilot | null = pilot === 'auto' ? PILOTS[setup.battle.kind] : skill ? (w, r, st) => skill(w, r, st, () => {}) : null;
+  const p: ConquestPilot | null = pilot === 'auto' ? PILOTS[setup.battle.kind] : skill ? (w, r, st) => skill(w, r, st, process.env.CQLOG ? (t) => console.log(`  [${Math.floor(w.time / 60)}:${String(Math.floor(w.time % 60)).padStart(2, '0')}] ${t}`) : () => {}) : null;
   const s: S = {};
   let error: string | undefined;
   try {

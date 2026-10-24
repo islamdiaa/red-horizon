@@ -51,6 +51,11 @@ export default strings('settings', {
   edgeScrollSub: 'Scroll when the cursor touches the screen edge',
   unitVoices: 'Unit voices',
   unitVoicesSub: 'Acknowledgements when giving orders',
+  // the voices' language in a translated interface (the interface's, or always English)
+  voiceLang: 'Voice language',
+  voiceLangSub: 'The announcer and unit voices; captions stay in the interface language',
+  voiceLangUi: 'Interface',
+  voiceLangEn: 'English',
   hints: 'Field manual hints',
   hintsSub: 'Contextual tips for new commanders',
   skipIntro: 'Skip intro cinematic',

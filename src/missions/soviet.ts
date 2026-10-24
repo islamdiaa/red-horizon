@@ -88,7 +88,10 @@ const FIRST_SNOW: MissionDef = {
     m.objective('garrison', 'Destroy every Allied structure on the heights');
     m.objective('silence', 'Destroy the radar before it transmits', false);
     m.objective('v2', 'Keep the V2 launcher alive', false);
-    m.startTimer('uplink', 330, 'Radar uplink');
+    // (campaign difficulty: at Brutal the radar transmits after four minutes, not five and a half. The light Brutal
+    // garrison fell to any all-in attack-move, the newcomer stand-in's 16 times in 16 against none at Hard; a plan that
+    // takes the dome at once still wins: expert autopilot 16 of 32, newcomer 1, casual 5)
+    m.startTimer('uplink', m.level === 'brutal' ? 240 : 330, 'Radar uplink');
   },
   update(m) {
     const s = m.start(0), e = m.start(1);
@@ -423,7 +426,7 @@ const THUNDERHEAD: MissionDef = {
     if (m.isDone('hold')) {
       const left = structures(m, 1).length;
       m.progress('camp', `${left} left`);
-      // (no base here: with nothing left that can damage a building, dogs and engineers alone, the camp can't be taken)
+      // (no base here: with nothing left that can damage or capture a building, dogs and medics alone, the camp can't be taken)
       if (left && !structureBreakers(m, 0).length && m.once('spent')) {
         m.fail('camp');
         m.lose('Nothing left of the raid can break the camp.');

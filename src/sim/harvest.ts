@@ -58,6 +58,14 @@ function dockUnreachable(world: World, u: Unit, dx: number, dy: number): boolean
   return u.pathFailKey % W === dx && Math.floor(u.pathFailKey / W) % H === dy;
 }
 
+/** The unit's last path search that failed was for goal cell (gx, gy) (any time: a truck heading for ore keeps its
+ *  goal until it gets there or gives up). */
+function failedTowards(world: World, u: Unit, gx: number, gy: number): boolean {
+  if (u.pathFailKey < 0) return false;
+  const W = world.map.w, H = world.map.h;
+  return u.pathFailKey % W === gx && Math.floor(u.pathFailKey / W) % H === gy;
+}
+
 /** A spot near (but clear of) a refinery dock where a truck can wait its turn. */
 function waitSpot(world: World, u: Unit, r: Building): [number, number] {
   const [dx, dy] = r.dockCell()!;
@@ -175,6 +183,11 @@ export function updateHarvester(world: World, u: Unit) {
       if (m.inBounds(cx, cy) && m.ore[m.idx(cx, cy)] > 0) {
         u.hstate = 'harvesting';
         u.harvestTimer = HARVEST_TIME;
+      } else if (failedTowards(world, u, Math.floor(u.goalX), Math.floor(u.goalY))) {
+        // that ore can't be reached from here (structures went up round it): look again from the truck itself, which
+        // only finds ore it can drive to (the search from the old spot found the same walled-off cell for ever, version 7)
+        u.lastOreX = -1;
+        u.hstate = 'seek';
       } else if (Math.hypot(u.goalX - u.x, u.goalY - u.y) < 1.5) {
         // goal depleted or slightly off – look around
         u.lastOreX = Math.floor(u.goalX);

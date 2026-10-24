@@ -193,11 +193,16 @@ function waterSpot(m: MissionRuntime, x: number, y: number, r = 14): [number, nu
   return m.world.map.navalPassable(Math.floor(wx), Math.floor(wy)) ? [wx, wy] : null;
 }
 
-/** Place a water structure (shipyard / sub pen) on open water close to a point, touching the shore. */
+/**
+ * Place a water structure (shipyard / sub pen) on open water close to a point, touching the shore, clear of ships
+ * (a mission's placement does not move units out of the footprint: the Easy harbour went up on the landing fleet).
+ */
 function placeOnWater(m: MissionRuntime, p: number, type: string, x: number, y: number): Building | null {
   const bt = BUILDINGS[type];
   const map = m.world.map;
   const [w, h] = bt.size;
+  const units = m.world.units.filter((u) => u.alive);
+  const crowded = (cx: number, cy: number) => units.some((u) => u.x > cx - 0.7 && u.x < cx + w + 0.7 && u.y > cy - 0.7 && u.y < cy + h + 0.7);
   for (let r = 0; r <= 14; r++) {
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
@@ -211,7 +216,7 @@ function placeOnWater(m: MissionRuntime, p: number, type: string, x: number, y: 
         if (inner && (map.terrain[i] !== 1 || map.occupant[i])) { ok = false; break; }
         if (!inner && map.terrain[i] !== 1) shore = true;
       }
-      if (!ok || !shore) continue;
+      if (!ok || !shore || crowded(cx, cy)) continue;
       const b = m.placeBuilding(p, type, cx, cy);
       if (b) return b;
     }
@@ -225,6 +230,9 @@ function fill(m: MissionRuntime, pool: string[], budget: number, out: string[], 
   for (let guard = 0; spent < budget && out.length < cap && guard < 60; guard++) {
     const t = m.world.rng.pick(pool);
     if (!UNITS[t]) continue;
+    // (an Easy run's garrisons and waves stay near their budget: a share of a few hundred credits no longer fields a
+    // Mammoth Tank, which beat the newcomer stand-in's whole army)
+    if (m.flags.lean && spent + UNITS[t].cost > budget * 2) continue;
     out.push(t);
     spent += UNITS[t].cost;
   }
@@ -360,7 +368,10 @@ function landingForce(m: MissionRuntime, S: BattleSpec) {
     m.spawnUnit(0, 'mcv', s.x, s.y, heading);
   }
   const kit = ['e1', 'e1', 'e1', 'e3', mainTank(f)];
-  for (let k = 0; k < S.mods.tanks; k++) kit.push(mainTank(f));
+  // (an Easy run's attacks land two more main battle tanks: the newcomer stand-in's mostly infantry landing went
+  // into the guns and never got back on its feet)
+  const easyTanks = S.difficulty === 'easy' && (S.kind === 'assault' || S.kind === 'capture' || S.kind === 'boss') ? 2 : 0;
+  for (let k = 0; k < S.mods.tanks + easyTanks; k++) kit.push(mainTank(f));
   for (let k = 0; k < S.mods.engineers; k++) kit.push('e6');
   if (S.kind === 'capture') kit.push('e6', 'e6');
   if (S.mods.commandos) kit.push(...(f === 'allies' ? ['e7'] : ['e4', 'e4', 'e4', 'dog', 'dog']));
@@ -373,6 +384,15 @@ function landingForce(m: MissionRuntime, S: BattleSpec) {
   if (S.mods.outpost && S.kind !== 'defend') {
     layout(m, 0, s, e, f === 'soviet' ? [['apwr', -3.5, 5], ['tsla', 6.5, 1]] : [['powr', -3.5, 5], ['gun', 6.5, 0], ['pbox', 6, 3.2], ['pbox', 6, -3.2]]);
   }
+  // an Easy run's sea battle lands with its own harbour: a shipyard / sub pen on the water by the beach (a newcomer whose
+  // base sat out of reach of the sea never got a fleet: 1 win in 8). It goes up before the escorts and the veterans'
+  // ships take to the water, so they gather round it (placed after them it had to stand clear of them, further out,
+  // where the first enemy patrol sank it within a minute in 4 runs of 6)
+  if (S.kind === 'naval' && S.difficulty === 'easy' && isSeaBattle(S)) {
+    const [wx, wy] = m.toward(s, { x: m.mapW / 2, y: m.mapH / 2 }, 7);
+    const yard = placeOnWater(m, 0, f === 'allies' ? 'syrd' : 'spen', wx, wy);
+    if (yard) (m.flags.navyPaid as number[]).push(yard.id);
+  }
   // naval escorts (on sea maps only)
   if (isSeaBattle(S) && S.mods.escorts > 0) {
     const bay = m.toward(s, { x: m.mapW / 2, y: m.mapH / 2 }, 12);
@@ -383,13 +403,6 @@ function landingForce(m: MissionRuntime, S: BattleSpec) {
       const u = m.world.addUnit(t, m.human, spot[0], spot[1]);
       (m.flags.navyPaid as number[]).push(u.id);
     }
-  }
-  // an Easy run's sea battle lands with its own harbour: a shipyard / sub pen on the water by the beach (a newcomer whose
-  // base sat out of reach of the sea never got a fleet: 1 win in 8)
-  if (S.kind === 'naval' && S.difficulty === 'easy' && isSeaBattle(S)) {
-    const [wx, wy] = m.toward(s, { x: m.mapW / 2, y: m.mapH / 2 }, 7);
-    const yard = placeOnWater(m, 0, f === 'allies' ? 'syrd' : 'spen', wx, wy);
-    if (yard) (m.flags.navyPaid as number[]).push(yard.id);
   }
 }
 
@@ -424,19 +437,24 @@ function deployCore(m: MissionRuntime, S: BattleSpec) {
 function setupBattle(m: MissionRuntime, S: BattleSpec) {
   const s = m.start(0), e = m.start(1);
   Object.assign(m.flags, { core: {}, kills: 0, bkills: 0, vetMax: 0, navyPaid: [], swSeen: [], drop: 0, air: [], wave: 0, held: 0, coreLost: 0 });
+  if (S.difficulty === 'easy') m.flags.lean = true;
   m.human.buildSpeed *= S.mods.buildSpeed;
   m.human.incomeBias *= S.mods.income;
   if (S.neutral) m.setAI(1, 'defensive');
   const sea = isSeaBattle(S);
   // ---- the enemy
-  // (an Easy run's capital is a strength-3 base behind three guns, without its superweapon: the full strength-6
-  // fortress fielded fifty units by minute eight and beat every newcomer and casual stand-in)
-  const easyCapital = S.kind === 'boss' && S.difficulty === 'easy';
+  // (an Easy run's capital is a strength-3 base behind three guns, without its superweapon, and its guard a strength-2
+  // outpost behind one: the full strength-6 fortress fielded fifty units by minute eight and beat every newcomer and
+  // casual stand-in, and a strength-3 guard took the newcomer's whole army before it reached the capital. An Easy
+  // run's other bases stand behind two guns at most: a strength-3 base's three to five, flame towers and Tesla Coils
+  // among them, held off the Allied newcomer in every battle. tools/campaign-conquest.ts --difficulties easy --strength 3)
+  const easy = S.difficulty === 'easy';
+  const easyCapital = S.kind === 'boss' && easy;
   enemyBase(m, 1, e, s, easyCapital ? Math.min(3, S.strength) : S.strength, S.personality, {
     capture: S.kind === 'capture', superweapon: S.kind === 'boss' ? (easyCapital ? null : S.superweapon ?? (S.enemy === 'soviet' ? 'iron' : 'chrono')) : S.superweapon,
-    sea: sea && (S.kind === 'naval' || S.personality === 'naval'), maxDefences: easyCapital ? 3 : undefined,
+    sea: sea && (S.kind === 'naval' || S.personality === 'naval'), maxDefences: easyCapital ? 3 : easy && (S.kind === 'assault' || S.kind === 'capture') ? 2 : undefined,
   });
-  if (S.kind === 'boss') enemyBase(m, 2, m.start(2), s, S.difficulty === 'easy' ? 3 : Math.max(3, S.strength - 1), 'steamroller', {});
+  if (S.kind === 'boss') enemyBase(m, 2, m.start(2), s, easy ? 2 : Math.max(3, S.strength - 1), 'steamroller', easy ? { maxDefences: 1 } : {});
   if (S.kind === 'hold') {
     const [zx, zy] = ground(m, ...m.between(s, e, 0.52), 10);
     m.flags.zone = [zx, zy];
@@ -676,6 +694,19 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
   waves(m, S);
   aircraft(m);
   hunt(m, 'hunters', 8);
+  // the capture target, badly damaged: its crew abandons it and locks it down at capture strength, so an attack-move (or
+  // a heavy volley) can't wreck the objective by accident; only an engineer gets in. Every tick: checked once a second,
+  // a newcomer's first volley took it from above the lock to nothing (lost at 2:00, tools/campaign-conquest.ts).
+  // A shell already on its way that would take it from above the lock to nothing (a V2 rocket does 600: an Allied Tech
+  // Center has 400) glances off it.
+  if (S.kind === 'capture') {
+    const t = m.world.getEntity(m.flags.target) as Building | undefined;
+    if (t?.alive && t.owner !== m.human) {
+      if (t.healthFrac <= 0.4) { t.hp = Math.min(t.hp, t.maxHp * 0.25 - 1); t.invulnerable = 2; }
+      else if (m.world.projectiles.some((pr) => pr.alive && !pr.owner.isEnemy(m.human) && pr.weapon.damage * 2 >= t.hp - t.maxHp * 0.25
+        && pr.tx > t.cx - 1.5 && pr.tx < t.cx + t.w + 1.5 && pr.ty > t.cy - 1.5 && pr.ty < t.cy + t.h + 1.5)) t.invulnerable = Math.max(t.invulnerable, 0.1);
+    }
+  }
   if (!m.every(1, 'check')) return;
   // optional objectives that can fail along the way
   if (S.core.length && m.state('veterans') === 'active') {
@@ -697,9 +728,7 @@ function updateBattle(m: MissionRuntime, S: BattleSpec) {
       const t = m.world.getEntity(m.flags.target) as Building | undefined;
       if (!t || !t.alive) { m.fail('capture'); m.lose(en(T.lose.target, { building: m.flags.targetName ?? T.commandPost })); break; }
       if (t.owner === m.human) { m.complete('capture'); say(m, hq(S), T.radio.captured); victory(m, S); break; }
-      // badly damaged: its crew abandons it and locks it down at capture strength, so an attack-move (or one heavy
-      // volley) can't wreck the objective by accident; only an engineer gets in
-      if (t.healthFrac <= 0.4) { t.hp = Math.min(t.hp, t.maxHp * 0.25 - 1); t.invulnerable = 2; } // (2 s: this check runs once a second)
+      // (locked down above, every tick)
       if (t.healthFrac <= 0.25 && m.once('weak')) { say(m, INTEL, T.radio.damaged); m.beacon(t.x, t.y); }
       break;
     }

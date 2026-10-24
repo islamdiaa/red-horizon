@@ -113,4 +113,74 @@ describe('dead targets are let go on the move', () => {
     assert.equal(tank.order.type, 'move', 'still driving');
     assert.equal(tank.target, null, `the dead rifleman is let go (target ${tank.target?.type.id})`);
   });
+
+  // (REVIEW round 5, fuzz seed 757: a passive jeep and APC guarding a truck kept a dead Ore Truck as their target)
+  test('a passive escort lets go of a target that died', () => {
+    const { world, p0, p1 } = sandbox({ w: 64, h: 48, fog: false });
+    const ward = unit(world, '2tnk', p0, 20.5, 20.5);
+    const jeep = unit(world, 'jeep', p0, 18.5, 20.5);
+    const foe = unit(world, 'e1', p1, 23.5, 22.5);
+    foe.stance = 'passive';
+    world.issue({ c: 'guard', player: p0.id, units: [jeep.id], target: ward.id });
+    const got = runUntil(world, () => jeep.target === foe, seconds(5));
+    assert.ok(got >= 0, 'the escort takes on the rifleman near its charge');
+    world.issue({ c: 'stance', player: p0.id, units: [jeep.id], stance: 'passive' });
+    run(world, 2);
+    world.kill(foe, 'normal');
+    run(world, seconds(1));
+    assert.equal(jeep.order.type, 'escort', 'still escorting');
+    assert.equal(jeep.target, null, `the dead rifleman is let go (target ${jeep.target?.type.id})`);
+  });
+});
+
+describe('a unit sealed in by structures gets out (REVIEW round 5)', () => {
+  // (longrun "classic 1v1 hard-hard 96 s11": a Hard AI ringed a damaged Heavy Tank, parked next to its Service Depot,
+  // with two flame towers, two Tesla Coils, a turret and a SAM site; the tank had two cells to move in, sent itself to
+  // the depot every 2 s and held the depot's reservation for five minutes. The rescue for a unit with no cell to move to
+  // at all, World.walledIn, missed it because the pocket had two cells)
+  test('a tank in a two-cell pocket of structures drives out to its goal', () => {
+    const { world, p0 } = sandbox({ w: 40, h: 40, fog: false });
+    // the pocket: (18,16) and (18,15); flame towers left and right, coils and a turret above, a SAM site below
+    building(world, 'ftur', p0, 17, 16); building(world, 'ftur', p0, 19, 16); building(world, 'tsla', p0, 17, 14);
+    building(world, 'tsla', p0, 19, 14); building(world, 'ftur', p0, 18, 14); building(world, 'sam', p0, 17, 17);
+    const tank = unit(world, '3tnk', p0, 18.5, 16.5);
+    world.issue({ c: 'move', player: p0.id, units: [tank.id], x: 30.5, y: 16.5 });
+    run(world, seconds(30));
+    assert.ok(Math.hypot(tank.x - 30.5, tank.y - 16.5) < 2, `it got out and on to its goal (at ${tank.x.toFixed(1)},${tank.y.toFixed(1)})`);
+  });
+
+  test('a unit on an islet stays there (terrain, not structures, closes it in)', () => {
+    const { world, map, p0 } = sandbox({ w: 40, h: 40, fog: false });
+    paint(map, 10, 10, 26, 26, T.Water);
+    paint(map, 17, 17, 18, 18, T.Clear); // a 2x2 islet
+    building(world, 'pbox', p0, 18, 18);
+    const e1 = unit(world, 'e1', p0, 17.5, 17.5);
+    world.issue({ c: 'move', player: p0.id, units: [e1.id], x: 5.5, y: 5.5 });
+    run(world, seconds(10));
+    assert.ok(Math.hypot(e1.x - 17.5, e1.y - 17.5) < 1.5, `still on the islet (at ${e1.x.toFixed(1)},${e1.y.toFixed(1)})`);
+  });
+
+  test('a unit with room to move in a walled yard is not moved through the wall', () => {
+    const { world, p0 } = sandbox({ w: 40, h: 40, fog: false });
+    // a 5x5 yard (25 cells) inside a ring of sandbags
+    for (let x = 10; x <= 16; x++) { building(world, 'sbag', p0, x, 10); building(world, 'sbag', p0, x, 16); }
+    for (let y = 11; y <= 15; y++) { building(world, 'sbag', p0, 10, y); building(world, 'sbag', p0, 16, y); }
+    const tank = unit(world, '2tnk', p0, 13.5, 13.5);
+    world.issue({ c: 'move', player: p0.id, units: [tank.id], x: 30.5, y: 30.5 });
+    run(world, seconds(15));
+    assert.ok(tank.x > 10 && tank.x < 16 && tank.y > 10 && tank.y < 16, `still in its yard (at ${tank.x.toFixed(1)},${tank.y.toFixed(1)})`);
+  });
+});
+
+describe('enemy walls still trap (REVIEW round 5)', () => {
+  test('a tank the enemy walled into a three-cell pen stays in it', () => {
+    const { world, p0, p1 } = sandbox({ w: 40, h: 40, fog: false });
+    // pen (12..14, 12) closed by the enemy's sandbags
+    for (let x = 11; x <= 15; x++) { building(world, 'sbag', p1, x, 11); building(world, 'sbag', p1, x, 13); }
+    building(world, 'sbag', p1, 11, 12); building(world, 'sbag', p1, 15, 12);
+    const tank = unit(world, '1tnk', p0, 12.5, 12.5);
+    world.issue({ c: 'move', player: p0.id, units: [tank.id], x: 30.5, y: 30.5 });
+    run(world, seconds(10));
+    assert.ok(tank.y > 11.9 && tank.y < 13.1 && tank.x > 11.9 && tank.x < 15.1, `still in the pen (at ${tank.x.toFixed(1)},${tank.y.toFixed(1)})`);
+  });
 });

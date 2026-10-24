@@ -19,7 +19,21 @@ $RIG tools/gpu-rig/bigmatch.mjs http://127.0.0.1:5291/ high,low  # four Brutal c
 $RIG tools/gpu-rig/scenecost.mjs http://127.0.0.1:5291/ low      # what the scene pass spends its GPU time on (per object, timer queries)
 $RIG -e MASK=1 tools/gpu-rig/sweep.mjs http://127.0.0.1:5291/ env medium   # no float colour buffers / float filtering
 $RIG tools/gpu-rig/perf.mjs http://127.0.0.1:5291/ low,medium,high 150,300  # FPS and GPU time per pass at 1920x1080
+$RIG tools/gpu-rig/perfab.mjs http://127.0.0.1:5291/ http://127.0.0.1:5292/ low 4      # A/B: two builds, alternating measurements
+$RIG tools/gpu-rig/lookab.mjs http://127.0.0.1:5291/ http://127.0.0.1:5292/ low,medium  # A/B: the same paused scenes, pixel diffs
+$RIG -e RIG_BACKEND=swiftshader --cpus 2 tools/gpu-rig/loadprof.mjs http://127.0.0.1:5291/ low  # load time on a slow machine
 ```
+
+- **A/B checks for render changes.** The iGPU's clock follows the host's load (a busy CPU leaves it 250-400 MHz
+  instead of 1.6 GHz), so one build's timings from an earlier run are no baseline. `perfab.mjs` opens both builds
+  in one browser on the bigmatch scene and alternates every measurement between them (GPU time per pass, whole-frame
+  GPU time, the shadow map; with `FPS=1` the game's own loop at 100 % and Auto). `lookab.mjs` renders the same paused
+  scenes with both builds and prints per-scene pixel statistics (mean difference, share of pixels off by more than 8
+  and 24 levels, PSNR) and saves an A | B | difference x4 crop; run it A against A once to see the noise floor
+  (animated rings and random particles differ between any two runs).
+- **Load time.** `loadprof.mjs` times the menu and a Quick Battle started by a click, the loading-screen stages, the
+  long tasks, and the main-thread time inside WebGL calls by kind (shader compile and link, the first draw of each
+  program, texture and buffer uploads with their sizes).
 
 - **Backends.** `RIG_BACKEND=gl` (default, ANGLE on GLES/EGL) or `vulkan` (ANGLE on Vulkan): pass it with `-e`.
 - **What the sweep checks** after each pass, in every half and float render target: non-finite values, values beyond the half-float range

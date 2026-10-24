@@ -197,6 +197,8 @@ function updateEscort(world: World, u: Unit, o: EscortOrder) {
   const g = world.entities.get(o.target);
   if (!g || !g.alive || u.owner.isEnemy(g.owner) || (g instanceof Unit && g.transport)) { finish(world, u); return; }
   const reach = Math.max(u.ut.sight, maxRange(u));
+  // a target that died is let go whatever the stance (a passive escort kept it, its turret on the wreck, version 7)
+  if (u.target && !u.target.alive) u.target = null;
   // --- defend: whoever is shooting at the charge (or at us) first, then anything coming close
   if (u.weapons.length && u.stance !== 'passive') {
     const heal = u.weapons[0].def.damage < 0;

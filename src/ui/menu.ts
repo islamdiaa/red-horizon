@@ -38,10 +38,11 @@ import { activeModsChip } from '../mods';
 import { surrenderEntry } from '../net/surrender'; // MP: in-match surrender
 import { quickBattleSetup, rulesTabs } from './variety'; // rules tab, mutators, Quick Battle
 import { DOCTRINES, doctrinesFor, doctrineUnlocked } from '../sim/doctrine'; // Quick Battle doctrine
-import { LANGS, LANG_NAMES, dt, fmtDateTime, fmtMoney, fmtPct, languagePref, resolvePref, setLanguage, trSource, type LangPref } from '../i18n/core'; // interface language
+import { LANGS, LANG_NAMES, currentLang, dt, fmtDateTime, fmtMoney, fmtPct, languagePref, resolvePref, setLanguage, trSource, type LangPref } from '../i18n/core'; // interface language
 import tCommon from '../i18n/en/common';
 import tMenu from '../i18n/en/menu';
 import tSettings from '../i18n/en/settings';
+import type { VoiceLanguage } from '../audio/speech';
 
 export { loadSettings, saveSettings, type Settings };
 
@@ -956,6 +957,8 @@ export class Menus {
     play.appendChild(this.languageRow(back, opts));
     if (!touchScreen()) play.appendChild(settingRow(ICONS.mouse, tS('edgeScroll'), tS('edgeScrollSub'), toggle(this.settings.edgeScroll, (v) => { this.settings.edgeScroll = v; apply(); }))); // (no mouse pointer to push at the edges on a touch screen)
     play.appendChild(settingRow(ICONS.mic, tS('unitVoices'), tS('unitVoicesSub'), toggle(this.settings.unitVoices, (v) => { this.settings.unitVoices = v; apply(); })));
+    // a translated interface: the voices speak it (when the browser has a voice for it) or keep to English
+    if (currentLang() !== 'en') play.appendChild(settingRow(ICONS.mic, tS('voiceLang'), tS('voiceLangSub'), seg<VoiceLanguage>([['ui', tS('voiceLangUi')], ['en', tS('voiceLangEn')]], this.settings.voiceLang === 'en' ? 'en' : 'ui', (v) => { this.settings.voiceLang = v; apply(); })));
     play.appendChild(settingRow(ICONS.bulb, tS('hints'), tS('hintsSub'), toggle(this.settings.hints, (v) => { this.settings.hints = v; apply(); })));
     play.appendChild(settingRow(ICONS.eye, tS('skipIntro'), tS('skipIntroSub'), toggle(!!this.settings.skipIntro, (v) => { this.settings.skipIntro = v; apply(); })));
     play.appendChild(settingRow(ICONS.scatter, tS('fullscreen'), tS('fullscreenSub'), toggle(this.settings.fullscreen !== false, (v) => { this.settings.fullscreen = v; apply(); })));

@@ -57,6 +57,7 @@ export function allCells() {
     }
   }
   cells.push({ id: 'coop:normal:casual', mode: 'coop', level: 'normal', profile: 'casual', seed: 5000 });
+  cells.push({ id: 'coop:normal:newcomer', mode: 'coop', level: 'normal', profile: 'newcomer', seed: 5000 }); // (a newcomer's first co-op: +1 ally at the lowest ally level)
   cells.push({ id: 'conquest:normal:casual', mode: 'conquest', level: 'normal', profile: 'casual', seed: 5100 });
   cells.push({ id: 'koth:normal:casual', mode: 'koth', rules: 'commander', level: 'normal', profile: 'casual', seed: 5200 });
   cells.push({ id: 'challenge::casual', mode: 'challenge', level: '', profile: 'casual', seed: 5300 });
@@ -470,7 +471,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === SELF) {
     if (lock) {
       // a child process per cell, under the heavy lock (released between cells). flock is not first-in-first-out:
       // after a cell, pause a little so jobs already waiting for the lock get it before the next cell does
-      if (done.length) await sleep(45000);
+      if (done.length) await sleep(90000); // (the shared machine's rule: 90 s between acquisitions)
       const args = [SELF, '--child', cell.id, '--url', o.url, '--out', o.out, '--label', label, ...(o.slow !== 1 ? ['--slow', String(o.slow)] : [])];
       const guard = path.join(ROOT, 'tools/assets/memguard.sh');
       await new Promise((res) => {

@@ -197,8 +197,9 @@ PILOTS['allied-04'] = (world, rt, s, log) => {
 
 // 5. truck hunt: lean base with Longbows, and a hunter group of tanks and helicopters
 PILOTS['allied-05'] = (world, rt, s, log) => {
-  // (at Brutal, against a ten-minute clock, the casual plan's Longbows and kept-together waves measured 3/8 against 0/8)
-  if (rt.level === 'brutal') { s.cas ??= skillPilot('casual'); s.cas(world, rt, s, log); return; }
+  // (at Brutal, against a ten-minute clock, the casual plan's Longbows and kept-together waves measured 3/8 against 0/8;
+  // at Hard 16/16 against 11/16 for the hunter packs below)
+  if (rt.tightened) { s.cas ??= skillPilot('casual'); s.cas(world, rt, s, log); return; }
   builder(world, s, ['powr', 'proc', 'weap', 'powr', 'proc', 'tent', 'dome', 'powr', 'hpad', 'hpad', 'fix'], ['e3'], ['2tnk', '2tnk', '1tnk'], ['heli']);
   if (!every(world, s, 'hunt', 3)) return;
   const harvs = world.units.filter((u) => u.alive && u.owner.id === 1 && u.ut.harvester);
@@ -226,6 +227,62 @@ PILOTS['allied-05'] = (world, rt, s, log) => {
   if (every(world, s, 'hlog', 60)) log(`pilot: ${hunters.length} hunters, ${harvs.length} trucks left`);
 };
 
+/**
+ * allied-06 opening: the generator yard's outer plants stand beyond its flame towers' reach from the west. The
+ * starting army goes round to the open ground west of the yard (moving, not attack-moving past the fortress),
+ * then shoots the nearest plant from there, from the side away from the towers. One plant down puts the grid
+ * under its load for good (the fortress cannot build power), the coils go dark and the countdown crawls; the
+ * sappers go home and the main plan takes over (a second plant cost the sappers: measured 0/8 at Brutal against 4/8
+ * for one). Returns true while the sappers are busy.
+ */
+function sapYard(world: any, rt: any, s: Record<string, any>, log: (t: string) => void, yard: Building[]): boolean {
+  if (s.sap === 'done') return false;
+  const foe = world.players[1];
+  const towers = world.buildings.filter((b: Building) => b.alive && b.owner === foe && b.weapons.length && b.bt.id !== 'sam');
+  if (!s.sap) {
+    s.sappers = new Set(army(world).filter((u) => u.ut.id !== 'e6' && !u.ut.hero).map((u) => u.id));
+    // the plant on our side of the yard, and a spot beyond it, away from the nearest tower
+    const st = rt.start(0);
+    const best = nearestTo(yard, st.x, st.y) as Building | null;
+    if (!best) { s.sap = 'done'; return false; }
+    const t = nearestTo(towers, best.x, best.y)!;
+    const d = Math.hypot(best.x - t.x, best.y - t.y) || 1;
+    s.stage = ground(rt, best.x + (best.x - t.x) / d * 6, best.y + (best.y - t.y) / d * 6);
+    s.sap = 'go';
+    s.sapT = world.time;
+    log(`pilot: sappers (${s.sappers.size}) to ${s.stage[0].toFixed(0)},${s.stage[1].toFixed(0)}`);
+  }
+  const units = (world.units as Unit[]).filter((u) => u.alive && (s.sappers as Set<number>).has(u.id));
+  const low = foe.powerOut < foe.powerUse;
+  const plantsDown = 4 - yard.length;
+  if (!units.length || plantsDown >= 1 || world.time - s.sapT > 600) {
+    s.sap = 'done';
+    log(`pilot: sapping over (${units.length} left, ${plantsDown} plants down, grid ${foe.powerOut}/${foe.powerUse})`);
+    // (back home: with the grid down the clock crawls, so the army that comes next can be a big one)
+    if (low) { const st = rt.start(0), e = rt.start(1); moveTo(world, units, ...rt.toward(st, e, 9) as [number, number]); }
+    return false;
+  }
+  if (!every(world, s, 'sap', 1)) return true;
+  const [sx, sy] = s.stage as [number, number];
+  if (s.sap === 'go') {
+    const lag = units.filter((u) => Math.hypot(u.x - sx, u.y - sy) > 4);
+    if (lag.length <= units.length * 0.3 || world.time - s.sapT > 150) { s.sap = 'hit'; log('pilot: sappers in place'); }
+    else { if (every(world, s, 'sapmove', 4)) moveTo(world, lag.filter((u) => u.order.type !== 'move'), sx, sy); return true; }
+  }
+  // hit: anything armed coming at us first (out of the towers' reach), else the nearest plant; nobody chases a
+  // fleeing enemy back under the towers (a leash round the spot)
+  const plant = nearestTo(yard, sx, sy) as Building | null;
+  if (!plant) return true;
+  const far = units.filter((u) => Math.hypot(u.x - sx, u.y - sy) > 9);
+  if (far.length) moveTo(world, far.filter((u) => u.order.type !== 'move'), sx, sy);
+  const near = units.filter((u) => Math.hypot(u.x - sx, u.y - sy) <= 9);
+  expertMicro(world, s, near);
+  const busy = (u: Unit) => u.order.type === 'attack' && world.getEntity((u.order as { target: number }).target)?.alive;
+  const free = near.filter((u) => !busy(u));
+  if (free.length) attack(world, free, plant);
+  return true;
+}
+
 // 6. silo: build up, hit the generator yard (coils go dark, countdown crawls), then the silo; Kestrel C4s it
 PILOTS['allied-06'] = (world, rt, s, log) => {
   const silo = world.getEntity(rt.flags.silo) as Building | undefined;
@@ -234,10 +291,16 @@ PILOTS['allied-06'] = (world, rt, s, log) => {
   const yard = rt.living(rt.flags.yard) as Building[];
   s.yardC ??= cen(yard);
   builder(world, s, ['powr', 'tent', 'proc', 'weap', 'powr', 'gun', 'proc', 'pbox', 'dome', 'gun', 'powr', 'weap', 'fix'], ['e1', 'e3', 'e3'], ['2tnk', '2tnk', '2tnk', 'arty']);
+  const sapping = sapYard(world, rt, s, log, yard);
+  // (the grid down for good: the countdown crawls, the army builds up at home and goes once, big)
+  // (measured at Brutal over 32 seeds: a bar of 15000 won 19, 12000 won 10; staying out at the yard instead, 3 of 16)
+  const crawl = s.sap === 'done' && world.players[1].lowPower;
+  if (crawl && !s.crawlBar) { s.crawlBar = true; s.threshold = Math.max(s.threshold ?? 0, 15000); }
   commander(world, rt, s, log, {
     noBrain: true,
     threshold: 8000,
-    rally: rt.toward(s.yardC, st, 14),
+    units: (u) => !sapping || !(s.sappers as Set<number>).has(u.id),
+    rally: sapping || crawl ? rt.toward(st, e, 9) : rt.toward(s.yardC, st, 14),
     deadline: () => left < 300,
     pickTarget: (from) => {
       if (silo?.alive && (world.players[1].lowPower || !yard.length)) return silo;

@@ -116,6 +116,22 @@ const CSS = `
 .rhx-sum.compact .rhx-bar { height: .32rem; margin-top: .15rem; }
 /* (and the medal toasts in the middle of the screen, off a debrief's title and its buttons: they let taps through) */
 @media (max-width: 700px), (max-height: 500px) { .rhx-toasts { top: 40%; } .rhx-t { width: 26rem; } }
+/* a landscape phone's debrief or results screen: the title runs across the middle under the strip (it hid the
+   mission line above the title) and a medal toast at 40% sat on the time bar and the objectives. The strip goes to the
+   top-right corner and the medal toasts, slimmed to a name and their XP, to the top-left, both beside the title. */
+@media (max-height: 500px) and (min-aspect-ratio: 1/1) {
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-sum.compact { left: auto; right: .5rem; top: .35rem; max-width: min(16rem, 30vw); margin: 0; padding: .25rem .7rem; gap: .6rem; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-sum.compact .rhx-sum-xp { font-size: .95rem; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-sum.compact .rhx-rk-n small { display: none; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-sum.compact .rhx-rk-n span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-toasts { top: .35rem; left: .5rem !important; transform: none; align-items: flex-start; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-t { width: min(16rem, 30vw); padding: .25rem .7rem .3rem .35rem; gap: .5rem; border-radius: 2rem; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-t .rhx-medal { width: 1.9rem; height: 2.2rem; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-t :is(.rhx-rays, .rhx-sp, .rhx-k, .rhx-d) { display: none; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-t .rhx-ti { font-size: .9rem; margin: 0; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-t .rhx-xp { font-size: .9rem; }
+  body:has(.dbf:not(.leaving), .end-screen:not(.leaving)) .rhx-t .rhx-xp small { display: none; }
+}
 @keyframes rhxSumIn { from { opacity: 0; transform: translateY(1.5rem) scale(.94); } }
 .rhx-sum-h { display: flex; align-items: center; justify-content: space-between; font-size: .66rem; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #ffd34d; }
 .rhx-sum-h span:last-child { color: #7d8c9d; letter-spacing: .2em; }

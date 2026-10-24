@@ -37,6 +37,7 @@ import type { World } from '../../src/sim/world';
 import type { Command } from '../../src/sim/types';
 import type { NetPlayer } from '../../src/net/roster';
 import { invariants } from './fuzz';
+import { aiTakeover } from '../../src/net/takeover';
 
 const TICK_HZ = 20;
 type Json = any;
@@ -115,15 +116,16 @@ let pilotCarry: Record<string, any> = {};
 /** The plain-data part of a pilot's memory (numbers, strings, flags, coordinates; not entities or AI controllers). */
 function plainPart(s: Record<string, any> | null): Record<string, any> {
   const plain = (v: any): boolean => v === null || ['number', 'string', 'boolean', 'undefined'].includes(typeof v)
-    || (Array.isArray(v) && v.every(plain)) || (typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype && Object.values(v).every(plain));
+    || (Array.isArray(v) && v.every(plain)) || (v instanceof Set && [...v].every(plain)) || (v instanceof Map && [...v].every(([a, b]) => plain(a) && plain(b)))
+    || (typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype && Object.values(v).every(plain));
   const out: Record<string, any> = {};
-  for (const [k, v] of Object.entries(s ?? {})) if (plain(v)) out[k] = JSON.parse(JSON.stringify(v ?? null));
+  for (const [k, v] of Object.entries(s ?? {})) if (plain(v)) out[k] = structuredClone(v ?? null); // (Sets and Maps of ids too)
   return out;
 }
 function pilotDriver(pilot: (w: World, rt: MissionRuntime, s: Record<string, any>) => void, carry: Record<string, any> = {}): Driver {
   return (w) => {
     // post-save: the pre-save pilot's plain memory (phases, timers, spots) on both worlds, so it carries on as it was
-    const s: Record<string, any> = w.tick > 0 ? { ...JSON.parse(JSON.stringify(pilotCarry)), ...carry } : {};
+    const s: Record<string, any> = w.tick > 0 ? { ...structuredClone(pilotCarry), ...carry } : {};
     if (w.tick === 0) pilotState = s;
     const brain = w.ais.find((a) => a.player.id === 0);
     if (brain) s.brain = brain;
@@ -142,6 +144,8 @@ interface Scenario {
   replay: boolean;
   /** Also take a branch at the save point (replay → take command of `branchAs`) and save / load inside it. */
   branchAs?: number;
+  /** AI takeovers [tick, player] the driver makes (a drop, the relay gone): the replay applies them the same way. */
+  drops?: [number, number][];
   setup?: GameSetup;
 }
 
@@ -164,10 +168,10 @@ function resumeExtraAIs(w: World, load: Json, again: () => void) {
   if (added) again();
 }
 
-function skirmish(name: string, setup0: GameSetup, o: { driver?: Driver; saveAt?: number; after?: number; branchAs?: number } = {}): Scenario {
+function skirmish(name: string, setup0: GameSetup, o: { driver?: Driver; saveAt?: number; after?: number; branchAs?: number; replay?: boolean; drops?: [number, number][] } = {}): Scenario {
   const setup = SEED && !setup0.challenge ? { ...setup0, seed: setup0.seed + SEED * 7919 } : setup0;
   return {
-    name, replay: true, branchAs: o.branchAs, setup,
+    name, replay: o.replay ?? true, branchAs: o.branchAs, setup, drops: o.drops,
     make(load) {
       if (!load) return headlessGame(setup).world;
       const s = { ...setup, load: { version: 1, savedAt: 0, world: load, game: {} } };
@@ -202,11 +206,11 @@ function missionScenario(id: string, level: MissionLevel): Scenario {
   };
 }
 
-function conquestScenario(kind: BattleKind, seed: number): Scenario {
-  const { setup } = runWithBattle(seed, seed % 2 ? 'soviet' : 'allies', kind, 'vanguard');
+function conquestScenario(kind: BattleKind, seed: number, difficulty?: 'easy' | 'normal' | 'hard'): Scenario {
+  const { setup } = runWithBattle(seed, seed % 2 ? 'soviet' : 'allies', kind, 'vanguard', difficulty);
   const frozen = JSON.parse(JSON.stringify(setup));
   return {
-    name: `conquest ${kind} s${seed}`, replay: false,
+    name: `conquest ${kind} s${seed}${difficulty ? ' ' + difficulty : ''}`, replay: false,
     make(load) {
       const { world, rt } = createConquestWorld(JSON.parse(JSON.stringify(frozen)), !!load);
       if (load) {
@@ -221,6 +225,55 @@ function conquestScenario(kind: BattleKind, seed: number): Scenario {
     driver: pilotDriver((w, rt, s) => CONQ_PILOTS[kind](w, rt, s), { boosted: true }),
     saveAt: sec(QUICK ? 60 : 120), after: sec(QUICK ? 60 : 120),
   };
+}
+
+/**
+ * Endgames (simulation version 6): at `at`, side `who` loses every structure and all but `keep` armed units (the rest
+ * of its army and its trucks stay when `keep` is null), straight in the world (not a command, so these scenarios
+ * don't check the replay). A beaten human's last rifleman then hides in the map corner farthest from the enemy: the
+ * AI hunts it (search parties, AIIntel.huntPoint); a beaten AI makes its last stand and concedes (ai.ts lastStand).
+ */
+function crushAt(at: number, who: number[], keep: number | null, hide = false): Driver {
+  return (w) => () => {
+    if (w.tick !== at) return;
+    for (const id of who) {
+      for (const b of w.buildings) if (b.alive && b.owner.id === id) w.kill(b, 'sold');
+      if (keep === null) continue;
+      const armed = w.units.filter((u) => u.alive && u.owner.id === id && u.weapons.length && !u.ut.harvester).sort((a, b) => a.id - b.id);
+      for (const u of w.units) if (u.alive && u.owner.id === id && !armed.slice(0, keep).includes(u)) w.kill(u, 'sold');
+      if (!hide) continue;
+      const m = w.map, foe = w.buildings.find((b) => b.alive && b.owner.id !== id && b.bt.id === 'fact');
+      let best: [number, number] | null = null, bd = -1;
+      for (const [cx, cy] of [[1, 1], [m.w - 2, 1], [1, m.h - 2], [m.w - 2, m.h - 2]]) {
+        for (let r = 0; r < 10; r++) {
+          let hit: [number, number] | null = null;
+          for (let dy = -r; dy <= r && !hit; dy++) for (let dx = -r; dx <= r; dx++) if (m.passable(cx + dx, cy + dy)) { hit = [cx + dx + 0.5, cy + dy + 0.5]; break; }
+          if (!hit) continue;
+          const d = foe ? Math.hypot(hit[0] - foe.x, hit[1] - foe.y) : 0;
+          if (d > bd) { bd = d; best = hit; }
+          break;
+        }
+      }
+      const ids = armed.slice(0, keep).map((u) => u.id);
+      if (best && ids.length) w.issue({ c: 'move', player: id, units: ids, x: best[0], y: best[1] });
+    }
+  };
+}
+
+/** At `at`, AI `who` loses its Ore Trucks and its money (ai.ts recoverEconomy: it sells spares until a truck is paid for). */
+function brokeAt(at: number, who: number): Driver {
+  return (w) => () => {
+    if (w.tick !== at) return;
+    for (const u of w.units) if (u.alive && u.owner.id === who && u.ut.harvester) w.kill(u, 'sold');
+    const p = w.players[who];
+    p.cash = 0;
+    p.ore = 0;
+  };
+}
+
+/** The relay gone mid-match (net/game-link.ts playOffline -> lockstep goOffline): the AI takes every other human at `at`. */
+function offlineAt(at: number, players: number[]): Driver {
+  return (w) => () => { if (w.tick === at) for (const p of players) aiTakeover(w, p); };
 }
 
 export function scenarios(): Scenario[] {
@@ -251,6 +304,32 @@ export function scenarios(): Scenario[] {
   out.push(skirmish('mp commander 2v2 ffa 3 humans', netSetup({ rules: 'commander', seed: 808, mapSize: 96 }, [{ team: 0, human: true }, { team: 1, human: true }, { team: 2, human: true }, { team: 3, ai: 'hard' }]), {
     driver: combine([scripted(0), scripted(1), scripted(2)]), branchAs: 1,
   }));
+  // --- endgames (version 6): the AI hunts a beaten player's last unit; a beaten AI makes its last stand and concedes,
+  //     alone or with a beaten AI team-mate; the relay goes away and the match goes on offline against the AI
+  const crushT = sec(QUICK ? 150 : 240);
+  out.push(skirmish('endgame: AI hunts the last rifleman', { ...BASE, seed: 909, mapSize: 96, opponents: [{ faction: 'soviet', difficulty: 'normal' }] }, {
+    // (from the start: only a rifleman, hidden in the far corner; the AI looks at the start positions, then hunts)
+    driver: combine([crushAt(sec(5), [0], 1, true)]), saveAt: sec(QUICK ? 150 : 240), after: sec(QUICK ? 120 : 240), replay: false,
+  }));
+  // (a beaten AI with its army: the last stand, saved in the middle of it; with one unit left: it concedes just after the load)
+  out.push(skirmish('endgame: beaten AI last stand', { ...BASE, rules: 'classic', seed: 910, mapSize: 64, opponents: [{ faction: 'soviet', difficulty: 'hard' }] }, {
+    driver: combine([scripted(0), crushAt(crushT, [1], null)]), saveAt: crushT + sec(10), after: sec(QUICK ? 90 : 180), replay: false,
+  }));
+  out.push(skirmish('endgame: beaten AI concedes', { ...BASE, seed: 913, mapSize: 64, opponents: [{ faction: 'soviet', difficulty: 'normal' }] }, {
+    driver: combine([scripted(0), crushAt(crushT, [1], 1)]), saveAt: crushT + 10, after: sec(30), replay: false,
+  }));
+  out.push(skirmish('broke AI sells for an Ore Truck', { ...BASE, seed: 914, mapSize: 64, opponents: [{ faction: 'allies', difficulty: 'hard' }] }, {
+    driver: combine([scripted(0), brokeAt(crushT, 1)]), saveAt: crushT + sec(7), after: sec(QUICK ? 60 : 120), replay: false,
+  }));
+  out.push(skirmish('endgame: beaten AI team (2v2)', { ...BASE, seed: 911, mapSize: 96, opponents: [{ faction: 'allies', difficulty: 'normal', ally: true }, { faction: 'soviet', difficulty: 'easy' }, { faction: 'soviet', difficulty: 'recruit' }] }, {
+    driver: combine([scripted(0), crushAt(crushT, [2, 3], null)]), saveAt: crushT + sec(30), after: sec(QUICK ? 120 : 240), replay: false,
+  }));
+  {
+    const at = sec(QUICK ? 90 : 150);
+    out.push(skirmish('mp classic 2v2 relay gone, play on offline', netSetup({ rules: 'classic', seed: 912, mapSize: 96 }, [{ team: 0, human: true }, { team: 1, human: true }, { team: 0, human: true }, { team: 1, ai: 'normal' }]), {
+      driver: combine([scripted(0), scripted(1), scripted(2), offlineAt(at, [1, 2])]), drops: [[at, 1], [at, 2]],
+    }));
+  }
   // --- modes
   out.push(skirmish('koth 3p', { ...BASE, seed: 31, koth: true, kothMinutes: 4, opponents: [{ faction: 'soviet', difficulty: 'hard' }, { faction: 'allies', difficulty: 'hard' }] }, { branchAs: 1 }));
   for (const c of BUILTIN_LIST) out.push(skirmish(`challenge ${c.id}`, challengeGameSetup(c, 'low'), { driver: scripted(c.side), saveAt: sec(40), after: sec(60) }));
@@ -264,6 +343,8 @@ export function scenarios(): Scenario[] {
   }
   // --- Conquest: every battle kind
   for (const k of BATTLE_KINDS) out.push(conquestScenario(k, 7 + SEED));
+  // (an Easy run's capital and sea battles have their own setups, version 6: Recruit guard, two-base waves, a harbour)
+  for (const k of ['boss', 'naval'] as BattleKind[]) out.push(conquestScenario(k, 8 + SEED, 'easy'));
   return out;
 }
 
@@ -347,6 +428,7 @@ export function runScenario(sc: Scenario): Result {
     let li = 0;
     while (C.tick < A.tick && !C.gameOver) {
       while (li < log.length && log[li][0] === C.tick) C.issue(JSON.parse(JSON.stringify(log[li++][1])));
+      for (const [t, p] of sc.drops ?? []) if (t === C.tick) aiTakeover(C, p);
       step(C);
       const h = hashes.get(C.tick);
       if (h && h !== worldHash(C)) { bad(`replay diverged at ${(C.tick / TICK_HZ).toFixed(1)} s`); break; }

@@ -6,7 +6,9 @@
 //             repairs). Every 45 s, once it has a handful of units, it attack-moves everything at the objective;
 //             it answers a raid on its base after ten seconds. Does the bare action an objective names (an
 //             engineer into the building, the team into the APCs, the MCV to the oasis), with no micro and no
-//             special abilities (no superweapons, no C4 picks, no route planning).
+//             special abilities (no superweapons, no C4 picks, no route planning). It reads the Field Manual: the
+//             alerts the game raises (src/ui/coach.ts) change what it builds and how it attacks (fieldManual below).
+//             Like Boot Camp and the loading tips teach, its attacks are attack-moves.
 //   casual:   follows the briefing's hints with basic control. Looks every 3 s. A sensible base (two refineries,
 //             two trucks each, the defences the tips suggest, power planned ahead) and the unit mix the tips name.
 //             Gathers an army and attacks in waves, falls back when a wave breaks, defends its base at once,
@@ -22,6 +24,7 @@ import type { MissionRuntime } from '../src/sim/mission';
 import type { Building, Entity, Unit } from '../src/sim/entities';
 import { ground } from '../src/missions/common';
 import { army, attack, attackMove, builder, commander, enemyThings, every, moveTo, nearestTo, type Pilot } from './campaign-pilots';
+import { ALERTS, AlertQueue, CoachWatch, coachTick } from '../src/ui/coach';
 
 export type Skill = 'newcomer' | 'casual';
 type Pt = [number, number];
@@ -45,6 +48,30 @@ function keepEconomy(w: World, make: () => void) {
   make();
   [p.buildSpeed, p.incomeBias] = keep;
 }
+
+// =====================================================================================================
+// The Field Manual
+// =====================================================================================================
+/**
+ * The newcomer reads the Field Manual: the in-game coaching (src/ui/coach.ts, the same watch and alert queue the Hints
+ * panel runs, about every half second) raises its alerts as they would show on screen, and the newcomer follows the
+ * ones it has read: tanks against the defences that roast its infantry, bigger armies sent all together by
+ * attack-move after piecemeal losses, units kept queued (and a second factory) when the money piles up. FM=0 turns it
+ * off (the round-4 stand-in that never read an alert).
+ */
+function fieldManual(w: World, s: Record<string, any>, log: (t: string) => void) {
+  if (process.env.FM === '0') return;
+  const p = w.players[0];
+  s.fm ??= { watch: new CoachWatch(), queue: new AlertQueue(), read: new Set<string>() };
+  const r = coachTick(s.fm.watch, s.fm.queue, w, p, true);
+  if (!r.fresh) return;
+  const a = ALERTS[r.idx];
+  const key = typeof a.text === 'function' ? a.text(p, s.fm.watch, w) : a.text;
+  s.fm.read.add(key);
+  log(`field manual: ${key}`);
+}
+/** Whether the newcomer has read one of these alerts. */
+const learnt = (s: Record<string, any>, ...keys: string[]) => !!s.fm && keys.some((k) => (s.fm.read as Set<string>).has(k));
 
 // =====================================================================================================
 // Economy
@@ -74,7 +101,9 @@ function newbieBase(w: World, s: Record<string, any>, spec: BaseSpec) {
       const count = (t: string) => w.buildings.filter((b) => b.alive && b.owner === p && b.bt.id === t).length;
       const seen: Record<string, number> = {};
       let next: string | null = null;
-      for (const t of spec.order) {
+      // (the Field Manual's "money in the bank... build a second factory")
+      const order = learnt(s, 'alerts.bankFactory') ? [...spec.order, ...(spec.veh.length ? ['weap'] : []), p.faction === 'soviet' ? 'barr' : 'tent'] : spec.order;
+      for (const t of order) {
         seen[t] = (seen[t] ?? 0) + 1;
         if (count(t) < seen[t] && p.canBuild(t) && !(w.time - (s.noRoom[t] ?? -1e9) < 60)) { next = t; break; }
       }
@@ -104,12 +133,17 @@ function newbieBase(w: World, s: Record<string, any>, spec: BaseSpec) {
     .filter(([, mix]) => (mix ?? []).some((t: string) => p.canBuild(t)));
   s.rot = ((s.rot ?? -1) + 1) % Math.max(1, kinds.length);
   let spend = p.credits - keep;
+  // (the Field Manual: "attack defences with tanks" puts the war factory first, and the infantry only gets what a tank
+  // leaves; "keep units queued" / "loop a unit card" keeps longer queues)
+  const tanks = learnt(s, 'alerts.infantryDefence', 'alerts.infantryDefenceFactory') && kinds.some(([kind]) => kind === 'vehicle');
+  const depth = learnt(s, 'alerts.idle', 'alerts.bankLoop', 'alerts.bankFactory') ? 5 : 3;
+  const tankCost = tanks ? Math.min(...spec.veh.filter((t) => p.canBuild(t)).map((t) => UNITS[t].cost)) : 0;
   for (let k = 0; k < kinds.length; k++) {
-    const [kind, mix, key] = kinds[(s.rot + k) % kinds.length];
+    const [kind, mix, key] = tanks ? kinds[k === 0 ? kinds.findIndex(([x]) => x === 'vehicle') : (kinds.findIndex(([x]) => x === 'vehicle') + k) % kinds.length] : kinds[(s.rot + k) % kinds.length];
     const q = p.queues[kind];
-    for (let n = q.items.length; n < 3; n++) {
+    for (let n = q.items.length; n < depth; n++) {
       const t = pick(mix as string[] | undefined, key);
-      if (!t || spend < UNITS[t].cost) break;
+      if (!t || spend < UNITS[t].cost + (tanks && kind === 'infantry' && !p.queues.vehicle.items.length ? tankCost : 0)) break;
       w.issue({ c: 'build', player: 0, type: t });
       spend -= UNITS[t].cost;
     }
@@ -149,11 +183,38 @@ function newbiePush(w: World, rt: MissionRuntime, s: Record<string, any>, target
   if (!target || !units.length) return;
   s.lastPush ??= 0;
   const since = w.time - s.lastPush;
-  if ((units.length >= minWave && since >= 45) || (since >= 180 && units.length >= 2)) {
+  // (the Field Manual's "attack together": gather a bigger army at home, then attack-move with everyone at once)
+  const together = learnt(s, 'alerts.together');
+  if (s.leading && units.filter((u) => u.kind === 'vehicle').length < 2) s.leading = false;
+  const go = together
+    ? (units.length >= Math.max(12, minWave * 2) && since >= 45) || (since >= 240 && units.length >= minWave)
+    : (units.length >= minWave && since >= 45) || (since >= 180 && units.length >= 2);
+  // (the Field Manual's "attack defences with tanks and keep the soldiers behind them": the tanks lead, the infantry
+  // follows a few cells behind them)
+  const lead = learnt(s, 'alerts.infantryDefence', 'alerts.infantryDefenceFactory');
+  const tanks = units.filter((u) => u.kind === 'vehicle'), inf = units.filter((u) => u.kind !== 'vehicle');
+  const trail = () => {
+    const c = cen(tanks), h = homeOf(w, rt);
+    const d = Math.hypot(h.x - c.x, h.y - c.y) || 1;
+    return [c.x + (h.x - c.x) / d * 5, c.y + (h.y - c.y) / d * 5] as Pt;
+  };
+  if (go) {
     const [x, y] = pt(target);
-    if (!Array.isArray(target) && target.kind === 'building') attack(w, units, target);
-    else attackMove(w, units, x, y);
+    const who = lead && tanks.length >= 2 ? tanks : units;
+    // (Boot Camp, the loading tips and the Field Manual's key tip all teach the attack-move: the newcomer who reads them
+    // sends armies with it; the round-4 stand-in, FM=0, right-clicked the objective and walked past its guns)
+    if (!Array.isArray(target) && target.kind === 'building' && process.env.FM === '0' && !together && !learnt(s, 'alerts.attackMove')) attack(w, who, target);
+    else attackMove(w, who, x, y);
+    if (who !== units) { const [bx, by] = trail(); attackMove(w, inf, bx, by); s.leading = true; }
     s.lastPush = w.time;
+  } else if (s.leading && tanks.length >= 2) {
+    const [bx, by] = trail();
+    attackMove(w, inf.filter((u) => Math.hypot(u.x - bx, u.y - by) > 3), bx, by);
+  } else if (together && every(w, s, 'muster', 12)) {
+    // (the army gathers at home while it grows: idle units out in the field come back)
+    const h = homeOf(w, rt);
+    const far = units.filter((u) => u.order.type === 'idle' && Math.hypot(u.x - h.x, u.y - h.y) > 12);
+    if (far.length) attackMove(w, far, h.x, h.y);
   }
 }
 
@@ -608,7 +669,26 @@ PLANS['ironcoast'] = {
     return true;
   },
 };
-PLANS['bootcamp'] = {};
+// Boot Camp: the drills say what to do, step by step (the Sergeant Major's radio and the objective line): walk to the
+// beacon, shoot the scouts, then the base drills, the raid and the assault (round 4's stand-in skipped the first two
+// and marched on the camp with five riflemen)
+PLANS['bootcamp'] = {
+  base: { order: ['powr', 'proc', 'tent', 'pbox', 'weap', 'powr'], inf: ['e1', 'e1', 'e3'], veh: ['1tnk', '2tnk'] },
+  newbieOrder: 6,
+  target: (w, rt) => (rt.flags.step === 'assault' ? nearestEnemy(w, rt) : null),
+  act: (w, rt, s, skill) => {
+    const step = rt.flags.step as string;
+    const units = troops(w);
+    if (step === 'move') { if (every(w, s, 'drill', skill === 'newcomer' ? 6 : 3)) moveTo(w, units, rt.flags.bx, rt.flags.by); return true; }
+    if (step === 'fight') {
+      const scouts = rt.livingUnits(rt.flags.scouts);
+      if (scouts.length) { const c = cen(scouts); attackMove(w, units, c.x, c.y); }
+      return true;
+    }
+    if (step === 'defend') { guardHome(w, rt, s, skill); return true; }
+    return step !== 'assault' && step !== 'done';
+  },
+};
 
 /** Conquest battles: whatever the objective names (destroy the base, capture the post, hold the zone, defend the HQ). */
 PLANS['conquest'] = {
@@ -650,8 +730,19 @@ PLANS['conquest'] = {
       const t = flagEnt<Building>(w, rt.flags.target);
       if (!t) return false;
       const engs = mine(w).filter((u) => u.ut.engineer);
-      if (t.healthFrac <= 0.25 && engs.length && every(w, s, 'eng', skill === 'newcomer' ? 6 : 3)) attack(w, engs.filter((e) => e.order.type !== 'enter'), t);
-      if (skill === 'newcomer' && !engs.length && w.players[0].canBuild('e6') && !w.players[0].queues.infantry.items.length && w.players[0].credits >= UNITS.e6.cost) w.issue({ c: 'build', player: 0, type: 'e6' });
+      // (the casual player walks the engineers up behind the army and sends them in from there; on their own across
+      // the map they met the base's guns and the battle stalled with none left: 7 of 24 Easy captures timed out)
+      const fighters = troops(w).filter((u) => !u.ut.engineer);
+      const front = fighters.length ? cen(fighters) : null;
+      const near = skill === 'newcomer' || (front !== null && Math.hypot(front.x - t.x, front.y - t.y) < 14);
+      if (t.healthFrac <= 0.25 && engs.length && near && every(w, s, 'eng', skill === 'newcomer' ? 6 : 3)) attack(w, engs.filter((e) => e.order.type !== 'enter'), t);
+      else if (skill === 'casual' && front && engs.length && every(w, s, 'engFollow', 5)) {
+        const h = homeOf(w, rt), d = Math.hypot(h.x - front.x, h.y - front.y) || 1;
+        const bx = front.x + (h.x - front.x) / d * 4, by = front.y + (h.y - front.y) / d * 4;
+        moveTo(w, engs.filter((e) => e.order.type !== 'enter' && Math.hypot(e.x - bx, e.y - by) > 3), bx, by);
+      }
+      const iq = w.players[0].queues.infantry.items;
+      if (!engs.length && w.players[0].canBuild('e6') && (skill === 'newcomer' ? !iq.length : !iq.some((i) => i.type === 'e6')) && w.players[0].credits >= UNITS.e6.cost) w.issue({ c: 'build', player: 0, type: 'e6' });
       if (skill === 'casual') {
         // stop hitting it once it is weak enough, and clear the guards instead
         const fighters = troops(w).filter((u) => !u.ut.engineer);
@@ -716,6 +807,7 @@ export function skillPilot(skill: Skill): Pilot {
     const survival = rt.def.scored && rt.def.id.startsWith('survival');
     const plan = PLANS[rt.def.id] ?? (survival ? { ...SURVIVAL_PLAN, base: survivalBase(w), newbieOrder: 5 } : {});
     const period = skill === 'newcomer' ? 6 : 3;
+    if (skill === 'newcomer') fieldManual(w, s, log);
     if (!every(w, s, 'look', period)) return;
     const base = (typeof plan.base === 'function' ? plan.base(w, rt) : plan.base) ?? defaultBase(w);
     const hasBase = w.players[0].has('fact') || mine(w).some((u) => u.ut.deploysInto);

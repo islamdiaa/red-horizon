@@ -146,7 +146,7 @@ const CSS = `
 .pf-sum .ring { width: 2.9rem; height: 2.9rem; flex-shrink: 0; }
 .pf-sum b { font-family: var(--mono, monospace); font-weight: 400; font-size: 1.35rem; }
 .pf-sum small { display: block; font-size: .66rem; letter-spacing: .2em; text-transform: uppercase; color: var(--muted, #7d8c9d); }
-.pf-sum .cnt { display: flex; gap: 1rem; margin-left: auto; }
+.pf-sum .cnt { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .3rem 1rem; margin-left: auto; min-width: 0; } /* (wraps: in Russian at 800x600 the fourth count ran off the panel) */
 .pf-sum .cnt span { display: flex; align-items: center; gap: .35rem; font-family: var(--mono, monospace); font-size: .85rem; color: var(--text-2, #b6c3d1); }
 .pf-sum .cnt span em { font-family: var(--font, sans-serif); font-style: normal; font-size: .58rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--muted, #7d8c9d); }
 .pf-sum .cnt i { width: .62rem; height: .62rem; border-radius: 50%; background: var(--c); box-shadow: 0 0 .4rem var(--c); }

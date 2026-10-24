@@ -13,8 +13,10 @@ const enemyUnitsNear = (world: any, x: number, y: number, r: number): Unit[] =>
 //    run infantry over), then everyone storms the hill
 PILOTS['soviet-01'] = (world, rt, s, log) => {
   // (at Brutal the garrison is twice as deadly and twenty per cent faster: sniping from range gives it time to catch the
-  // V2 alone; what works is everything at once, the V2 just behind the tanks)
-  if (rt.level === 'brutal') { s.casual ??= skillPilot('casual'); s.casual(world, rt, s, log); return; }
+  // V2 alone, even with the screen sent ahead (0 of 16); what works is everything at once, the V2 just behind the tanks,
+  // with an expert's hands: focus fire, and the heavy tanks run the riflemen over. Measured over 32 seeds: 16 wins
+  // with them against 5 without, which is where the casual stand-in plays it)
+  if (rt.level === 'brutal') { s.casual ??= skillPilot('casual'); s.casual(world, rt, s, log); expertMicro(world, s, army(world)); return; }
   if (!every(world, s, 'tick', 1)) return;
   const v2 = world.getEntity(rt.flags.v2) as Unit | undefined;
   const tanks = army(world).filter((u) => u.ut.id === '3tnk');

@@ -243,7 +243,25 @@ export class Bot {
         seen.add(key);
         if (KEY.test(own) || PH.test(own)) out.raw.push(`${id} "${text}"`);
         const hidesX = cs.overflowX === 'hidden' || cs.overflowX === 'clip' || (ellipsis && cs.textOverflow === 'ellipsis');
-        const clipX = hidesX && e.scrollWidth > e.clientWidth + 2;
+        // (scrollWidth misses text that overflows to the left, e.g. a centred flex label cut at both ends, and text in a
+        // span clipped by its button: the own text's boxes against the padding box of the nearest box (itself or up to
+        // three ancestors) that hides overflow; text cut part way, not text slid wholly out of view on purpose)
+        let cutSides = false;
+        if (cs.textOverflow !== 'ellipsis') {
+          let c = e;
+          for (let k = 0; c && k < 4; k++, c = c.parentElement) { const s = getComputedStyle(c); if (s.overflowX === 'hidden' || s.overflowX === 'clip') break; }
+          if (c && c !== document.body) {
+            const ccs = getComputedStyle(c), cb = c.getBoundingClientRect();
+            const l = cb.left + (parseFloat(ccs.borderLeftWidth) || 0), r = cb.right - (parseFloat(ccs.borderRightWidth) || 0);
+            for (const n of e.childNodes) {
+              if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+              const rg = document.createRange(); rg.selectNodeContents(n);
+              const tb = rg.getBoundingClientRect();
+              if (tb.width > 0 && tb.right > l && tb.left < r && (tb.left < l - 1.5 || tb.right > r + 1.5)) { cutSides = true; break; }
+            }
+          }
+        }
+        const clipX = (hidesX && e.scrollWidth > e.clientWidth + 2) || cutSides;
         const clipY = (cs.overflowY === 'hidden' || cs.overflowY === 'clip') && cs.webkitLineClamp === 'none' && e.scrollHeight > e.clientHeight + 3;
         if (clipX || clipY) out.clip.push(`${id} "${text}"${clipX ? ` w ${e.scrollWidth}>${e.clientWidth}` : ''}${clipY ? ` h ${e.scrollHeight}>${e.clientHeight}` : ''}`);
         if ((b.right > innerWidth + 1 || b.left < -1 || b.bottom > innerHeight + 1 || b.top < -1) && !clipped(e)) out.off.push(`${id} "${text}" [${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.right)},${Math.round(b.bottom)}]`);
@@ -475,13 +493,28 @@ export class Bot {
   async lookAt(x, y) {
     const r = await this.minimapRect();
     const m = await this.g((g) => ({ w: g.world.map.w, h: g.world.map.h }));
+    const far = async () => { const c = await this.g((g) => [g.gfx.cam.x, g.gfx.cam.y]); return Math.hypot(c[0] - x, c[1] - y); };
     if (r) {
       await this.page.mouse.click(r.x + (x / m.w) * r.w, r.y + (y / m.h) * r.h);
       await sleep(250);
       await this.settleCamera();
-      return true;
+      if (await far() < 4) return true;
     }
-    return false;
+    // the minimap takes no clicks while the radar is offline (no Radar Dome yet, as in Red Alert): pan with right-drags
+    // instead, the way a player scrolls (the map follows the mouse; a drag from the target towards the middle)
+    for (let i = 0; i < 8 && await far() >= 3; i++) {
+      const a = await this.playArea();
+      const c = { x: (a.x0 + a.x1) / 2, y: (a.y0 + a.y1) / 2 };
+      const p = await this.toScreen(x, y);
+      if (!Number.isFinite(p.x + p.y)) break;
+      const k = Math.min(1, (Math.min(a.x1 - a.x0, a.y1 - a.y0) * 0.45) / Math.max(1, Math.hypot(p.x - c.x, p.y - c.y)));
+      const from = { x: c.x + (p.x - c.x) * k, y: c.y + (p.y - c.y) * k };
+      const before = await far();
+      await this.drag(from, c, { button: 'right', steps: 6 });
+      await this.settleCamera();
+      if (await far() >= before - 0.5) { this.log(`lookAt ${x.toFixed(0)},${y.toFixed(0)}: right-drag panning got no closer`); break; }
+    }
+    return await far() < 6;
   }
 
   /** Drag between two screen points (a selection box with the left button). */

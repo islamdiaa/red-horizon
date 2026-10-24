@@ -62,11 +62,12 @@ const DOCK_SECONDS = 25;
 /** Convoys sail at a laden pace (cells/s) so the flotilla can intercept them. */
 const CONVOY_SPEED = 1.15;
 /**
- * At Brutal the convoys take a little over half the enemy's speed handicap: with your boats slowed by a fifth, the full
- * one made them faster than a submarine and no plan caught them (measured: 1.12 and up left the autopilots one win in
- * eight or none; 1.11, three in eight).
+ * At Brutal the convoys keep close to their own pace instead of taking the enemy's speed handicap: with your boats
+ * slowed by a fifth, the full one made them faster than a submarine and no plan caught them, and round 4's 1.11 with a
+ * sixth boat sat on a cliff (expert autopilot over 16 seeds: 1.05 twelve wins, 1.11 six, 1.13 two). With five boats, as
+ * at Hard, the curve is gentle (32 seeds: 0.97 twenty wins, 1.0 sixteen, 1.015 fourteen, 1.03 nine; Hard sixteen).
  */
-const BRUTAL_CONVOY = 1.11;
+const BRUTAL_CONVOY = 1.015;
 
 export const WOLFPACK: MissionDef = {
   id: 'wolfpack',
@@ -108,9 +109,9 @@ export const WOLFPACK: MissionDef = {
     if (pen) {
       const b = m.placeBuilding(0, 'spen', pen[0], pen[1]);
       m.flags.pen = b?.id;
-      // (campaign difficulty: at Hard a fifth boat joins the flotilla, at Brutal a sixth; with the convoys sailing a fifth
-      // faster and hitting harder, four left the expert autopilot three wins in eight at Hard, none at Brutal)
-      const subs = m.spawnGroup(0, m.level === 'brutal' ? ['ss', 'ss', 'ss', 'ss', 'ss', 'ss'] : m.tightened ? ['ss', 'ss', 'ss', 'ss', 'ss'] : ['ss', 'ss', 'ss', 'ss'], pen[0] + 1.5, pen[1] + 1.5);
+      // (campaign difficulty: at Hard and Brutal a fifth boat joins the flotilla; with the convoys sailing a fifth faster
+      // and hitting harder, four left the expert autopilot three wins in eight at Hard, none at Brutal)
+      const subs = m.spawnGroup(0, m.tightened ? ['ss', 'ss', 'ss', 'ss', 'ss'] : ['ss', 'ss', 'ss', 'ss'], pen[0] + 1.5, pen[1] + 1.5);
       m.flags.subs = ids(subs);
     }
     // the Allied port: shipyard, defences and a destroyer screen

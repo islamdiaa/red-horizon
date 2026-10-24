@@ -74,6 +74,9 @@ export const BOOT_CAMP: MissionDef = {
     const [bx, by] = ground(m, ...m.toward(s, e, 11));
     m.flags.bx = bx;
     m.flags.by = by;
+    // (the first drill's beacon in plain sight: uncovered here, framed with the squad once the opening fly-over is done;
+    // it sat in the black shroud, off screen, with the radar offline)
+    m.reveal(0, bx, by, 3);
     m.flags.scouts = ids(squad(m, 1, ['e1', 'e1', 'e1'], s, e, 19, 1));
     // the training camp the player assaults at the end
     const camp = layout(m, 1, e, s, [['barr', 1, 0], ['powr', -2.5, 3.5], ['powr', -2.5, -3.5], ['pbox', 5, 2.5], ['pbox', 5, -2.5]]);
@@ -87,6 +90,8 @@ export const BOOT_CAMP: MissionDef = {
     const step = m.flags.step as Step;
     hunt(m);
     if (m.after(1, 'hello')) {
+      // (the squad and the beacon on screen, weighted towards the beacon so the bottom bar doesn't cover it)
+      m.camera(s.x + (m.flags.bx - s.x) * 0.6, s.y + (m.flags.by - s.y) * 0.6);
       say(m, SGT, EN.radio.hello);
       say(m, SGT, EN.radio.move);
     }
@@ -110,6 +115,9 @@ export const BOOT_CAMP: MissionDef = {
           goTo(m, 'fight');
           m.objective('fight', EN.objective.fight);
           say(m, SGT, EN.radio.fight);
+          // (the scouts in sight too, and on screen)
+          const scouts = m.livingUnits(m.flags.scouts);
+          if (scouts.length) { const c = centroid(scouts); m.reveal(0, c.x, c.y, 4); m.camera((m.flags.bx + c.x) / 2, (m.flags.by + c.y) / 2); }
         }
         break;
       }

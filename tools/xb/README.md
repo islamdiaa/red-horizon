@@ -26,6 +26,7 @@ arguments but not the environment.
 | `vmnotice.mjs` | VM | The "graphics acceleration is off" notice on a software renderer: shown by itself, hidden in battle, dismissed for good |
 | `vmcold.mjs`, `vmctxdiag.mjs` | VM | Cold launches (a fresh browser each time): menu or "can't start", WebGL 2 retries; and why a first context fails, per Chromium flag set, on a blank page |
 | `settingsprobe.mjs` | VM or rig | Clicks every enabled Settings control in turn and records console errors per control |
+| `memcycle.mjs` | rig | Quick Play again cycles; after each, the browser's memory per process split by kind from `/proc/<pid>/smaps` (GPU buffers on the render node, anonymous memory, heap, files, shared memory), with renderer resource counts. `EXTRA_INIT_FILE` adds an init script for A/B experiments |
 | `soakseg.mjs`, `soakseg.sh` | rig | `soak.mjs` in segments for a shared machine: one page, active only while the driver holds the shared lock for a segment, idle between |
 
 `probe-core.mjs`, `sweep-core.mjs`, `look-core.mjs` and `vmlib.mjs` are the shared parts. The rig scripts in

@@ -1,11 +1,14 @@
 import type { Quality } from '../render/renderer';
 import { applyA11y, type SubtitleSize, type TeamPalette } from './a11y';
 import { setKeymap, type GroupMods, type KeymapOverrides } from './keymap';
+import { setVoiceLanguage, type VoiceLanguage } from '../audio/speech';
 
 export interface Settings {
   quality: Quality;
   edgeScroll: boolean;
   unitVoices: boolean;
+  /** The voices' language in a translated interface: the interface's (unset / 'ui') or English ('en'). */
+  voiceLang?: VoiceLanguage;
   hints: boolean;
   /** Show the FPS / renderer stats chip in the top bar. */
   showFps?: boolean;
@@ -72,6 +75,7 @@ export function saveSettings(s: Settings) {
 /** UI-level settings that are pure presentation (body classes). */
 export function applyUiSettings(s: Settings = loadSettings()) {
   setKeymap(s.keys, s.groupMods);
+  setVoiceLanguage(s.voiceLang);
   applyA11y(s);
   document.body.classList.toggle('reduce-motion', !!s.reduceMotion);
   document.body.classList.toggle('hide-fps', s.showFps === false);

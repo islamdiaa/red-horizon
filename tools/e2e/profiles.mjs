@@ -3,7 +3,8 @@
 // given game (no randomness of their own) and are NOT tuned to the AI: they model players, and the matrix
 // (tools/e2e/matrix.mjs) measures how the game treats each of them.
 //
-//  newcomer     reads the Field Manual and does what it says (once per hint), otherwise plays naively: power, a
+//  newcomer     reads the Field Manual and does what it says (once per hint), and the mission's objectives (a "hold" or
+//               "must survive" line keeps the army home, defending what it names), otherwise plays naively: power, a
 //               refinery and a barracks, then keeps clicking infantry cards and sends every group of six it has at
 //               home straight at the enemy base with a right-click. No defences, no second refinery, no care for
 //               its Ore Trucks, unless a hint tells it to.
@@ -172,8 +173,16 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
     }
     if (count(me, 'weap') && q.veh < (tanks ? 2 : 1) && me.credits >= 600) await bot.train(tank, 1);
     await bot.wait(20);
-    // ---- a wave: every armed unit standing around at home, box-selected, right-clicked onto the enemy base
+    // ---- a mission that says to hold or protect something (its objectives list, read like a player reads it): the
+    // army stays home and goes for enemies that come near the thing to protect, instead of attacking their base
     me = await bot.mine();
+    const guard = await guardTarget(bot, me);
+    if (guard) {
+      if (!notes.guard) { notes.guard = guard.why; bot.log(`newcomer: the objectives say to hold or protect (${guard.why}): defending ${guard.t ?? 'the base'} at ${guard.x.toFixed(0)},${guard.y.toFixed(0)}`); }
+      await defend(bot, me, guard);
+      continue;
+    }
+    // ---- a wave: every armed unit standing around at home, box-selected, right-clicked onto the enemy base
     // (no base at all, a strike team: "home" is where the army stands)
     const home = me.blds.find((b) => b.t === 'fact') ?? me.blds[0] ?? (me.units.some((u) => u.armed) ? centre(me.units.filter((u) => u.armed)) : null);
     if (!home) continue;
@@ -198,6 +207,44 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
     bot.log(`newcomer wave ${notes.waves} at ${(await bot.simTime()).toFixed(0)}s: ${n} selected, ${amove ? 'attack-move' : 'right-click'} on ${tgt.t} at ${tgt.x.toFixed(0)},${tgt.y.toFixed(0)}`);
   }
   return { result: 'timeout', notes };
+}
+
+/** Structure names in objectives (English, as the matrix runs) and their types. */
+const NAMED = [['service depot', 'fix'], ['construction yard', 'fact'], ['ore refinery', 'proc'], ['radar dome', 'dome'], ['tech cent', 'atek'], ['power plant', 'powr'], ['war factory', 'weap'], ['barracks', 'tent'], ['chronosphere', 'pdox']];
+
+/**
+ * What the open objectives tell a newcomer to protect: a "hold ... until" / "must survive" / "defend" / "protect"
+ * line (the structure it names, else the base). Null when the mission is about attacking.
+ */
+async function guardTarget(bot, me) {
+  const rows = await bot.page.evaluate(() => [...document.querySelectorAll('.mh-obj .mh-row:not(.done):not(.failed):not(.secondary) .tx')].filter((e) => e.getBoundingClientRect().width > 2).map((e) => e.textContent.trim().toLowerCase())).catch(() => []);
+  const line = rows.find((t) => /\bhold\b|\bsurvive\b|\bdefend\b|\bprotect\b|keep .* alive/.test(t));
+  if (!line) return null;
+  const named = NAMED.find(([n]) => line.includes(n)) ?? (rows.map((t) => NAMED.find(([n]) => t.includes(n) && /surviv|protect|defend|hold/.test(t))).find(Boolean));
+  const b = named && me.blds.find((x) => x.t === named[1] || (named[1] === 'tent' && x.t === 'barr'));
+  const home = b ?? me.blds.find((x) => x.t === 'fact') ?? me.blds[0];
+  return home ? { x: home.x, y: home.y, t: b?.t ?? null, why: line.slice(0, 80) } : null;
+}
+
+/** Defending: enemies within 16 cells of the place to protect get the whole army (E, attack-move); else it gathers there. */
+async function defend(bot, me, g) {
+  const foes = await bot.enemies();
+  const near = foes.units.filter((u) => dist(u, g) < 16).sort((a, b) => dist(a, g) - dist(b, g));
+  const a = await bot.playArea();
+  await bot.page.mouse.move((a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2);
+  if (near.length) {
+    await bot.key('e');
+    const n = await bot.g((x) => x.selection.size);
+    if (n) { await bot.attackMove(near[0].x, near[0].y); bot.log(`newcomer: defending: ${n} units attack-move on ${near.length} enemies near ${g.t ?? 'the base'}`); }
+    return;
+  }
+  // nobody near: the idle army that wandered off comes back to stand by the place to protect
+  const idle = new Set(await bot.g((x) => x.world.units.filter((u) => u.alive && u.owner === x.local && u.order.type === 'idle').map((u) => u.id)));
+  const away = me.units.filter((u) => u.armed && idle.has(u.id) && dist(u, g) > 9);
+  if (away.length >= 3) {
+    await bot.key('e');
+    if (await bot.g((x) => x.selection.size)) await rightClickAt(bot, g.x + 3, g.y + 3);
+  }
 }
 
 /**

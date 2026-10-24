@@ -117,6 +117,13 @@ export interface AITuning {
    * a wave needs a quarter less to set out and turns back only from 1.5 times its own strength (0 = off).
    */
   proLate: number;
+  /** (experiments) Classic Ore Truck care, overriding the level's DiffParams.classicTrucks (0-3; -1 = the level's). */
+  proTrucks: number;
+  /**
+   * Classic, normal and up (version 7): a ready army that has held back for want of an edge goes in all the same after a
+   * while (ai.ts PRO_HOLD), but only if it outweighs the known defences at its target on their own (1 = on).
+   */
+  proLuck: number;
 }
 
 /** Defaults (tuned with tools/selfplay/optimize.ts). */
@@ -171,6 +178,8 @@ export const DEFAULT_TUNING: AITuning = {
   proThrift: 0,
   proBombard: 1,
   proLate: 1500,
+  proTrucks: -1,
+  proLuck: 1,
 };
 
 export interface Personality {

@@ -917,6 +917,14 @@ html:not([lang='en']) .mm-nav-btn .nb-label .rh-daily-pill { display: block; wid
 .op-id i { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }
 .opponent .seg button { font-size: 0.8rem; overflow: hidden; } /* (clipped, never overlapping, in long languages) */
 html:not([lang='en']) .opponent .op-diff button { font-size: 0.68rem; letter-spacing: 0; padding: 0 0.08rem; }
+/* longer languages: the faction and the difficulty each get a line of their own (on one line "Союзники", "Случайно",
+   "Новобранец" and "Soviétique" were cut at both ends at 1280x720, and Russian difficulties shrank to 0.6rem). (:where
+   keeps these under the phone layout below, which stacks the row its own way.) */
+:where(html:not([lang='en']):not([lang^='zh'])) .opponent { grid-template-columns: 5.2rem 1fr 2.15rem 2.15rem; row-gap: 0.3rem; }
+:where(html:not([lang='en']):not([lang^='zh'])) .opponent > .op-diff { grid-column: 1 / -1; }
+:where(html:not([lang='en']):not([lang^='zh'])) .opponent > .op-ally { grid-row: 1; grid-column: 3; }
+:where(html:not([lang='en']):not([lang^='zh'])) .opponent > .op-x { grid-row: 1; grid-column: 4; }
+html:not([lang='en']):not([lang^='zh']) .opponent .op-diff button { font-size: 0.76rem; padding: 0 0.15rem; }
 .opponent[data-diff='brutal'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(var(--danger-rgb), 0.6), rgba(var(--danger-rgb), 0.25)); box-shadow: 0 0 0.9rem rgba(var(--danger-rgb), 0.45), inset 0 0 0 1px rgba(var(--danger-rgb), 0.8); }
 .opponent[data-diff='easy'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(var(--ok-rgb), 0.38), rgba(var(--ok-rgb), 0.14)); box-shadow: inset 0 0 0 1px rgba(var(--ok-rgb), 0.6); }
 .opponent[data-diff='recruit'] .op-diff .seg-thumb { background: linear-gradient(180deg, rgba(127, 211, 255, 0.36), rgba(127, 211, 255, 0.12)); box-shadow: inset 0 0 0 1px rgba(127, 211, 255, 0.6); }
@@ -1126,7 +1134,6 @@ html:not([lang='en']) .opponent .op-diff button { font-size: 0.68rem; letter-spa
 /* longer languages ("Herausforderungen", "Многопользовательская"): a wider navigation, tighter segment labels */
 html:not([lang='en']) .mm-left .mm-nav { width: 20rem; max-width: 100%; }
 html:not([lang='en']) .opponent .seg button { letter-spacing: 0.01em; }
-html[lang='ru'] .opponent .op-diff button { font-size: 0.6rem; }
 .mm-left .mm-nav.dense .mm-nav-btn { height: 2.2rem; }
 /* (and at a large interface size, Settings › Accessibility, where the navigation outgrows the screen) */
 body.ui-scale-up .main-screen { align-items: flex-start; overflow-y: auto; overflow-x: hidden; }
@@ -1137,7 +1144,9 @@ body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-heigh
   .main-screen .mm-layout { align-items: flex-start; padding-top: 1rem; padding-bottom: 1rem; }
   .main-screen .mm-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
 }
-@media (max-aspect-ratio: 1/1) {
+/* (and narrow landscape windows, 800x600: the two columns need ~880 px at the smallest text size; side by side the
+   title and the navigation were cut at the left edge and the setup panel at the right) */
+@media (max-aspect-ratio: 1/1), (max-width: 900px) {
   .main-screen { align-items: flex-start; overflow-y: auto; overflow-x: hidden; }
   .main-screen .mm-layout { flex-direction: column; align-items: center; gap: 1.6rem; padding: 1.4rem 1rem 2rem; }
   .main-screen .mm-left, .main-screen .mm-panel { width: min(100%, 41rem); transform: none; }
@@ -1147,6 +1156,9 @@ body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-heigh
   .main-screen .game-title { font-size: min(5.2rem, 15vw); }
   .main-screen .mm-tag { display: block; max-width: none; }
   .main-screen .mm-foot { margin-top: 1.2rem; }
+}
+@media (max-width: 900px) and (min-aspect-ratio: 1/1) {
+  .main-screen .mm-panel { position: relative; top: auto; }
 }
 /* touch screens in the scrolling layouts (phones, portrait tablets): finger-sized menu controls (44 px) */
 @media (pointer: coarse) and (max-aspect-ratio: 1/1), (pointer: coarse) and (max-height: 600px) {
@@ -1242,6 +1254,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .fixed-val b { color: var(--text); letter-spacing: 0.08em; font-size: 0.9rem; }
 .fixed-val small { font-size: max(0.6rem, 8.5px); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
 .mm-panel { overflow-y: auto; scrollbar-width: thin; }
+/* (the setup outgrows a short window: two-line opponents in long languages, three opponents. The panel scrolls and
+   Deploy stays at its foot, full size: as a flex item it was squeezed to a sliver of 16 px) */
+.mm-panel > .deploy { position: sticky; bottom: 0; flex-shrink: 0; z-index: 2; }
 .mm-nav.dense .mm-nav-btn { height: 2.55rem; }
 .rh-new-pill { color: #8dffb8 !important; border-color: rgba(77, 255, 154, 0.55) !important; background: rgba(77, 255, 154, 0.12) !important; box-shadow: 0 0 0.6rem rgba(77, 255, 154, 0.3) !important; animation: none !important; }
 
@@ -1503,6 +1518,18 @@ body.hud-modern .tab-prog { bottom: 0.12rem; }
   body.hud-modern .tab:not(.active) .tab-l { display: none; }
   body.hud-modern .tab:not(.active) { padding: 0 0.7rem; }
 }
+/* the open tab shows its whole label or none: on a landscape phone it was cut to "STRU" (63 of 36 px) by the
+   category status beside it, which now gives way (ellipsis) instead; on the narrowest bars only the icon stays */
+body.hud-modern .bb-top .tabs { flex: 0 0 auto; }
+body.hud-modern .bb-top .cat-head { flex-shrink: 1; min-width: 0; }
+@container (max-width: 31rem) {
+  body.hud-modern .tab.active .tab-l { display: none; }
+  body.hud-modern .tab.active { padding: 0 0.7rem; }
+}
+/* (the smallest phones, 667x375: the tabs alone fill the bar; the cards' locks and tooltips say what is missing) */
+@container (max-width: 20rem) {
+  body.hud-modern .bb-top .cat-head { display: none; }
+}
 body.hud-modern .cat-head { height: auto; flex-shrink: 0; margin-left: auto; padding: 0 0.15rem 0.45rem; }
 body.hud-modern .cat-title, body.hud-modern .cat-line { display: none; }
 body.hud-modern .cat-status { max-width: 15rem; }
@@ -1747,8 +1774,12 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   .main-screen .mm-tag { display: block; max-width: none; }
 }
 @media (pointer: coarse) {
-  /* settings: finger-height segmented choices */
+  /* settings: finger-height segmented choices, and volume / interface-size sliders a finger can grab (they were
+     18 px tall with a 14 px knob: LAB's phone runs) */
   .settings-panel .seg button { height: 2.6rem; }
+  .slider { height: 2.6rem; }
+  .slider::-webkit-slider-thumb { width: 1.6rem; height: 1.6rem; margin-top: -0.625rem; }
+  .slider::-moz-range-thumb { width: 1.3rem; height: 1.3rem; }
 }
 /* phones in landscape: a compact HUD that leaves the map most of the screen */
 @media (pointer: coarse) and (max-height: 500px) {

@@ -22,6 +22,7 @@ import { headlessGame } from '../src/modes/headless';
 import { challengeFromState } from '../src/modes/author';
 import { snapshotWorld } from '../src/replay/branch';
 import type { GameSetup } from '../src/game';
+import type { Building } from '../src/sim/entities';
 
 // a minimal localStorage (progress, the level preference, challenge storage fallback)
 const mem = new Map<string, string>();
@@ -176,6 +177,17 @@ describe('campaign difficulty: Red Alert handicaps', () => {
     recordResult('soviet-01', { won: true, stars: 1, time: 300 });
     assert.equal(loadLevel(), 'normal', 'a win from before the levels existed (no level) still means Normal');
   });
+
+  test('a five-wave Survival run (recorded without a level) leaves a new player on Easy', () => {
+    mem.clear();
+    // (game.ts records the run as lost at its level, then the meta layer completes the operation without one)
+    recordResult('survival', { won: false, stars: 0, time: 900, score: 1234, level: 'normal' });
+    recordResult('survival', { won: true, stars: 1, time: 900, score: 1234 });
+    assert.ok(loadProgress().survival?.completed && !loadProgress().survival.level, 'the record carries no level');
+    assert.equal(loadLevel(), 'easy', 'Survival says nothing about the campaign level');
+    recordResult('allied-01', { won: true, stars: 1, time: 600 });
+    assert.equal(loadLevel(), 'normal', 'a campaign win without a level still means Normal');
+  });
 });
 
 describe('the newcomer and Allied mission 1', () => {
@@ -227,15 +239,79 @@ describe('missions without a base end when the forces that can finish them are g
     for (let t = 0; t < 40; t++) world.step();
     assert.ok(!rt.ended, 'one heavy tank can still take the hill: no defeat');
   });
-  test('structure breakers: dogs, engineers and medics cannot take a camp; riflemen can', async () => {
+  test('structure breakers: dogs and medics cannot take a camp; riflemen and engineers can', async () => {
     const { structureBreakers } = await import('../src/missions/common');
     const { world, rt } = createMissionWorld(getMission('soviet-03')!);
-    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0 && !u.ut.dog && !u.ut.engineer)) world.kill(u, 'sold');
+    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0 && !u.ut.dog)) world.kill(u, 'sold');
     world.step();
     assert.ok(world.units.some((u) => u.alive && u.owner.id === 0 && u.ut.dog), 'dogs left');
-    assert.equal(structureBreakers(rt, 0).length, 0, 'dogs and engineers cannot damage a structure');
+    assert.equal(structureBreakers(rt, 0).length, 0, 'dogs cannot damage a structure');
     rt.spawnUnit(0, 'e1', rt.start(0).x, rt.start(0).y);
     assert.equal(structureBreakers(rt, 0).length, 1, 'a rifleman can');
+    rt.spawnUnit(0, 'e6', rt.start(0).x, rt.start(0).y);
+    assert.equal(structureBreakers(rt, 0).length, 2, 'an engineer can (entering wrecks a third of a structure, then captures it)');
+  });
+  test('Thunderhead: a raid down to an engineer after the hold is not lost', async () => {
+    const { captureBuilding } = await import('../src/sim/unitlogic');
+    const { world, rt } = createMissionWorld(getMission('soviet-03')!);
+    // (the station taken and held: the camp is what is left)
+    const eng = world.units.find((u) => u.alive && u.owner.id === 0 && u.ut.engineer)!;
+    captureBuilding(world, world.getEntity(rt.flags.station) as Building, eng);
+    for (let t = 0; t < 40; t++) world.step();
+    assert.equal(rt.state('capture'), 'done', 'the station is ours');
+    rt.complete('hold');
+    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0)) world.kill(u, 'sold');
+    rt.spawnUnit(0, 'e6', rt.start(0).x, rt.start(0).y);
+    for (let t = 0; t < 40; t++) world.step();
+    assert.ok(!rt.ended, `an engineer can still capture the camp: no defeat (${rt.endReason})`);
+    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0)) world.kill(u, 'sold');
+    for (let t = 0; t < 40; t++) world.step();
+    assert.ok(rt.ended && !rt.won, `with nobody left it is lost (ended ${rt.ended}, won ${rt.won})`);
+  });
+});
+
+describe('Boot Camp: the first drills point at something the player can see', () => {
+  test('the beacon starts uncovered and framed with the squad; the scouts are uncovered when their drill starts', () => {
+    const { world, rt } = createMissionWorld(getMission('bootcamp')!);
+    const me = world.players[0], m = world.map;
+    const seen = (x: number, y: number) => !!me.explored[m.idx(Math.floor(x), Math.floor(y))];
+    assert.ok(seen(rt.flags.bx, rt.flags.by), 'the beacon cell is explored at the start');
+    // (the framing comes after the opening fly-over: with the first radio lines, at one second)
+    const cams: { x: number; y: number }[] = [];
+    for (let t = 0; t < 30; t++) { world.step(); for (const e of rt.events) if (e.e === 'camera') cams.push(e as { x: number; y: number }); rt.events.length = 0; }
+    assert.ok(cams.length > 0, 'the first drill frames the camera');
+    const s = rt.start(0), c = cams[cams.length - 1];
+    const k = 0.6;
+    assert.ok(Math.abs(c.x - (s.x + (rt.flags.bx - s.x) * k)) < 0.01 && Math.abs(c.y - (s.y + (rt.flags.by - s.y) * k)) < 0.01, `between the squad and the beacon, towards the beacon (${c.x},${c.y})`);
+    const scouts = rt.livingUnits(rt.flags.scouts);
+    assert.ok(scouts.some((u) => !seen(u.x, u.y)), 'the scouts start in the dark');
+    for (const u of world.units.filter((u) => u.alive && u.owner.id === 0)) { u.x = rt.flags.bx; u.y = rt.flags.by; }
+    for (let t = 0; t < 40; t++) world.step();
+    assert.equal(rt.flags.step, 'fight', 'the squad at the beacon starts the fight drill');
+    for (const u of rt.livingUnits(rt.flags.scouts)) assert.ok(seen(u.x, u.y), `scout at ${u.x.toFixed(1)},${u.y.toFixed(1)} uncovered`);
+  });
+});
+
+describe('round 5 level tuning (each measured: tools/campaign-levels.ts)', () => {
+  test('First Snow: the radar transmits after four minutes at Brutal, five and a half below', () => {
+    const uplink = (level: MissionLevel) => createMissionWorld(getMission('soviet-01')!, { level }).rt.timeLeft('uplink');
+    assert.deepEqual([uplink('easy'), uplink('normal'), uplink('hard'), uplink('brutal')], [330, 330, 330, 240], 'uplink by level');
+  });
+  test('Dry Season: a Tesla Coil guards the mining camp at Hard and Brutal only', () => {
+    const coils = (level: MissionLevel) => {
+      const { world, rt } = createMissionWorld(getMission('allied-05')!, { level });
+      const [cx, cy] = rt.flags.camp as [number, number];
+      return world.buildings.filter((b) => b.alive && b.owner.id === 1 && b.bt.id === 'tsla' && Math.hypot(b.x - cx, b.y - cy) < 10).length;
+    };
+    assert.deepEqual([coils('easy'), coils('normal'), coils('hard'), coils('brutal')], [0, 0, 1, 1], 'camp coils by level');
+  });
+  test('Wolfpack at Brutal: five boats, convoys at a touch over their own pace (no speed cliff)', () => {
+    const { world, rt } = createMissionWorld(getMission('wolfpack')!, { level: 'brutal' });
+    for (let t = 0; t < 20 * 120; t++) world.step(); // (the first group sails at 1:15)
+    const lst = world.units.filter((u) => u.alive && u.owner.id === 1 && u.ut.id === 'lst' && u.order.type === 'move');
+    assert.ok(lst.length > 0, 'a convoy group is under way');
+    for (const u of lst) assert.ok(Math.abs(u.speedCap - 1.15 * 1.015) < 1e-9, `convoy pace 1.15 x 1.015 (${u.speedCap})`);
+    void rt;
   });
 });
 
@@ -247,7 +323,7 @@ describe('round 4 level tuning (each measured: tools/campaign-levels.ts)', () =>
       for (const level of ['hard', 'brutal'] as MissionLevel[]) assert.equal(aiLevel(createMissionWorld(getMission(mission)!, { level }).world, p), 'recruit', `${mission}: Recruit commander at ${level}`);
     }
     const subs = (level: MissionLevel) => createMissionWorld(getMission('wolfpack')!, { level }).world.units.filter((u) => u.owner.id === 0 && u.ut.id === 'ss').length;
-    assert.deepEqual([subs('normal'), subs('hard'), subs('brutal')], [4, 5, 6], 'Wolfpack: 4 / 5 / 6 submarines');
+    assert.deepEqual([subs('normal'), subs('hard'), subs('brutal')], [4, 5, 5], 'Wolfpack: 4 / 5 / 5 submarines (round 5: Brutal with five, its convoys near their own pace)');
     const clock = (level: MissionLevel) => createMissionWorld(getMission('allied-05')!, { level }).rt.timeLeft('reserve');
     assert.deepEqual([clock('normal'), clock('hard'), clock('brutal')], [900, 780, 600], 'Dry Season: the reserve at 15, 13 and 10 minutes');
     const tanks = (level: MissionLevel) => createMissionWorld(getMission('allied-04')!, { level }).world.units.filter((u) => u.owner.id === 0 && u.ut.id === '2tnk').length;

@@ -1,5 +1,5 @@
 // Long all-AI matches with simulation invariants and a tick-time budget check (REVIEW round 4).
-//   node --import tsx tools/qa/longrun.ts [--minutes 60] [--only <regex>] [--seeds 1] [-v]     (WORKERS=n in parallel)
+//   node --import tsx tools/qa/longrun.ts [--minutes 60] [--only <regex>] [--seeds 1] [--from 1] [-v]     (WORKERS=n in parallel)
 // Every case is a whole match between AI players (2-4, the game's limit; every level, Classic and Commander, teams, sea maps, curated
 // maps). Checked as it runs: the fuzzer's world invariants (NaN, off-map, negative money, tech counts, entity map
 // leaks, dead references), units that hold a move / attack / enter order for 3 minutes without getting anywhere or
@@ -62,6 +62,8 @@ export function runCase(c: Case, minutes: number): Result {
   const stale = new Map<number, number>();
   const track = new Map<number, Track>();
   const harv = new Map<number, { cargo: number; x: number; y: number; since: number }>();
+  /** Per truck: when its cargo last changed (a truck that drives about for 10 minutes without loading or unloading). */
+  const busy = new Map<number, { cargo: number; since: number }>();
   const times: number[] = [];
   let worst = 0, worstAt = '', maxUnits = 0;
   const end = minutes * 60 * TICK_HZ;
@@ -106,6 +108,15 @@ export function runCase(c: Case, minutes: number): Result {
       if (!h || h.cargo !== u.cargo || Math.hypot(u.x - h.x, u.y - h.y) > 1 || !hasRef || !oreLeft) { harv.set(u.id, { cargo: u.cargo, x: u.x, y: u.y, since: now }); continue; }
       if (now - h.since === 180 * TICK_HZ) add('harvester', `${u.owner.name} truck idle 3 min at (${u.x.toFixed(1)},${u.y.toFixed(1)}) cargo=${u.cargo} hstate=${u.hstate} order=${u.order.type} dock=${u.dockAt}`);
     }
+    // trucks that keep moving but neither load nor unload for 10 minutes (going back and forth: a dock or ore they never
+    // reach; a late game's haul to the last ore field on a 128 map takes 5-6 minutes each way, so less is not a loop)
+    for (const u of w.units) {
+      if (!u.alive || !u.ut.harvester || u.transport) continue;
+      const hasRef = w.buildings.some((b) => b.alive && b.owner === u.owner && b.bt.id === 'proc' && b.active);
+      const b = busy.get(u.id);
+      if (!b || b.cargo !== u.cargo || !hasRef || !oreLeft || u.order.type !== 'harvest') { busy.set(u.id, { cargo: u.cargo, since: now }); continue; }
+      if (now - b.since === 600 * TICK_HZ) add('harvester', `${u.owner.name} truck unproductive 10 min at (${u.x.toFixed(1)},${u.y.toFixed(1)}) cargo=${u.cargo} hstate=${u.hstate} dock=${u.dockAt} goal=(${u.goalX.toFixed(1)},${u.goalY.toFixed(1)})`);
+    }
   }
   times.sort((a, b) => a - b);
   const p99 = times.length ? times[Math.floor(times.length * 0.99)] : 0;
@@ -119,9 +130,10 @@ export function runCase(c: Case, minutes: number): Result {
 if (process.argv[1]?.endsWith('longrun.ts')) {
   const minutes = +argOf('minutes', '60');
   const seeds = +argOf('seeds', '1');
+  const from = +argOf('from', '1'); // (--from k: seeds k .. k + seeds - 1)
   const one = process.argv.indexOf('--one');
   const all: Case[] = [];
-  for (let sd = 1; sd <= seeds; sd++) for (const c of cases(sd)) all.push({ ...c, name: `${c.name} s${sd}` });
+  for (let sd = from; sd < from + seeds; sd++) for (const c of cases(sd)) all.push({ ...c, name: `${c.name} s${sd}` });
   if (one > 0) {
     const r = runCase(all[+process.argv[one + 1]], minutes);
     process.send?.(r);
@@ -135,7 +147,7 @@ if (process.argv[1]?.endsWith('longrun.ts')) {
   const launch = () => {
     if (next >= pick.length) return;
     const [c, i] = pick[next++];
-    const child = fork(process.argv[1], ['--one', String(i), '--minutes', String(minutes), '--seeds', String(seeds)], { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+    const child = fork(process.argv[1], ['--one', String(i), '--minutes', String(minutes), '--seeds', String(seeds), '--from', String(from)], { execArgv: ['--import', 'tsx'], stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
     let got = false;
     child.on('message', (r: Result) => {
       got = true;

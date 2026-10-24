@@ -50,7 +50,12 @@ function destroyAll(world: World, q: Player) {
 /** World.processCommand: `player` surrenders. Ignored for a player who is already out, and after the end. */
 export function resignCommand(world: World, player: number) {
   const p = world.players[player];
-  if (!p || p.defeated || p.resigned || world.gameOver) return;
+  if (!p || p.defeated || world.gameOver) return;
+  // Once surrendered, a player issues nothing more (the relay drops anything from the seat after it, the lockstep sends
+  // nothing). But the AI that took their side over (a team that fought on) may concede for it later, when nobody on the
+  // side plays any more and it is beaten (ai.ts lastStand); its surrender used to be ignored here, and the side's last
+  // Ore Truck or spy kept a finished match going (version 7).
+  if (p.resigned && (p.isHuman || teamPlaysOn(world, p))) return;
   p.resigned = true;
   const mission = world.mission;
   if (!mission && teamPlaysOn(world, p)) { handToAI(world, p); return; }
