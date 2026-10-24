@@ -12,7 +12,7 @@ import { prefetchOffline } from '../platform/prefetch';
  * Medium and High quality use the textures; Low keeps the procedural shading (no downloads).
  */
 
-export type Climate = 'temperate' | 'winter' | 'desert';
+export type Climate = 'temperate' | 'winter' | 'desert' | 'tropical';
 
 /** Layer slots (texture array layers), the same in every climate. */
 export const SLOT = {
@@ -94,6 +94,20 @@ export const CLIMATE_LAYERS: Record<Climate, LayerDef[]> = {
     L('mud', 3.0, [0.36, 0.29, 0.21], 0.4, 0.35, 1.0),
     L('snow', 4.5, [0.86, 0.9, 0.95], 0.95, 0.2, 0.8),
     L('concrete', 4.0, [0.63, 0.58, 0.51], 0.85, 0.2, 0.7),
+  ],
+  // World Conquest (MAPS): no new textures, the existing scans recombined and graded: deep jungle grass, dark
+  // forest earth, muted laterite roads (ore stays the only orange), mossy rock, pale beach sand, dark wet mud
+  tropical: [
+    L('grass', 3.0, [0.19, 0.33, 0.1], 0.88, 0.35, 1.05),
+    L('meadow', 3.4, [0.26, 0.37, 0.12], 0.78, 0.4, 1.0),
+    L('desert_dirt', 3.0, [0.33, 0.24, 0.16], 0.6, 0.55, 1.1),
+    L('rock', 4.5, [0.35, 0.37, 0.3], 0.82, 0.6, 1.3),
+    L('shore_sand', 3.4, [0.8, 0.72, 0.54], 0.62, 0.3, 0.9),
+    L('gravel', 2.2, [0.42, 0.38, 0.32], 0.4, 0.8, 1.2),
+    L('packed_sand', 3.6, [0.44, 0.3, 0.21], 0.62, 0.3, 0.9),
+    L('mud', 3.0, [0.23, 0.16, 0.1], 0.5, 0.35, 1.0),
+    L('snow', 4.5, [0.86, 0.9, 0.95], 0.95, 0.2, 0.8),
+    L('concrete', 4.0, [0.55, 0.54, 0.5], 0.85, 0.2, 0.7),
   ],
 };
 

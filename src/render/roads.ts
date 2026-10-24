@@ -199,6 +199,8 @@ export function buildRoads(map: GameMap): RoadNetwork {
     if (pts.length >= 2) segments.push({ kind: r.kind, points: pts.map(([x, y]) => [round3(x), round3(y)]) });
   });
 
+  // World Conquest city streets (sim/mapgen-region.ts): main roads along the street grid
+  for (const st of map.streets ?? []) if (st.length >= 2) segments.push({ kind: 'main', points: st.map(([x, y]) => [round3(x), round3(y)] as [number, number]) });
   const { mask, cells } = rasterize(map, segments, bridge);
   let h = 2166136261;
   for (let i = 0; i < mask.length; i++) h = Math.imul(h ^ mask[i], 16777619);
@@ -440,6 +442,7 @@ export function roadsFor(map: GameMap): RoadNetwork {
   for (let i = 0; i < map.heights.length; i += 3) mix(Math.round(map.heights[i] * 64));
   for (const s of map.startPositions ?? []) { mix(Math.round(s.x * 8)); mix(Math.round(s.y * 8)); }
   for (const b of map.bridges ?? []) for (const [x, y] of b.cells) mix(x * 4099 + y);
+  for (const st of map.streets ?? []) for (const [x, y] of st) mix(Math.round(x * 8) * 4099 + Math.round(y * 8));
   const hit = cache.get(map);
   if (hit && hit.key === k >>> 0) return hit.net;
   const net = buildRoads(map);

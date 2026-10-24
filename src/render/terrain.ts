@@ -128,7 +128,7 @@ function texturedGlsl(climate: Climate, high: boolean) {
   const winter = climate === 'winter', desert = climate === 'desert';
   const HALF = ROAD_HALF.main.toFixed(3);
   // how much of the open ground is the variation layer (meadow / wind-packed snow / cracked earth)
-  const G2: Record<Climate, [string, string]> = { temperate: ['0.40', '0.64'], winter: ['0.42', '0.66'], desert: ['0.52', '0.72'] };
+  const G2: Record<Climate, [string, string]> = { temperate: ['0.40', '0.64'], winter: ['0.42', '0.66'], desert: ['0.52', '0.72'], tropical: ['0.36', '0.6'] };
   // trampled ground: packed snow in winter, bare earth elsewhere; churned crater soil: dry earth in the desert
   const TRAMPLE = winter ? SLOT.Ground2 : SLOT.Dirt;
   const CHURN = desert ? SLOT.Dirt : SLOT.Mud;
@@ -348,7 +348,7 @@ function texturedGlsl(climate: Climate, high: boolean) {
     col = mix(col, col * vec3(0.2, 0.18, 0.16) + vec3(0.01, 0.008, 0.006), burn * 0.85);
     // snow: peaks, weather snow cover${winter ? ', ledges, plough banks and packed snow on the roads' : ''}
     float upward = smoothstep(0.55, 0.85, nW.y);
-    float peak = smoothstep(3.2, 5.0, vWPos.y + n2 * 0.8) * smoothstep(0.35, 0.7, nW.y);
+    float peak = smoothstep(${climate === 'tropical' ? '6.0, 8.0' : climate === 'desert' ? '4.6, 6.4' : '3.2, 5.0'}, vWPos.y + n2 * 0.8) * smoothstep(0.35, 0.7, nW.y);
     float snowCover = max(peak, uSnow * upward * smoothstep(0.25, 0.6, n1 * 0.6 + n3 * 0.4 + uSnow * 0.5)) * (1.0 - bed);
     ${winter ? `snowCover = max(snowCover, sp.z * smoothstep(0.8, 0.95, nW.y + (n3 - 0.5) * 0.25) * 0.85 * (1.0 - bed));
     snowCover = max(snowCover, concK * smoothstep(0.5, 0.85, concEdge * 0.4 + n1 * 0.45 + n3 * 0.4 - 0.1) * 0.75);
@@ -483,11 +483,16 @@ export class TerrainMesh implements TerrainDeformApi {
     const ore = new Float32Array(n * 2);
     const detail = new Noise2D(map.seed + 31);
 
+    // the ground as drawn: a landmark's footprint (rock to the sim, sim/landmarks.ts) shows the ground it stands on
+    const vis = map.landmarks.length ? map.terrain.slice() : map.terrain;
+    for (const l of map.landmarks) for (let y = l.cy; y < l.cy + l.h; y++) for (let x = l.cx; x < l.cx + l.w; x++) {
+      if (map.inBounds(x, y) && vis[map.idx(x, y)] === T.Rock) vis[map.idx(x, y)] = l.ground;
+    }
     // per-cell terrain weights, sampled at sub-vertices from the 4 surrounding cells
     const cellWeights = (cx: number, cy: number): [number, number, number, number] => {
       cx = Math.max(0, Math.min(map.w - 1, cx));
       cy = Math.max(0, Math.min(map.h - 1, cy));
-      const t = map.terrain[map.idx(cx, cy)];
+      const t = vis[map.idx(cx, cy)];
       switch (t) {
         case T.Sand: return [0, 1, 0, 0];
         case T.Rock: return [0, 0, 1, 0];
@@ -507,7 +512,7 @@ export class TerrainMesh implements TerrainDeformApi {
         let rockiness = 0;
         for (let dy = -1; dy <= 0; dy++) for (let dx = -1; dx <= 0; dx++) {
           const qx = Math.floor(x + dx * 0.5 + 0.25), qy = Math.floor(y + dy * 0.5 + 0.25);
-          if (map.inBounds(qx, qy) && map.terrain[map.idx(qx, qy)] === T.Rock) rockiness += 0.25;
+          if (map.inBounds(qx, qy) && vis[map.idx(qx, qy)] === T.Rock) rockiness += 0.25;
         }
         if (rockiness > 0) h += (detail.fbm(x * 0.9, y * 0.9, 3) - 0.35) * 0.9 * rockiness;
         else h += (detail.value(x * 2.3, y * 2.3) - 0.5) * 0.025;
@@ -763,7 +768,7 @@ export class TerrainMesh implements TerrainDeformApi {
           col = mix(col, col * vec3(0.2, 0.18, 0.16) + vec3(0.01, 0.008, 0.006), burn * 0.85);
           // snow-capped peaks (outer mountains) and weather snow cover on flat ground
           float upward = smoothstep(0.55, 0.85, nW.y);
-          float peak = smoothstep(3.2, 5.0, vWPos.y + n2 * 0.8) * smoothstep(0.35, 0.7, nW.y);
+          float peak = smoothstep(${climate === 'tropical' ? '6.0, 8.0' : climate === 'desert' ? '4.6, 6.4' : '3.2, 5.0'}, vWPos.y + n2 * 0.8) * smoothstep(0.35, 0.7, nW.y);
           float snowCover = max(peak, uSnow * upward * smoothstep(0.25, 0.6, n1 * 0.6 + n3 * 0.4 + uSnow * 0.5)) * (1.0 - bed);
           col = mix(col, srgb(vec3(0.86, 0.9, 0.95)) * (0.92 + 0.08 * n3), snowCover);
           // tread ruts show in snow (packed, blue-grey), sand and mud; barely on grass

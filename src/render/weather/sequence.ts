@@ -3,7 +3,7 @@ import type { Climate, WeatherKind, WeatherStep } from './types';
 
 /**
  * A natural-feeling weather schedule for a match: long clear spells, occasional rain that may build
- * into a thunderstorm and ease off again, and rarer snow / fog / dust depending on the climate.
+ * into a thunderstorm and ease off again, and rarer snow / fog / dust depending on the climate (tropical: the monsoon).
  * Consecutive steps never repeat a kind. Durations are hold times (seconds) after the cross-fade.
  *
  *   const plan = randomWeatherSequence(seed, 'temperate');
@@ -37,6 +37,11 @@ export function randomWeatherSequence(seed: number, climate: Climate = 'temperat
       else if (r < 0.65) push('fog', 100, 220, 25);
       else if (r < 0.73) rainSpell(0.15);
       push('clear', 140, 330, 25);
+    } else if (climate === 'tropical') {
+      // monsoon (World Conquest, MAPS): long heavy rains that often break into thunderstorms, steamy fog, never snow
+      if (r < 0.6) { push('rain', 90, 220, 18); if (rng.next() < 0.6) { push('storm', 60, 160, 10); push('rain', 50, 120, 14); } }
+      else if (r < 0.75) push('fog', 80, 180, 25);
+      push('clear', 110, 260, 20);
     } else if (climate === 'desert') {
       if (r < 0.42) push('dust', 70, 170, 18);
       else if (r < 0.49) rainSpell(0.45);

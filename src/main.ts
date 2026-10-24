@@ -21,6 +21,7 @@ import { activeModSet, showModBadge, showMods } from './mods'; // mods
 import { saveRun, loadRun } from './conquest/storage';
 import type { BattleKind, ConquestSetup } from './conquest/battle';
 import { showQuickCard } from './ui/variety';
+import { isWorldBattle, worldBadge, worldLinkPending } from './ui/world/entry'; // World Conquest (UI hook: the mode itself is the src/ui/world chunk)
 import './ui/doctrine-picker'; // registers the doctrine picker in the skirmish Rules tab
 import type { LobbyHost } from './ui/lobby'; // multiplayer lobby (loaded on demand)
 import { boardOfSetup, portableMathFor, withPortableFlag } from './net/boards'; // multiplayer and ranked runs: portable maths, verified leaderboards
@@ -126,6 +127,8 @@ const menus = new Menus(audio, {
   openCampaign: () => openCampaign(),
   openConquest: () => openConquest(),
   conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? tMenu('main.conquestTurn', { n: r.turn }) : null; },
+  openWorld: () => openWorld(), // World Conquest (UI hook)
+  worldInfo: () => { const b = worldBadge(); return b ? tMenu('main.conquestTurn', { n: b.turn }) : null; },
   openChallenges: () => openChallenges(),
   openProfile: () => openProfile(),
   openBootCamp: () => deployMission('bootcamp'),
@@ -210,6 +213,28 @@ function deployConquest(c: ConquestSetup) {
     faction: c.battle.faction, color: c.battle.faction === 'allies' ? 0x3d7be0 : 0xd23a2c, opponents: [], mapSize: 64, water: 0.5, trees: 0.5, ore: 0.6, credits: 5000,
     startUnits: 'mcv', fog: true, timeOfDay: 'day', quality: menus.settings.quality, seed: 0, mission: 'conquest', conquest: c, intro: true,
   });
+}
+
+/**
+ * World Conquest (UI hook; src/ui/world, its own chunk): the Risk-style world campaign. The globe gets the GPU to
+ * itself (the menu backdrop stops, as for the editor); its battles go through deployConquest like Conquest's.
+ */
+function openWorld(demo?: string) {
+  demoToken++; // (a backdrop still waiting for the engine stays away)
+  game?.dispose();
+  game = null;
+  exposeDebug(null);
+  showModBadge(null);
+  menus.hide();
+  setLoading(0.4, tLoading('stage.loading')); // (the chunk may take a moment on a slow connection)
+  void import('./ui/world').then(({ showWorld }) => { hideLoading(); return showWorld({
+    play: (k) => audio.play(k),
+    quality: menus.settings.quality,
+    onBack: () => startDemo(),
+    onDeploy: (c) => deployConquest(c),
+    onResume: (save) => { if (save.game?.setup) void startGame({ ...save.game.setup, load: save, intro: false, quality: menus.settings.quality }); },
+    demo,
+  }); }).catch((e) => { hideLoading(); reportError(e); });
 }
 
 function openChallenges() {
@@ -311,6 +336,15 @@ async function startGame(setup: GameSetup) {
         if (g.setup.replay) return; // replay playback shows its own end panel
         g.paused = true;
         if (E.modesOnEnd(g, won)) return; // challenge result screen · mode medals
+        if (g.setup.conquest && isWorldBattle(g.setup.conquest)) { // World Conquest (UI hook): the battle's results, then the globe
+          const conquest = g.setup.conquest;
+          void import('./ui/world').then(({ showWorldAfterBattle }) => showWorldAfterBattle(g.world, conquest, {
+            play: (k) => audio.play(k),
+            onContinue: () => { audio.stopMusic(); openWorld(); },
+            onMenu: () => { audio.stopMusic(); startDemo(); },
+          })).catch((e) => reportError(e));
+          return;
+        }
         if (g.setup.conquest) { // the result goes back to the campaign: battle report, then the strategic map
           const conquest = g.setup.conquest;
           void import('./ui/conquest').then(({ showConquestAfterBattle }) => showConquestAfterBattle(g.world, conquest, {
@@ -453,8 +487,9 @@ function createAttractDemo(E: Engine): Game {
 
 if (params.get('autostart') && params.get('conquest')) {
   // ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
-  void import('./conquest/testing').then(({ runWithBattle }) => {
+  void import('./conquest/testing').then(async ({ runWithBattle }) => {
     const { run, setup } = runWithBattle(numParam('seed', 7, 0, 0x7fffffff) | 0, (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
+    if (params.get('region')) await (await import('./maps/region-test')).useRegion(setup.battle, params.get('region')!); // &region=<id>: that World Conquest region's battlefield (MAPS)
     saveRun(run);
     deployConquest(setup);
   });
@@ -510,6 +545,15 @@ if (params.get('conquest') && !params.get('autostart')) {
   };
   setTimeout(wait, 100);
 }
+
+// World Conquest (UI hook): challenge links (#world=<seed>&home=…) and the test switch ?world=<screen> (new, options,
+// fresh, attack, …: src/ui/world/index.ts runDemo) open the world screens once the main menu is up
+if (worldLinkPending() && !params.get('autostart')) {
+  const t0 = performance.now();
+  const wait = () => { if (!menus.onMainMenu && performance.now() - t0 < 4000) { setTimeout(wait, 100); return; } openWorld(params.get('world') ?? undefined); };
+  setTimeout(wait, 100);
+}
+window.addEventListener('hashchange', () => { if (/^#(?:.*&)?world=/.test(location.hash) && (!game || game.setup.demo)) openWorld(); });
 
 // Share links (#share=…, src/share): loaded on demand, decoded as untrusted input, imported only after a confirmation.
 function openShare() {

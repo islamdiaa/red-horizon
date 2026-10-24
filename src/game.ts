@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GAME_SPEEDS, TEAM_COLORS } from './config';
 import { BUILDINGS, UNITS, type Faction } from './data/rules';
 import { generateMap } from './sim/mapgen';
+import { regionMapFor } from './sim/mapgen-region'; // World Conquest region battlefields (MAPS)
+import { startView } from './maps/start-view'; // (their start camera per viewport: MAPS)
 import { World, type PlayerSetup } from './sim/world';
 import { DT, type Command, type GameEvent } from './sim/types';
 import type { AIDifficulty } from './sim/ai';
@@ -297,7 +299,7 @@ export class Game {
       (this as { setup: GameSetup }).setup = setup;
     }
     const nPlayers = def ? def.map.players : 1 + setup.opponents.length;
-    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) : null; // editor map, curated skirmish map, or the curated map a mission names (Conquest battles)
+    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) : regionMapFor(def?.map); // editor map, curated skirmish map, or the curated map a mission names (Conquest battles); World Conquest region battlefields (MAPS: sim/mapgen-region.ts, null otherwise)
     const climate = curated?.climate ?? (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
     const map = curated ?? generateMap({
       size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
@@ -448,11 +450,12 @@ export class Game {
     this.gfx.setTimeOfDay(this.hours);
 
     const start = (!def && map.startPositions[this.local.id]) || map.startPositions[0]; // MP: each player starts over their own base, not player 0's
-    this.gfx.cam.jumpTo(start.x, start.y + 1);
+    const sv = map.startFocus ? startView(map, innerWidth, innerHeight) : null; // (a region battlefield frames its landmark on this viewport, render only: MAPS)
+    this.gfx.cam.jumpTo(sv?.x ?? start.x, sv?.y ?? start.y + 1);
     if (!setup.demo) {
       // cinematic drop-in from high altitude
       this.gfx.cam.dist = 48;
-      this.gfx.cam.targetDist = 20;
+      this.gfx.cam.targetDist = sv?.dist ?? 20; // (a region battlefield may settle wider to frame its landmark: MAPS)
     }
     this.gfx.fog.snap(this.local);
 

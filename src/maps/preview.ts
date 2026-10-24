@@ -9,6 +9,7 @@ const PALETTES: Record<GameMap['climate'], Record<number, RGB> & { tree: RGB }> 
   temperate: { [T.Clear]: [74, 104, 54], [T.Water]: [22, 62, 92], [T.Rock]: [112, 108, 100], [T.Sand]: [170, 150, 106], [T.Dirt]: [108, 88, 60], tree: [34, 66, 32] },
   winter: { [T.Clear]: [206, 214, 224], [T.Water]: [118, 150, 176], [T.Rock]: [110, 114, 122], [T.Sand]: [172, 172, 176], [T.Dirt]: [138, 134, 132], tree: [62, 88, 80] },
   desert: { [T.Clear]: [190, 152, 98], [T.Water]: [40, 96, 108], [T.Rock]: [142, 96, 70], [T.Sand]: [218, 186, 132], [T.Dirt]: [160, 112, 74], tree: [96, 98, 52] },
+  tropical: { [T.Clear]: [52, 96, 36], [T.Water]: [30, 84, 86], [T.Rock]: [92, 96, 82], [T.Sand]: [196, 178, 128], [T.Dirt]: [128, 72, 44], tree: [22, 62, 24] },
 };
 
 export const START_COLORS = ['#3d7be0', '#d23a2c', '#e0b030', '#3fa34d', '#e07b2a', '#8e4fd0'];

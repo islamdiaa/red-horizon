@@ -23,6 +23,7 @@ import { applyVisualScale, patchModelRim } from './scale'; // render-only unit s
 import { InfantryCrowd, setInfantryCrowd } from './models/infantry-hd'; // instanced HD infantry
 import { breakUpgradeModules, tickUpgradeModules, updateCommanderView } from './models/upgrade-modules'; // Commander structures
 import { paletteVersion, ringColors, setPaletteLocal, teamColor as paletteColor } from '../ui/a11y'; // team colour palettes (display only)
+import { attachScenery, sceneryLit, sceneryType, sceneryWait, type SceneryLayerHandle } from './scenery'; // World Conquest landmarks, civilian buildings
 
 type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -213,7 +214,11 @@ export class EntityRenderer {
     this.destruction = new Destruction(scene, effects, world.map);
     this.crowd = new InfantryCrowd(scene); // HD infantry: one instanced draw per soldier template
     setInfantryCrowd(this.crowd);
+    this.scenery = attachScenery(scene, world.map); // World Conquest: the map's landmarks, civilian buildings merged per chunk
   }
+
+  /** World Conquest scenery of this map (scenery.ts). */
+  private scenery: SceneryLayerHandle | null;
 
   private warm = new THREE.Group();
 
@@ -250,7 +255,7 @@ export class EntityRenderer {
   }
 
   private createView(e: Entity): View {
-    const seenAs = e instanceof Unit ? perceived(this.world, this.local, e) : { type: e.type.id, owner: e.owner };
+    const seenAs = e instanceof Unit ? perceived(this.world, this.local, e) : { type: sceneryType(e) ?? e.type.id, owner: e.owner }; // (civilian buildings: their look's template)
     // lazy loading: the first instance of a type starts its HD load and renders procedural meanwhile
     const hdWait = !(e instanceof Building && e.bt.wall) && requestHdModel(seenAs.type, seenAs.owner.faction) === 'pending';
     const model: ModelInstance = e instanceof Building && e.bt.wall
@@ -279,7 +284,7 @@ export class EntityRenderer {
     };
     const v: View = {
       ent: e, model, anim, dead: false, deathT: 0, deathHow: 'normal', smoke: null, fire: null, chimneys: [],
-      dustT: 0, fade: 0, lastBuildAnim: 0, baseScale: 1, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), holo: null, holoRing: null,
+      dustT: 0, fade: 0, lastBuildAnim: e instanceof Building && e.scenery ? 1 : 0 /* civilian buildings: no construction burst */, baseScale: 1, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), holo: null, holoRing: null,
       // structures present when the battle (or a save) starts count as known wherever the map is already explored;
       // anything built later inside the fog stays hidden until scouted
       seen: false, fogged: false, ghostDead: false, wasExplored: this.primed && e instanceof Building && this.buildingExplored(e),
@@ -496,9 +501,9 @@ export class EntityRenderer {
       }
       case 'placed': {
         const e = this.world.getEntity(ev.id);
-        if (e instanceof Building) {
+        if (e instanceof Building && !sceneryWait(e)) { // (civilian buildings: once their models have loaded)
           const v = this.views.get(e.id) ?? this.createView(e);
-          v.lastBuildAnim = 0;
+          v.lastBuildAnim = e.scenery ? 1 : 0;
         }
         break;
       }
@@ -648,7 +653,7 @@ export class EntityRenderer {
     }
     // create views for new entities
     for (const u of world.units) if (!this.views.has(u.id)) this.createView(u);
-    for (const b of world.buildings) if (!this.views.has(b.id)) this.createView(b);
+    for (const b of world.buildings) if (!this.views.has(b.id) && !sceneryWait(b)) this.createView(b); // (scenery: once loaded)
     if (this.hdWaiting.size) this.hdSwaps();
 
     // values() rather than entries(): no [id, view] pair allocated per view per frame
@@ -713,6 +718,7 @@ export class EntityRenderer {
       this.updateRing(v, selected.has(id) || hovered === id, selected.has(id));
     }
 
+    this.scenery?.update((this.scene.userData.night as number | undefined) ?? 0, this.views.values()); // landmarks lit, civilian chunks
     this.updateProjectiles(alpha);
     this.destruction.update(dt, time);
     tickUpgradeModules(time, dt); // module build-in animations, module debris
@@ -825,6 +831,7 @@ export class EntityRenderer {
 
     anim.powered = !b.owner.lowPower || b.bt.power > 0;
     if (b.bt.requiresPower) anim.powered = b.powered;
+    if (b.scenery) anim.powered = sceneryLit(b, (this.scene.userData.night as number | undefined) ?? 0); // civilian windows: lit at night
     anim.door = b.door;
     anim.load = b.load;
     anim.harvesting = b.load > 0.5;
@@ -1110,6 +1117,7 @@ export class EntityRenderer {
   }
 
   dispose() {
+    this.scenery?.dispose();
     this.destruction.dispose();
     this.crowd.dispose();
     this.warm.removeFromParent();

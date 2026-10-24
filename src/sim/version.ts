@@ -51,8 +51,14 @@
  *     Hard/Brutal camp Tesla Coil, soviet-01 Brutal uplink, wolfpack Brutal subs and convoy speed, Conquest Easy bases
  *     and capital, capture-target locks, water structures placed clear of units, the Easy harbour before the fleet,
  *     Boot Camp beacons revealed, engineers count as structure breakers in the no-base lose rules.
+ *  8. Round 6, World Conquest: region battlefields (src/sim/mapgen-region.ts) with landmarks as rock cells
+ *     (landmarks.ts), civilian buildings (civilian.ts, building types cv11-cv32), the ground round a landmark explored
+ *     for every player and a cleared objective zone for hold battles (region-scenery.ts). World battles
+ *     (BattleSpec.world, src/conquest/world) land extra tanks for a troop advantage and regulars that fill the core to
+ *     five, and Recruit/Easy hold and naval battles are eased. All of it acts only on region maps and world battles:
+ *     skirmish, campaign and Europe Conquest play as in version 7.
  */
-export const SIM_VERSION = 7;
+export const SIM_VERSION = 8;
 
 /** The version of records made before the stamp existed. */
 export const LEGACY_SIM_VERSION = 1;

@@ -49,7 +49,7 @@ export class LightPools {
     if (dyn && dyn.cap >= 100) {
       this.mesh.count = 0;
       for (const b of w.buildings) {
-        if (!b.alive || b.buildAnim < 1 || !this.ents.isShown(b.id)) continue;
+        if (!b.alive || b.buildAnim < 1 || !this.ents.isShown(b.id) || b.scenery) continue; // (civilian buildings: lit windows, no floodlight)
         const on = !b.owner.lowPower || b.bt.power > 0;
         const flicker = on ? 1 : 0.25 + 0.15 * Math.sin(time * 9 + b.id);
         const r = Math.max(b.w, b.h) * 1.15 + 2.4;
@@ -83,7 +83,7 @@ export class LightPools {
       n++;
     };
     for (const b of w.buildings) {
-      if (!b.alive || b.buildAnim < 1 || !this.ents.isShown(b.id)) continue;
+      if (!b.alive || b.buildAnim < 1 || !this.ents.isShown(b.id) || b.scenery) continue; // (civilian buildings: no light pool)
       const on = !b.owner.lowPower || b.bt.power > 0;
       const flicker = on ? 1 : 0.25 + 0.15 * Math.sin(time * 9 + b.id);
       const s = Math.max(b.w, b.h) * 1.7 + 0.5;

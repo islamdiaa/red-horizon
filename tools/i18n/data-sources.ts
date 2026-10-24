@@ -27,6 +27,7 @@ import { MODES } from '../../src/net/settings';
 import { BUILTINS } from '../../src/modes/builtins';
 import * as CQ from '../../src/conquest/data';
 import { REGIONS } from '../../src/conquest/geo';
+import { LANDMARK_INFO, WORLD_HOMELANDS, WORLD_REGIONS, WORLD_ZONES } from '../../src/conquest/world/regions';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -86,6 +87,12 @@ export const DATA_SOURCES: DataSource[] = [
   { table: 'conquestTitle', rows: byId(CQ.TITLES), fields: ['name', 'desc'] },
   // Conquest's regions of 1953 Europe (a run's territories keep the region's id and English name)
   { table: 'conquestRegion', rows: byId(REGIONS), fields: ['name'] },
+  // World Conquest (src/conquest/world/regions.ts, shown through src/conquest/world/names.ts): regions, bonus zones,
+  // homelands and landmarks
+  { table: 'worldRegion', rows: byId(WORLD_REGIONS), fields: ['name'] },
+  { table: 'worldZone', rows: byId(WORLD_ZONES), fields: ['name'] },
+  { table: 'worldHomeland', rows: byId(WORLD_HOMELANDS), fields: ['name', 'blurb'] },
+  { table: 'worldLandmark', rows: entries(LANDMARK_INFO), fields: ['name', 'blurb'] },
   // the example mods the Mods screen offers (public/mods; src/mods/ui.ts shows the translation while a mod's text is
   // still the bundled English)
   { table: 'modExample', rows: exampleMods, fields: ['name', 'description'] },

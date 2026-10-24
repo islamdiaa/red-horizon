@@ -162,6 +162,11 @@ export function fractureOf(typeId: string, footprint: [number, number]): Fractur
   return data;
 }
 
+/** Forget the baked fractures whose type key starts with `prefix` (World Conquest civilian buildings: per battle). */
+export function forgetFractures(prefix: string): void {
+  for (const k of [...fractures.keys()]) if (k.startsWith(prefix)) fractures.delete(k);
+}
+
 const idle: (cb: () => void) => void =
   typeof requestIdleCallback === 'function' ? (cb) => requestIdleCallback(() => cb(), { timeout: 4000 }) : (cb) => setTimeout(cb, 200);
 

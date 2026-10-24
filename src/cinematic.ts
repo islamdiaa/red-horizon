@@ -1,3 +1,4 @@
+import { startView } from './maps/start-view'; // (MAPS)
 import type { Game } from './game';
 import { esc } from './ui/dom';
 import tCine, { CINE_NAMES } from './i18n/en/cinematic';
@@ -94,6 +95,7 @@ export function playIntro(game: Game, onDone: () => void) {
   const cam = game.gfx.cam;
   const start = game.world.map.startPositions[0];
   const map = game.world.map;
+  const focus = startView(map, innerWidth, innerHeight); // (a World Conquest battlefield frames its landmark on this viewport; elsewhere the start at 20: MAPS)
   const oldMax = cam.maxDist;
   cam.maxDist = 75;
   cam.jumpTo(map.w / 2 + (start.x - map.w / 2) * 0.35, map.h / 2 + (start.y - map.h / 2) * 0.35);
@@ -115,8 +117,8 @@ export function playIntro(game: Game, onDone: () => void) {
     window.removeEventListener('pointerdown', skip, true);
     cam.maxDist = oldMax;
     cam.targetYaw = 0;
-    cam.targetDist = 20;
-    if (skipped) cam.flyToPoint(start.x, start.y + 1, 0.6);
+    cam.targetDist = focus.dist;
+    if (skipped) cam.flyToPoint(focus.x, focus.y, 0.6);
     timers.push(window.setTimeout(() => { cam.zoomDamp = 0.0001; cam.yawDamp = 0.001; }, 1500));
     body.classList.remove('cine-on');
     body.classList.remove('cine-active');
@@ -152,8 +154,8 @@ export function playIntro(game: Game, onDone: () => void) {
     cam.zoomDamp = 0.25;
     cam.yawDamp = 0.3;
     cam.targetYaw = 0;
-    cam.flyToPoint(start.x, start.y + 1, 4.2);
-    cam.targetDist = 22;
+    cam.flyToPoint(focus.x, focus.y, 4.2);
+    cam.targetDist = Math.max(22, focus.dist + 2);
     // lens: shallow focus on the base below, motion blur through the dive
     lensTo(game.gfx, 0.55, 0.7, 1.0);
   }, 600));

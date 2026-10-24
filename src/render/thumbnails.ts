@@ -36,6 +36,17 @@ function getStage(w: number, h: number): ThumbStage {
   return stage;
 }
 
+/**
+ * World Conquest landmark portraits (src/render/landmarks): the shared stage plus a studio environment for one
+ * batch (call done() afterwards; the environment is baked per batch like renderThumbnails does).
+ */
+export function getThumbStage(w: number, h: number): ThumbStage & { env: THREE.Texture; done: () => void } {
+  const s = getStage(w, h);
+  const pmrem = new THREE.PMREMGenerator(s.renderer);
+  const rt = pmrem.fromScene(new RoomEnvironment(), 0.04);
+  return { ...s, env: rt.texture, done: () => { rt.dispose(); pmrem.dispose(); } };
+}
+
 /** Renders sidebar portraits of the real 3D models (once per type), returning data URLs. */
 export function renderThumbnails(ids: string[], teamColor: number, w = 168, h = 128, faction?: ModelFaction): Map<string, string> {
   const out = new Map<string, string>();

@@ -7,6 +7,7 @@ import { shadowDepthMaterial } from './models/materials';
 import { patchMaterialForWeather, type WeatherSurfaceUniforms } from './weather';
 import { roadsFor } from './roads';
 import type { DynamicLightApi } from './dynlights';
+import { LANDMARK_SETTING, type PlacedLandmark } from '../sim/landmarks';
 
 /**
  * Base dressing: render-only set dressing derived from the map and the structures the local player can
@@ -31,6 +32,8 @@ export interface DressableBuilding {
   readonly cx: number;
   readonly cy: number;
   readonly owner: { readonly id: number; readonly faction: string };
+  /** World Conquest civilian buildings (sim/civilian.ts): a town's building, not a base: no dressing. */
+  readonly scenery?: unknown;
 }
 
 /** The terrain surface the dressing writes into (TerrainMesh). */
@@ -262,6 +265,46 @@ export class BaseDressing {
     mat.customProgramCacheKey = () => 'rh-props';
     if (opts.weather) patchMaterialForWeather(mat, opts.weather);
     this.material = mat;
+    // World Conquest landmarks (MAPS): the ground round them is part of the place (a paved square, a worn path)
+    if (map.landmarks.length) {
+      const clip = { i0: 0, i1: this.W - 1, j0: 0, j1: this.H - 1 };
+      for (const l of map.landmarks) this.stampLandmark(l, clip);
+      this.terrain.markBase(0, this.H - 1);
+    }
+  }
+
+  /**
+   * The ground of a landmark's setting in the base mask: paving under and round a square's monument, trampled
+   * earth round a monument in open country (bridges, peaks, cliffs and shore works keep their own ground).
+   */
+  private stampLandmark(l: PlacedLandmark, c: { i0: number; i1: number; j0: number; j1: number }) {
+    const set = LANDMARK_SETTING[l.id];
+    if (set !== 'plaza' && set !== 'open') return;
+    const R = BASE_RES, D = this.terrain.baseData, W = this.W, m = this.map;
+    const apron = set === 'plaza' ? 1.6 : 0, worn = set === 'plaza' ? 2.6 : 2.2;
+    const fx0 = l.cx, fy0 = l.cy, fx1 = l.cx + l.w, fy1 = l.cy + l.h;
+    const i0 = Math.max(c.i0, Math.floor((fx0 - worn - 1) * R)), i1 = Math.min(c.i1, Math.ceil((fx1 + worn + 1) * R));
+    const j0 = Math.max(c.j0, Math.floor((fy0 - worn - 1) * R)), j1 = Math.min(c.j1, Math.ceil((fy1 + worn + 1) * R));
+    for (let j = j0; j <= j1; j++) {
+      const py = (j + 0.5) / R;
+      for (let i = i0; i <= i1; i++) {
+        const px = (i + 0.5) / R;
+        const cell = m.idx(Math.min(m.w - 1, px | 0), Math.min(m.h - 1, py | 0));
+        if (m.terrain[cell] === T.Water) continue;
+        const o = (j * W + i) * 4;
+        const ddx = Math.max(fx0 - px, 0, px - fx1), ddy = Math.max(fy0 - py, 0, py - fy1);
+        const d = Math.sqrt(ddx * ddx + ddy * ddy);
+        const wv = Math.max(0, 1 - d / worn);
+        const wr = Math.round(255 * Math.min(1, wv * wv * (3 - 2 * wv)));
+        if (wr > D[o]) D[o] = wr;
+        if (apron > 0) {
+          // paving: 0.5 at the square's edge (the shader's threshold), solid inside
+          const g = d < apron ? 1 : Math.max(0, 0.5 - (d - apron) * 2.2);
+          const gv = Math.round(255 * g);
+          if (gv > D[o + 1]) D[o + 1] = gv;
+        }
+      }
+    }
   }
 
   /**
@@ -281,7 +324,7 @@ export class BaseDressing {
     let added: Site[] | null = null;
     for (const b of buildings) {
       const bt = b.bt;
-      if (bt.wall || bt.mine || bt.water) continue;
+      if (bt.wall || bt.mine || bt.water || b.scenery) continue; // (civilian buildings stand in streets, not on aprons)
       if (shown && !shown(b.id)) continue;
       seen.add(b.id);
       if (!this.sites.has(b.id)) {
@@ -339,6 +382,7 @@ export class BaseDressing {
     const touches = (s: Site, pad: number) => s.cx + s.w + pad > x0 && s.cx - pad < x1 && s.cy + s.h + pad > y0 && s.cy - pad < y1;
     const hide: number[] = [];
     for (const s of sites) if (touches(s, 4)) this.stampSite(s, clip, hide);
+    for (const l of m.landmarks) if (l.cx + l.w + 4 > x0 && l.cx - 4 < x1 && l.cy + l.h + 4 > y0 && l.cy - 4 < y1) this.stampLandmark(l, clip);
     for (const [a, b] of this.paths(sites)) {
       if (Math.max(a.x, b.x) + 2 < x0 || Math.min(a.x, b.x) - 2 > x1 || Math.max(a.y, b.y) + 2 < y0 || Math.min(a.y, b.y) - 2 > y1) continue;
       this.stampPath(a.x, a.y, b.x, b.y, a.seed + b.seed, clip, hide);

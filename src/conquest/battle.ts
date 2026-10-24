@@ -19,6 +19,7 @@ import type { Climate, Terrain } from './geo';
 import { ENEMY_POOLS, PERSONALITIES, type Difficulty, type PersonalityId } from './data';
 import { BATTLE as T, BATTLE_LOCAL as TL } from '../i18n/en/conquest-battle'; // the English these battles emit
 import { fill as en } from './text';
+import type { Culture, LandmarkId, MapFeature, WorldClimate } from './world/types';
 
 export type BattleKind = 'assault' | 'capture' | 'hold' | 'defend' | 'naval' | 'boss';
 export const BATTLE_KINDS: BattleKind[] = ['assault', 'capture', 'hold', 'defend', 'naval', 'boss'];
@@ -102,6 +103,31 @@ export interface BattleSpec {
   parTime: number;
   /** The run's difficulty (absent in battles planned before it was recorded: Normal). */
   difficulty?: Difficulty;
+  /** A World Conquest battle (src/conquest/world/resolve.ts): the attack or defence it decides. Absent in Europe. */
+  world?: WorldBattleInfo;
+}
+
+/** What a World Conquest battle decides: the territories, the troops in it on each side, the region's look. */
+export interface WorldBattleInfo {
+  run: string;
+  from: string;
+  to: string;
+  action: 'attack' | 'defend';
+  /** Battlefield kind (src/sim/mapgen-region.ts). */
+  kind: 'attack' | 'defend' | 'hold' | 'naval' | 'boss';
+  attackers: number;
+  defenders: number;
+  /** Power ids (0 = the human, -1 = neutral). */
+  attacker: number;
+  defender: number;
+  climate: WorldClimate;
+  culture: Culture;
+  features: MapFeature[];
+  landmark?: LandmarkId;
+  /** Extra main battle tanks in the human's force for a troop advantage (or extra defences in a defence). */
+  extraTanks: number;
+  /** Regulars (rank 0) that make the core army up to five units while it is small (unit type ids). */
+  regulars?: string[];
 }
 
 /** What GameSetup.conquest carries (src/game.ts). */
@@ -270,7 +296,7 @@ function topUpPower(m: MissionRuntime, p: number, anchor: { x: number; y: number
   for (let k = 0; k < 4 && pl.powerUse > pl.powerOut; k++) layout(m, p, anchor, facing, [[k % 2 ? 'apwr' : 'powr', -6 - k, k % 2 ? 7 : -7]]);
 }
 
-interface BaseOpts { capture?: boolean; superweapon?: 'nuke' | 'iron' | 'chrono' | null; sea?: boolean; /** At most this many defences. */ maxDefences?: number }
+interface BaseOpts { capture?: boolean; superweapon?: 'nuke' | 'iron' | 'chrono' | null; sea?: boolean; /** At most this many defences. */ maxDefences?: number; /** Fewer warships at the yard. */ lightFleet?: boolean }
 
 /** A pre-built enemy base sized by garrison strength and shaped by the commander's personality. */
 function enemyBase(m: MissionRuntime, p: number, anchor: { x: number; y: number }, facing: { x: number; y: number }, str: number, pers: PersonalityId, opts: BaseOpts) {
@@ -338,7 +364,7 @@ function enemyBase(m: MissionRuntime, p: number, anchor: { x: number; y: number 
     const bay = m.toward(anchor, { x: m.mapW / 2, y: m.mapH / 2 }, 12);
     const yard = placeOnWater(m, p, B(f, 'syrd', 'spen'), bay[0], bay[1]);
     if (yard) m.flags.yards = [...(m.flags.yards ?? []), yard.id];
-    const ships = Math.min(6, 1 + Math.ceil(str * 0.8));
+    const ships = Math.max(1, Math.min(6, 1 + Math.ceil(str * 0.8)) - (opts.lightFleet ? 3 : 0));
     for (let k = 0; k < ships; k++) {
       const t = m.world.rng.pick(ENEMY_POOLS[f].navy);
       const spot = waterSpot(m, bay[0], bay[1], 12);
@@ -371,7 +397,12 @@ function landingForce(m: MissionRuntime, S: BattleSpec) {
   // (an Easy run's attacks land two more main battle tanks: the newcomer stand-in's mostly infantry landing went
   // into the guns and never got back on its feet)
   const easyTanks = S.difficulty === 'easy' && (S.kind === 'assault' || S.kind === 'capture' || S.kind === 'boss') ? 2 : 0;
-  for (let k = 0; k < S.mods.tanks + easyTanks; k++) kit.push(mainTank(f));
+  // (a World Conquest battle: the troop advantage lands as extra tanks)
+  const worldTanks = S.world ? Math.max(0, Math.min(4, S.world.extraTanks)) : 0;
+  for (let k = 0; k < S.mods.tanks + easyTanks + worldTanks; k++) kit.push(mainTank(f));
+  // (a World Conquest army without five core veterans lands regulars in their place: the old Conquest curve was
+  // measured with a five-veteran core, and without one the newcomer stand-in lost Easy battles it won before)
+  if (S.world?.regulars) kit.push(...S.world.regulars.slice(0, 5));
   for (let k = 0; k < S.mods.engineers; k++) kit.push('e6');
   if (S.kind === 'capture') kit.push('e6', 'e6');
   if (S.mods.commandos) kit.push(...(f === 'allies' ? ['e7'] : ['e4', 'e4', 'e4', 'dog', 'dog']));
@@ -393,10 +424,11 @@ function landingForce(m: MissionRuntime, S: BattleSpec) {
     const yard = placeOnWater(m, 0, f === 'allies' ? 'syrd' : 'spen', wx, wy);
     if (yard) (m.flags.navyPaid as number[]).push(yard.id);
   }
-  // naval escorts (on sea maps only)
-  if (isSeaBattle(S) && S.mods.escorts > 0) {
+  // naval escorts (on sea maps only; a World Conquest naval battle on Recruit or Easy brings one more)
+  const escorts = S.mods.escorts + (S.world && S.kind === 'naval' && S.difficulty === 'easy' ? 1 : 0);
+  if (isSeaBattle(S) && escorts > 0) {
     const bay = m.toward(s, { x: m.mapW / 2, y: m.mapH / 2 }, 12);
-    for (let k = 0; k < S.mods.escorts; k++) {
+    for (let k = 0; k < escorts; k++) {
       const t = f === 'allies' ? (k % 2 ? 'dd' : 'pt') : 'ss';
       const spot = waterSpot(m, bay[0], bay[1]);
       if (!spot) break;
@@ -453,14 +485,19 @@ function setupBattle(m: MissionRuntime, S: BattleSpec) {
   enemyBase(m, 1, e, s, easyCapital ? Math.min(3, S.strength) : S.strength, S.personality, {
     capture: S.kind === 'capture', superweapon: S.kind === 'boss' ? (easyCapital ? null : S.superweapon ?? (S.enemy === 'soviet' ? 'iron' : 'chrono')) : S.superweapon,
     sea: sea && (S.kind === 'naval' || S.personality === 'naval'), maxDefences: easyCapital ? 3 : easy && (S.kind === 'assault' || S.kind === 'capture') ? 2 : undefined,
+    // (a World Conquest run on Recruit or Easy: three warships fewer at the yard, see waves() and the escorts for the rest)
+    lightFleet: !!S.world && easy && S.kind === 'naval',
   });
   if (S.kind === 'boss') enemyBase(m, 2, m.start(2), s, easy ? 2 : Math.max(3, S.strength - 1), 'steamroller', easy ? { maxDefences: 1 } : {});
   if (S.kind === 'hold') {
     const [zx, zy] = ground(m, ...m.between(s, e, 0.52), 10);
     m.flags.zone = [zx, zy];
     const f = S.enemy;
-    layout(m, 1, { x: zx, y: zy }, s, [[DEFENCES[f][0], 2.5, 2.5], [DEFENCES[f][0], 2.5, -2.5]]);
-    const g = armyMix(m, f, S.personality, 300 + 250 * S.strength, 8);
+    // (a World Conquest run on Recruit or Easy: one gun on the zone and a lighter guard: a guard that sits on the zone
+    // held off the newcomer stand-in in a third of these battles, tools/world/qa-battles.ts)
+    const lightHold = !!S.world && easy;
+    layout(m, 1, { x: zx, y: zy }, s, lightHold ? [[DEFENCES[f][0], 2.5, 0]] : [[DEFENCES[f][0], 2.5, 2.5], [DEFENCES[f][0], 2.5, -2.5]]);
+    const g = armyMix(m, f, S.personality, (300 + 250 * S.strength) * (lightHold ? 0.6 : 1), 8);
     for (const t of g) if (UNITS[t]?.kind !== 'aircraft') m.spawnUnit(1, t, zx, zy);
   }
   // ---- our forces
@@ -601,7 +638,9 @@ function waves(m: MissionRuntime, S: BattleSpec) {
       start = 330 - 20 * str; every = 170 - 10 * str; budget = 400 + 250 * str + 120 * m.flags.wave; break;
     case 'hold': start = 110; every = 80; budget = 300 + 200 * str + 90 * m.flags.wave; break;
     case 'defend': start = 40; every = 72 - 3 * str; budget = 450 + 260 * str + 170 * m.flags.wave; break;
-    case 'naval': start = 200; every = 150; budget = 600 + 300 * str; break;
+    // (a World Conquest run on Recruit or Easy: later, sparser, smaller naval waves: the newcomer stand-in won 16 of 24
+    // and the casual 13 of 24 world naval battles at Easy with the full ones, tools/world/qa-battles.ts)
+    case 'naval': if (S.world && S.difficulty === 'easy') { start = 420; every = 220; budget = 240 + 150 * str; } else { start = 200; every = 150; budget = 600 + 300 * str; } break;
     // (an Easy run's capital: later, sparser, smaller waves; the full ones flattened the landing before it had a factory)
     case 'boss': if (S.difficulty === 'easy') { start = 360; every = 180; budget = 700 + 200 * m.flags.wave; } else { start = 150; every = 100; budget = 1100 + 280 * m.flags.wave; } break;
   }
@@ -648,7 +687,7 @@ function waves(m: MissionRuntime, S: BattleSpec) {
     const yard = (m.flags.yards ?? []).map((id: number) => m.world.getEntity(id)).find((b: Building | undefined) => b?.alive) as Building | undefined;
     if (yard) {
       const ships: Unit[] = [];
-      for (let k = 0; k < 1 + Math.floor(str / 3); k++) {
+      for (let k = 0; k < 1 + Math.floor(str / 3) - (S.world && S.difficulty === 'easy' ? 1 : 0); k++) {
         const spot = waterSpot(m, yard.x, yard.y, 8);
         if (spot) ships.push(m.world.addUnit(m.world.rng.pick(ENEMY_POOLS[S.enemy].navy), m.player(1), spot[0], spot[1]));
       }

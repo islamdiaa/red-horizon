@@ -1144,6 +1144,14 @@ body.ui-scale-up .main-screen .mm-panel { position: sticky; top: 1rem; max-heigh
   .main-screen .mm-layout { align-items: flex-start; padding-top: 1rem; padding-bottom: 1rem; }
   .main-screen .mm-panel { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
 }
+/* (and the side-by-side layout from 601 px tall: with the World Conquest entry the left column ran 5-12 px past the
+   bottom in the longer languages, 1280x720 and 1920x1080 alike since it scales with the height: tighter spacing
+   around the title and the footer. The stacked layout below 900 px and short landscape screens are unchanged) */
+@media (min-width: 901px) and (min-height: 601px) and (min-aspect-ratio: 1/1) {
+  .main-screen .mm-kicker { margin-bottom: 0.6rem; }
+  .main-screen .mm-horizon { margin: 0.8rem 0 0.7rem; }
+  .main-screen .mm-foot { margin-top: 0.9rem; }
+}
 /* (and narrow landscape windows, 800x600: the two columns need ~880 px at the smallest text size; side by side the
    title and the navigation were cut at the left edge and the setup panel at the right) */
 @media (max-aspect-ratio: 1/1), (max-width: 900px) {

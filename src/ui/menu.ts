@@ -43,6 +43,7 @@ import tCommon from '../i18n/en/common';
 import tMenu from '../i18n/en/menu';
 import tSettings from '../i18n/en/settings';
 import type { VoiceLanguage } from '../audio/speech';
+import { worldIcon } from './world/entry'; // World Conquest's menu entry (the mode itself loads on demand)
 
 export { loadSettings, saveSettings, type Settings };
 
@@ -272,6 +273,9 @@ export interface MenuCallbacks {
   /** Open the Conquest roguelite campaign; conquestInfo labels a campaign in progress (e.g. "Turn 5"). */
   openConquest?(): void;
   conquestInfo?(): string | null;
+  /** World Conquest (src/ui/world, its own chunk); worldInfo labels a run in progress (e.g. "Turn 5"). */
+  openWorld?(): void;
+  worldInfo?(): string | null;
   /** Most recent saved game, if any. */
   continueInfo?(): { label: string; savedAt: number } | null;
   continueGame?(): void;
@@ -444,6 +448,8 @@ export class Menus {
     if (this.cb.openBootCamp && !bootDone) navItem('00', `${T('main.nav.bootCamp')}${pill(tMenu('main.nav.startHere'), ' rh-new-pill')}`, ICONS.bulb, () => { this.hide(); this.cb.openBootCamp!(); });
     navId = 'quick';
     navItem('»', `${T('main.nav.quickBattle')}${pill(tMenu('main.nav.oneClick'))}`, ICONS.dice, () => this.quickBattle()); // one click into a rolled skirmish
+    navId = 'world'; // World Conquest, the headline mode: its entry looks like the mode (src/ui/world/entry.ts)
+    if (this.cb.openWorld) { const wi = this.cb.worldInfo?.(); navItem('◆', `${T('main.nav.world')}${pill(wi ?? tMenu('main.nav.worldNew'))}`, worldIcon(), () => { this.hide(); this.cb.openWorld!(); }); nav.lastElementChild?.classList.add('mm-world'); }
     navId = 'campaign';
     if (this.cb.openCampaign) navItem('01', T('main.nav.campaign'), ICONS.flag, () => { this.hide(); this.cb.openCampaign!(); });
     navId = 'conquest';

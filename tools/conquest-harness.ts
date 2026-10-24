@@ -11,6 +11,7 @@ import { TICK_HZ } from '../src/sim/types';
 import { UNITS } from '../src/data/rules';
 import type { Building, Entity, Unit } from '../src/sim/entities';
 import { loadCuratedMap } from '../src/maps';
+import { regionMapFor } from '../src/sim/mapgen-region';
 import { battleOutcome, conquestMission, isSeaBattle, type BattleMap, type BattleOutcome, type ConquestSetup } from '../src/conquest/battle';
 import { skillPilot, type Skill } from './campaign-players';
 
@@ -20,7 +21,7 @@ const TEAM_COLORS = [0x3d7be0, 0xd23a2c, 0xe0b030, 0x3fa34d];
 export function createConquestWorld(setup: ConquestSetup, forLoad = false) {
   const def = conquestMission(setup);
   const mp = def.map as BattleMap;
-  const curated = mp.mapId ? loadCuratedMap(mp.mapId) : null;
+  const curated = mp.mapId ? loadCuratedMap(mp.mapId) : regionMapFor(mp); // (World Conquest: the region battlefield, as game.ts)
   const climate = curated?.climate ?? mp.climate ?? 'temperate';
   const water = mp.water ?? 0.5, trees = mp.trees ?? 0.5;
   const map = curated ?? generateMap({

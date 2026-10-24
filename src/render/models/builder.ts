@@ -701,6 +701,11 @@ export function setModelDetail(level: 0 | 1 | 2): void {
   setBodyDetail(level);
 }
 
+/** The model detail level set by the quality preset (World Conquest scenery picks its 'low' / 'high' models by it). */
+export function getModelDetail(): 0 | 1 | 2 {
+  return modelDetail;
+}
+
 /** Camera distance at which models switch to their distant body for the current detail level. */
 export function lodDistance(): number {
   return modelDetail >= 2 ? LOD_DISTANCE_HIGH : LOD_DISTANCE;

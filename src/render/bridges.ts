@@ -32,7 +32,7 @@ export interface BridgeState {
   alive: boolean;
 }
 
-export type BridgeClimate = 'temperate' | 'winter' | 'desert';
+export type BridgeClimate = 'temperate' | 'winter' | 'desert' | 'tropical'; // ('tropical': World Conquest, MAPS)
 
 interface Style {
   stone: Mat;
@@ -52,6 +52,13 @@ const STYLES: Record<BridgeClimate, Style> = {
     stone: { c: 0xc2a67a, m: 0, r: 0.92, d: 1 },
     stoneDark: { c: 0x8e7656, m: 0, r: 0.94, d: 1 },
     road: { c: 0x9a8462, m: 0, r: 0.9, d: 1, uv: 5 },
+    truss: false,
+  },
+  // World Conquest (MAPS): weathered, mossy stone and a laterite road
+  tropical: {
+    stone: { c: 0x8f9584, m: 0, r: 0.92, d: 1 },
+    stoneDark: { c: 0x5b6052, m: 0, r: 0.94, d: 1 },
+    road: { c: 0x74584a, m: 0, r: 0.9, d: 1, uv: 5 },
     truss: false,
   },
   winter: {

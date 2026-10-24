@@ -115,7 +115,17 @@ function splitKey(id: string): [string, ModelFaction | undefined] {
   return i < 0 ? [id, undefined] : [id.slice(0, i), id.slice(i + 1) === 'allies' ? 'allies' : 'soviet'];
 }
 
+/**
+ * World Conquest scenery (src/render/scenery.ts): templates of civilian buildings, keyed 'civ:...', come from a lazily
+ * loaded chunk that registers its builder here; it caches them itself (so a long campaign doesn't keep every style).
+ */
+let extraTemplates: ((typeId: string) => ModelTemplate | null) | null = null;
+export function setExtraTemplateBuilder(fn: ((typeId: string) => ModelTemplate | null) | null): void {
+  extraTemplates = fn;
+}
+
 function getTemplate(typeId: string, fac: ModelFaction = 'soviet'): ModelTemplate {
+  if (extraTemplates && typeId.startsWith('civ:')) { const x = extraTemplates(typeId); if (x) return x; } // World Conquest scenery
   if (typeId.includes('|')) {
     const [t, f] = splitKey(typeId);
     typeId = t;

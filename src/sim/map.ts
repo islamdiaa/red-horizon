@@ -1,3 +1,5 @@
+import type { PlacedLandmark } from './landmarks'; // World Conquest (MAPS)
+import type { CivilianSite } from './civilian';
 /** Terrain types per cell. */
 export const T = {
   Clear: 0,
@@ -50,11 +52,21 @@ export class GameMap {
   oreDirty = new Set<number>();
   seed = 0;
   /** Visual climate (affects rendering only). */
-  climate: 'temperate' | 'winter' | 'desert' = 'temperate';
+  climate: 'temperate' | 'winter' | 'desert' | 'tropical' = 'temperate'; // ('tropical': World Conquest region battlefields, MAPS)
   /** Bridges laid over water by the map (cells under an intact bridge are passable to ground units). */
   bridges: MapBridge[] = [];
   /** Per cell: id (1-based, World.bridges) of the intact bridge spanning it, 0 = none / destroyed (bridges.ts). */
   readonly bridgeAt: Uint8Array;
+  /**
+   * World Conquest region battlefields (MAPS, src/sim/mapgen-region.ts); empty on every other map. Not saved: the
+   * map is regenerated from the battle spec. Landmarks are static scenery (their land cells are T.Rock, sim/landmarks.ts),
+   * civilian sites are raised as Buildings by the World (sim/civilian.ts), streets are road centre lines (render only).
+   */
+  landmarks: PlacedLandmark[] = [];
+  civilianSites: CivilianSite[] = [];
+  streets: [number, number][][] = [];
+  /** The human's starting camera focus and distance (a region battlefield frames its landmark); null = just south of the start, at 20. */
+  startFocus: { x: number; y: number; dist?: number } | null = null;
 
   constructor(w: number, h: number) {
     this.w = w;

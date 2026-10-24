@@ -39,9 +39,85 @@ How Red Horizon keeps its matches fair, and the numbers it is measured by.
 | One match as the game sets it up, with snapshots of both sides (what the AI spent, fields and builds) | `node --import tsx tools/selfplay/trace.ts --qb 77 --diff recruit --vs newcomer --at 3,7,15` (`--autostart <seed>`, `--vs ai:<level>`) |
 | Why the AI wins or loses (its waves and how they ended, armies against its estimate, Ore Trucks lost, spending) and what is left of a beaten side | `levels.ts ... --probe ai` (and `run.ts ... --probe ai`: why AI-vs-AI games time out) |
 | A beaten player's last units hiding: how long each level takes to find and finish them | `node --import tsx tools/selfplay/endgame.ts --games 16` |
+| World Conquest strategy: pilots per size and level, homeland fairness, the rival powers | `WORKERS=6 node --import tsx tools/world/strat-bench.ts rates --n 200` (`fair --size blitz`, `powers --size world`) |
 
 `MatchSpec.rules` (tools/selfplay/lib.ts) can patch any rule or Commander number for one batch (`patches`, e.g.
 `['POWERS.funds.cooldown', 300]`), so a change can be tried before it is made.
+
+## World Conquest (simulation version 8)
+
+The strategic layer (`src/conquest/world`) is measured headless with `tools/world/strat-bench.ts`: pilot policies play
+the human's side through the public API against the rivals, and the RTS battles they choose to fight are drawn from a
+model of the battle pilots' measured win rates in world battles (`tools/world/strat-lib.ts` `BASE_WIN`, by battle
+difficulty, kind, garrison strength and troop ratio). The pilots:
+
+- **greedy**: takes the weakest target every time, trades cards at once, no zones, no defence;
+- **zone-focused**: greedy's momentum plus completing and breaking zones, not leaving a new conquest open to a big
+  stack, fortifying every turn and hunting eliminations (an ablation from greedy, Blitz Normal, 200 games each: zones
+  +6 points, exposure +5, fortify +5, eliminations +3; reserving troops for borders -5);
+- **cautious**: long odds only, every border defended;
+- **dice**: the zone-focused plan with every attack and defence left to the dice.
+
+Pilots fight a battle themselves only when they expect to win it (70% by the model): a casual player rolls the dice on
+a Normal capital, whose boss battle it wins one time in ten.
+
+### Win rates (200 games per cell, 95% Wilson intervals, casual battle skill)
+
+| size | level | zone-focused | greedy | cautious | dice only |
+|---|---|---|---|---|---|
+| Blitz | Recruit | 100% (98-100) | 100% (98-100) | 89% (84-93) | 99% (96-100) |
+| Blitz | Easy | 100% (98-100) | 99% (96-99) | 64% (57-70) | 63% (56-69) |
+| Blitz | Normal | 49% (42-56) | 42% (35-48) | 23% (18-29) | 28% (23-35) |
+| Blitz | Hard | 29% (23-36) | 24% (18-30) | 17% (12-23) | 23% (18-29) |
+| Blitz | Brutal | 20% (15-26) | 16% (11-21) | 13% (9-18) | 10% (7-15) |
+| World | Recruit | 100% (98-100) | 100% (98-100) | 93% (89-96) | 100% (98-100) |
+| World | Easy | 100% (98-100) | 100% (98-100) | 81% (75-86) | 96% (92-98) |
+| World | Normal | 67% (60-73) | 48% (41-54) | 25% (19-31) | 48% (41-55) |
+| World | Hard | 36% (30-43) | 23% (18-29) | 15% (11-21) | 22% (17-28) |
+| World | Brutal | 27% (21-33) | 11% (7-16) | 13% (9-18) | 9% (5-13) |
+
+A zone-focused player beats a greedy one from Normal up, and fighting the battles you can win beats the dice
+(World Normal 67% against 48%). With the newcomer's battle skill (100 games): Blitz 100/100/53/29/22%, World
+100/100/70/50/29% (the newcomer fights fewer battles and rolls more dice).
+
+### Shape of the games (zone-focused pilot)
+
+- **Turns to win** (median): Blitz 8-14, World 16-20. Armistice endings (the turn limit): 0-1%.
+- **Rivals eliminated per game**: World 5.0 at Recruit to 2.4 at Brutal, Blitz 1.7 to 0.7. At World Normal each
+  personality is eliminated in 84-87% of the games (median turn 11-16); in Blitz the turtle and the holder survive
+  more often (24% eliminated) than the aggressor, the naval power and the opportunist (45-48%).
+- **Snowball**: while you hold a tenth of the map or more, the biggest rival holds a median 17-42% of it (90th
+  percentile 25-71%). **Stall**: the longest stretch of rounds with no conquest is under 5.
+- **No early wipe-outs at the low levels**: eliminated by turn 5 in Blitz, 200 games: Recruit 0 for every pilot,
+  Easy 2 dice-only games and 0 otherwise.
+- **Homelands** (Normal, zone-focused, 20 seeds each): World 30% (Afghanistan) to 95% (Indonesia), median 65%;
+  Blitz 25% (Sweden, Japan) to 90% (Mongolia), median 50%. None never or always won.
+
+### The rules choices behind these numbers
+
+- **Turn 1 is the opening month**: no attacks on other powers, neutrals only. Before it, in Blitz the dice pilot was
+  wiped out in turns 1-5 in 34 of 40 Easy games: Blitz grows from your home zone, so you start in the middle.
+- **Blitz has 3 rivals** (World 5): Risk's own density on about 30 territories.
+- **Starts**: three territories and 16 troops each, topped up so the front stays small, never taking another start's
+  last neutral neighbour; rival capitals at least 3 links from each other and as central as yours; an exposed start
+  (more than 4 foreign neighbours) gets a troop for each extra one, up to 3.
+- **Card sets 4, 5, 6, 8, 10**, capped: a cap of 15 let whoever eliminated a rival snowball on its cards (one rival
+  held 76-99% of the map in the slowest tenth of games).
+- **Rivals' attacks on you per turn** (low levels use less): Recruit none until you attack them (then 1), Easy 1,
+  Normal 2 (+1 once provoked), Hard 5, Brutal unlimited; and per round, all rivals together: 1, 3, 6, 12, unlimited.
+  Without the round cap a homeland next to every rival took every rival's attacks (World Turkey 5%, now 30%+).
+  Brutal rivals get one extra troop a turn (the only bonus, shown in their reinforcements).
+- **Everyone gangs up on a runaway rival**, more the bigger it gets, at every level.
+- **Neutrals have no fleet**: across a sea lane a neutral coast is a landing (a land battle); a rival's coast is a
+  naval battle. Island homelands' first battles were all naval before, the hardest kind for a newcomer.
+
+### World battles against the old Conquest curve
+
+Strength 3 (6 v 4 troops), the region battlefields, `tools/world/qa-battles.ts`: with a five-veteran core (the
+Vanguard default, and regulars standing in when veterans fall) the newcomer wins Easy 85-90%, Normal 27-43%, Hard
+31-39%, the casual Easy 84%, Normal 61-66%, Hard 44-54%. A Recruit or Easy run's hold battles have one gun on the
+zone and a lighter guard (the newcomer 17 of 27 holds before, 27 of 27 after); its naval battles a smaller fleet,
+later and smaller naval waves and an extra escort (the newcomer 16 -> 24 of 24, the casual 13 -> 22 of 24).
 
 ## Ore Trucks and the Classic levels (simulation version 7)
 

@@ -21,7 +21,11 @@ export default strings('menu', {
       // pill next to Quick Battle: one click starts a match
       oneClick: '1 click',
       campaign: 'Campaign',
-      conquest: 'Conquest',
+      // Conquest across Europe (next to World Conquest)
+      conquest: 'Europe Conquest',
+      // the World Conquest mode (Risk-style world campaign) and its pill while no run is in progress
+      world: 'World Conquest',
+      worldNew: 'New',
       skirmish: 'Skirmish',
       multiplayer: 'Multiplayer',
       online: 'Online',

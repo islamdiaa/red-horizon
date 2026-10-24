@@ -10,6 +10,7 @@
 | **Campaigns** | 7 Allied and 7 Soviet missions with briefings, primary and optional objectives, radio transmissions and up to three stars each, on five difficulties (see [Campaign difficulty](#campaign-difficulty)). |
 | **Boot Camp** | An interactive tutorial in nine drills. |
 | **Special operations** | *Wolfpack*, *Iron Coast*, and Survival in three climates, alone or with AI teammates. |
+| **World Conquest** | A Risk-style campaign on a 3D globe: start from any of 44 homelands and conquer the world, attacking with the dice or fighting the decisive battles yourself (see [World Conquest](#world-conquest)). |
 | **Conquest** | A seeded roguelite campaign across Europe. Every territory is a real battle; veterans, research, perks and doctrines carry over between battles. |
 | **Daily Challenge** | One seeded battle per day, with modifiers, a score and a streak. |
 | **Challenges** | Turn any moment of a replay into a "can you win from here?" challenge file. |
@@ -50,6 +51,43 @@
   It hunts down yours the same way: with nothing of yours in sight, its army splits up and searches the map.
 - **AI allies on Recruit and Easy** play your support: they keep their army between your base and theirs, come
   to your base when it is attacked and join your attacks, but don't attack on their own.
+
+## World Conquest
+
+Pick a homeland on the globe (search by name or continent), a doctrine, a size and a difficulty:
+
+- **Blitz:** your continent and its neighbours, about 30 territories, 2–3 hours. You win by holding every rival
+  capital.
+- **World:** about 100 territories, a long campaign. You win by eliminating every rival power.
+- **Ironman:** losing your capital ends the campaign.
+
+Every territory shows its troops. Each turn has three phases:
+
+1. **Reinforce.** You get troops for every three territories you hold (at least 3), plus each bonus zone you hold
+   whole, capitals, wonders and traded card sets. Select a territory, then *Place* or *Place all*.
+2. **Attack.** From a territory with 2 or more troops into a neighbour (sea lanes need a port at one end). The odds
+   panel shows the chance to take it and the expected losses before you commit. Then:
+   - **Roll:** one roll of Risk's dice. You roll up to 3, the defender up to 2; the highest dice are compared pair
+     by pair, and ties go to the defender.
+   - **Blitz:** roll until the territory falls or you are down to 1 troop.
+   - **Fight it (RTS):** play the battle on a map that looks like the region, with its landmark. The troops set the
+     size of both forces, and the result comes back as losses on both sides. Fighting pays better than the dice:
+     war chest, veterans, a chance at a card and more score.
+3. **Fortify.** Move troops once between connected territories you hold, then end your turn.
+
+Conquer at least one territory in a turn to earn a card; three of a kind, or one of each, trade for troops. The rival
+powers play by the same rules, each with its own style; their turns play back quickly on the globe (*Skip* jumps to
+your turn). The **Rivals** panel shows their troops, territories, cards and mood, and lets you offer a ceasefire;
+breaking one costs you trust with everyone. When a rival attacks your capital or a wonder, you choose: let the dice
+decide, or defend it yourself.
+
+- **Weekly World:** the same world for everyone each week; your best score is kept on this device.
+- **Challenge links:** *Copy challenge link* (setup and share screens) gives a link to the same world, homeland and
+  difficulty, for a friend to beat your score.
+- **Share card:** a picture of your empire on the globe with your stats, to download or share.
+- **Keyboard and screen readers:** the **List view** (the list button, or <kbd>L</kbd>) lists every territory by
+  zone; arrows move, <kbd>Enter</kbd> selects, just like tapping the globe. Arrow keys turn the globe, <kbd>+</kbd>
+  and <kbd>−</kbd> zoom, <kbd>Esc</kbd> steps back.
 
 ## Quick Battle
 

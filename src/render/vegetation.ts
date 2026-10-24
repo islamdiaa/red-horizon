@@ -3,6 +3,7 @@ import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferG
 import { hash2, Noise2D } from '../core/rng';
 import { GameMap, T } from '../sim/map';
 import { flat } from './geomutil';
+import { landmarkMask } from '../sim/landmarks';
 import { shadowDepthMaterial } from './models/materials';
 import { ROAD_HALF, roadDistance, roadsFor } from './roads';
 import { applyNatureTextures, loadNature, natureMaterialParams, natureUrls, placeholderGeometry, type NatureTemplate } from './vegetation-hd';
@@ -356,6 +357,91 @@ function broadleafGeometry(seed: number, lod = false): THREE.BufferGeometry {
   return mergeGeometries(parts.map((p) => flat(p)))!;
 }
 
+/**
+ * Palm (tropical coasts and jungle, desert oases; MAPS): a slender trunk bending to one side in a few ringed
+ * segments, a crown of drooping, feathered fronds (drawn from both sides) and a cluster of coconuts.
+ * `lean` 0..1 bends it further (beach palms lean out).
+ */
+function palmGeometry(seed: number, lod = false, lean = 0.3): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const segs = lod ? 3 : 5;
+  const H = 1.15 + hash2(seed, 1, 3) * 0.25;
+  const dir = hash2(seed, 2, 3) * Math.PI * 2;
+  const bend = 0.12 + lean * 0.3;
+  let px = 0, py = 0, pz = 0;
+  const pts: [number, number, number][] = [[0, 0, 0]];
+  for (let k = 1; k <= segs; k++) {
+    const t = k / segs;
+    const off = bend * t * t;
+    pts.push([Math.cos(dir) * off, H * t, Math.sin(dir) * off]);
+  }
+  for (let k = 0; k < segs; k++) {
+    const a = pts[k], b = pts[k + 1];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    const r0 = 0.055 - k * 0.006, r1 = 0.05 - k * 0.006;
+    const cyl = new THREE.CylinderGeometry(r1, r0, len, lod ? 4 : 6, 1, true);
+    // ringed bark: alternate the segment tones
+    colorize(cyl, k % 2 ? new THREE.Color(0.2, 0.14, 0.08) : new THREE.Color(0.25, 0.18, 0.1), 0.15, seed + k);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize());
+    cyl.applyQuaternion(q).translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+    parts.push(flat(cyl));
+  }
+  [px, py, pz] = pts[segs];
+  const fb = new TriBuilder();
+  const fronds = lod ? 6 : 9;
+  const fsegs = lod ? 2 : 4;
+  for (let f = 0; f < fronds; f++) {
+    const a = (f / fronds) * Math.PI * 2 + hash2(seed, f, 5) * 0.5;
+    const len = 0.62 + hash2(seed, f, 6) * 0.22;
+    const lift = 0.18 + hash2(seed, f, 7) * 0.12;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const g = 0.2 + hash2(seed, f, 8) * 0.07;
+    let prev: number[] | null = null, prevL: number[] | null = null, prevR: number[] | null = null;
+    for (let k = 0; k <= fsegs; k++) {
+      const t = k / fsegs;
+      // the frond rises a little, then droops: a parabola along its length
+      const d = len * t;
+      const y = py + lift * t * 2 - (lift + 0.32) * t * t * 1.4;
+      const c = [px + ca * d, y, pz + sa * d];
+      const wdt = 0.13 * Math.sin(Math.PI * Math.min(1, t * 1.1 + 0.08)) * (1 - t * 0.35);
+      const L = [c[0] - sa * wdt, c[1] - 0.03 * t, c[2] + ca * wdt], R = [c[0] + sa * wdt, c[1] - 0.03 * t, c[2] - ca * wdt];
+      if (prev && prevL && prevR) {
+        const dark = [0.04, g * 0.6, 0.03], lite = [0.07, g, 0.045];
+        fb.tri(prev, c, L, lite, lite, dark); fb.tri(prev, L, c, dark);
+        fb.tri(prev, R, c, lite, dark, lite); fb.tri(prev, c, R, dark);
+        fb.tri(prev, prevL, L, dark, dark, dark); fb.tri(prev, L, prevL, dark);
+        fb.tri(prev, R, prevR, dark, dark, dark); fb.tri(prev, prevR, R, dark);
+      }
+      prev = c; prevL = L; prevR = R;
+    }
+  }
+  parts.push(fb.geometry());
+  if (!lod) for (let k = 0; k < 3; k++) {
+    const a = k * 2.1 + seed;
+    const nut = new THREE.IcosahedronGeometry(0.045, 0).translate(px + Math.cos(a) * 0.05, py - 0.05, pz + Math.sin(a) * 0.05);
+    parts.push(flat(colorize(nut, new THREE.Color(0.2, 0.15, 0.05), 0.2, seed + k)));
+  }
+  return mergeGeometries(parts.map((g) => { g.deleteAttribute('uv'); return g; }))!;
+}
+
+/** Jungle tree (MAPS): a tall pale trunk under a broad, layered, deep-green canopy. */
+function jungleTreeGeometry(seed: number, lod = false): THREE.BufferGeometry {
+  const trunk = colorize(new THREE.CylinderGeometry(0.05, 0.1, 1.0, lod ? 4 : 6, 1, lod).translate(0, 0.5, 0), new THREE.Color(0.24, 0.2, 0.14), 0.2, seed);
+  const parts = [trunk];
+  const layers = lod ? 3 : 5;
+  for (let k = 0; k < layers; k++) {
+    const a = (k / layers) * Math.PI * 2 + seed;
+    const r = k === 0 ? 0 : 0.26 + hash2(k, seed, 2) * 0.1;
+    const s = k === 0 ? 0.48 : 0.34 + hash2(k, seed, 4) * 0.08;
+    const ico = lumpy(new THREE.IcosahedronGeometry(s, lod ? 0 : 1), 0.4, seed * 17 + k);
+    ico.scale(1, 0.55, 1);
+    ico.translate(Math.cos(a) * r, 1.02 + (k === 0 ? 0.14 : 0) + hash2(k, seed, 6) * 0.12, Math.sin(a) * r);
+    const g = 0.3 + hash2(k, seed, 3) * 0.1;
+    parts.push(colorize(ico, new THREE.Color(0.05, g * 0.62, 0.035), 0.32, seed + k * 5));
+  }
+  return mergeGeometries(parts.map((p) => flat(p)))!;
+}
+
 /** Triangles (non-indexed) with one colour per triangle corner set, for hand-built shapes. */
 class TriBuilder {
   pos: number[] = [];
@@ -596,21 +682,23 @@ interface TreeRef { inst: CulledInstances; index: number; x: number; y: number; 
 /** A felled tree (syncTrees): world position (x, ground height, z) and `s`, its scale (1 = a 1.5-unit pine). */
 export type FelledTree = THREE.Vector3 & { s: number };
 
-type Climate = 'temperate' | 'winter' | 'desert';
+type Climate = 'temperate' | 'winter' | 'desert' | 'tropical';
 /** HD model of each procedural tree variant (index = the climate's treeSet order). */
 const HD_TREES: Record<Climate, string[]> = {
   temperate: ['pine', 'pine_tall', 'oak', 'linden'],
   winter: ['pine_snow', 'pine_snow_tall', 'pine_snow', 'pine_snow_light'],
   desert: ['acacia', 'scrub', 'scrub', 'acacia'],
+  tropical: ['oak', '', 'linden', ''], // (palms: procedural only)
 };
 /** HD model of each procedural rock (outcrop, cliff wall, boulder). */
 const HD_ROCKS: Record<Climate, string[]> = {
   temperate: ['rock_outcrop', 'rock_wall', 'boulder'],
   winter: ['rock_outcrop_snow', 'rock_wall_snow', 'boulder_snow'],
   desert: ['rock_outcrop', 'rock_wall', 'boulder'],
+  tropical: ['rock_outcrop', 'rock_wall', 'boulder'],
 };
 /** Linear stone colour per climate over the neutral baked rock albedo (matches the procedural rock tints). */
-const ROCK_HD_TINT: Record<Climate, [number, number, number]> = { temperate: [1.08, 1.0, 0.88], winter: [0.78, 0.8, 0.88], desert: [1.68, 1.12, 0.76] };
+const ROCK_HD_TINT: Record<Climate, [number, number, number]> = { temperate: [1.08, 1.0, 0.88], winter: [0.78, 0.8, 0.88], desert: [1.68, 1.12, 0.76], tropical: [0.92, 1.0, 0.82] };
 
 /** Margin of the culling grid around the map (covers the scenery forest on the skirt). */
 const MARGIN = 48;
@@ -630,7 +718,7 @@ export class Vegetation {
    * @param scenery tree spots on the landscape outside the playable area ([x, height, y]); they share the
    *   map trees' instanced meshes, so they cost no extra draw calls.
    */
-  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'medium' | 'high', readonly climate: 'temperate' | 'winter' | 'desert' = 'temperate', scenery: [number, number, number][] = []) {
+  constructor(private map: GameMap, heightAt: HeightFn, quality: 'low' | 'medium' | 'high', readonly climate: Climate = 'temperate', scenery: [number, number, number][] = []) {
     this.lastTreeVersion = map.treeVersion;
     this.treeState = map.tree.slice();
     this.group.name = 'vegetation';
@@ -649,17 +737,29 @@ export class Vegetation {
       // winter: snow-laden firs of drooping tiers (one lightly dusted); temperate: tiered firs and broadleaves
       if (climate === 'winter') return [tieredPineGeometry(1, 1.0, 0.9, lod), tieredPineGeometry(2, 1.3, 0.85, lod, [0.04, 0.115, 0.07]), tieredPineGeometry(5, 1.12, 1, lod), tieredPineGeometry(6, 0.9, 0.55, lod, [0.05, 0.12, 0.06])];
       if (climate === 'desert') return [tintFoliage(broadleafGeometry(3, lod), 0.17, 0.17, 0.08), tintFoliage(broadleafGeometry(4, lod), 0.2, 0.18, 0.09), tintFoliage(pineGeometry(7, 0.8, lod), 0.12, 0.14, 0.07, 0.4), tintFoliage(broadleafGeometry(8, lod), 0.23, 0.2, 0.1)];
+      // tropical (World Conquest): jungle giants and palms, one of them leaning out
+      if (climate === 'tropical') return [jungleTreeGeometry(3, lod), palmGeometry(5, lod, 0.2), jungleTreeGeometry(9, lod), palmGeometry(11, lod, 0.75)];
       return [tieredPineGeometry(1, 1.0, 0, lod), tieredPineGeometry(2, 1.28, 0, lod, [0.05, 0.15, 0.06]), broadleafGeometry(3, lod), broadleafGeometry(4, lod)];
     };
+    // desert trees by the water are date palms (oases, the Nile's banks): a fifth set
+    const palmV = climate === 'desert' ? 4 : -1;
     const treeGeos = treeSet(false);
     const treeLods = lodOn ? treeSet(true) : null;
+    if (palmV >= 0) { treeGeos.push(palmGeometry(13, false, 0.35)); treeLods?.push(palmGeometry(13, true, 0.35)); }
     const treeMat = windMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }, this.uTime, 0.04, 0.35, 'tree');
-    const treeItems: Item[][] = [[], [], [], []];
-    const treeCells: number[][] = [[], [], [], []];
-    const treePos: [number, number, number, number][][] = [[], [], [], []];
+    const treeItems: Item[][] = [[], [], [], [], []];
+    const treeCells: number[][] = [[], [], [], [], []];
+    const treePos: [number, number, number, number][][] = [[], [], [], [], []];
+    const wetNear = (cx: number, cy: number) => {
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Water) return true;
+      }
+      return false;
+    };
     for (let i = 0; i < m.w * m.h; i++) {
       if (!m.tree[i]) continue;
-      const v = (m.tree[i] - 1) % 4;
+      const v = palmV >= 0 && wetNear(i % m.w, (i / m.w) | 0) ? palmV : (m.tree[i] - 1) % 4;
       const cx = i % m.w, cy = (i / m.w) | 0;
       const x = cx + 0.5 + (hash2(cx, cy, 1) - 0.5) * 0.4;
       const y = cy + 0.5 + (hash2(cx, cy, 2) - 0.5) * 0.4;
@@ -701,7 +801,7 @@ export class Vegetation {
     treeGeos.forEach((g, v) => {
       if (!treeItems[v].length) return;
       const inst = this.add(new CulledInstances(grid, this.group, g, treeMat, treeItems[v], true, treeLods?.[v] ?? null));
-      if (hdOn) this.hdSlot(HD_TREES[climate][v], inst, 'tree');
+      if (hdOn && HD_TREES[climate][v]) this.hdSlot(HD_TREES[climate][v], inst, 'tree'); // (no HD palms: index 4 is undefined)
       treeCells[v].forEach((ci, k) => {
         // companions (negative cell ids) go after their cell's main tree, which reports the fall
         const cell = ci < 0 ? -1 - ci : ci;
@@ -735,10 +835,13 @@ export class Vegetation {
     const roads = roadsFor(m);
     const road = roads.cells;
     const offRoad = (x: number, y: number) => roadDistance(roads, m.w, m.h, x, y) > ROAD_HALF.main + 0.25;
-    const isRock = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Rock;
+    // (a landmark's footprint is rock to the sim but carries its model: no outcrops or cliff walls there)
+    const lmk = m.landmarks.length ? landmarkMask(m) : null;
+    const isRock = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Rock && !lmk?.[m.idx(x, y)];
     const isWater = (x: number, y: number) => m.inBounds(x, y) && m.terrain[m.idx(x, y)] === T.Water;
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
       const i = m.idx(cx, cy);
+      if (lmk?.[i]) continue;
       const t = m.terrain[i];
       const r = hash2(cx, cy, 27);
       if (t === T.Rock) {
@@ -823,15 +926,15 @@ export class Vegetation {
     }
 
     // ---- grass tufts ----------------------------------------------------------
-    const density = (quality === 'low' ? 0.9 : 2.2) * (climate === 'winter' ? 0.25 : climate === 'desert' ? 0.45 : 1);
-    const grassTint = climate === 'winter' ? [1.6, 1.35, 1.6] : climate === 'desert' ? [2.0, 1.45, 0.75] : [1, 1, 1];
+    const density = (quality === 'low' ? 0.9 : 2.2) * (climate === 'winter' ? 0.25 : climate === 'desert' ? 0.45 : climate === 'tropical' ? 1.3 : 1);
+    const grassTint = climate === 'winter' ? [1.6, 1.35, 1.6] : climate === 'desert' ? [2.0, 1.45, 0.75] : climate === 'tropical' ? [0.8, 1.12, 0.72] : [1, 1, 1];
     const grassItems: Item[] = [];
     const gn = new Noise2D(m.seed + 77);
     for (let cy = 0; cy < m.h; cy++) for (let cx = 0; cx < m.w; cx++) {
       const i = m.idx(cx, cy);
       const t = m.terrain[i];
       // reeds: tall, lush tufts crowd the banks (temperate; sand banks too)
-      const bank = climate === 'temperate' && lodOn && (isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1));
+      const bank = (climate === 'temperate' || climate === 'tropical') && lodOn && (isWater(cx - 1, cy) || isWater(cx + 1, cy) || isWater(cx, cy - 1) || isWater(cx, cy + 1));
       if (((t !== T.Clear && t !== T.Dirt) && !(bank && t === T.Sand)) || m.tree[i] || m.ore[i] || road[i]) continue;
       const lush = gn.fbm(cx * 0.12, cy * 0.12, 3);
       const count = Math.floor(density * (lush * 1.8 - 0.1) * (t === T.Dirt ? 0.4 : 1) + hash2(cx, cy, 51)) + (bank ? 4 : 0);

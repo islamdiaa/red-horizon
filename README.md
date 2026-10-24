@@ -106,6 +106,8 @@ The game itself is a static site:
 - **Fonts.** The bundled fonts are under the [SIL Open Font License](public/fonts/OFL.txt).
 - **Build-time inputs.** The HD models are built with CC0 textures from
   [Poly Haven](https://polyhaven.com/) and the OFL font Russo One. Neither is distributed.
+- **Map data.** World Conquest's coastlines and lakes are derived from [Natural Earth](https://www.naturalearthdata.com/)
+  1:110m land and lakes (public domain; see `src/conquest/world/data/land110.ts`).
 
 **Thanks to** Westwood Studios for the original game, Electronic Arts for releasing its source,
 [three.js](https://threejs.org/), [Blender](https://www.blender.org/) and

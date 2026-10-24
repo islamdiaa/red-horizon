@@ -13,6 +13,7 @@ import type { MissionRuntime } from './mission';
 import { newCtrlState } from './formation';
 import { loadCommander, saveCommander } from './commander';
 import { loadVariety, neutralOwner, saveVariety } from './events';
+import { civicOwner } from './civilian'; // World Conquest (MAPS)
 import { loadEcon, saveEcon } from './economy';
 import { AI_DIFFICULTIES } from './ai';
 
@@ -210,7 +211,7 @@ export function deserializeWorld(w: World, s: Json, mission?: MissionRuntime | n
   const ghosts = new Set<Json>(Array.isArray(s.ghosts) ? s.ghosts : []); // (none in older saves)
   for (const es of [...(s.entities as Json[]), ...ghosts]) {
     let e: Entity;
-    const owner = es.owner < 0 ? neutralOwner(w, s.variety) : w.players[es.owner]; // neutral structures / event units
+    const owner = es.owner < 0 ? (s.variety || w.variety ? neutralOwner(w, s.variety) : civicOwner(w)) : w.players[es.owner]; // neutral structures / event units; World Conquest civilian buildings (no variety state: sim/civilian.ts)
     if (es.cls === 'B') {
       e = new Building(es.id, BUILDINGS[es.type], owner, es.cx, es.cy);
     } else {

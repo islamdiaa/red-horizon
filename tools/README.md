@@ -33,6 +33,21 @@ ship with the game.
 | `missiontest.ts` | One mission, with an AI autopilot on the human side | `node --import tsx tools/missiontest.ts <missionId> [minutes]` |
 | `conquesttest.ts` | Conquest battles with the autopilots in `conquest-harness.ts` | `node --import tsx tools/conquesttest.ts [kind\|all] [seed=7] [faction=allies] [minutes=25] [-v]` |
 | `metatest.ts` | Progression: medals, XP and ranks, persistence and migration | `node --import tsx tools/metatest.ts` |
+| `world/strat-bench.ts` | World Conquest strategy: pilots (greedy, zone-focused, cautious, dice-only) against the rivals per size and difficulty, with 95% Wilson intervals, turns, eliminations, snowball and stall measures (`rates`), homeland fairness (`fair`), how each rival personality fares (`powers`). RTS battles come from a model of the battle pilots' measured win rates (`world/strat-lib.ts`). `WORKERS` caps the threads | `WORKERS=4 node --import tsx tools/world/strat-bench.ts rates [--n 100] [--sizes blitz,world] [--diffs recruit,easy,normal,hard,brutal] [--pilots zone,greedy,cautious,dice] [--skill newcomer\|casual\|auto] [--out f.json]` · `... fair [--n 12] [--size blitz] [--diff normal]` · `... powers [--n 100] [--size world]` |
+| `world/strat-quick.ts` | The same pilots, serially, for a quick look | `node --import tsx tools/world/strat-quick.ts [--n 40]` |
+| `world/geo-land.ts` | Rebuilds World Conquest's land outline (`src/conquest/world/data/land110.ts`) from pinned, sha256-checked Natural Earth 1:110m land and lakes downloads (development time only; the command to fetch them is in the file header) | `node --import tsx tools/world/geo-land.ts <ne_110m_land.geojson> <ne_110m_lakes.geojson>` |
+| `world/geo-map.ts` | World Conquest map preview as a PNG: a run's territories as the rules cut them, sites, label anchors, borders and sea lanes | `node --import tsx tools/world/geo-map.ts <out.png> [full\|world:<seed>\|blitz:<seed>:<homeland>] [x0 y0 x1 y1 scale]` |
+| `world/maps-check.ts` | World Conquest region battlefields (`src/sim/mapgen-region.ts`): generate every sample look, or every GEO region with `--geo`, for each battle kind and check fairness (ground and sea routes, ore, room at the starts, the landmark on the start screen, naval ponds, civilian buildings dropped for closing off ground); `--ascii` prints a map | `node --import tsx tools/world/maps-check.ts [--geo] [--seeds 2] [--strength 3] [--quiet] [--only <region>] [--ascii --kind attack --seed 0]` |
+| `world/qa-fuzz.ts` | World Conquest random-policy fuzz: every homeland x size x difficulty played by a seeded random (to sensible) policy over `legalActions()` (place, trade, roll, blitz, a made-up RTS result, move in, fortify, ceasefires, defence choices), with invariants after every action (owners, troops >= 1, troop and card ledgers, alive powers, links, no NaN), softlock and turn-cap checks. Results go to `screenshots/world-qa/` unless `--out` | `WORKERS=6 node --import tsx tools/world/qa-fuzz.ts [--runs 2000] [--seed0 1] [--sizes world,blitz] [--diffs all] [--homes all] [--fight 0.08]` |
+| `world/qa-determinism.ts` | World runs replay identically from seed and choices, and identically through `saveWorldRun`/`loadWorldRun` at every turn and every few actions (run JSON hashed every turn) | `node --import tsx tools/world/qa-determinism.ts [--cases 60] [--seed0 1]` |
+| `world/qa-dice.ts` | Risk dice by exact enumeration (the per-roll table, blitz odds): the reference `tests/world-qa-dice.test.ts` checks the game's dice against | `node --import tsx tools/world/qa-dice.ts` |
+| `world/qa-battlefields.ts` | Every GEO region x battle kind: generation time, ground paths between starts (with and without bridges), sea routes for naval battles, reachable ore, ground closed off by the landmark or by civilian buildings, the landmark under shroud or off the starting screen (RTSCamera at `map.startFocus`, four window shapes) | `node --import tsx tools/world/qa-battlefields.ts [--regions all\|id,id] [--kinds attack,...] [--seeds 2]` (`--selftest`: the checks on skirmish maps) |
+| `world/qa-battles.ts` | World RTS battles played headless by the battle pilots (newcomer, casual, auto) per climate, difficulty and battle kind, set up through `startBattle`, with 95% Wilson intervals (`--only landmarks`, `--kind naval`, `--troops 6v4`) | `WORKERS=5 node --import tsx tools/world/qa-battles.ts [--per-climate 6] [--seeds 2] [--diffs recruit,easy,normal,hard] [--pilots newcomer,casual,auto]` |
+| `world/qa-battlesave.ts` | Save / load of a world battle in progress (tools/qa/modesave.ts runScenario, plus the civilian buildings' looks and the landmarks through a load) | `node --import tsx tools/world/qa-battlesave.ts [--regions 12] [--quick]` |
+| `world/qa-balance.ts` | The balance tables from STRAT's pilots: win rates per size x difficulty x pilot with Wilson intervals, turns to win, zone-focused vs greedy on the same seeds (sign test), homeland fairness per size and level, wipe-outs by turn 5, how each rival personality fares | `WORKERS=6 node --import tsx tools/world/qa-balance.ts [--n 200] [--nworld 80] [--fair 24] [--fairsets blitz:normal,world:normal,blitz:hard]` |
+| `world/qa-bundle.mjs` | The mode's bundle budget: the initial bundle (entry, modulepreloads, CSS) and the net lazy growth against a baseline build, gzipped | `node tools/world/qa-bundle.mjs <dist> [<baseline dist>]` |
+| `world/qa-globe-perf.mjs`, `world/qa-battle-perf.mjs` | gpu-rig scripts (run them as `$RIG tools/world/...`, tools/gpu-rig/README.md): the globe's frame rate per preset and screen (vsync and free-running, GPU time per frame), and region battles against skirmish maps of the same size (150-unit battle, centre and start views) | `$RIG tools/world/qa-globe-perf.mjs <url> [presets] [states]` · `$RIG tools/world/qa-battle-perf.mjs <url> [presets] [units] [views]` |
+| `world/maps-pilots.ts` | Does a region battlefield change who wins? The old Conquest battle specs (strength 3) played by the newcomer / casual stand-ins on the old generator's map and on a GEO region battlefield of each climate, with 95% Wilson intervals (`WORKERS` caps the threads, default 4) | `node --import tsx tools/world/maps-pilots.ts [--seeds 6] [--kinds assault,capture,hold] [--maps old,temperate,winter,desert,tropical] [--cells easy:newcomer,easy:casual,normal:casual] [--out f.json]` |
 
 ## Self-play (`tools/selfplay`)
 
@@ -115,7 +130,15 @@ These take the URL or port of a running dev server.
 On a real GPU (Linux with an Intel or AMD GPU and Docker), `tools/gpu-rig/` runs the browser checks that SwiftShader can't do: NaN and
 half-float overflow in every HDR render target, WebGL errors, context loss and restore, missing mobile extensions, and FPS per preset
 with per-pass GPU timings, A/B frame cost and pixel comparisons of two builds (`perfab.mjs`, `lookab.mjs`) and a load-time profile
-(`loadprof.mjs`). See [`gpu-rig/README.md`](gpu-rig/README.md). [`xb/`](xb/README.md) runs the same checks in
+(`loadprof.mjs`). See [`gpu-rig/README.md`](gpu-rig/README.md). World Conquest region battlefields on the rig:
+`world/maps-shots.mjs <url> [preset] [out] [region:kind:seed,...]` (a contact sheet of the start view and an overview
+per case) and `world/maps-perf.mjs <url> [presets] [regions] [rounds]` (frame and GPU time and draw calls, the same
+battle on the old map and on the region's; both open battles with `?autostart=1&conquest=<kind>&region=<id>`).
+World Conquest landmark and civilian building models: `world/arch-sheet.mjs <dev-url> <landmarks|civ|all> [presets]
+[out] [only]` (day and night contact sheets of every landmark and civilian style at the default zoom, in the real renderer;
+it imports the models by path, so it needs a Vite dev server) and `node --import tsx tools/world/arch-stats.ts` (headless:
+triangles and build time of every landmark and style at both details).
+[`xb/`](xb/README.md) runs the same checks in
 Firefox and WebKit on the GPU, and in the test VMs (Windows Direct3D, a low-end Linux laptop): look comparisons, input,
 soak, memory per Play again (`memcycle.mjs`), low-end CPU, PWA and high-DPI checks.
 
@@ -155,6 +178,17 @@ map, the debrief in both shapes with the XP strip and medal toasts off its title
 motion in the menus, a battle and the results; the three team palettes). `--lang <code>` and `--classic` start the
 fresh profile in that language or with the Classic layout. The matrix's `mission:<id>:newcomer` cells play every
 campaign mission and special operation once at Easy, from a profile that won the missions before it.
+
+World Conquest journeys: `world` (the menu entry, the homeland picker by tap and keyboard, options, the challenge link
+on the clipboard, reinforce, one roll and a blitz with the move-in, cards, rivals and a ceasefire offer, the war diary,
+fortify, the rivals' playback, an RTS battle fought from the odds panel and the report, the list view by keyboard, the
+share card as a PNG download, save and resume from the menu, the challenge link in a fresh profile; `E2E_WORLD_BATTLE=
+play` lets the newcomer profile fight the battle, `win` forces it), `world-landmark` (a landmark battle opens with the
+landmark uncovered on screen, the fly-over played and skipped), `world-defeat` (a lost battle's report and the way
+back), `world-newcomer` (a fresh profile per `--locale` starts at home and the coach's first target is a land battle),
+`world-guard` (the `?world=` test screens need `?debug=1` and never record or replace the saved run) and
+`world-memory` (eight visits and three battles: heap after GC, WebGL context warnings). The matrix's `world:<level>:
+<profile>` cells play a few world turns and one battle through the UI (tools/e2e/world-play.mjs).
 
 - **Other browsers and machines.** Point `--url` at any reachable server. `E2E_CHANNEL=chrome|msedge` picks a branded
   browser and `E2E_CHROME_ARGS` replaces the default SwiftShader flags (for example `--use-angle=d3d11-warp`, or empty

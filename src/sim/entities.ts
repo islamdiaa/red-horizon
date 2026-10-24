@@ -4,6 +4,7 @@ import type { Player } from './player';
 import type { Order } from './types';
 import type { FormationShape, Stance } from './types';
 import type { EconTask } from './economy-data';
+import type { CivilianScenery } from './civilian'; // World Conquest (MAPS)
 
 export class WeaponSlot {
   cooldown = 0;     // seconds until ready
@@ -266,6 +267,8 @@ export class Building extends Entity {
   declare upgrades?: string[];
   declare task?: EconTask;
   declare garrison?: number[];
+  /** World Conquest civilian buildings (sim/civilian.ts): culture style, kind, seed, facing; the renderer reads it. */
+  declare scenery?: CivilianScenery;
 
   constructor(id: number, type: BuildingTypeDef, owner: Player, cx: number, cy: number) {
     super(id, owner, cx + type.size[0] / 2, cy + type.size[1] / 2, type.strength);

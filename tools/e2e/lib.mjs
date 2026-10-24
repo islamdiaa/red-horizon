@@ -219,7 +219,7 @@ export class Bot {
   async audit(where, { scope = 'body', ellipsis = true, record = true } = {}) {
     const r = await this.page.evaluate(([scope, ellipsis]) => {
       const out = { clip: [], off: [], raw: [] };
-      const KEY = /^(a11y|army|campaign|challenges|cinematic|commander|common|conquest|controls|doctrine|economy|editor|errors|hints|hud|loading|lobby|locker|menu|meta|mission|missions|modes|mods|moment|net|players|profile|replay|research|results|rivals|settings|share|speech|toasts|tutorial|variety)\.[a-zA-Z0-9_.]+$/;
+      const KEY = /^(a11y|army|campaign|challenges|cinematic|commander|common|conquest|controls|doctrine|economy|editor|errors|hints|hud|loading|lobby|locker|menu|meta|mission|missions|modes|mods|moment|net|players|profile|replay|research|results|rivals|settings|share|speech|toasts|tutorial|variety|world|worldUi|worldmap)\.[a-zA-Z0-9_.]+$/; // (world, worldUi, worldmap: World Conquest's namespaces)
       const PH = /\{[a-zA-Z_][\w:]*(, *(plural|select)[^}]*)?\}/;
       const seen = new Set();
       const root = document.querySelector(scope) ?? document.body;
@@ -705,7 +705,12 @@ export class Bot {
     await this.lookAt(x, y);
     const a = await this.playArea();
     const units = (await this.mine()).units.filter((u) => u.armed && Math.hypot(u.x - x, u.y - y) <= radius);
-    const pts = (await this.toScreenMany(units.map((u) => [u.x, u.y]))).filter((p) => p.onScreen);
+    let pts = (await this.toScreenMany(units.map((u) => [u.x, u.y]))).filter((p) => p.onScreen);
+    if (units.length && !pts.some((p) => p.inPlay)) {
+      // (on screen but behind the HUD, e.g. gathered south of a base at the map's edge: scroll to the group itself)
+      await this.lookAt(units.reduce((t, u) => t + u.x, 0) / units.length, units.reduce((t, u) => t + u.y, 0) / units.length);
+      pts = (await this.toScreenMany(units.map((u) => [u.x, u.y]))).filter((p) => p.onScreen);
+    }
     this.lastBox = { near: units.length, onScreen: pts.length, inPlay: pts.filter((p) => p.inPlay).length, box: null }; // (diagnostics for a selection that picked nothing)
     if (!pts.length) return 0;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -762,13 +767,16 @@ export class Bot {
    * `won`: the local player's side wins. Then waits for the results screen (or a mission's debrief).
    */
   async forceEnd(won, timeout = 240000) {
-    await this.page.evaluate((won) => {
-      const g = window.__game, w = g.world;
-      const lose = (p) => (won ? g.local.isEnemy(p) : p.team === g.local.team);
-      for (const e of [...w.units, ...w.buildings]) if (e.alive && lose(e.owner)) w.kill(e);
-    }, won);
-    await this.wait(2);
-    return this.page.waitForSelector(':is(.end-screen, .dbf, .cq-modal .cq-dlg):not(.leaving)', { state: 'visible', timeout: timeout * this.o.slow }).then(() => true, () => false);
+    // (twice: destroyed structures release survivors, as in Red Alert, and a side with a rifleman left is not beaten)
+    for (let k = 0; k < 2; k++) {
+      await this.page.evaluate((won) => {
+        const g = window.__game, w = g.world;
+        const lose = (p) => (won ? g.local.isEnemy(p) : p.team === g.local.team);
+        for (const e of [...w.units, ...w.buildings]) if (e.alive && lose(e.owner)) w.kill(e);
+      }, won);
+      await this.wait(k ? 2 : 0.5);
+    }
+    return this.page.waitForSelector(':is(.end-screen, .dbf, .cq-modal .cq-dlg, .wc-modal .wc-dlg):not(.leaving)', { state: 'visible', timeout: timeout * this.o.slow }).then(() => true, () => false); // (.wc-modal: a World Conquest battle report)
   }
 
   /** Wait for the results screen after the end of a match (the finale runs a few seconds first). */

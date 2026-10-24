@@ -180,7 +180,7 @@ export default async function campaign(bot) {
   await bot.noErrors('special operation');
 
   // ================================================================ the first Conquest battle
-  await bot.nav('Conquest');
+  await bot.click('.main-screen:not(.leaving) .mm-nav-btn[data-nav="conquest"]'); // (Europe Conquest: 'Conquest' alone also matches World Conquest)
   await bot.waitFor('.cq-root [data-act="begin"], [data-act="begin"]', undefined, 30000);
   await bot.shot('conquest-new');
   await bot.click('[data-act="begin"]');
@@ -206,6 +206,7 @@ export default async function campaign(bot) {
   await bot.shot('conquest-battle');
   await bot.noErrors('Conquest battle');
   await bot.quitToMenu();
-  const resumable = await bot.page.evaluate(() => [...document.querySelectorAll('.mm-nav-btn')].some((b) => /conquest/i.test(b.textContent) && b.querySelector('.rh-daily-pill')));
+  // (the Europe entry by its data-nav: World Conquest's entry carries a pill too)
+  const resumable = await bot.page.evaluate(() => [...document.querySelectorAll('.mm-nav-btn[data-nav="conquest"]')].some((b) => b.querySelector('.rh-daily-pill')));
   bot.check(resumable, 'the main menu shows the Conquest campaign in progress');
 }

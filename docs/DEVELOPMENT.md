@@ -37,6 +37,13 @@ The game is a deterministic simulation and a renderer that only observes it.
   offline play (`src/platform/prefetch.ts`) skips Data Saver, slow (2g/3g) and metered connections;
   Settings › Graphics has an explicit "Download HD content for offline play" (`src/platform/offline.ts`).
   The service worker keeps those content-hashed files in a cache that survives updates (`public/sw.js`).
+- **World Conquest geography** (`src/conquest/world/regions.ts`, `geo.ts`). The coastline is Natural Earth's
+  1:110m land and lakes (public domain), converted once by `tools/world/geo-land.ts` into a 15 KB (gzipped) string;
+  nothing is fetched at run time. A run's territories are cut from it on a 0.25° raster: each region's spherical Voronoi
+  cell, grown only over its own landmass, so no cell jumps a sea, and islands without a region join the nearest
+  territory across the water. Land borders, sea lanes (straits, short seas and a few classic long crossings) and
+  label anchors come from the same raster with portable maths, so every machine builds the same map from a seed.
+  `tools/world/geo-map.ts` draws a run's map to a PNG.
 
 ```
 src/

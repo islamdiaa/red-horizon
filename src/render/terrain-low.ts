@@ -19,6 +19,8 @@ export const PALETTES: Record<Climate, number[][]> = {
   temperate: [[0.22, 0.31, 0.13], [0.38, 0.46, 0.2], [0.55, 0.5, 0.3], [0.68, 0.6, 0.44], [0.47, 0.36, 0.23], [0.33, 0.31, 0.29], [0.5, 0.47, 0.43]],
   winter: [[0.74, 0.79, 0.85], [0.88, 0.91, 0.95], [0.55, 0.58, 0.58], [0.6, 0.6, 0.6], [0.42, 0.4, 0.39], [0.36, 0.37, 0.4], [0.55, 0.57, 0.6]],
   desert: [[0.66, 0.52, 0.33], [0.78, 0.64, 0.42], [0.5, 0.46, 0.26], [0.86, 0.73, 0.52], [0.6, 0.42, 0.27], [0.5, 0.33, 0.25], [0.68, 0.48, 0.36]],
+  // lush jungle greens, a pale beach sand, dark forest earth, dark mossy rock
+  tropical: [[0.12, 0.26, 0.07], [0.26, 0.41, 0.11], [0.4, 0.41, 0.17], [0.76, 0.68, 0.5], [0.35, 0.25, 0.17], [0.26, 0.28, 0.23], [0.43, 0.45, 0.37]],
 };
 
 /** Base-dressing colours (sRGB) per climate: trampled ground, bare / churned, packed path, concrete. */
@@ -26,10 +28,11 @@ export const DRESS: Record<Climate, { worn: number[]; bare: number[]; path: numb
   temperate: { worn: [0.43, 0.4, 0.25], bare: [0.37, 0.29, 0.2], path: [0.38, 0.31, 0.22], rut: [0.25, 0.2, 0.15], conc: [0.52, 0.51, 0.49] },
   winter: { worn: [0.73, 0.76, 0.81], bare: [0.5, 0.48, 0.47], path: [0.52, 0.49, 0.47], rut: [0.38, 0.35, 0.33], conc: [0.5, 0.51, 0.53] },
   desert: { worn: [0.64, 0.51, 0.35], bare: [0.53, 0.4, 0.28], path: [0.54, 0.42, 0.3], rut: [0.42, 0.32, 0.23], conc: [0.63, 0.58, 0.51] },
+  tropical: { worn: [0.34, 0.32, 0.17], bare: [0.37, 0.26, 0.17], path: [0.42, 0.29, 0.2], rut: [0.27, 0.18, 0.12], conc: [0.55, 0.54, 0.5] },
 };
 
 /** Road colour (sRGB) of the low-quality procedural shading: asphalt, ploughed snow, packed sand. */
-export const ROAD_LOW: Record<Climate, number[]> = { temperate: [0.3, 0.3, 0.3], winter: [0.56, 0.58, 0.62], desert: [0.66, 0.53, 0.38] };
+export const ROAD_LOW: Record<Climate, number[]> = { temperate: [0.3, 0.3, 0.3], winter: [0.56, 0.58, 0.62], desert: [0.66, 0.53, 0.38], tropical: [0.44, 0.3, 0.21] };
 
 export const glsl3 = (c: number[]) => `vec3(${c.map((v) => v.toFixed(3)).join(', ')})`;
 
@@ -311,7 +314,7 @@ export function bakedLowGlsl(climate: Climate) {
     col = mix(col, col * vec3(0.2, 0.18, 0.16) + vec3(0.01, 0.008, 0.006), burn * 0.85);
     // snow-capped peaks and weather snow cover on flat ground
     float peak = 0.0;
-    if (vWPos.y > 2.4) peak = smoothstep(3.2, 5.0, vWPos.y + tn_fbm(p * 0.9 + 3.7) * 0.8) * smoothstep(0.35, 0.7, nW.y);
+    if (vWPos.y > 2.4) peak = smoothstep(${climate === 'tropical' ? '6.0, 8.0' : climate === 'desert' ? '4.6, 6.4' : '3.2, 5.0'}, vWPos.y + tn_fbm(p * 0.9 + 3.7) * 0.8) * smoothstep(0.35, 0.7, nW.y);
     float snowCover = peak;
     if (uSnow > 0.0) snowCover = max(peak, uSnow * smoothstep(0.55, 0.85, nW.y) * smoothstep(0.25, 0.6, tn_fbm(p * 0.11) * 0.6 + n3 * 0.4 + uSnow * 0.5));
     snowCover *= 1.0 - bed;

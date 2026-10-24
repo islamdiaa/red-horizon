@@ -7,7 +7,7 @@
 //                             [--profiles newcomer,casual] [--label before] [--list]
 //
 // Cells are named <mode>:<level>:<profile>, e.g. qb:recruit:newcomer, classic:hard:casual, camp-allies:easy:casual,
-// conquest:normal:casual, koth:normal:casual, coop:normal:casual, challenge::casual, replays, editor. A pattern is
+// conquest:normal:casual, world:easy:newcomer, koth:normal:casual, coop:normal:casual, challenge::casual, replays, editor. A pattern is
 // a prefix or a regular expression (e.g. "qb:", "classic:(recruit|easy)", ":newcomer$").
 //
 // --serve    serves a production build on the --url port (default http://127.0.0.1:5315/) for the whole matrix
@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, openBrowser, Bot, JourneyAbort, loadJourney, ROOT, sleep } from './lib.mjs';
 import { serve } from './serve.mjs';
 import { PLAY, PROFILES, over } from './profiles.mjs';
+import { startWorld, playWorld } from './world-play.mjs'; // World Conquest cells (world:<level>:<profile>)
 
 const LEVELS = ['recruit', 'easy', 'normal', 'hard', 'brutal'];
 /** The campaigns' missions in order (src/missions: campaignMissions), and the special operations a player plays. */
@@ -80,6 +81,11 @@ export function allCells() {
     if (!cells.some((c) => c.id === `qb:${level}:casual`)) cells.push({ id: `qb:${level}:casual`, mode: 'qb', rules: 'commander', level, profile: 'casual', seed: 1000 + LEVELS.indexOf(level) });
     if (!cells.some((c) => c.id === `classic:${level}:casual`)) cells.push({ id: `classic:${level}:casual`, mode: 'classic', rules: 'classic', level, profile: 'casual', seed: 2000 + LEVELS.indexOf(level) });
   }
+  // World Conquest (round 6): a few world turns and one RTS battle through the real UI, as each player would
+  cells.push({ id: 'world:recruit:newcomer', mode: 'world', level: 'recruit', profile: 'newcomer', seed: 7000 });
+  cells.push({ id: 'world:easy:newcomer', mode: 'world', level: 'easy', profile: 'newcomer', seed: 7001 });
+  cells.push({ id: 'world:normal:casual', mode: 'world', level: 'normal', profile: 'casual', seed: 7002 });
+  cells.push({ id: 'world:hard:casual', mode: 'world', level: 'hard', profile: 'casual', seed: 7003 });
   // every campaign mission and special operation once, the newcomer at its default level (Easy: a new player's),
   // reached as a player who won the missions before it
   for (const [side, ids] of Object.entries(MISSION_IDS)) for (const id of ids) {
@@ -294,7 +300,7 @@ async function startMode(bot, cell) {
     return true;
   }
   if (cell.mode === 'conquest') {
-    await bot.nav('Conquest');
+    await bot.click('.main-screen:not(.leaving) .mm-nav-btn[data-nav="conquest"]'); // (Europe Conquest: 'Conquest' alone also matches World Conquest)
     await bot.waitFor('[data-act="begin"]', undefined, 30000);
     if (await bot.sees(`[data-diff="${cell.level}"], .cq-diff [data-v="${cell.level}"]`)) await bot.click(`:is([data-diff="${cell.level}"], .cq-diff [data-v="${cell.level}"])`);
     await bot.click('[data-act="begin"]');
@@ -354,6 +360,13 @@ async function runCell(o, cell) {
       await mod.default(bot, { o, browser });
       rec.result = bot.checks.every((c) => c.ok) ? 'pass' : 'fail';
       for (const c of bot.checks.filter((c) => !c.ok)) bot.friction('check', `${c.what}: ${c.detail.slice(0, 200)}`);
+    } else if (cell.mode === 'world') {
+      // World Conquest: a few world turns and one battle (tools/e2e/world-play.mjs); the battle's metrics as below
+      await bot.goto();
+      await bot.waitMenu();
+      if (!await startWorld(bot, cell)) rec.result = 'n/a';
+      else await playWorld(bot, cell, rec, { startMetrics, readMetrics });
+      delete rec.t0;
     } else {
       await bot.goto();
       await bot.waitMenu();
@@ -373,10 +386,10 @@ async function runCell(o, cell) {
         if (o2) {
           // (the 4.5 s finale counts frame time capped at 0.1 s a frame: on a software GPU at 1 fps it takes minutes)
           const te = Date.now();
-          const ok = await bot.page.waitForSelector(':is(.end-screen, .dbf, .mx-overlay .chr, .cq-modal .cq-dlg):not(.leaving)', { state: 'visible', timeout: 420000 * bot.o.slow }).then(() => true, () => false);
+          const ok = await bot.page.waitForSelector(':is(.end-screen, .dbf, .mx-overlay .chr, .cq-modal .cq-dlg, .wc-modal .wc-dlg):not(.leaving)', { state: 'visible', timeout: 420000 * bot.o.slow }).then(() => true, () => false);
           rec.endScreenSecs = Math.round((Date.now() - te) / 1000);
           if (!ok) bot.friction('softlock', 'the match ended but no results screen or debrief appeared within 7 minutes');
-          else { await sleep(1500); rec.endText = await bot.page.evaluate(() => document.querySelector(':is(.end-screen, .dbf, .mx-overlay .chr, .cq-modal .cq-dlg):not(.leaving)')?.innerText.replace(/\s+/g, ' ').slice(0, 400)); await bot.shot('results'); }
+          else { await sleep(1500); rec.endText = await bot.page.evaluate(() => document.querySelector(':is(.end-screen, .dbf, .mx-overlay .chr, .cq-modal .cq-dlg, .wc-modal .wc-dlg):not(.leaving)')?.innerText.replace(/\s+/g, ' ').slice(0, 400)); await bot.shot('results'); }
         } else {
           // still running at the time limit: is anything happening, or is it stuck?
           const st = await bot.g((g) => { const us = g.world.units.filter((u) => u.alive && u.owner === g.local); return { my: us.length, types: [...new Set(us.map((u) => u.ut.id))].join(','), where: us.slice(0, 3).map((u) => `${Math.round(u.x)},${Math.round(u.y)}`).join(' '), blds: g.world.buildings.filter((b) => b.alive && b.owner === g.local).length, credits: g.local.credits }; });
@@ -413,7 +426,8 @@ export function table(recs) {
   for (const r of recs) {
     const fr = (r.frictions ?? []).map((f) => f.kind);
     const frs = [...new Set(fr)].map((k) => `${k}×${fr.filter((x) => x === k).length}`).join(' ');
-    rows.push(`| ${r.id} | ${r.result} | ${mmss(r.simEnd)} | ${mmss(r.firstContact)} | ${r.bankAvg ?? '-'} | ${r.idleMoneyPct ?? '-'} | ${r.lowPowerSecs ?? '-'} | ${r.peakArmy ?? '-'} | ${r.peakFoe ?? '-'} | ${r.at7 ? `${r.at7.foeUnits}/${r.at7.foeDefences}` : '-'} | ${(r.hints ?? []).length} | ${frs || '-'} |`);
+    const wr = r.world ? ` (world: ${r.world.turns} turns, ${r.world.startTerritories}->${r.world.endTerritories} territories; ${r.battle?.kind ?? '-'} ${r.battle?.label ?? ''}${r.battle?.landmark ? ` ${r.battle.landmark}` : ''})` : '';
+    rows.push(`| ${r.id} | ${r.result}${wr} | ${mmss(r.simEnd)} | ${mmss(r.firstContact)} | ${r.bankAvg ?? '-'} | ${r.idleMoneyPct ?? '-'} | ${r.lowPowerSecs ?? '-'} | ${r.peakArmy ?? '-'} | ${r.peakFoe ?? '-'} | ${r.at7 ? `${r.at7.foeUnits}/${r.at7.foeDefences}` : '-'} | ${(r.hints ?? []).length} | ${frs || '-'} |`);
   }
   return rows.join('\n') + '\n';
 }

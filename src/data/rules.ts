@@ -174,6 +174,8 @@ export interface BuildingTypeDef extends BaseTypeDef {
   powers?: ('gps' | 'sonar' | 'spyplane' | 'paratroopers' | 'parabombs')[];
   /** Neutral tech structure (Commander rules, sim/neutral.ts): any engineer that reaches it captures it. */
   tech?: 'derrick' | 'hospital' | 'radar' | 'comms';
+  /** World Conquest civilian building (sim/civilian.ts, MAPS): only region battlefields raise them; never listed. */
+  civilian?: boolean;
   /**
    * Commander rules structure (sim/economy.ts): listed with `buildable: false` so Classic sidebars, missions and
    * tools never offer it; the Commander tech tree (sim/economy-data.ts) makes it buildable.
@@ -417,6 +419,14 @@ export const BUILDINGS: Record<string, BuildingTypeDef> = {
   hosp: BLD({ id: 'hosp', name: 'Field Hospital', cost: 0, strength: 800, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'hospital', sight: 4, description: 'Neutral tech structure. Capture it with an Engineer: heals your infantry nearby.' }),
   rado: BLD({ id: 'rado', name: 'Radar Outpost', cost: 0, strength: 600, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'radar', radar: true, sight: 13, description: 'Neutral tech structure. Capture it with an Engineer: reveals the area around it and gives you radar.' }),
   comm: BLD({ id: 'comm', name: 'Communications Array', cost: 0, strength: 700, size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], tech: 'comms', sight: 5, description: 'Neutral tech structure. Capture it with an Engineer: superweapons, support and commander powers recharge 10% faster.' }),
+  // World Conquest civilian buildings (sim/civilian.ts, MAPS): the empty town and city buildings of region battlefields,
+  // owned by nobody (never built, captured or targeted on their own), one type per footprint; the look is per building
+  cv11: BLD({ id: 'cv11', name: 'Civilian Building', civilian: true, cost: 0, strength: 300, size: [1, 1], power: 0, prereq: [], buildable: false, owner: [], sight: 0, description: 'An empty civilian building. Nobody lives here any more.' }),
+  cv21: BLD({ id: 'cv21', name: 'Civilian Building', civilian: true, cost: 0, strength: 450, size: [2, 1], power: 0, prereq: [], buildable: false, owner: [], sight: 0, description: 'An empty civilian building. Nobody lives here any more.' }),
+  cv12: BLD({ id: 'cv12', name: 'Civilian Building', civilian: true, cost: 0, strength: 450, size: [1, 2], power: 0, prereq: [], buildable: false, owner: [], sight: 0, description: 'An empty civilian building. Nobody lives here any more.' }),
+  cv22: BLD({ id: 'cv22', name: 'Civilian Building', civilian: true, cost: 0, strength: 700, armor: 'concrete', size: [2, 2], power: 0, prereq: [], buildable: false, owner: [], sight: 0, description: 'An empty civilian building. Nobody lives here any more.' }),
+  cv32: BLD({ id: 'cv32', name: 'Civilian Building', civilian: true, cost: 0, strength: 900, armor: 'concrete', size: [3, 2], power: 0, prereq: [], buildable: false, owner: [], sight: 0, description: 'An empty civilian building. Nobody lives here any more.' }),
+  cv23: BLD({ id: 'cv23', name: 'Civilian Building', civilian: true, cost: 0, strength: 900, armor: 'concrete', size: [2, 3], power: 0, prereq: [], buildable: false, owner: [], sight: 0, description: 'An empty civilian building. Nobody lives here any more.' }),
   // Commander rules economy and tech structures (sim/economy.ts, tiers in sim/economy-data.ts): never built under
   // Classic rules, hence `buildable: false` + `commander: true`
   rlab: BLD({ id: 'rlab', name: 'Research Lab', cost: 1200, strength: 600, size: [3, 2], power: -60, prereq: ['proc'], buildable: false, commander: true, sight: 5, description: 'Researches upgrades for your whole army, one project at a time per lab. Level II research needs Tier 3.' }),

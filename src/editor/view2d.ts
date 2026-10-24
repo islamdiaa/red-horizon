@@ -77,7 +77,7 @@ export class View2D {
     const c = this.bmp.getContext('2d')!;
     const img = c.createImageData(W, W);
     const d = img.data;
-    const pal = PAL[map.climate] ?? PAL.temperate;
+    const pal = PAL[map.climate as keyof typeof PAL] ?? PAL.temperate; // (no tropical maps in the editor)
     const V = N + 1;
     const H = map.heights;
     const lx = -0.55, ly = -0.75; // light from the top-left
