@@ -9,6 +9,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)
 ![three.js](https://img.shields.io/badge/three.js-WebGL%202-black.svg)
 
+**[Play it in your browser](https://itayar.com/red-horizon/)** (single player; nothing to install)
+
 </div>
 
 Allies against Soviets: bases, ore, power and tech trees, Tesla Coils and Mammoth Tanks, navies, spies,
