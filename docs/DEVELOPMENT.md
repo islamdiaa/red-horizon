@@ -207,6 +207,24 @@ The production build is static files in `dist/`.
   [`docker/security-headers.conf`](../docker/security-headers.conf). Serve `/assets/*` as
   immutable, and `index.html` and `sw.js` with `no-cache`.
 
+### Build-time settings
+
+All optional. Set them as environment variables when building (in Vercel: Project Settings → Environment
+Variables).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `RH_BASE` | `/` | Serve from a sub-path, e.g. `/red-horizon/` ([DISTRIBUTION.md](DISTRIBUTION.md)). |
+| `RH_SITE_URL` | Vercel's production domain, if any | The public address used for absolute link-preview URLs, e.g. `https://play.example.com/`. |
+| `VITE_RELAY_URL` | the game's own origin, `relay/` | Where the multiplayer relay lives, when it isn't behind the same domain. Add its origin to the CSP's `connect-src` ([MULTIPLAYER.md](MULTIPLAYER.md#the-game-on-vercel-or-another-static-host)). |
+| `VITE_MULTIPLAYER` | on | `off` (or `false`, `0`, `no`) turns online play off. The Multiplayer menu entry, the lobby, invite links and the global leaderboards disappear, and the game never contacts a relay. Use it on a static host without a relay ([MULTIPLAYER.md](MULTIPLAYER.md#turning-online-play-off)). |
+
+For example, a static deployment without multiplayer:
+
+```bash
+VITE_MULTIPLAYER=off RH_SITE_URL=https://play.example.com/ npm run build
+```
+
 ## Test URL parameters
 
 Add these to the URL to jump straight into a situation:

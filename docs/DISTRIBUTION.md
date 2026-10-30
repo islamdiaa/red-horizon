@@ -190,6 +190,8 @@ Push the zipped `desktop/out` archives with butler to `:windows`, `:linux` and `
 1. Import the repository in Vercel. No settings are needed: the framework preset is Vite.
 2. Link previews pick up the production domain automatically. To use a custom domain in previews and share
    links, set `RH_SITE_URL=https://your.domain/` as an environment variable.
+   - Without a relay, you can remove the online features entirely with `VITE_MULTIPLAYER=off`
+     ([details](MULTIPLAYER.md#turning-online-play-off)).
 3. Vercel's Web Analytics and Speed Insights are off unless enabled in the dashboard. Leave them off: they would
    add third-party requests and need a CSP change.
 

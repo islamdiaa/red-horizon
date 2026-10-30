@@ -69,11 +69,17 @@ export function keepMathPow(): Plugin {
   };
 }
 
+/**
+ * Online play (src/config.ts MULTIPLAYER): `VITE_MULTIPLAYER=off` (or false / 0 / no) at build time turns off the
+ * multiplayer lobby, invite links and global leaderboards, for a deployment without a relay. The default is on.
+ */
+const MULTIPLAYER = !/^(off|false|0|no)$/i.test((process.env.VITE_MULTIPLAYER ?? '').trim());
+
 export default defineConfig({
   base: BASE,
   plugins: [linkPreviewMeta(), keepMathPow()],
-  // the public address share links point at from relative builds (src/share/links.ts)
-  define: { 'import.meta.env.RH_SITE_URL': JSON.stringify(siteUrl()) },
+  // the public address share links point at from relative builds (src/share/links.ts); online play on or off
+  define: { 'import.meta.env.RH_SITE_URL': JSON.stringify(siteUrl()), 'globalThis.__RH_MULTIPLAYER__': JSON.stringify(MULTIPLAYER) },
   server: {
     port: 5173,
     host: true,

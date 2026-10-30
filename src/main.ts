@@ -5,7 +5,7 @@ import { Menus, type Settings } from './ui/menu';
 import { campaignMissions } from './missions';
 import { setToastSound } from './meta';
 import { readSave, type SaveData } from './sim/save';
-import { GAME_TITLE } from './config';
+import { GAME_TITLE, MULTIPLAYER } from './config';
 import type { Faction } from './data/rules';
 import type { AIDifficulty } from './sim/ai';
 import type { TimeOfDay } from './render/renderer';
@@ -134,8 +134,9 @@ const menus = new Menus(audio, {
   openBootCamp: () => deployMission('bootcamp'),
   openEditor: () => openEditorScreen(),
   openMods: () => showMods({ play: (k) => audio.play(k), onBack: () => menus.showMain() }),
-  openMultiplayer: () => void import('./ui/lobby').then((m) => m.openLobby(lobbyHost)).catch((e) => reportError(e)),
-  backToLobby: () => void import('./ui/lobby').then((m) => { m.keepConnection(); audio.stopMusic(); startDemo(); menus.hide(); m.openLobby(lobbyHost); }).catch((e) => reportError(e)), // after a match: back to its room
+  // online play (left out of a VITE_MULTIPLAYER=off build: no menu entry)
+  openMultiplayer: MULTIPLAYER ? () => void import('./ui/lobby').then((m) => m.openLobby(lobbyHost)).catch((e) => reportError(e)) : undefined,
+  backToLobby: MULTIPLAYER ? () => void import('./ui/lobby').then((m) => { m.keepConnection(); audio.stopMusic(); startDemo(); menus.hide(); m.openLobby(lobbyHost); }).catch((e) => reportError(e)) : undefined, // after a match: back to its room
   continueInfo: () => {
     const s = latestSave();
     return s ? { label: s.game?.label ?? tMenu('main.savedGame'), savedAt: s.savedAt } : null;
@@ -379,7 +380,7 @@ async function startGame(setup: GameSetup) {
     E.attachModes(game); // KOTH HUD, branch / challenge badge, moment tracking
     E.attachVariety(game); // mutators / dynamic difficulty strip, battlefield event radio, event and tech-structure markers
     if (setup.net && !setup.replay) (await import('./net/game-link')).attachNetMatch(game, { quit: () => { menus.hide(); audio.stopMusic(); startDemo(); }, play: (k) => audio.play(k) }); // a multiplayer match: lockstep, network status, desync dialog
-    if (boardOfSetup(game.setup)) (await import('./net/leaderboard')).attachLeaderboard(game, { tainted: !!(params.get('scenario') || params.get('charge') || params.get('selfplay')), play: (k) => audio.play(k) }); // ranked runs
+    if (MULTIPLAYER && boardOfSetup(game.setup)) (await import('./net/leaderboard')).attachLeaderboard(game, { tainted: !!(params.get('scenario') || params.get('charge') || params.get('selfplay')), play: (k) => audio.play(k) }); // ranked runs
     game.start();
     if (!setup.replay) { void import('./ui/results').catch(() => {}); void import('./ui/clips').catch(() => {}); } // the end screen's chunks, ready before the match ends
   } catch (e) {
@@ -570,6 +571,7 @@ const lobbyHost: LobbyHost = {
   start: (s) => void startGame(s),
 };
 function openInvite() {
+  if (!MULTIPLAYER) return; // (a build without online play ignores invite links)
   const code = /[#&]join=([A-Za-z0-9]{6})/.exec(location.hash)?.[1];
   if (!code || (game && !game.setup.demo)) return;
   menus.hide();

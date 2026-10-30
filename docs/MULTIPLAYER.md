@@ -304,6 +304,21 @@ point the game at it:
 
 Without `VITE_RELAY_URL`, a Vercel deployment simply has no multiplayer. The menu reports that no server answers.
 
+### Turning online play off
+
+To ship a build with no online features at all, set this build-time environment variable (in Vercel: Project
+Settings → Environment Variables):
+
+```
+VITE_MULTIPLAYER=off
+```
+
+The Multiplayer menu entry, the lobby, `#join=` invite links and the global leaderboards (the Challenges hub's
+Leaderboards button and the ranked-run submission after a match) are all gone. The game sends no requests to a
+relay, and that code is never loaded. Everything else, including the daily challenge and its local scores, works
+as before. `off`, `false`, `0` and `no` all switch it off; anything else, or leaving it unset, keeps online play
+on.
+
 ### Cloudflare
 
 - **Cloudflare Tunnel** in front of the Docker setup: route the hostname to `http://red-horizon:8080` (or the host

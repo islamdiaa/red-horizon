@@ -9,6 +9,7 @@ import {
 import { currentLang, dt, fmtDate, fmtInt, fmtMoney, fmtPct, trSource } from '../i18n/core';
 import tChallenges from '../i18n/en/challenges';
 import tCommon from '../i18n/en/common';
+import { MULTIPLAYER } from '../config'; // the global leaderboards need online play
 import { SURVIVAL_VARIANTS, currentDailyDay, type SurvivalVariant } from '../missions/special';
 import { alliedEmblem, sovietEmblem } from './icons';
 import { focusTrap } from './a11y'; // Tab stays inside the screen
@@ -414,7 +415,7 @@ export function showChallenges(opts: { onDeploy(missionId: string): void; onBack
           </div>
           ${recent.length ? `<div class="chl-recent"><small>${tChallenges.html('medals.recent')}</small><div>${recent.map(({ r, def }) => `<span title="${esc(achievementTitle(def))}">${medalSvg({ metal: achievementMetal(def, r.tier - 1), picto: def.picto, category: def.category })}</span>`).join('')}</div></div>` : ''}
         </div>
-        <div class="chl-foot"><button class="chl-sbtn" data-act="back">${picto('back')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button>${opts.onProfile ? `<button class="chl-sbtn" data-act="profile">${picto('user')}<span>${tChallenges.html('foot.profile')}</span></button>` : ''}<button class="chl-sbtn" data-act="scenarios">${picto('target')}<span>${tChallenges.html('foot.scenarios')}</span></button><button class="chl-sbtn" data-act="boards">${picto('trophy')}<span>${tChallenges.html('foot.leaderboards')}</span></button></div>
+        <div class="chl-foot"><button class="chl-sbtn" data-act="back">${picto('back')}<span>${tCommon.html('back')}</span><kbd>${tCommon.html('keys.esc')}</kbd></button>${opts.onProfile ? `<button class="chl-sbtn" data-act="profile">${picto('user')}<span>${tChallenges.html('foot.profile')}</span></button>` : ''}<button class="chl-sbtn" data-act="scenarios">${picto('target')}<span>${tChallenges.html('foot.scenarios')}</span></button>${MULTIPLAYER ? `<button class="chl-sbtn" data-act="boards">${picto('trophy')}<span>${tChallenges.html('foot.leaderboards')}</span></button>` : ''}</div>
       </div>`;
     root.querySelectorAll<HTMLElement>('[data-deploy]').forEach((b) => (b.onclick = (e) => {
       e.stopPropagation();
@@ -429,7 +430,7 @@ export function showChallenges(opts: { onDeploy(missionId: string): void; onBack
     bindCoopSwitch(root, render);
     (root.querySelector('[data-act="scenarios"]') as HTMLElement).onclick = () => { opts.play('click'); close(); openScenarioChallenges(() => showChallenges(opts)); };
     // verified global leaderboards (src/ui/leaderboard.ts)
-    (root.querySelector('[data-act="boards"]') as HTMLElement).onclick = () => { opts.play('click'); close(); void import('./leaderboard').then((m) => m.showLeaderboard({ play: (k) => opts.play(k), onClose: () => showChallenges(opts) })); };
+    if (MULTIPLAYER) (root.querySelector('[data-act="boards"]') as HTMLElement).onclick = () => { opts.play('click'); close(); void import('./leaderboard').then((m) => m.showLeaderboard({ play: (k) => opts.play(k), onClose: () => showChallenges(opts) })); };
   };
 
   const timer = window.setInterval(() => {

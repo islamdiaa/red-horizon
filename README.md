@@ -89,7 +89,9 @@ docker compose up -d --build      # http://localhost:8091 (game + multiplayer re
 ```
 
 `npm run build` writes a static site to `dist/` that you can host anywhere; a `vercel.json` is included. You need
-Node.js 20.19+ (or 22.12+) and a browser with WebGL 2.
+Node.js 20.19+ (or 22.12+) and a browser with WebGL 2. On a static host without the multiplayer relay,
+`VITE_MULTIPLAYER=off npm run build` removes online play from the game entirely
+([details](docs/MULTIPLAYER.md#turning-online-play-off)).
 
 ## Under the hood
 

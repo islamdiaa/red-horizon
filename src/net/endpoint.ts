@@ -7,6 +7,8 @@
  * to its connect-src (docs/MULTIPLAYER.md).
  */
 
+import { MULTIPLAYER } from '../config';
+
 function base(): URL {
   const configured = (import.meta.env?.VITE_RELAY_URL as string | undefined)?.trim();
   if (configured) return new URL(configured.endsWith('/') ? configured : configured + '/');
@@ -39,6 +41,7 @@ let cached: { at: number; s: Promise<ServerStatus> } | null = null;
 
 /** Is a relay reachable (and does it run leaderboards)? Cached for a minute. */
 export function serverStatus(force = false): Promise<ServerStatus> {
+  if (!MULTIPLAYER) return Promise.resolve({ ok: false }); // (a build without online play never asks)
   if (!force && cached && performance.now() - cached.at < 60_000) return cached.s;
   const s = (async (): Promise<ServerStatus> => {
     try {
