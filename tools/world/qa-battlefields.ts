@@ -1,6 +1,6 @@
-// World Conquest QA: region battlefields. For every GEO region x battle kind, generate the battlefield the way a
-// world battle does (MAPS' regionBattlefield) and check what a player would notice:
-//   - generation time (contract: under 1.5 s on this host);
+// World Conquest QA: region battlefields. For every world region x battle kind, generate the battlefield the way a
+// world battle does (mapgen-region.ts regionBattlefield) and check what a player would notice:
+//   - generation time (target: under 1.5 s);
 //   - a ground path between every pair of starts (8-connected, no corner cutting, as the pathfinder moves);
 //   - ore reachable from every start (and how much, near and in all);
 //   - the landmark seals nothing: blocking its footprint loses no area beyond the footprint itself (no sealed
@@ -212,7 +212,7 @@ export async function bfOne(job: BfJob): Promise<BfResult> {
   return r;
 }
 
-/** The regions to sweep: GEO's WORLD_REGIONS once they exist, else the strategic layer's atlas (stub). */
+/** The regions to sweep: regions.ts WORLD_REGIONS when present, else the strategic layer's atlas (stub). */
 export async function sweepRegions(): Promise<{ source: string; regions: { id: string; terrain: string; climate: string; culture: string; features: string[]; landmark?: string; continent: string }[] }> {
   try {
     const m = await import('../../src/conquest/world/regions' as string) as { WORLD_REGIONS?: unknown[] };

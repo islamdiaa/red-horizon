@@ -1,5 +1,5 @@
 // World Conquest's test screens (?world=<state>) are for tests only: on a production build without ?debug=1 they must
-// not open, and they must never record a result (XP, medals) or replace the player's saved run (QA UI-1).
+// not open, and they must never record a result (XP, medals) or replace the player's saved run.
 import { sleep } from '../lib.mjs';
 
 const profileXp = (bot) => bot.page.evaluate(() => { try { return JSON.parse(localStorage.getItem('rh.profile') ?? '{}').xp ?? 0; } catch { return -1; } });

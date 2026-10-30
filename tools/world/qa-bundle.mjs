@@ -1,4 +1,4 @@
-// World Conquest QA: the bundle budget (round 6 contract: the mode is a lazy chunk; at most +5 KB gzipped on the
+// World Conquest QA: the bundle budget (the mode is a lazy chunk; at most +5 KB gzipped on the
 // initial bundle and +350 KB gzipped for the mode's JS and data). The initial bundle is what index.html loads up
 // front: its entry script, every modulepreload and the stylesheets. Sizes are `gzip -9` of each file, as
 // `gzip -c dist/assets/<chunk>.js | wc -c` measures them.

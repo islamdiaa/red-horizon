@@ -13,7 +13,7 @@ import { ensureModesCss } from './modes-css';
 import tHud from '../i18n/en/hud';
 import { currentLang, trSource } from '../i18n/core';
 
-/** A team's name for display: "Gen. Volkov & Maj. Kane" (built-in names translate) or "Team 2". (L10N) */
+/** A team's name for display: "Gen. Volkov & Maj. Kane" (built-in names translate) or "Team 2". */
 const teamLabel = (name: string): string => name.split(' & ').map(trSource).join(' & ');
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;

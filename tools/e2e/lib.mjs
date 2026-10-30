@@ -210,7 +210,7 @@ export class Bot {
   }
 
   /**
-   * Text that doesn't fit and text that isn't text yet, on what is visible now (round 4: long German and Russian
+   * Text that doesn't fit and text that isn't text yet, on what is visible now (for example long German and Russian
    * strings): an element whose own text is clipped by its box (overflow hidden / clip, or cut with an ellipsis), text
    * that leaves the window (outside any scrolling or clipping container), and a catalogue key or an unfilled
    * {placeholder} on screen. Each finding is recorded as friction ('overflow', 'offscreen', 'text') once per element

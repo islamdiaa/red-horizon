@@ -1,4 +1,4 @@
-// World Conquest region battlefields (MAPS): every battle kind on a sweep of region looks generates a fair map within
+// World Conquest region battlefields: every battle kind on a sweep of region looks generates a fair map within
 // the time budget, deterministically; landmarks are scenery that blocks like terrain; civilian buildings are empty,
 // neutral, destructible Buildings that survive save and load.
 import { describe, test } from 'node:test';
@@ -15,7 +15,7 @@ import { worldHash } from '../src/replay/hash';
 import { BUILDINGS } from '../src/data/rules';
 import { TICK_HZ } from '../src/sim/types';
 
-/** Region looks: the kinds of places GEO's regions describe (until its table lands, then every region of it). */
+/** Region looks: the kinds of places the world regions describe (a later test sweeps every region of regions.ts). */
 const LOOKS: Omit<RegionOptions, 'seed' | 'kind' | 'players' | 'strength'>[] = [
   { terrain: 'river', climate: 'desert', culture: 'middle-eastern', features: ['river', 'farmland', 'town'], landmark: 'pyramids', region: 'giza' },
   { terrain: 'urban', climate: 'temperate', culture: 'western', features: ['city', 'river'], landmark: 'eiffel-tower', region: 'paris' },
@@ -131,7 +131,7 @@ describe('World Conquest region battlefields', () => {
     assert.ok(worst < 1500, `worst ${worst.toFixed(0)} ms`);
   });
 
-  test('every GEO region x every battle kind: fair and fast (the regions of src/conquest/world/regions.ts)', async () => {
+  test('every world region x every battle kind: fair and fast (the regions of src/conquest/world/regions.ts)', async () => {
     const { WORLD_REGIONS } = await import('../src/conquest/world/regions');
     assert.ok(WORLD_REGIONS.length >= 100, `${WORLD_REGIONS.length} regions`);
     let worst = 0, n = 0;

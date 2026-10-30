@@ -63,7 +63,7 @@ const DOCK_SECONDS = 25;
 const CONVOY_SPEED = 1.15;
 /**
  * At Brutal the convoys keep close to their own pace instead of taking the enemy's speed handicap: with your boats
- * slowed by a fifth, the full one made them faster than a submarine and no plan caught them, and round 4's 1.11 with a
+ * slowed by a fifth, the full one made them faster than a submarine and no plan caught them, and an earlier 1.11 with a
  * sixth boat sat on a cliff (expert autopilot over 16 seeds: 1.05 twelve wins, 1.11 six, 1.13 two). With five boats, as
  * at Hard, the curve is gentle (32 seeds: 0.97 twenty wins, 1.0 sixteen, 1.015 fourteen, 1.03 nine; Hard sixteen).
  */

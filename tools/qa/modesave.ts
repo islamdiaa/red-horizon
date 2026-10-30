@@ -1,4 +1,4 @@
-// Save / load and replay determinism across every mode (REVIEW round 4).
+// Save / load and replay determinism across every mode.
 //   node --import tsx tools/qa/modesave.ts [--only <regex>] [--quick] [-v]      (WORKERS=n runs scenarios in parallel)
 //   node --import tsx tools/qa/modesave.ts --list
 // For each scenario: play world A to the save point with its driver (a scripted human, a campaign / Conquest

@@ -354,7 +354,7 @@ export function quickBattleSetup(o: { faction: Faction; color: number; quality: 
 /** The loading card's lines for a roll (modes/quickbattle.ts quickLines, in the active language). */
 function quickCardLines(q: QuickInfo): { label: string; value: string }[] {
   const pers = !q.rival && q.personality ? PERSONALITIES[q.personality] : undefined;
-  const opponent = pers ? personalityName(pers) : !q.rival && q.opponent === 'AI commander' ? tVar('quick.aiCommander') : trSource(q.opponent); // (L10N: a rival's call sign "Col. Volkov" translates)
+  const opponent = pers ? personalityName(pers) : !q.rival && q.opponent === 'AI commander' ? tVar('quick.aiCommander') : trSource(q.opponent); // (a rival's call sign "Col. Volkov" translates)
   const mutators = normaliseMutators(q.mutators).map((id) => mutatorName(MUTATOR_BY_ID[id]));
   return [
     { label: tVar('quick.battlefield'), value: [trSource(q.map), tVar(`quick.climate.${q.climate}`), tVar(`quick.time.${q.time}`)].join(' · ') },

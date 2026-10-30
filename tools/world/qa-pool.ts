@@ -1,5 +1,5 @@
 // A small worker pool for the World Conquest QA tools: runs `mod`'s exported `fn` over jobs on WORKERS threads
-// (default 6, the QA cap on this shared machine) and returns the results in job order.
+// (default and cap 6) and returns the results in job order.
 import { Worker } from 'node:worker_threads';
 
 /** Default output folder of the QA tools: screenshots/world-qa/ in the repository (git-ignored, like tools/e2e's). */

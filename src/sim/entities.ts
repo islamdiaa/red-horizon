@@ -4,7 +4,7 @@ import type { Player } from './player';
 import type { Order } from './types';
 import type { FormationShape, Stance } from './types';
 import type { EconTask } from './economy-data';
-import type { CivilianScenery } from './civilian'; // World Conquest (MAPS)
+import type { CivilianScenery } from './civilian'; // World Conquest
 
 export class WeaponSlot {
   cooldown = 0;     // seconds until ready

@@ -1,5 +1,5 @@
 /**
- * The seam between the World Conquest screens and the strategic layer (STRAT, src/conquest/world): every rule call
+ * The seam between the World Conquest screens and the strategic layer (src/conquest/world): every rule call
  * the screens make goes through `W`, so a change in the rules' module layout touches only this file.
  */
 import * as R from '../../conquest/world/index';

@@ -438,7 +438,7 @@ export function aftermathAI(ai: unknown) {
   const w = v.world;
   let mine: Unit[] | null = null;
   const own = () => (mine ??= w.units.filter((u) => u.alive && u.owner === p));
-  if (due(5) && !w.mission && w.time > AM_AFTER && !v.atBuildupCap?.() && !v.atArmyCap?.()) production(v, own()); // (DIFF hook: and not past the level's army cap)
+  if (due(5) && !w.mission && w.time > AM_AFTER && !v.atBuildupCap?.() && !v.atArmyCap?.()) production(v, own()); // (difficulty: and not past the level's army cap)
   if (!due(1)) return;
   const units = own();
   // build-up time: siege units, chrono hops and missile subs hold (escape jumps and mechanics carry on)
@@ -467,7 +467,7 @@ function production(v: AIView, units: Unit[]) {
     if (q.items.length > 1) continue;
     const entries = AFTERMATH_AI.filter((e) => e.queue === queue && e.faction === p.faction);
     if (!entries.length) continue;
-    let opts = entries.filter((e) => p.canBuild(e.id) && have(e.id) < e.max && aiWants(v, e.id) && !v.d?.noUnits?.includes(e.id)); // (DIFF hook: types the level never builds)
+    let opts = entries.filter((e) => p.canBuild(e.id) && have(e.id) < e.max && aiWants(v, e.id) && !v.d?.noUnits?.includes(e.id)); // (difficulty: types the level never builds)
     if (!opts.length) continue;
     // siege units (M.A.D. tank / demolition truck): one at a time, on top of the army share
     if (v.d?.siege === false) opts = opts.filter((e) => !(e.managed && e.roles.includes('siege')));

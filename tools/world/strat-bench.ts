@@ -1,4 +1,4 @@
-// World Conquest strategic benchmarks (headless, parallel; WORKERS caps the threads, default 4, STRAT's cap is 6).
+// World Conquest strategic benchmarks (headless, parallel; WORKERS caps the threads, default 4).
 //   node --import tsx tools/world/strat-bench.ts rates [--n 100] [--sizes blitz,world] [--diffs recruit,...] [--pilots zone,greedy,cautious,dice] [--skill casual] [--out f.json]
 //   node --import tsx tools/world/strat-bench.ts fair [--n 12] [--size blitz] [--diff normal] [--pilot zone] [--homes a,b]   homeland fairness
 //   node --import tsx tools/world/strat-bench.ts powers [--n 100] [--size world] [--diff normal]               how rivals fare

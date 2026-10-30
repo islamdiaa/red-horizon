@@ -8,7 +8,7 @@
 //   dice          the zone-focused plan, but every attack and defence is left to the dice
 // RTS battles are drawn from a model of the battle pilots' measured win rates in world battles (tools/world/qa-battles.ts
 // on the region battlefields; see BASE_WIN): skill newcomer | casual | auto, by battle difficulty, kind, garrison
-// strength and the troop ratio. It stands in for real battles (QA plays real ones with tools/conquest-harness.ts).
+// strength and the troop ratio. It stands in for real battles (qa-battles.ts plays real ones with tools/conquest-harness.ts).
 import { Rng } from '../../src/core/rng';
 import type { BattleKind, BattleOutcome } from '../../src/conquest/battle';
 import {
@@ -42,9 +42,8 @@ export function profileFor(run: WorldRun, pilot: PilotId): AIProfile {
 // =====================================================================================================
 /**
  * Measured win rates at garrison strength 3 (6 v 4 troops), [easy, normal, hard] per kind: World Conquest battles on
- * the region battlefields after the STRAT-3 core fix (QA runs/battles-2 + STRAT runs/qa-battles/after-core, pooled;
- * Easy holds after the lighter Easy hold guard), Europe Conquest (round 5 runs/final-cq.md) where a cell had no data
- * (defend, most boss cells).
+ * the region battlefields after the core-army fix (two qa-battles.ts runs, pooled; Easy holds after the lighter Easy
+ * hold guard), Europe Conquest (simulation version 7 measurements) where a cell had no data (defend, most boss cells).
  */
 const BASE_WIN: Record<Skill, Record<BattleKind, [number, number, number]>> = {
   newcomer: { assault: [0.97, 0.18, 0.03], capture: [0.97, 0.15, 0.03], hold: [0.95, 0.75, 0.95], defend: [0.97, 0.97, 0.75], naval: [0.95, 0.1, 0.15], boss: [0.8, 0.04, 0.02] },

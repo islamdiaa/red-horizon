@@ -21,7 +21,7 @@ import { activeModSet, showModBadge, showMods } from './mods'; // mods
 import { saveRun, loadRun } from './conquest/storage';
 import type { BattleKind, ConquestSetup } from './conquest/battle';
 import { showQuickCard } from './ui/variety';
-import { isWorldBattle, worldBadge, worldLinkPending } from './ui/world/entry'; // World Conquest (UI hook: the mode itself is the src/ui/world chunk)
+import { isWorldBattle, worldBadge, worldLinkPending } from './ui/world/entry'; // World Conquest (the mode itself is the src/ui/world chunk)
 import './ui/doctrine-picker'; // registers the doctrine picker in the skirmish Rules tab
 import type { LobbyHost } from './ui/lobby'; // multiplayer lobby (loaded on demand)
 import { boardOfSetup, portableMathFor, withPortableFlag } from './net/boards'; // multiplayer and ranked runs: portable maths, verified leaderboards
@@ -49,13 +49,13 @@ function engine(): Promise<Engine> {
 }
 
 document.title = GAME_TITLE;
-const support = await checkSupportRetrying(); // before anything creates a WebGLRenderer (LAB: retried, a cold GPU process can fail the first try)
+const support = await checkSupportRetrying(); // before anything creates a WebGLRenderer (retried, a cold GPU process can fail the first try)
 if (!support.ok) {
   document.getElementById('loading')?.remove();
   renderUnsupported(support);
   throw new Error(`WebGL 2 unavailable: ${support.reason}`);
 }
-showSlowRendererNotice(support); // LAB: no graphics card in use (software rendering): say why it is slow and how to fix it
+showSlowRendererNotice(support); // no graphics card in use (software rendering): say why it is slow and how to fix it
 // first launch: pick a quality preset that suits this GPU (must run before the menus read settings)
 try {
   if (!new URLSearchParams(location.search).get('autostart') && !JSON.parse(localStorage.getItem('rh.settings') ?? '{}').quality) saveSettings({ ...loadSettings(), quality: await detectQuality() });
@@ -127,7 +127,7 @@ const menus = new Menus(audio, {
   openCampaign: () => openCampaign(),
   openConquest: () => openConquest(),
   conquestInfo: () => { const r = loadRun(); return r && r.status === 'active' ? tMenu('main.conquestTurn', { n: r.turn }) : null; },
-  openWorld: () => openWorld(), // World Conquest (UI hook)
+  openWorld: () => openWorld(), // World Conquest
   worldInfo: () => { const b = worldBadge(); return b ? tMenu('main.conquestTurn', { n: b.turn }) : null; },
   openChallenges: () => openChallenges(),
   openProfile: () => openProfile(),
@@ -216,7 +216,7 @@ function deployConquest(c: ConquestSetup) {
 }
 
 /**
- * World Conquest (UI hook; src/ui/world, its own chunk): the Risk-style world campaign. The globe gets the GPU to
+ * World Conquest (src/ui/world, its own chunk): the Risk-style world campaign. The globe gets the GPU to
  * itself (the menu backdrop stops, as for the editor); its battles go through deployConquest like Conquest's.
  */
 function openWorld(demo?: string) {
@@ -336,7 +336,7 @@ async function startGame(setup: GameSetup) {
         if (g.setup.replay) return; // replay playback shows its own end panel
         g.paused = true;
         if (E.modesOnEnd(g, won)) return; // challenge result screen · mode medals
-        if (g.setup.conquest && isWorldBattle(g.setup.conquest)) { // World Conquest (UI hook): the battle's results, then the globe
+        if (g.setup.conquest && isWorldBattle(g.setup.conquest)) { // World Conquest: the battle's results, then the globe
           const conquest = g.setup.conquest;
           void import('./ui/world').then(({ showWorldAfterBattle }) => showWorldAfterBattle(g.world, conquest, {
             play: (k) => audio.play(k),
@@ -489,7 +489,7 @@ if (params.get('autostart') && params.get('conquest')) {
   // ?autostart=1&conquest=assault|capture|hold|defend|naval|boss[&seed=N&faction=soviet]: a conquest battle of a fresh run
   void import('./conquest/testing').then(async ({ runWithBattle }) => {
     const { run, setup } = runWithBattle(numParam('seed', 7, 0, 0x7fffffff) | 0, (params.get('faction') as Faction) ?? 'allies', params.get('conquest') as BattleKind);
-    if (params.get('region')) await (await import('./maps/region-test')).useRegion(setup.battle, params.get('region')!); // &region=<id>: that World Conquest region's battlefield (MAPS)
+    if (params.get('region')) await (await import('./maps/region-test')).useRegion(setup.battle, params.get('region')!); // &region=<id>: that World Conquest region's battlefield
     saveRun(run);
     deployConquest(setup);
   });
@@ -546,7 +546,7 @@ if (params.get('conquest') && !params.get('autostart')) {
   setTimeout(wait, 100);
 }
 
-// World Conquest (UI hook): challenge links (#world=<seed>&home=…) and the test switch ?world=<screen> (new, options,
+// World Conquest: challenge links (#world=<seed>&home=…) and the test switch ?world=<screen> (new, options,
 // fresh, attack, …: src/ui/world/index.ts runDemo) open the world screens once the main menu is up
 if (worldLinkPending() && !params.get('autostart')) {
   const t0 = performance.now();

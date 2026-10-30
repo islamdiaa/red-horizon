@@ -1,8 +1,10 @@
 # Security policy
 
-Red Horizon is a static, single-player web game. It has no server, no accounts and no analytics.
-Settings, saves, replays, custom maps and mods stay in the player's own browser (localStorage and
-IndexedDB). The production build makes no requests to third-party hosts.
+Red Horizon is a static web game. It has no accounts and no analytics. Settings, saves, replays,
+custom maps and mods stay in the player's own browser (localStorage and IndexedDB). The production
+build makes no requests to third-party hosts. Online multiplayer and the leaderboards are optional and
+go through a small relay (`server/`) that whoever hosts the game runs themselves; it stores no
+accounts or personal data.
 
 The attack surface is the content a player can load: map, mission, mod, challenge, replay and save
 files, plus URL parameters. All of these are treated as untrusted.
@@ -36,10 +38,11 @@ In scope:
 - a crafted file that permanently breaks the game, for example by corrupting stored data so it no
   longer starts;
 - bypasses of the Content-Security-Policy in the shipped server configurations;
-- problems in the service worker (cache poisoning, serving stale code).
+- problems in the service worker (cache poisoning, serving stale code);
+- the multiplayer relay (`server/`): crashing it, bypassing its rate and size limits, reading another
+  room's traffic, or getting a forged score past leaderboard verification.
 
 Out of scope:
-- cheating in this single-player game, including via the browser console or the `?debug` test
-  hooks;
+- cheating in single-player modes, including via the browser console or the `?debug` test hooks;
 - a crafted file that only makes a single match slow;
 - missing headers on a third-party host you deployed to yourself.

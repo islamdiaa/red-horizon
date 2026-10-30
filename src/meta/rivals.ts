@@ -20,7 +20,7 @@ import { defaultStorage, type KV } from './profile';
 import { flatten, format, trSource, tx, type Params } from '../i18n/core';
 import { formatMessage } from '../i18n/format';
 import tRivals, { RIVAL_SRC, TAUNT_TEXT } from '../i18n/en/rivals';
-import { personName } from '../i18n/en/players'; // (L10N: rival names in Russian / Chinese script)
+import { personName } from '../i18n/en/players'; // (rival names in Russian / Chinese script)
 
 // The rival logic stores and compares English (rh.rivals, the skirmish setup and its replays): the display helpers at
 // the end of this file (rivalText, rivalRankLabel, rivalDisplayName...) translate it.

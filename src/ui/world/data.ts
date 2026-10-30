@@ -1,7 +1,7 @@
 /**
- * The world geography as the screens see it: the atlas the rules build runs from (regions, zones, homelands; GEO's
- * data once registered), the land outline, and the globe's sites for a view: every region (the setup screen) or a
- * run's map. With GEO's geography the globe uses its cell raster, so the cells on screen are the rules' cells (they
+ * The world geography as the screens see it: the atlas the rules build runs from (regions, zones, homelands; the real
+ * geography once registered), the land outline, and the globe's sites for a view: every region (the setup screen) or a
+ * run's map. With the real geography the globe uses its cell raster, so the cells on screen are the rules' cells (they
  * never jump a sea) and a Blitz run's other territories keep their World shapes, dimmed.
  */
 import type { WorldHomeland, WorldRegion, WorldZone } from '../../conquest/world/types';
@@ -45,7 +45,7 @@ function landOutline(): GlobeWorld['land'] {
   return (land ??= landRings().map((r) => r.ring.map(([lon, lat]) => [lon, lat] as [number, number])));
 }
 
-/** Whether region ids come from GEO's data (its cells and raster apply). */
+/** Whether region ids come from the real geography (its cells and raster apply). */
 function geoKnows(ids: readonly string[]): boolean {
   return ids.length > 0 && ids.every((id) => !!REGION_BY_ID[id]);
 }

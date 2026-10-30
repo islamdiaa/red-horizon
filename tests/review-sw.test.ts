@@ -1,4 +1,4 @@
-// REVIEW round 5: public/sw.js with an update waiting. The active (old) worker serves a reload while a newer worker
+// public/sw.js with an update waiting. The active (old) worker serves a reload while a newer worker
 // has installed and waits for SKIP_WAITING (applied on the main menu): its navigate() used to delete the waiting
 // worker's precache, and the new worker, once active, never cached the shell again: every offline start showed the
 // "not cached yet" page until the next deploy.

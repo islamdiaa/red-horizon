@@ -64,7 +64,7 @@ export interface GlobeWorld {
   land: Array<Array<[number, number]>>;
   landRule?: 'evenodd' | 'nonzero';
   /**
-   * The rules' cell raster (GEO's WorldMap.raster: equirectangular, row 0 = north; site index, -1 sea, -2 land of
+   * The rules' cell raster (geo.ts WorldMap.raster: equirectangular, row 0 = north; site index, -1 sea, -2 land of
    * nobody). When given, a texel's candidates are the labels of its 3x3 neighbourhood (cells never jump a sea, as in
    * the rules) and the exact bisector between them is still found per fragment; without it, plain nearest sites.
    */

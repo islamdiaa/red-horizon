@@ -1,4 +1,4 @@
-// Conquest on an Easy run: sea battles land with a harbour, the capital is a smaller fortress (round 4, CAMP).
+// Conquest on an Easy run: sea battles land with a harbour, the capital is a smaller fortress.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runWithBattle } from '../src/conquest/testing';

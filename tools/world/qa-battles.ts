@@ -17,7 +17,7 @@ export interface BattleRun extends BattleJob { kind: string; won: boolean; ended
 /** One world battle, set up and played (the worker entry point). */
 export async function battleOne(j: BattleJob): Promise<BattleRun> {
   const t0 = performance.now();
-  const W = await import('../../src/conquest/world/index'); // (the barrel registers GEO's geography)
+  const W = await import('../../src/conquest/world/index'); // (the barrel registers the real geography)
   const { runConquestBattle } = await import('../conquest-harness');
   const out: BattleRun = { ...j, kind: '', won: false, ended: false, time: 0, reason: null, strength: 0, ai: '', mapSize: 0, landmark: null, ms: 0 };
   try {

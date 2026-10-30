@@ -1,4 +1,4 @@
-// World Conquest QA: random-policy fuzz of the strategic layer (round 6 contract: "no softlocks ... at least 2,000
+// World Conquest QA: random-policy fuzz of the strategic layer (the goal: "no softlocks ... at least 2,000
 // random-policy runs, every homeland included"). Each run starts a world from one homeland, size and difficulty and
 // plays the human's side with a seeded random policy over legalActions() (placing, trading, attacking by one roll,
 // a blitz or an RTS battle with a made-up result, moving in, fortifying, ceasefires, defence choices, ending phases
@@ -19,7 +19,7 @@ import type { WorldRun, WorldEvent } from '../../src/conquest/world/state';
 
 export type Api = typeof import('../../src/conquest/world/index');
 let API: Api | null = null;
-/** The strategic API (the barrel: it registers GEO's geography as the atlas). */
+/** The strategic API (the barrel: it registers the real geography as the atlas). */
 export async function api(): Promise<Api> { return (API ??= await import('../../src/conquest/world/index')); }
 
 export interface FuzzJob { home: string; size: 'world' | 'blitz'; difficulty: string; seed: number; policy: number; fight: number; /** 0..1: share of decisions made sensibly (auto-placement, the best attack while its odds are good) */ skill?: number; /** keep the action trace (debug) */ trace?: boolean }
@@ -106,7 +106,7 @@ function ledger(events: WorldEvent[]) {
   return { dT, dC, battle };
 }
 
-/** A made-up RTS result for the fight route (the battle itself is QA's battlefield tools' job). */
+/** A made-up RTS result for the fight route (the battle itself is the battlefield tools' job). */
 function fakeOutcome(spec: { id: string; core?: { vet: number; rank: number; xp: number }[] }, rng: Rng) {
   const won = rng.next() < 0.6;
   return {
@@ -241,7 +241,7 @@ export function policyStep(W: Api, run: WorldRun, rng: Rng, job: Pick<FuzzJob, '
     if (!n) viol(`tradeCards refused a legal set ${pick.cards.join(',')}`);
     else events = [{ kind: 'trade', power: 0, cards: [], n }];
   } else {
-    // the generic dispatcher (its events are checked only while the diary is under its cap: NOTE FOR STRAT)
+    // the generic dispatcher (its events are checked only while the diary is under its cap)
     if (pick.type === 'trade') res.trades++;
     const a = withAmount(pick, rng);
     note = JSON.stringify(a);
@@ -287,7 +287,7 @@ function withAmount(a: Act, rng: Rng): Act {
   return a;
 }
 
-/** Every homeland a run can start from (GEO's WORLD_HOMELANDS once it lands, else the strategic layer's own list). */
+/** Every homeland a run can start from (the atlas's homelands when present, else the strategic layer's own list). */
 export function worldHomelandIds(W: Api): string[] {
   const w = W as unknown as Record<string, unknown>;
   const at = (w.atlas as (() => { homelands?: { id: string }[] }) | undefined)?.();

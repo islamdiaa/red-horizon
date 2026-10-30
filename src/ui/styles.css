@@ -1783,7 +1783,7 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
 }
 @media (pointer: coarse) {
   /* settings: finger-height segmented choices, and volume / interface-size sliders a finger can grab (they were
-     18 px tall with a 14 px knob: LAB's phone runs) */
+     18 px tall with a 14 px knob in the phone test runs) */
   .settings-panel .seg button { height: 2.6rem; }
   .slider { height: 2.6rem; }
   .slider::-webkit-slider-thumb { width: 1.6rem; height: 1.6rem; margin-top: -0.625rem; }
@@ -1805,7 +1805,7 @@ body.hud-modern .rp-seek, body.hud-modern .rp-end { bottom: calc(var(--edge) * 2
   html body.hud-modern.touch-ui .hint { left: calc(var(--edge) + 6.9rem); max-width: 19rem; }
   /* radio transmissions: beside the touch toolbar, not over it */
   html body.hud-modern .rv-tx, html body.hud-modern .mh-tx { left: calc(var(--edge) + 6.9rem); width: min(26rem, calc(100vw - 7.6rem - 11.6rem - var(--edge) * 3)); }
-  /* a mission (LAB's phone runs, 796x306): the checklist is capped (it scrolls) so the toolbar keeps its place under it;
+  /* a mission (a 796x306 phone): the checklist is capped (it scrolls) so the toolbar keeps its place under it;
      the Field Manual moves to the right column under the resource bar, above the toolbar (it sat on the build bar and
      the toolbar covered its x); the mission radio goes between the checklist and the Field Manual */
   html body.hud-modern.touch-ui .mh-obj { max-height: 34vh; overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }

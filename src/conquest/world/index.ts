@@ -4,7 +4,7 @@
  *   run.ts        the public API: newWorldRun, legal actions, placing, cards, attacks, fortify, turns (+ re-exports)
  *   state.ts      the WorldRun JSON and shared helpers · rules.ts the rules · dice.ts / odds.ts Risk dice and odds
  *   powers.ts     the rival AI · diplomacy.ts ceasefires · resolve.ts the RTS route (BattleSpec.world)
- *   atlas.ts      the geography a run is built from (GEO's regions, or stub-geo.ts) · score.ts · link.ts · storage.ts
+ *   atlas.ts      the geography a run is built from (regions.ts, or stub-geo.ts) · score.ts · link.ts · storage.ts
  * Types shared with the geography, battlefields and screens: types.ts.
  */
 export * from './run';

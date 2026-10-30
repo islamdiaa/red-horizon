@@ -489,7 +489,7 @@ def hull_shade(m, p, x0, x1, deck_y, half_w, side_y=None, fenders=None, shade=TE
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Soviet camera-first dress (coordinator-approved STYLE exception: team red on up to ~35% of the hull top)
+# Soviet camera-first dress (a deliberate STYLE exception: team red on up to ~35% of the hull top)
 
 OLIVE_DECK = 0x9ca86c   # light olive on decks / roofs (separates from snow AND dark ground)
 OLIVE_SIDE = 0x56603a   # darker olive on hull sides

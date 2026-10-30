@@ -1,4 +1,4 @@
-// ARCH contact sheets on the real-GPU rig: every landmark and every civilian style at the default RTS zoom (camera
+// Landmark contact sheets on the real-GPU rig: every landmark and every civilian style at the default RTS zoom (camera
 // distance 26), per quality preset, in the real game renderer (lighting, shadows, post). Needs a Vite DEV server
 // (the page imports the modules by path): `npx vite --config tools/vite.<id>.config.ts`.
 //   node tools/world/arch-sheet.mjs <dev-url> <landmarks|civ|night|all> [presets=low,high] [outDir=/out] [only=id,id]

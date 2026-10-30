@@ -1,8 +1,8 @@
 /**
- * How hard each homeland's start is, measured: the share of test campaigns won from it. Source: STRAT's final
- * homeland-fairness runs (round 6, runs/final2/fair-world.md and fair-blitz.md): Normal difficulty, the zone-focused
- * pilot (casual skill), 20 seeds per homeland and size; overall World 63%, Blitz 51%. Re-measure and update this table
- * when the rules or the map change (tools/world/strat-*.ts fairness run).
+ * How hard each homeland's start is, measured: the share of test campaigns won from it. Source: the homeland-fairness
+ * runs of the strategic benchmarks (World and Blitz): Normal difficulty, the zone-focused pilot (casual skill), 20 seeds
+ * per homeland and size; overall World 63%, Blitz 51%. Re-measure and update this table when the rules or the map
+ * change (tools/world/strat-*.ts fairness run).
  */
 export type StartRating = 'easy' | 'medium' | 'hard';
 

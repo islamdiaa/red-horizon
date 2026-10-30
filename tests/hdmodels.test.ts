@@ -10,7 +10,7 @@ import { MODULE_MODEL_IDS } from '../src/render/models/commander-structures'; //
 
 const DIR = join(import.meta.dirname, '..', 'public', 'models');
 const MAN = join(DIR, 'manifest.json');
-/** Contract budgets (bytes) with a little slack on triangles (build.mjs warns at the exact limits). */
+/** Model budgets (bytes) with a little slack on triangles (build.mjs warns at the exact limits). */
 const BUDGET: Record<string, { bytes: number; tris: number }> = {
   structure: { bytes: 1_000_000, tris: 9000 }, defense: { bytes: 1_000_000, tris: 9000 }, naval: { bytes: 1_000_000, tris: 9000 },
   vehicle: { bytes: 400_000, tris: 5500 }, aircraft: { bytes: 400_000, tris: 5500 }, infantry: { bytes: 250_000, tris: 3000 },

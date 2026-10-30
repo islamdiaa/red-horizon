@@ -24,7 +24,7 @@ import { quickSkill } from '../modes/quickbattle';
 import { currentLang, fmtNum, fmtPct } from '../i18n/core';
 import { personalityBlurb, personalityName, typeName } from '../i18n/names';
 import tRivals from '../i18n/en/rivals';
-import { personName, playerName as shownName } from '../i18n/en/players'; // (L10N: rival names in Russian / Chinese script; the default "Commander")
+import { personName, playerName as shownName } from '../i18n/en/players'; // (rival names in Russian / Chinese script; the default "Commander")
 
 const CSS = `
 .rv { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: 1rem; padding: 4vh 4vw; overflow: hidden;

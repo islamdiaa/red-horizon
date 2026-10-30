@@ -1,4 +1,4 @@
-// King of the Hill against each AI level, played by DIFF's human stand-ins (tools/selfplay/standin.ts, used as they are)
+// King of the Hill against each AI level, played by the human stand-ins (tools/selfplay/standin.ts, used as they are)
 // plus the one thing the mode asks of a player: send idle troops to the hill.
 //   node --import tsx tools/campaign-koth.ts [--levels recruit,easy,normal,hard,brutal] [--players newcomer,casual] [--seeds 8]
 //        [--size 64,96] [--minutes 5] [--rules commander|classic] [--out file.json]

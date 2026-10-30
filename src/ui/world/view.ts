@@ -29,7 +29,7 @@ export const hex = (c: number) => `#${(c & 0xffffff).toString(16).padStart(6, '0
 export { fmtInt };
 export const pct = (p: number) => fmtPct(Math.max(0, Math.min(1, p)), 0);
 
-/** Place names: GEO's names table (translated), the atlas's English for the stub geography. */
+/** Place names: the geography's names table (translated), the atlas's English for the stub geography. */
 export function territoryName(id: string): string {
   if (REGION_BY_ID[id]) return G.regionName(id);
   const g = geography(), i = g.byId.get(id);

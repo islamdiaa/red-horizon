@@ -11,7 +11,7 @@
  * mission alerts only, as the Hints panel does in a mission.
  *
  * --respond none,coached plays each skirmish twice on the same seed: as it is (the stand-in ignores the Field Manual)
- * and with a stand-in that also does what the round-4 alerts say, the way the UI newcomer (tools/e2e/profiles.mjs)
+ * and with a stand-in that also does what the bank reminder and close-out alerts say, the way the UI newcomer (tools/e2e/profiles.mjs)
  * does: the bank reminder -> loop a rifleman and a tank (Alt-click), then a second War Factory; the close-out alert ->
  * every armed unit attack-moves to the first structure it points at (each time it comes). The table then also shows
  * timeouts, the share of the time with $1,000+ in the bank (the matrix's "idle $ %"), and when close-out first came.
@@ -36,7 +36,7 @@ const minutes = +arg('minutes', '30');
 // 'bank' / 'close': the coached stand-in following only the bank reminder / only the close-out alert
 const responds = arg('respond', 'none').split(',') as ('none' | 'coached' | 'bank' | 'close')[];
 
-/** A stand-in that also follows the round-4 alerts (see the header). */
+/** A stand-in that also follows the bank reminder and close-out alerts (see the header). */
 class Coached {
   private loop = false;
   private factory2 = false;

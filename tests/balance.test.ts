@@ -1,4 +1,4 @@
-// Balance pass (wave 2): simulation version stamps, bunker firing slits, the Allied AI's own tools.
+// Balance pass (simulation version 2): simulation version stamps, bunker firing slits, the Allied AI's own tools.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { SIM_VERSION, LEGACY_SIM_VERSION, otherSimVersion, simVersionOf } from '../src/sim/version';

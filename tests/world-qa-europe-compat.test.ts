@@ -1,5 +1,5 @@
-// World Conquest QA: the Europe Conquest stays playable and its saved runs keep loading (round 6 contract). The
-// fixture holds two runs saved by round 5 (simulation version 7, tools/world/fixtures/europe-run-v7.json): one
+// World Conquest QA: the Europe Conquest stays playable and its saved runs keep loading. The
+// fixture holds two runs saved by simulation version 7 (tools/world/fixtures/europe-run-v7.json): one
 // between battles, one with a battle committed (a player who quit mid-battle resumes it).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,7 +18,7 @@ const win = (spec: { id: string; core: { vet: number; rank: number; xp: number }
   survivors: spec.core.map((c) => ({ vet: c.vet, rank: c.rank, xp: c.xp + 100 })), recruits: [], kills: 20, losses: 4, superweaponDestroyed: false,
 });
 
-test('a round-5 Europe Conquest run between battles loads and plays on', () => {
+test('a version-7 Europe Conquest run between battles loads and plays on', () => {
   const run = loadRun(kvWith(FIX.idle) as never);
   assert.ok(run, 'the saved run loads');
   assert.equal(run!.status, 'active', 'still active');
@@ -31,7 +31,7 @@ test('a round-5 Europe Conquest run between battles loads and plays on', () => {
   assert.ok(saveRun(run!, kvWith(null) as never), 'and saves again');
 });
 
-test('a round-5 Europe Conquest run saved mid-battle resumes that battle', () => {
+test('a version-7 Europe Conquest run saved mid-battle resumes that battle', () => {
   const run = loadRun(kvWith(FIX.pending) as never);
   assert.ok(run, 'the saved run loads');
   const setup = pendingSetup(run!);

@@ -1,4 +1,4 @@
-// REVIEW round 5: surrender (src/sim/resign.ts) with the AI that takes a side over. A human who surrendered while a
+// Surrender (src/sim/resign.ts) with the AI that takes a side over. A human who surrendered while a
 // teammate played on hands the side to the AI; when the side is later beaten with nobody left on it, that AI concedes
 // for it (ai.ts lastStand), which used to be ignored because the player had surrendered already: the side's last Ore
 // Trucks or a disguised spy kept a finished 2v2 going for many minutes.

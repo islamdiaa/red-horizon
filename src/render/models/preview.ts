@@ -1,5 +1,5 @@
 /**
- * Model preview page (preview-models.html).
+ * Model preview page (dev/preview-models.html).
  * URL params:
  *   ids=1tnk,2tnk      subset of ids (default: all)
  *   zoom=2             closer camera (divides distance)

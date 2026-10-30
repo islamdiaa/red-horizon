@@ -1,4 +1,4 @@
-// Unit behaviour a player relies on (round 3 audit, tools/qa/behave.ts and tools/qa/waves.ts have the scenarios with
+// Unit behaviour a player relies on (from an audit; tools/qa/behave.ts and tools/qa/waves.ts have the scenarios with
 // numbers): return fire while busy with a structure, moves that keep trying through a jam, formations that a straggler
 // can't hold back for a whole trip, and the Service Depot queue.
 import { test, describe } from 'node:test';

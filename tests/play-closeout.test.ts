@@ -1,5 +1,5 @@
 /**
- * PLAY (round 4): coaching that helps a newcomer finish a match they are winning and spend their money
+ * Coaching that helps a newcomer finish a match they are winning and spend their money
  * (src/ui/coach.ts: the enemy structures the player has seen, the close-out alert, the bank reminder, alerts that
  * repeat at Recruit and Easy only), and the Classic layout's fallback on small windows (src/ui/layout-fit.ts).
  */
@@ -155,7 +155,7 @@ describe('the Classic layout on small windows (src/ui/layout-fit.ts)', () => {
   });
 });
 
-describe('when coaching applies (REVIEW round 4)', () => {
+describe('when coaching applies', () => {
   test('not for a side that surrendered or that an AI runs', () => {
     const { world: w, p0 } = sandbox({ w: 48, h: 48 });
     assert.equal(coachMode(w, p0), true, 'a skirmish player is coached');
@@ -187,7 +187,7 @@ describe('when coaching applies (REVIEW round 4)', () => {
   });
 });
 
-describe('no hidden information against people (coordinator, round 4)', () => {
+describe('no hidden information against people', () => {
   /** A won position (ten tanks against two riflemen, the enemy earning far more): the alerts raised over 20 minutes. */
   const run1v1 = (enemyAI: AIDifficulty | undefined) => {
     const { world: w, p0, p1 } = sandbox({ w: 64, h: 64, ai: [undefined, enemyAI] });

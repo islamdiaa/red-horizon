@@ -128,7 +128,7 @@ export function trRun(text: string): string {
       const m = p.re.exec(text);
       if (!m) continue;
       const params: Params = {};
-      p.names.forEach((n, i) => { params[n] = resolveParamOf(p.key, n, m[i + 1]) ?? trParam(m[i + 1]); }); // (L10N: call signs in {vet} {a} {b} {c})
+      p.names.forEach((n, i) => { params[n] = resolveParamOf(p.key, n, m[i + 1]) ?? trParam(m[i + 1]); }); // (call signs in {vet} {a} {b} {c})
       out = tx(p.key, params);
       break;
     }

@@ -1,10 +1,10 @@
-// World Conquest QA: region battlefields against skirmish maps of the same size on the real GPU (round 6 contract:
+// World Conquest QA: region battlefields against skirmish maps of the same size on the real GPU (the goal:
 // "Battles are no slower than today's skirmish maps of the same size"). Runs in the gpu-rig container:
 //
 //   $RIG tools/world/qa-battle-perf.mjs http://127.0.0.1:5326/ [presets=low] [units=150] [views=centre,start] [outDir=/out]
 //
 // Maps: generated 64-cell skirmish maps in each climate (the baseline) and World Conquest region battles (src/main.ts
-// ?autostart=1&conquest=<kind>&region=<id>, MAPS' test hook) with cities, towns, landmarks, jungle. In each, the
+// ?autostart=1&conquest=<kind>&region=<id>, the region test hook) with cities, towns, landmarks, jungle. In each, the
 // same 150-unit battle is added (tools/xb/probe-core.mjs setupBattle) and measured from two views: the map centre at
 // the default zoom (`centre`) and the human's starting view (`start`: the region's landmark framing). Per map:
 //   fps      free-running frame rate of the game's own loop at a fixed 100 % render scale (6 s)

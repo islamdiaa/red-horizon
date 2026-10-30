@@ -33,7 +33,7 @@ export const LANDMARK_FOOTPRINTS: Record<LandmarkId, LandmarkFootprint> = {
   'harbour-bridge': { w: 14, h: 3 },
 };
 
-/** Model heights (world units) the models are built to (ARCH: every one <= 7.6): the start camera frames them. */
+/** Model heights (world units) the models are built to (every one <= 7.6): the start camera frames them. */
 export const LANDMARK_HEIGHTS: Record<LandmarkId, number> = {
   'eiffel-tower': 7.3, 'big-ben': 7, 'tower-bridge': 5, colosseum: 2.3, 'leaning-tower': 5, parthenon: 2.6, 'brandenburg-gate': 2.6,
   'st-basils': 5, 'winter-palace': 1.8, neuschwanstein: 6, 'dutch-windmills': 3, matterhorn: 7, 'galata-tower': 5, alhambra: 2.5,

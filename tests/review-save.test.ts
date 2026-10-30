@@ -1,4 +1,4 @@
-// REVIEW round 4: save / load regressions found by tools/qa/modesave.ts (every mode saved mid-match must continue
+// Save / load regressions found by tools/qa/modesave.ts (every mode saved mid-match must continue
 // exactly as the uninterrupted game).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

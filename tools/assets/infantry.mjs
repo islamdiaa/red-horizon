@@ -126,7 +126,7 @@ async function main() {
   try {
     if (mode === 'sheet') {
       const q = opt('--q', 'type=e1&fac=soviet');
-      await page.goto(`http://localhost:${port}/preview-infantry.html?${q}`, { waitUntil: 'load', timeout: 600000 });
+      await page.goto(`http://localhost:${port}/dev/preview-infantry.html?${q}`, { waitUntil: 'load', timeout: 600000 });
       await page.waitForFunction(() => (window.__infReady ?? 0) > 2, null, { timeout: 600000 });
       await page.waitForTimeout(wait);
       await page.screenshot({ path: out, timeout: 300000 });

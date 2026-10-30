@@ -37,7 +37,7 @@ export interface TeamsProbe {
 }
 
 /**
- * 'ai': what each skirmish AI thinks and does (round 4 diagnosis of the Classic levels): every 30 s its army (all, and
+ * 'ai': what each skirmish AI thinks and does (a diagnosis of the Classic levels): every 30 s its army (all, and
  * idle at home), the enemies' true land army, its own estimate of it (Classic, ai-engage.ts), what its next wave would
  * need, its state; every wave it launched (value, how it ended, what it killed and lost); Ore Trucks it lost and where.
  */

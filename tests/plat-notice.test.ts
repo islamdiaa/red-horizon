@@ -1,4 +1,4 @@
-// LAB (round 4): a browser drawing WebGL without the graphics card (hardware acceleration off, a blocklisted driver,
+// A browser drawing WebGL without the graphics card (hardware acceleration off, a blocklisted driver,
 // a VM) ran the game at 0.3-0.7 fps with its clock at 3-4 % of real time and a frozen loading screen for minutes,
 // and nothing told the player why. src/platform/webgl.ts now recognises it and shows a dismissible notice.
 import { test } from 'node:test';
@@ -44,7 +44,7 @@ test('the notice text exists in English and every locale', () => {
   }
 });
 
-// LAB (round 4, found by MP in the net lab): on a cold start, Chrome and Edge on Windows (Direct3D 11) sometimes fail the
+// Found in the net lab: on a cold start, Chrome and Edge on Windows (Direct3D 11) sometimes fail the
 // first WebGL 2 context (2 of ~8 first launches after a long idle) and the player got the "can't start" page. The
 // check now retries on a fresh canvas after 0.5 s and 1.5 s before giving up.
 const failed = (msg: string): SupportResult => ({ ok: false, reason: 'context-failed', message: 'x', detail: msg, warnings: [] });

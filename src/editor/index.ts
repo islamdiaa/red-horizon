@@ -121,7 +121,7 @@ const typeOptions = (kind: 'unit' | 'structure') => {
   for (const t of Object.values(table)) {
     if (kind === 'unit' && (t as { supportPlane?: boolean }).supportPlane) continue;
     if (kind === 'structure' && ((t as { mine?: string }).mine)) continue;
-    if (kind === 'structure' && (t as { civilian?: boolean }).civilian) continue; // (World Conquest civilian buildings: region battlefields only, MAPS)
+    if (kind === 'structure' && (t as { civilian?: boolean }).civilian) continue; // (World Conquest civilian buildings: region battlefields only)
     const g = t.owner.length > 1 ? 'shared' : t.owner[0] === 'allies' ? 'allied' : 'soviet';
     groups[g].push([t.id, typeName(t)]);
   }

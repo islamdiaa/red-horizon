@@ -82,24 +82,24 @@ function liberty(k: LCtx): void {
     const o: V3 = [0, sh + 0.28, 0.03];
     s.beam(o, [o[0] + dir[0] * 0.34, o[1] + dir[1] * 0.34, o[2] + dir[2] * 0.34], hi ? 0.055 : 0.07, hi ? 0.03 : 0.045);
   }
-  // right arm raised high with the torch
-  const shoulderR: V3 = [0.22, sh - 0.04, 0.02];
-  const elbowR: V3 = [0.34, sh + 0.42, 0.0];
-  const handR: V3 = [0.37, sh + 0.86, 0.02];
+  // right arm raised high with the torch (she faces +z, so her right is -x: the torch on the viewer's left)
+  const shoulderR: V3 = [-0.22, sh - 0.04, 0.02];
+  const elbowR: V3 = [-0.34, sh + 0.42, 0.0];
+  const handR: V3 = [-0.37, sh + 0.86, 0.02];
   s.beam(shoulderR, elbowR, 0.14);
   s.beam(elbowR, handR, 0.12);
   s.ngon(handR[0], handR[1] - 0.04, handR[2], 0.045, 0.05, 0.32, 6); // torch handle
   s.frustum(handR[0], handR[1] + 0.28, handR[2], 0.09, 0.09, 0.22, 0.22, 0.09); // the flame's cup and balcony
   // left arm bent, holding the tablet against her side
-  const shoulderL: V3 = [-0.22, sh - 0.06, 0.02];
-  const elbowL: V3 = [-0.31, sh - 0.45, 0.1];
-  const handL: V3 = [-0.24, sh - 0.3, 0.28];
+  const shoulderL: V3 = [0.22, sh - 0.06, 0.02];
+  const elbowL: V3 = [0.31, sh - 0.45, 0.1];
+  const handL: V3 = [0.24, sh - 0.3, 0.28];
   s.beam(shoulderL, elbowL, 0.13);
   s.beam(elbowL, handL, 0.11);
-  s.boxR(-0.27, sh - 0.72, 0.24, 0.11, 0.62, 0.38, -0.25); // the tablet, bold enough to read
+  s.boxR(0.27, sh - 0.72, 0.24, 0.11, 0.62, 0.38, 0.25); // the tablet, bold enough to read
   if (hi) {
     // drapery: the sash over the left shoulder and the folds of the robe
-    s.beam([-0.2, sh - 0.05, 0.2], [0.22, sb + 1.3, 0.25], 0.06, 0.04);
+    s.beam([0.2, sh - 0.05, 0.2], [-0.22, sb + 1.3, 0.25], 0.06, 0.04);
     for (let i = 0; i < 5; i++) {
       const a = -0.9 + i * 0.45;
       s.beam([Math.sin(a) * 0.36, sb + 0.12, 0.02 + Math.cos(a) * 0.36], [Math.sin(a) * 0.27, sb + 1.5, 0.02 + Math.cos(a) * 0.27], 0.035);

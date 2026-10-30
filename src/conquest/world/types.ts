@@ -1,8 +1,8 @@
 /**
  * World Conquest: the shared vocabulary of the world campaign (start from any homeland, conquer the world).
  * Pure types and tiny constants, no logic: the geography (geo data), the turn logic, the battlefield generator,
- * the landmark and city models and the screens all build on these. Change them only together (one owner per
- * module, see the round contract); adding a member at the end of a union is safe, renaming one is not (saved runs).
+ * the landmark and city models and the screens all build on these. Change them only together, with every module
+ * that uses them; adding a member at the end of a union is safe, renaming one is not (saved runs).
  */
 import type { Terrain } from '../geo';
 

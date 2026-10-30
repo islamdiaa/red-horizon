@@ -1,5 +1,5 @@
 /**
- * The geography a world run is built from (GEO's regions, zones, homelands and landmarks, or the synthetic stub),
+ * The geography a world run is built from (the real regions, zones, homelands and landmarks, or the synthetic stub),
  * and the assembly of a run's map from it: which regions take part (World: about 100, Blitz: your continent and its
  * neighbours, about 30), the links between them (land borders and sea lanes), zone bonuses and ports.
  * Pure and deterministic: the same atlas, size, homeland and seed always give the same map.
@@ -22,13 +22,13 @@ export interface Atlas {
   links?(ids: readonly string[]): WLink[];
   /** Land test for sea-lane detection when links() is absent. */
   isLand?(lon: number, lat: number): boolean;
-  /** The whole map of a run (GEO's worldMap): its regions, links and zones (bonus for the run's territories). */
+  /** The whole map of a run (geo.ts worldMap): its regions, links and zones (bonus for the run's territories). */
   runMap?(seed: number, size: WorldSize, home: string): { regions: readonly string[]; links: readonly { a: string; b: string; sea: boolean }[]; zones: readonly { id: string; territories: readonly string[]; bonus: number }[] };
 }
 
 export const STUB_ATLAS: Atlas = { version: 'stub-1', regions: STUB_REGIONS, zones: STUB_ZONES, homelands: STUB_HOMELANDS, wonder: stubWonder };
 
-/** The real world (GEO: src/conquest/world/regions.ts and geo.ts). */
+/** The real world (src/conquest/world/regions.ts and geo.ts). */
 export const GEO_ATLAS: Atlas = {
   version: 'geo-1',
   regions: WORLD_REGIONS,

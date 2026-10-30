@@ -1,5 +1,5 @@
 /**
- * Endgames: does a beaten side's last stand end the match? (round 4)
+ * Endgames: does a beaten side's last stand end the match?
  *
  *  - stragglers: an AI of each level against the casual stand-in on the skirmish menu's defaults; at `--at` minutes the
  *                human is crushed (lib.ts MatchSpec.crush): every structure gone, every unit but `--keep` (the ones

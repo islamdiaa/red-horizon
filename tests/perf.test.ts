@@ -41,7 +41,7 @@ describe('service worker cache rules', () => {
     assert.equal(sw.cacheable(res('<!doctype html>', html), 'https://game.example/assets/gone-123.js'), false, 'SPA fallback for a chunk');
     assert.equal(sw.cacheable(res('<!doctype html>', html), 'https://game.example/index.html'), true, 'the page itself');
     assert.equal(sw.cacheable(res('<!doctype html>', html), 'https://game.example/'), true, 'the scope root');
-    assert.equal(sw.cacheable(res('<!doctype html>', html), 'https://game.example/preview-models.html'), true, 'another page');
+    assert.equal(sw.cacheable(res('<!doctype html>', html), 'https://game.example/dev/preview-models.html'), true, 'another page');
   });
   test('an update precaches the remembered language only', () => {
     const glob = 'Object.assign({"./locales/de.json":()=>y(()=>import(`./de-C2kHNqu_.js`),[]),"./locales/pt-BR.json":()=>y(()=>import(`./pt-BR-CP2UcNjb.js`),[])';

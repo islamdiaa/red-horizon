@@ -140,7 +140,7 @@ describe('AI endgames (version 6)', () => {
   });
 });
 
-describe('AI fixes from the round-4 code review (version 6)', () => {
+describe('AI fixes from a code review (version 6)', () => {
   function helpScene(level: AIDifficulty) {
     const { world: w } = sandbox({ w: 64, h: 64, factions: ['allies', 'allies', 'soviet'], teams: [0, 0, 1], ai: [undefined, level, 'normal'], credits: 0 });
     const [hum, ally, foe] = w.players;

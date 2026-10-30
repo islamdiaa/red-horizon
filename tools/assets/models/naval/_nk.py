@@ -31,8 +31,8 @@ from _ak import lamp, HEAD, RED, AMBER, GREEN, WHITE_L, PI, ROT_X, ROT_Z, D, Mt,
 # palette
 
 class NavPal:
-    """Ship paint set: light haze-grey hull and superstructure, mid-grey decks, team trims. Tuned for the RTS camera
-    (wave 2): at the default zoom the ships must read as clearly as the procedural ones, so the hull and decks are
+    """Ship paint set: light haze-grey hull and superstructure, mid-grey decks, team trims. Tuned for the RTS camera:
+    at the default zoom the ships must read as clearly as the procedural ones, so the hull and decks are
     as light as naval.ts and the weathering stays subtle (grime and streaks darken a 100-px ship to a silhouette)."""
 
     def __init__(self, fac='allies', hull=0x99a1a8, sup=0xc2c7cb, deck=0x686d71):
@@ -240,7 +240,7 @@ class Hull:
         return verts, faces
 
 
-STRAKE_SCALE = 2.5  # the team sheer strake / hull band, relative to the widths the ship scripts pass (wave 2: readability)
+STRAKE_SCALE = 2.5  # the team sheer strake / hull band, relative to the widths the ship scripts pass (for readability)
 
 
 def hull_dress(m, p, H, P, x0=None, x1=None, edge=0.008, strake=True, strake_w=0.016, inset=0.005, rail=None, segs=4):

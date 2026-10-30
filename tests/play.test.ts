@@ -1,5 +1,5 @@
 /**
- * PLAY (round 3): the Field Manual's new coaching alerts (src/ui/coach.ts: losses that teach, no Ore Truck left, a
+ * The Field Manual's coaching alerts (src/ui/coach.ts: losses that teach, no Ore Truck left, a
  * damaged structure) and which replays are kept when a battle is left early (src/replay/recorder.ts).
  */
 import { describe, test } from 'node:test';

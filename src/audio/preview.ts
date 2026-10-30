@@ -1,5 +1,5 @@
 /**
- * Audio preview page (preview-audio.html) + headless self-test (?selftest=1).
+ * Audio preview page (dev/preview-audio.html) + headless self-test (?selftest=1).
  * The self-test renders every SFX offline, prints duration / peak / RMS per sound, renders
  * 16 bars of music at three intensities, renders every ambience bed / thunder / stinger offline
  * (levels, silence, NaN, clipping, clicks, loop seams), measures the soundscape CPU cost, and

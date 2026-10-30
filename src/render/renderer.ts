@@ -58,7 +58,7 @@ export type TimeOfDay = 'day' | 'dusk' | 'night';
 export interface GraphicsSettings {
   quality: Quality;
   timeOfDay: TimeOfDay;
-  climate?: 'temperate' | 'winter' | 'desert' | 'tropical'; // ('tropical': World Conquest, MAPS)
+  climate?: 'temperate' | 'winter' | 'desert' | 'tropical'; // ('tropical': World Conquest)
 }
 
 interface LightPreset {
@@ -114,7 +114,7 @@ const CLIMATE_GRADE: Record<'temperate' | 'winter' | 'desert' | 'tropical', { sa
   temperate: { sat: 0.93, con: 1.0, tint: [1, 1, 1], exp: 1 },
   winter: { sat: 1.0, con: 1.05, tint: [0.95, 0.99, 1.07], exp: 0.8 },
   desert: { sat: 1.04, con: 1.04, tint: [1.05, 1.0, 0.91], exp: 0.93 },
-  tropical: { sat: 1.07, con: 1.02, tint: [0.98, 1.02, 0.95], exp: 0.97 }, // (World Conquest, MAPS: lush and humid)
+  tropical: { sat: 1.07, con: 1.02, tint: [0.98, 1.02, 0.95], exp: 0.97 }, // (World Conquest: lush and humid)
 };
 
 const _ca = new THREE.Color(), _cb = new THREE.Color(), _haze = new THREE.Color();

@@ -84,7 +84,7 @@ export function hintActions(text, faction) {
   if (/control group|together|bigger|regroup|wait until|larger/.test(t)) acts.push(['bigger']);
   if (/every combat unit|all (your )?combat units/.test(t)) acts.push(['selectAll']);
   if (/queue|idle/.test(t)) acts.push(['queue']);
-  // round 4: the bank reminder (loop a unit card) and the close-out alert (finish the enemy with everything)
+  // the bank reminder (loop a unit card) and the close-out alert (finish the enemy with everything)
   if (/keep building|non-stop/.test(t)) acts.push(['loop']);
   if (/explore the dark/.test(t)) acts.push(['explore']);
   else if (/nearly beaten|far stronger/.test(t)) acts.push(['finish']);
@@ -106,7 +106,7 @@ export async function newcomer(bot, { maxSim = 1800, readHints = true } = {}) {
   const basic = faction === 'soviet' ? 'ftur' : 'pbox';
   const want = new Map([['powr', 1], ['proc', 1], [barracks, 1]]); // what it means to have (grows with hints)
   let waveSize = 6, tanks = false, amove = false, queueMore = false, selectAll = false, lastPower = -1e9;
-  // round 4: loops wanted (Alt-click; the tank card once there is a War Factory), the close-out target
+  // loops wanted (Alt-click; the tank card once there is a War Factory), the close-out target
   let loops = false, finish = null, lastSeq = '';
   const seen = new Set(), failed = new Map();
   const count = (me, t) => me.blds.filter((b) => b.t === t).length;

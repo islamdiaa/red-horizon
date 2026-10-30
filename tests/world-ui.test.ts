@@ -1,7 +1,7 @@
 // World Conquest screens (src/ui/world): the globe's cell maths, the menu entry's footprint in the initial bundle,
 // the diary lines against the rules' templates, the strings guard for the new folder, and the layout rules for
-// phones. The screens themselves are checked in a browser (round-6 UI notes: every screen at 1280x720, 800x600,
-// 390x844 and 844x390; QA's tools/e2e journeys).
+// phones. The screens themselves are checked in a browser (every screen at 1280x720, 800x600, 390x844 and 844x390;
+// the tools/e2e journeys).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -98,7 +98,7 @@ describe('menu entry (initial bundle)', () => {
   });
 });
 
-describe('test screens never touch the player (QA UI-1)', () => {
+describe('test screens never touch the player', () => {
   const memKV = (init: Record<string, string>) => {
     const m = new Map(Object.entries(init));
     return { m, kv: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) } };
@@ -147,7 +147,7 @@ describe('test screens never touch the player (QA UI-1)', () => {
   });
 });
 
-describe('newcomers (QA UI-2, UI-3)', () => {
+describe('newcomers', () => {
   test('a first campaign starts in the homeland of the browser\'s language region', async () => {
     const { localeHomeId, HOME_ISO } = await import('../src/ui/world/setup');
     const { WORLD_HOMELANDS } = await import('../src/conquest/world/regions');
@@ -192,7 +192,7 @@ describe('newcomers (QA UI-2, UI-3)', () => {
       const t = easyTarget(run);
       assert.ok(t, `${home}: a target`);
       const kinds = W.attackTargets(run).map((a) => (a.sea ? 'naval' : W.attackKind(run, a.from, a.to)));
-      // assault first, then hold, then capture (it needs an Engineer: QA UI-6), a sea crossing last
+      // assault first, then hold, then capture (it needs an Engineer), a sea crossing last
       const want = ['assault', 'hold', 'capture'].find((k) => kinds.includes(k));
       if (want) assert.equal(t!.kind, want, `${home}: ${want} first (${kinds.join(', ')})`);
       else if (kinds.some((k) => k !== 'naval')) assert.notEqual(t!.kind, 'naval', `${home}: not across the sea while a land target exists`);

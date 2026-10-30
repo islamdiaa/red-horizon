@@ -7,7 +7,7 @@
  *
  *   node --import tsx tools/i18n/scan.ts [--root dir] [--json out.json] [--baseline old.json]
  *
- * --root scans another checkout (e.g. the round's starting commit, `git archive <rev> src | tar -x -C dir`);
+ * --root scans another checkout (e.g. an earlier commit, `git archive <rev> src | tar -x -C dir`);
  * --baseline lists only hits that old.json (a previous --json) does not have (matched by file and text).
  */
 import fs from 'node:fs';

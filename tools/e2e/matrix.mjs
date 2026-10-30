@@ -46,10 +46,10 @@ export function allCells() {
   };
   battles('newcomer');
   battles('casual');
-  // 2 vs 2 with an AI ally (the skirmish panel's ally switch: missing before this round)
+  // 2 vs 2 with an AI ally (the skirmish panel's ally switch)
   cells.push({ id: 'ally:recruit:newcomer', mode: 'ally', rules: 'commander', level: 'recruit', profile: 'newcomer', seed: 3001 });
   cells.push({ id: 'ally:normal:casual', mode: 'ally', rules: 'commander', level: 'normal', profile: 'casual', seed: 3001 });
-  // campaign mission 1 of each side: as it was (no level picker before this round), then at each level with the
+  // campaign mission 1 of each side: at the default level (no pick), then at each level with the
   // player who would pick it (the newcomer on Recruit and Easy, the casual player above)
   for (const side of ['allies', 'soviet']) {
     for (const profile of ['newcomer', 'casual']) cells.push({ id: `camp-${side}:default:${profile}`, mode: 'camp', side, level: 'default', profile, seed: 4000 });
@@ -71,17 +71,17 @@ export function allCells() {
     cells.push({ id: `qb:${level}:newcomer#${r}`, mode: 'qb', rules: 'commander', level, profile: 'newcomer', seed: 1000 + LEVELS.indexOf(level) + 100 * r });
     cells.push({ id: `classic:${level}:newcomer#${r}`, mode: 'classic', rules: 'classic', level, profile: 'newcomer', seed: 2000 + LEVELS.indexOf(level) + 100 * r });
   }
-  // round 4: three games a cell for the newcomer and the casual player at Recruit, Easy and Normal (both rulesets)
+  // three games a cell for the newcomer and the casual player at Recruit, Easy and Normal (both rulesets)
   for (const r of [2, 3]) for (const profile of ['newcomer', 'casual']) for (const level of ['recruit', 'easy', 'normal']) {
     if (profile === 'newcomer' && level !== 'normal') continue; // (above)
     cells.push({ id: `qb:${level}:${profile}#${r}`, mode: 'qb', rules: 'commander', level, profile, seed: 1000 + LEVELS.indexOf(level) + 100 * r });
     cells.push({ id: `classic:${level}:${profile}#${r}`, mode: 'classic', rules: 'classic', level, profile, seed: 2000 + LEVELS.indexOf(level) + 100 * r });
   }
-  for (const level of ['recruit', 'easy', 'normal']) { // (the casual player had no Recruit cells before round 4's list)
+  for (const level of ['recruit', 'easy', 'normal']) { // (the casual player at Recruit, Easy and Normal too)
     if (!cells.some((c) => c.id === `qb:${level}:casual`)) cells.push({ id: `qb:${level}:casual`, mode: 'qb', rules: 'commander', level, profile: 'casual', seed: 1000 + LEVELS.indexOf(level) });
     if (!cells.some((c) => c.id === `classic:${level}:casual`)) cells.push({ id: `classic:${level}:casual`, mode: 'classic', rules: 'classic', level, profile: 'casual', seed: 2000 + LEVELS.indexOf(level) });
   }
-  // World Conquest (round 6): a few world turns and one RTS battle through the real UI, as each player would
+  // World Conquest: a few world turns and one RTS battle through the real UI, as each player would
   cells.push({ id: 'world:recruit:newcomer', mode: 'world', level: 'recruit', profile: 'newcomer', seed: 7000 });
   cells.push({ id: 'world:easy:newcomer', mode: 'world', level: 'easy', profile: 'newcomer', seed: 7001 });
   cells.push({ id: 'world:normal:casual', mode: 'world', level: 'normal', profile: 'casual', seed: 7002 });
@@ -269,7 +269,7 @@ async function startMode(bot, cell) {
     await bot.waitFor('.cmp .cmp-tab');
     await bot.click(`.cmp .cmp-tab[data-tab="${cell.side}"]`);
     await bot.waitFor('.cmp [data-act="deploy"]');
-    // the campaign's difficulty (CAMP's picker, when there is one): a control with data-v / data-diff = the level
+    // the campaign's difficulty (its picker, when there is one): a control with data-v / data-diff = the level
     if (cell.level !== 'default') {
       const sel = `.cmp :is([data-level="${cell.level}"], [data-diff="${cell.level}"])`;
       if (!await bot.sees(sel)) { bot.friction('missing', `no campaign difficulty "${cell.level}" on the campaign screen`); return false; }

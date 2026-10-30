@@ -12,7 +12,7 @@ import { MUTATORS } from '../modes/mutators';
 import { mutatorName } from '../i18n/names';
 
 /** A mod's name for display: the skirmish mutators' generated mod ("Mutators: Glass Cannons", src/modes/mutators.ts
- *  mutatorMod) in the active language; any other mod's own name. (L10N) */
+ *  mutatorMod) in the active language; any other mod's own name. */
 function modName(name: string): string {
   const m = /^Mutators: (.+)$/.exec(name);
   if (!m) return name;

@@ -1,4 +1,4 @@
-// Regression tests for the simulation bugs found in the QA pass (tools/qa/*): movement and pathing,
+// Regression tests for the simulation bugs found by the QA harnesses (tools/qa/*): movement and pathing,
 // harvester docking, AI air strikes and first waves, superweapon targeting, placement rules, walls,
 // production/tech, C4, engineers, selling, attack orders, simultaneous fire, aircraft, debug base.
 import { test, describe } from 'node:test';

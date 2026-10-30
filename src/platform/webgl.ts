@@ -332,7 +332,7 @@ export function watchContextLoss(canvas: HTMLCanvasElement, handlers: ContextLos
 }
 
 /**
- * QA helper: lose the context of `gl` and restore it after `ms` (WEBGL_lose_context).
+ * Test helper: lose the context of `gl` and restore it after `ms` (WEBGL_lose_context).
  * e.g. simulateContextLoss(__game.gfx.renderer.getContext(), 2000)
  */
 export function simulateContextLoss(gl: WebGLRenderingContext | WebGL2RenderingContext, ms = 1500): boolean {

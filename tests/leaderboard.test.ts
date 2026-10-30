@@ -141,26 +141,29 @@ describe('verified leaderboards', () => {
     const dir = mkdtempSync(join(tmpdir(), 'rh-lb-'));
     try {
       const file = join(dir, 'lb.json');
+      // days relative to today: flush() prunes against the real clock
+      const day = new Date().toISOString().slice(0, 10);
+      const old = new Date(Date.now() - 45 * 86400_000).toISOString().slice(0, 10);
       const st = new LeaderboardStore({ file, top: 5, keepDays: 7, writeDelayMs: 1 });
-      const add = (p: string, s: number, day = '2026-10-17', t = 1000) => st.add('daily', day, { n: `P${p}`, s, t, w: true, a: Date.parse(day), player: `player-${p}-0123456789abcdef` });
+      const add = (p: string, s: number, day0 = day, t = 1000) => st.add('daily', day0, { n: `P${p}`, s, t, w: true, a: Date.parse(day0), player: `player-${p}-0123456789abcdef` });
       assert.equal(add('a', 100).rank, 1, 'first entry');
       assert.equal(add('a', 50).improved, false, 'a worse run does not replace the best');
       assert.equal(add('a', 300).rank, 1, 'a better one does');
       for (let i = 0; i < 8; i++) add(String(i), 10 + i);
-      const top = st.list('daily', '2026-10-17', 'player-a-0123456789abcdef');
+      const top = st.list('daily', day, 'player-a-0123456789abcdef');
       assert.equal(top.length, 5, 'capped');
       assert.equal(top[0].score, 300, 'best first');
       assert.equal(top[0].you, true, 'your own entry is marked');
       assert.equal(top.filter((e) => e.name === 'Pa').length, 1, 'one entry per player');
       assert.ok(!JSON.stringify(top).includes('player-'), 'player ids are never returned');
-      add('z', 999, '2026-09-01');
+      add('z', 999, old);
       st.flush();
       const saved = JSON.parse(readFileSync(file, 'utf8'));
       assert.ok(!JSON.stringify(saved).includes('player-a'), 'the file keeps salted keys, not the ids');
-      st.prune('2026-10-17');
-      assert.deepEqual(st.days('daily'), ['2026-10-17'], 'days older than keepDays pruned');
+      st.prune(day);
+      assert.deepEqual(st.days('daily'), [day], 'days older than keepDays pruned');
       const again = new LeaderboardStore({ file, top: 5 });
-      assert.equal(again.list('daily', '2026-10-17')[0].score, 300, 'reloads from disk');
+      assert.equal(again.list('daily', day)[0].score, 300, 'reloads from disk');
       const tiny = new LeaderboardStore({ file: null, maxBytes: 600 });
       for (let d = 1; d <= 9; d++) tiny.add('daily', `2026-10-0${d}`, { n: 'x', s: d, t: 1, w: true, a: 0, player: 'player-x-0123456789abcdef' });
       tiny.prune('2026-10-09');

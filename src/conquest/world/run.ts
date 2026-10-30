@@ -2,7 +2,7 @@
  * World Conquest: the strategic layer's public API (pure functions over the WorldRun JSON).
  *
  *   newWorldRun      a seed + homeland + size + difficulty -> a run, the human's first reinforce phase
- *   legalActions/act the actions open now, and a generic dispatcher (QA's random policies)
+ *   legalActions/act the actions open now, and a generic dispatcher (the QA tools' random policies)
  *   placeTroops, tradeCards, rollAttack (+ attackOdds), moveIn, fortify, endPhase, endTurn (the rivals' playback)
  *   resolveDefence   a rival's attack on a capital or wonder waits for your choice: dice, or startDefenceBattle
  *   diplomacy.ts     ceasefires · resolve.ts the RTS route · score.ts · link.ts · storage.ts

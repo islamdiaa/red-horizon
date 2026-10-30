@@ -1,4 +1,4 @@
-import { startView } from './maps/start-view'; // (MAPS)
+import { startView } from './maps/start-view';
 import type { Game } from './game';
 import { esc } from './ui/dom';
 import tCine, { CINE_NAMES } from './i18n/en/cinematic';
@@ -82,7 +82,7 @@ export function playIntro(game: Game, onDone: () => void) {
   const seed = game.setup.seed >>> 0;
   const md = game.missionDef;
   const ops = CINE_NAMES.operations, sectors = CINE_NAMES.sectors;
-  const op = md ? trSource(md.codename) : ops[seed % ops.length]; // (L10N: mission code names are registered source text)
+  const op = md ? trSource(md.codename) : ops[seed % ops.length]; // (mission code names are registered source text)
   const sector = md ? dt('mission', md.id, 'location', trSource(md.location)) : sectors[(seed >> 4) % sectors.length];
   const faction = tCine(game.local.faction === 'allies' ? 'intro.allies' : 'intro.soviet');
   const h = Math.floor(game.hours), m = Math.floor((game.hours % 1) * 60);
@@ -95,7 +95,7 @@ export function playIntro(game: Game, onDone: () => void) {
   const cam = game.gfx.cam;
   const start = game.world.map.startPositions[0];
   const map = game.world.map;
-  const focus = startView(map, innerWidth, innerHeight); // (a World Conquest battlefield frames its landmark on this viewport; elsewhere the start at 20: MAPS)
+  const focus = startView(map, innerWidth, innerHeight); // (a World Conquest battlefield frames its landmark on this viewport; elsewhere the start at 20)
   const oldMax = cam.maxDist;
   cam.maxDist = 75;
   cam.jumpTo(map.w / 2 + (start.x - map.w / 2) * 0.35, map.h / 2 + (start.y - map.h / 2) * 0.35);

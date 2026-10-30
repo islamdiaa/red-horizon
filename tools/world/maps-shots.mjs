@@ -1,4 +1,4 @@
-// World Conquest region battlefields on the real-GPU rig (MAPS): what a player sees at the start of a region battle
+// World Conquest region battlefields on the real-GPU rig: what a player sees at the start of a region battle
 // (the start camera, HUD and fog as they are) and an overview of the whole battlefield, per climate. Uses the
 // testing hook ?autostart=1&conquest=<kind>&region=<id> (src/maps/region-test.ts) on a built game.
 //   node tools/world/maps-shots.mjs <url> [preset=high] [outDir=/out] [cases=region:kind:seed,...]

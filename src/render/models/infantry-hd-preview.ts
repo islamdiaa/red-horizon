@@ -1,5 +1,5 @@
 /**
- * Dev page (preview-infantry.html): contact sheets of the HD infantry clips, and HD next to procedural.
+ * Dev page (dev/preview-infantry.html): contact sheets of the HD infantry clips, and HD next to procedural.
  *
  *   ?type=e1&fac=soviet            the soldier (default e1 / soviet)
  *   &clips=rifle.,death.           clip name prefixes (comma list; default: the type's set + common clips)

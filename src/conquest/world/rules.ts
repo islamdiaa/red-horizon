@@ -437,7 +437,7 @@ export function endGame(run: WorldRun, status: 'won' | 'lost', ending: string, e
   emit(run, events, { kind: status, power: HUMAN, ending });
 }
 
-/** Victory and defeat (contract): World, every rival eliminated; Blitz, every rival capital held. */
+/** Victory and defeat: World, every rival eliminated; Blitz, every rival capital held. */
 export function checkEnd(run: WorldRun, events?: WorldEvent[]) {
   if (run.status !== 'active') return;
   const human = run.powers[HUMAN];

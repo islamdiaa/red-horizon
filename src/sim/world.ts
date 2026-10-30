@@ -28,7 +28,7 @@ import { costOf } from './doctrine';
 import { initVariety, varietyCommand, varietyTick, type VarietyState } from './events';
 import { resignCommand } from './resign'; // surrender
 import { econCombat, econCommand, econKilled, econSight, econTick, initEcon, outpostSiteOk, type EconState } from './economy';
-import { initRegionScenery } from './region-scenery'; // World Conquest region battlefields (MAPS)
+import { initRegionScenery } from './region-scenery'; // World Conquest region battlefields
 
 export type DeathHow = 'normal' | 'blown' | 'burn' | 'electro' | 'bite' | 'crushed' | 'sold';
 
@@ -213,7 +213,7 @@ export class World {
     if (opts.rules === 'commander' && opts.econ !== false) initEcon(this); // tech tiers, upgrades, research
     this.setupStart(opts.startUnits, opts.startUnitsPer);
     initVariety(this, { rules: opts.rules, mutators: opts.mutators, events: opts.events, dynamicDifficulty: opts.dynamicDifficulty, seed: opts.seed }); // (null for Classic without options)
-    initRegionScenery(this); // World Conquest region battlefields: landmarks explored, civilian buildings raised (MAPS; a no-op on other maps)
+    initRegionScenery(this); // World Conquest region battlefields: landmarks explored, civilian buildings raised (a no-op on other maps)
     for (const p of this.players) {
       recalcPlayerEconomy(this, p);
       this.updateVisibility(p);

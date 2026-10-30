@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { GAME_SPEEDS, TEAM_COLORS } from './config';
 import { BUILDINGS, UNITS, type Faction } from './data/rules';
 import { generateMap } from './sim/mapgen';
-import { regionMapFor } from './sim/mapgen-region'; // World Conquest region battlefields (MAPS)
-import { startView } from './maps/start-view'; // (their start camera per viewport: MAPS)
+import { regionMapFor } from './sim/mapgen-region'; // World Conquest region battlefields
+import { startView } from './maps/start-view'; // (their start camera per viewport)
 import { World, type PlayerSetup } from './sim/world';
 import { DT, type Command, type GameEvent } from './sim/types';
 import type { AIDifficulty } from './sim/ai';
@@ -46,7 +46,7 @@ import { setupScenario } from './debug';
 import { playIntro, nukeCinematic, nukeWarning, endingCinematic } from './cinematic';
 import { getMission } from './missions';
 import { MissionRuntime, type MissionDef } from './sim/mission';
-import type { MissionLevel } from './sim/handicap'; // CAMP: campaign difficulty
+import type { MissionLevel } from './sim/handicap'; // campaign difficulty
 import { missionLevelFor, recordResult } from './missions/progress';
 import { MissionHud } from './ui/missionhud';
 import { SAVE_VERSION, deserializeWorld, serializeWorld, writeSave, type SaveData } from './sim/save';
@@ -128,7 +128,7 @@ export interface GameSetup {
   intro?: boolean;
   /** Mission id (campaign / survival / challenge); overrides map and players. */
   mission?: string;
-  /** CAMP: campaign difficulty for a fresh mission start (default: the player's pick for missions that take one; sim/handicap.ts). */
+  /** Campaign difficulty for a fresh mission start (default: the player's pick for missions that take one; sim/handicap.ts). */
   missionLevel?: MissionLevel;
   /** Resume from a saved game. */
   load?: SaveData;
@@ -299,7 +299,7 @@ export class Game {
       (this as { setup: GameSetup }).setup = setup;
     }
     const nPlayers = def ? def.map.players : 1 + setup.opponents.length;
-    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) : regionMapFor(def?.map); // editor map, curated skirmish map, or the curated map a mission names (Conquest battles); World Conquest region battlefields (MAPS: sim/mapgen-region.ts, null otherwise)
+    const curated = setup.customMap ? buildMap(setup.customMap) : !def && setup.mapId ? loadCuratedMap(setup.mapId) : def?.map.mapId ? loadCuratedMap(def.map.mapId) : regionMapFor(def?.map); // editor map, curated skirmish map, or the curated map a mission names (Conquest battles); World Conquest region battlefields (sim/mapgen-region.ts, null otherwise)
     const climate = curated?.climate ?? (setup.climate === 'winter' || setup.climate === 'desert' ? setup.climate : 'temperate') as 'temperate' | 'winter' | 'desert';
     const map = curated ?? generateMap({
       size: setup.mapSize, players: nPlayers, seed: setup.seed, ore: setup.ore,
@@ -316,7 +316,7 @@ export class Game {
       const color = TEAM_COLORS.find((c) => !usedColors.has(c))!;
       usedColors.add(color);
       const faction = o.faction === 'random' ? rngFaction(i + 1) : o.faction;
-      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: o.ally ? 0 : i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // rivals / personalities; an AI ally shares the player's team (PLAY round 3)
+      players.push({ name: o.rival?.name ?? AI_NAMES[(setup.seed + i) % AI_NAMES.length], faction, color, team: o.ally ? 0 : i + 1, isHuman: false, ai: o.difficulty, personality: o.personality }); // rivals / personalities; an AI ally shares the player's team
     });
     if (def) {
       players.length = 0;
@@ -353,7 +353,7 @@ export class Game {
       this.world.mission = rt;
       def.players.forEach((ps, i) => { if (i > 0 && ps.ai) rt.setAI(i, ps.ai); });
       if (def.allowedBuild) rt.allowBuild(def.allowedBuild);
-      if (!setup.load) rt.setLevel(setup.missionLevel ?? missionLevelFor(def)); // CAMP: campaign difficulty (RA's handicaps, sim/handicap.ts) before the script's setup; a save restores its own
+      if (!setup.load) rt.setLevel(setup.missionLevel ?? missionLevelFor(def)); // campaign difficulty (RA's handicaps, sim/handicap.ts) before the script's setup; a save restores its own
       if (!setup.load) def.setup(rt);
       if (setup.load) deserializeWorld(this.world, setup.load.world, rt);
       for (const p of this.world.players) { if (!setup.load) this.world.updateVisibility(p); for (const o of p.buildOptions()) p.knownOptions.add(o); } // (a save restores the fog exactly as it was: refreshing it here would change the resumed game)
@@ -450,12 +450,12 @@ export class Game {
     this.gfx.setTimeOfDay(this.hours);
 
     const start = (!def && map.startPositions[this.local.id]) || map.startPositions[0]; // MP: each player starts over their own base, not player 0's
-    const sv = map.startFocus ? startView(map, innerWidth, innerHeight) : null; // (a region battlefield frames its landmark on this viewport, render only: MAPS)
+    const sv = map.startFocus ? startView(map, innerWidth, innerHeight) : null; // (a region battlefield frames its landmark on this viewport, render only)
     this.gfx.cam.jumpTo(sv?.x ?? start.x, sv?.y ?? start.y + 1);
     if (!setup.demo) {
       // cinematic drop-in from high altitude
       this.gfx.cam.dist = 48;
-      this.gfx.cam.targetDist = sv?.dist ?? 20; // (a region battlefield may settle wider to frame its landmark: MAPS)
+      this.gfx.cam.targetDist = sv?.dist ?? 20; // (a region battlefield may settle wider to frame its landmark)
     }
     this.gfx.fog.snap(this.local);
 
@@ -522,7 +522,7 @@ export class Game {
         this.hud?.message(text, warn, undefined, !!this.hud && showSubtitle(text, { warn })); // captioned: the event log keeps it, no toast
       };
       this.hints = new Hints(document.getElementById('ui')!, this.world, this.local); // (missions: the battle alerts only)
-      this.hints.pointAt = { ping: (x, y) => this.hud?.minimap.ping(x, y, '#ffd34d'), look: (x, y) => this.gfx.cam.flyToPoint(x, y) }; // (PLAY: alerts that point at places, e.g. the close-out alert's last known enemy structures)
+      this.hints.pointAt = { ping: (x, y) => this.hud?.minimap.ping(x, y, '#ffd34d'), look: (x, y) => this.gfx.cam.flyToPoint(x, y) }; // (alerts that point at places, e.g. the close-out alert's last known enemy structures)
       if (!this.world.mission && !setup.replay && !setup.branch && !setup.challenge) this.attachments.push(attachRivals(this)); // rival radio + habit tracking (not in replay branches / challenges)
       if (this.world.commander) this.attachments.push(attachCommanderPanel(this)); // commander powers panel (Commander rules)
       if (this.world.mission) {
@@ -1131,7 +1131,7 @@ export class Game {
     const fast = !def.parTime || this.world.time <= def.parTime;
     const stars = won ? 1 + (fast ? 1 : 0) + (optionalOk ? 1 : 0) : 0;
     this.missionResult = { won, stars, time: this.world.time, score: rt.score };
-    recordResult(def.id, { won, stars, time: this.world.time, score: def.scored ? rt.score : undefined, level: rt.level }); // CAMP: + the level it was won at
+    recordResult(def.id, { won, stars, time: this.world.time, score: def.scored ? rt.score : undefined, level: rt.level }); // + the level it was won at
   }
 
   /** Feed the soundscape: time of day, weather, nearby water/forest, combat on and off screen, zoom. */

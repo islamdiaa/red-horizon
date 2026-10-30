@@ -13,7 +13,7 @@ import { recalcPlayerEconomy } from './production';
 import { superBuilding, superChargeTime, type SuperKind } from './superweapons';
 import { assignHandicaps, isMissionLevel, type MissionLevel } from './handicap';
 import { DT, TICK_HZ } from './types';
-import type { RegionOptions } from './mapgen-region'; // World Conquest (MAPS)
+import type { RegionOptions } from './mapgen-region'; // World Conquest
 import type { World } from './world';
 
 export type ObjectiveState = 'active' | 'done' | 'failed';
@@ -47,7 +47,7 @@ export interface MissionMapSpec {
   water?: number;
   trees?: number;
   ore?: number;
-  climate?: 'temperate' | 'winter' | 'desert' | 'tropical'; // ('tropical': World Conquest region battlefields, MAPS)
+  climate?: 'temperate' | 'winter' | 'desert' | 'tropical'; // ('tropical': World Conquest region battlefields)
   timeOfDay?: 'day' | 'dusk' | 'night';
   /** Fixed starting hour (overrides timeOfDay). */
   hour?: number;
@@ -57,7 +57,7 @@ export interface MissionMapSpec {
   rocks?: number;
   /** Curated map id (src/maps) used instead of the generator. */
   mapId?: string;
-  /** World Conquest: a region battlefield (sim/mapgen-region.ts regionBattlefield) used instead of the generator (MAPS). */
+  /** World Conquest: a region battlefield (sim/mapgen-region.ts regionBattlefield) used instead of the generator. */
   region?: RegionOptions;
 }
 

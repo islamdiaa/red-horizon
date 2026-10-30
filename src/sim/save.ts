@@ -13,7 +13,7 @@ import type { MissionRuntime } from './mission';
 import { newCtrlState } from './formation';
 import { loadCommander, saveCommander } from './commander';
 import { loadVariety, neutralOwner, saveVariety } from './events';
-import { civicOwner } from './civilian'; // World Conquest (MAPS)
+import { civicOwner } from './civilian'; // World Conquest
 import { loadEcon, saveEcon } from './economy';
 import { AI_DIFFICULTIES } from './ai';
 

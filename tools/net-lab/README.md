@@ -69,7 +69,7 @@ node --import tsx tools/net-lab/lb-forge.ts
 
 # cross-machine over the real NAT (needs the test VMs from tools/lab and the game published on the NAT:
 #   NETLAB_VM_BIND=192.168.122.1 docker compose -p rh-lab-net -f tools/net-lab/compose.yml up -d game; netlab.sh routes)
-# Other agents use the VMs: check nothing else runs there first. Processes are stopped by port only.
+# Other jobs may use the VMs: check nothing else runs there first. Processes are stopped by port only.
 tools/net-lab/vm-match.sh ubuntu:firefox host --profile lan --churn 90 --tag vm-firefox      # a full match
 tools/net-lab/vm-match.sh win11 ubuntu:webkit --profile lan --churn 90 --end surrender --tag vm-xos
 NETEM_A='delay 75ms 5ms loss 2%' tools/net-lab/vm-match.sh ubuntu:firefox host --profile lan --churn 90 --tag vm-netem

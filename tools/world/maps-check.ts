@@ -1,4 +1,4 @@
-// World Conquest region battlefields: generate and check them headlessly (MAPS).
+// World Conquest region battlefields: generate and check them headlessly.
 //   node --import tsx tools/world/maps-check.ts [--seeds 4] [--ascii] [--only <labelFilter>] [--case k=v,...]
 // Prints one line per battlefield (time, honoured features, paths, ore, room, landmark visibility) and, with
 // --ascii, the map as characters (. clear  , dirt  : sand  ~ water  # rock  T tree  $ ore  B civilian  L landmark
@@ -24,7 +24,7 @@ const CASES: Omit<RegionOptions, 'seed' | 'kind' | 'players'>[] = [
 ];
 const filter = arg('only', '');
 if (process.argv.includes('--geo')) {
-  // every GEO region (src/conquest/world/regions.ts) instead of the sample looks
+  // every world region (src/conquest/world/regions.ts) instead of the sample looks
   const { WORLD_REGIONS } = await import('../../src/conquest/world/regions');
   CASES.length = 0;
   for (const r of WORLD_REGIONS) CASES.push({ terrain: r.terrain, climate: r.climate, culture: r.culture, features: [...r.features], landmark: r.landmark, strength: +arg('strength', '3'), region: r.id });

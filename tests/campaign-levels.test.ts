@@ -292,7 +292,7 @@ describe('Boot Camp: the first drills point at something the player can see', ()
   });
 });
 
-describe('round 5 level tuning (each measured: tools/campaign-levels.ts)', () => {
+describe('version 7 level tuning (each measured: tools/campaign-levels.ts)', () => {
   test('First Snow: the radar transmits after four minutes at Brutal, five and a half below', () => {
     const uplink = (level: MissionLevel) => createMissionWorld(getMission('soviet-01')!, { level }).rt.timeLeft('uplink');
     assert.deepEqual([uplink('easy'), uplink('normal'), uplink('hard'), uplink('brutal')], [330, 330, 330, 240], 'uplink by level');
@@ -315,7 +315,7 @@ describe('round 5 level tuning (each measured: tools/campaign-levels.ts)', () =>
   });
 });
 
-describe('round 4 level tuning (each measured: tools/campaign-levels.ts)', () => {
+describe('version 6 level tuning (each measured: tools/campaign-levels.ts)', () => {
   const aiLevel = (w: World, id: number) => (w.ais.find((a) => a.player.id === id) as unknown as { difficulty: string } | undefined)?.difficulty;
   test('skirmish-AI enemies play a level lower at Hard and Brutal; the timers and boats follow the level', () => {
     for (const [mission, p] of [['soviet-04', 1], ['soviet-05', 1], ['allied-07', 1]] as const) {
@@ -323,7 +323,7 @@ describe('round 4 level tuning (each measured: tools/campaign-levels.ts)', () =>
       for (const level of ['hard', 'brutal'] as MissionLevel[]) assert.equal(aiLevel(createMissionWorld(getMission(mission)!, { level }).world, p), 'recruit', `${mission}: Recruit commander at ${level}`);
     }
     const subs = (level: MissionLevel) => createMissionWorld(getMission('wolfpack')!, { level }).world.units.filter((u) => u.owner.id === 0 && u.ut.id === 'ss').length;
-    assert.deepEqual([subs('normal'), subs('hard'), subs('brutal')], [4, 5, 5], 'Wolfpack: 4 / 5 / 5 submarines (round 5: Brutal with five, its convoys near their own pace)');
+    assert.deepEqual([subs('normal'), subs('hard'), subs('brutal')], [4, 5, 5], 'Wolfpack: 4 / 5 / 5 submarines (version 7: Brutal with five, its convoys near their own pace)');
     const clock = (level: MissionLevel) => createMissionWorld(getMission('allied-05')!, { level }).rt.timeLeft('reserve');
     assert.deepEqual([clock('normal'), clock('hard'), clock('brutal')], [900, 780, 600], 'Dry Season: the reserve at 15, 13 and 10 minutes');
     const tanks = (level: MissionLevel) => createMissionWorld(getMission('allied-04')!, { level }).world.units.filter((u) => u.owner.id === 0 && u.ut.id === '2tnk').length;

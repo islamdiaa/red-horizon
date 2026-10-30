@@ -38,7 +38,7 @@ export function randomWeatherSequence(seed: number, climate: Climate = 'temperat
       else if (r < 0.73) rainSpell(0.15);
       push('clear', 140, 330, 25);
     } else if (climate === 'tropical') {
-      // monsoon (World Conquest, MAPS): long heavy rains that often break into thunderstorms, steamy fog, never snow
+      // monsoon (World Conquest): long heavy rains that often break into thunderstorms, steamy fog, never snow
       if (r < 0.6) { push('rain', 90, 220, 18); if (rng.next() < 0.6) { push('storm', 60, 160, 10); push('rain', 50, 120, 14); } }
       else if (r < 0.75) push('fog', 80, 180, 25);
       push('clear', 110, 260, 20);

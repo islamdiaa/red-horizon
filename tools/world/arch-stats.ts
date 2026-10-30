@@ -1,4 +1,4 @@
-// ARCH: triangle counts, build times and sanity of every landmark and civilian style (headless, no WebGL).
+// Landmark models: triangle counts, build times and sanity of every landmark and civilian style (headless, no WebGL).
 //   node --import tsx tools/world/arch-stats.ts [landmarks|civ|all]
 import { LANDMARK_IDS } from '../../src/conquest/world/types';
 import { landmarkGeometry, landmarkModelled } from '../../src/render/landmarks';

@@ -1,5 +1,5 @@
-// World Conquest region battlefields on the real-GPU rig (MAPS): are they slower than the old Conquest maps? The same
-// Conquest battle (same seed) opened on the old generator's map and on a GEO region's battlefield (testing hook
+// World Conquest region battlefields on the real-GPU rig: are they slower than the old Conquest maps? The same
+// Conquest battle (same seed) opened on the old generator's map and on a world region's battlefield (testing hook
 // &region=<id>), alternating A / B / A / B so the iGPU's clock drift hits both; median frame time, GPU time (timer
 // queries per pass) and draw calls at the start camera and over the middle of the field.
 //   node tools/world/maps-perf.mjs <url> [presets=low,high] [regions=paris,cairo,angkor,moscow] [rounds=2]

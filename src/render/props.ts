@@ -265,7 +265,7 @@ export class BaseDressing {
     mat.customProgramCacheKey = () => 'rh-props';
     if (opts.weather) patchMaterialForWeather(mat, opts.weather);
     this.material = mat;
-    // World Conquest landmarks (MAPS): the ground round them is part of the place (a paved square, a worn path)
+    // World Conquest landmarks: the ground round them is part of the place (a paved square, a worn path)
     if (map.landmarks.length) {
       const clip = { i0: 0, i1: this.W - 1, j0: 0, j1: this.H - 1 };
       for (const l of map.landmarks) this.stampLandmark(l, clip);

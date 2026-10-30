@@ -1,4 +1,4 @@
-// Frozen copy of the simulation-version-2 skirmish AI (src/sim/ai-matchups.ts at the masterpiece wave 2 commit), used by
+// Frozen copy of the simulation-version-2 skirmish AI (src/sim/ai-matchups.ts as it was then), used by
 // the self-play harness as the "experienced player" stand-in (tools/selfplay/standin.ts). Do not edit: it is a
 // fixed yardstick, so the difficulty benchmarks stay comparable across AI changes.
 /**

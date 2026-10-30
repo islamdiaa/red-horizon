@@ -350,7 +350,7 @@ describe('world geography', () => {
     const gz = (f: string) => zlib.gzipSync(fs.readFileSync(path.join(ROOT, f)), { level: 9 }).length;
     const land = gz('src/conquest/world/data/land110.ts'), regions = gz('src/conquest/world/regions.ts'), geo = gz('src/conquest/world/geo.ts');
     assert.ok(land <= 40 * 1024, `land outline ${land} B gzipped (budget 40 KB)`);
-    assert.ok(land + regions + geo <= 70 * 1024, `GEO data and code ${land + regions + geo} B gzipped`);
+    assert.ok(land + regions + geo <= 70 * 1024, `geography data and code ${land + regions + geo} B gzipped`);
     const src = fs.readFileSync(path.join(ROOT, 'src/conquest/world/data/land110.ts'), 'utf8');
     assert.ok(/Natural Earth/.test(src) && /public domain/.test(src) && /sha256/.test(src), 'the data file records its provenance');
   });

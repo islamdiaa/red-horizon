@@ -1,7 +1,7 @@
 /**
  * A small synthetic world for the strategic layer's tests and for headless play before (or without) the real
  * geography: 18 zones on six continents, ~110 sites laid out in spirals around each zone's centre, 40 homelands.
- * Not shown to players; the real data is GEO's regions.ts. Deterministic (no randomness at all).
+ * Not shown to players; the real data is in regions.ts. Deterministic (no randomness at all).
  */
 import type { Terrain } from '../geo';
 import { LANDMARK_IDS, type Continent, type Culture, type LandmarkId, type MapFeature, type WonderEffect, type WorldClimate, type WorldHomeland, type WorldRegion, type WorldResource, type WorldZone } from './types';
@@ -78,7 +78,7 @@ export const STUB_REGIONS: readonly WorldRegion[] = BUILT.regions;
 export const STUB_ZONES: readonly WorldZone[] = BUILT.zones;
 export const STUB_HOMELANDS: readonly WorldHomeland[] = BUILT.homelands;
 
-/** Wonder effects for the stub (the real ones are GEO's LANDMARK_INFO). */
+/** Wonder effects for the stub (the real ones are regions.ts LANDMARK_INFO). */
 const EFFECTS: WonderEffect[] = [
   { kind: 'troops', add: 2 }, { kind: 'income', pct: 25 }, { kind: 'card', every: 4 }, { kind: 'defence', dice: 1 }, { kind: 'attack', dice: 1 },
   { kind: 'fortify', add: 1 }, { kind: 'navy', add: 2 }, { kind: 'intel', turns: 1 }, { kind: 'diplomacy', pct: 20 },

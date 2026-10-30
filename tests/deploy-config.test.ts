@@ -1,6 +1,6 @@
 // The two shipped hosting configs (docker/nginx.conf + docker/security-headers.conf for the Docker image, vercel.json for
 // static hosting) must keep the same security headers and cache rules, and the nginx proxy in front of the relay must keep
-// what the relay relies on (docs/MULTIPLAYER.md). Checked against the lab copy of the stack in round 4; this guards the files.
+// what the relay relies on (docs/MULTIPLAYER.md). Checked against a test copy of the stack; this guards the files.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

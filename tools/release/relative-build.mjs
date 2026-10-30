@@ -29,7 +29,7 @@ export async function relativeBuild(outDir, { csp = true, logLevel = 'warn' } = 
   }
   writeFileSync(index, html);
   // preview pages are dev tools, not part of the game
-  for (const f of ['preview-audio.html', 'preview-effects.html', 'preview-models.html', 'preview-weather.html']) {
+  for (const f of ['dev/preview-audio.html', 'dev/preview-effects.html', 'dev/preview-models.html', 'dev/preview-weather.html']) {
     const p = path.join(outDir, f);
     if (existsSync(p)) rmSync(p);
   }

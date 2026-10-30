@@ -1,4 +1,4 @@
-// World Conquest QA: the globe's frame rate on the real GPU (round 6 contract: "The globe runs at 60 fps on Low on an
+// World Conquest QA: the globe's frame rate on the real GPU (the goal: "The globe runs at 60 fps on Low on an
 // iGPU"). Runs inside the gpu-rig container (tools/gpu-rig/README.md), like tools/gpu-rig/perf.mjs:
 //
 //   $RIG tools/world/qa-globe-perf.mjs http://127.0.0.1:5326/ [presets=low,medium,high] [states=new,fresh,world,attack] [outDir=/out]

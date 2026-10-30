@@ -3,7 +3,7 @@
 //
 //   node --import tsx tools/world/qa-dice.ts          prints the per-roll table and a blitz table
 //
-// Rules (Risk, as the round contract states them): the attacker rolls up to 3 dice (at most troops - 1), the defender
+// Rules (Risk, as World Conquest plays them): the attacker rolls up to 3 dice (at most troops - 1), the defender
 // up to 2 (at most its troops); both sort high to low and the top dice are compared pair by pair; the defender wins
 // ties; each lost comparison costs that side one troop. A wonder can add to a side's best die ('attack' / 'defence'
 // WonderEffect: "the attacker's / defender's best die +N").

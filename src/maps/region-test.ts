@@ -1,5 +1,5 @@
 /**
- * Testing hook (MAPS): turn a Conquest battle into a World Conquest region battle of one GEO region, so screenshots,
+ * Testing hook: turn a Conquest battle into a World Conquest region battle of one world region, so screenshots,
  * the GPU rig and browser tests can open any region battlefield by URL:
  *   ?autostart=1&conquest=assault|capture|hold|defend|naval|boss&region=<region id>[&seed=N&faction=soviet]
  * (src/main.ts). The battle keeps its armies and script; its map becomes the region's battlefield.

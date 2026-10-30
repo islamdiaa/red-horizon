@@ -11,7 +11,7 @@ import { W } from './api';
 import { cardIcon, cardName, commanderName, continentName, diffName, homelandName, persDesc, persName, sizeName, esc, fmtInt, hex, pct, powerColor, powerName, territoryName, tW, zoneName, landmarkName } from './view';
 
 // ---------------------------------------------------------------------------------------------------
-// Diary lines: STRAT's templates (world.event.<kind>), every event field passed as a param of the same name
+// Diary lines: the strategic layer's templates (world.event.<kind>), every event field passed as a param of the same name
 // (territory ids as names, power ids as names)
 // ---------------------------------------------------------------------------------------------------
 // (world.ts names its parameters: the event's `to` is {territory}, `with` is {other}; booleans are a yes/other select)

@@ -1,5 +1,5 @@
 /**
- * Effects preview / test bed (preview-effects.html).
+ * Effects preview / test bed (dev/preview-effects.html).
  *
  * URL params:
  *   only=all|explosions|projectiles|beams|emitters|decals|misc|markers|<ExplosionKind>|tracer|tesla|flame

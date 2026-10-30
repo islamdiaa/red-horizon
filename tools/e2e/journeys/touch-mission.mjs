@@ -80,7 +80,7 @@ async function checkMission(bot, where) {
     bot.check(!await bot.sees('.hint.on'), `${where}: the Field Manual's x closes it`);
   }
   // press and hold on the battlefield (with the army selected: E is the radial's "all units" too), on a point where
-  // the map is on top: round 4's portrait failures were holds on the Field Manual panel, which covers the middle of a
+  // the map is on top: earlier portrait failures were holds on the Field Manual panel, which covers the middle of a
   // portrait screen (the forced panel above stayed up: hints.ts ignored its x when no tutorial step was showing)
   await bot.page.evaluate(() => { const g = window.__game; g.input?.select(g.world.units.filter((u) => u.alive && u.owner === g.local && u.weapons.length).map((u) => u.id)); });
   await sleep(500);

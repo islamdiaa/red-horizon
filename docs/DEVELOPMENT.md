@@ -65,6 +65,7 @@ src/
   platform/   error boundary, WebGL and GPU detection, fullscreen, PWA, untrusted-input parsing
   i18n/       interface languages: the English catalogue (en/), the translations (locales/), formatting
 public/       manifest, service worker, icons, fonts, example mods, HD models
+dev/          asset preview pages for the dev server (models, effects, audio, weather, infantry)
 tests/        node:test suite, PWA verification, leak and profile audits
 tools/        headless simulation, mission autopilots, self-play, screenshot tooling
 tools/assets/ the HD model factory (Blender kit, model scripts, build runner)
@@ -232,5 +233,6 @@ Add these to the URL to jump straight into a situation:
 | `attract=0` · `tod=` · `climate=` (menu) | The old free-running menu battle · a fixed backdrop sky and climate |
 | `#share=1.…` | Open a share link (map, challenge or replay); asks before importing |
 
-Asset preview pages: `/preview-models.html`, `/preview-effects.html`, `/preview-audio.html`,
-`/preview-weather.html`, `/preview-infantry.html` (HD infantry clips: `?type=e1&fac=soviet&clips=rifle.`).
+Asset preview pages (in `dev/`, served by the dev server only, not part of the production build):
+`/dev/preview-models.html`, `/dev/preview-effects.html`, `/dev/preview-audio.html`, `/dev/preview-weather.html`,
+`/dev/preview-infantry.html` (HD infantry clips: `?type=e1&fac=soviet&clips=rifle.`).

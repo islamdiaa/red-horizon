@@ -1,4 +1,4 @@
-// Relay robustness tests against the NET LAB's own relay (never the live one). Each case checks that a documented
+// Relay robustness tests against the net lab's own relay (never the live one). Each case checks that a documented
 // defence in docs/MULTIPLAYER.md actually holds, and that a normal room keeps playing throughout.
 //
 //   node tools/net-lab/relay-robust.mjs [cases...] [--url ws://10.231.0.3:8787/relay/ws]

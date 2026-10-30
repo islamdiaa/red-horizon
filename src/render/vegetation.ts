@@ -358,7 +358,7 @@ function broadleafGeometry(seed: number, lod = false): THREE.BufferGeometry {
 }
 
 /**
- * Palm (tropical coasts and jungle, desert oases; MAPS): a slender trunk bending to one side in a few ringed
+ * Palm (tropical coasts and jungle, desert oases): a slender trunk bending to one side in a few ringed
  * segments, a crown of drooping, feathered fronds (drawn from both sides) and a cluster of coconuts.
  * `lean` 0..1 bends it further (beach palms lean out).
  */
@@ -424,7 +424,7 @@ function palmGeometry(seed: number, lod = false, lean = 0.3): THREE.BufferGeomet
   return mergeGeometries(parts.map((g) => { g.deleteAttribute('uv'); return g; }))!;
 }
 
-/** Jungle tree (MAPS): a tall pale trunk under a broad, layered, deep-green canopy. */
+/** Jungle tree: a tall pale trunk under a broad, layered, deep-green canopy. */
 function jungleTreeGeometry(seed: number, lod = false): THREE.BufferGeometry {
   const trunk = colorize(new THREE.CylinderGeometry(0.05, 0.1, 1.0, lod ? 4 : 6, 1, lod).translate(0, 0.5, 0), new THREE.Color(0.24, 0.2, 0.14), 0.2, seed);
   const parts = [trunk];

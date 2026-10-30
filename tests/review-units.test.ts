@@ -1,4 +1,4 @@
-// REVIEW round 4: unit behaviour fixes (src/sim/combat.ts findTarget, src/sim/unitlogic.ts).
+// Unit behaviour fixes (src/sim/combat.ts findTarget, src/sim/unitlogic.ts).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { sandbox, building, unit, run, runUntil, seconds, paint, T } from './helpers';
@@ -114,7 +114,7 @@ describe('dead targets are let go on the move', () => {
     assert.equal(tank.target, null, `the dead rifleman is let go (target ${tank.target?.type.id})`);
   });
 
-  // (REVIEW round 5, fuzz seed 757: a passive jeep and APC guarding a truck kept a dead Ore Truck as their target)
+  // (fuzz seed 757: a passive jeep and APC guarding a truck kept a dead Ore Truck as their target)
   test('a passive escort lets go of a target that died', () => {
     const { world, p0, p1 } = sandbox({ w: 64, h: 48, fog: false });
     const ward = unit(world, '2tnk', p0, 20.5, 20.5);
@@ -133,7 +133,7 @@ describe('dead targets are let go on the move', () => {
   });
 });
 
-describe('a unit sealed in by structures gets out (REVIEW round 5)', () => {
+describe('a unit sealed in by structures gets out', () => {
   // (longrun "classic 1v1 hard-hard 96 s11": a Hard AI ringed a damaged Heavy Tank, parked next to its Service Depot,
   // with two flame towers, two Tesla Coils, a turret and a SAM site; the tank had two cells to move in, sent itself to
   // the depot every 2 s and held the depot's reservation for five minutes. The rescue for a unit with no cell to move to
@@ -172,7 +172,7 @@ describe('a unit sealed in by structures gets out (REVIEW round 5)', () => {
   });
 });
 
-describe('enemy walls still trap (REVIEW round 5)', () => {
+describe('enemy walls still trap', () => {
   test('a tank the enemy walled into a three-cell pen stays in it', () => {
     const { world, p0, p1 } = sandbox({ w: 40, h: 40, fog: false });
     // pen (12..14, 12) closed by the enemy's sandbags

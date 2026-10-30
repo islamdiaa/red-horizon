@@ -1,5 +1,5 @@
 /**
- * Leaderboard verification test against the NET LAB's relay (never the live one). Plays a real ranked run
+ * Leaderboard verification test against the net lab's relay (never the live one). Plays a real ranked run
  * headless (the same engine and recorder the game uses), submits it, and confirms the server accepts it and
  * ranks it - then that every tampered variant (score, result, a single order, the tick, the hash, the board,
  * the build) is rejected. Proves submissions are re-simulated server-side and cannot be forged.

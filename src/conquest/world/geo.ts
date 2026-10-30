@@ -986,7 +986,7 @@ function outlines(label: Int16Array, T: number): { rings: LonLat[][][]; borders:
   return { rings, borders };
 }
 
-/** A run's links as STRAT's graph wants them: land borders and sea lanes among `ids` (cells of `within`). */
+/** A run's links as the strategic layer's graph wants them: land borders and sea lanes among `ids` (cells of `within`). */
 export function worldLinks(ids: readonly string[], within: readonly string[] = ids): { a: string; b: string; sea: boolean; km: number }[] {
   return buildWorld(ids, within).links.map((l) => ({ a: l.a, b: l.b, sea: l.sea, km: l.km }));
 }

@@ -1,5 +1,5 @@
 /**
- * Weather preview / test bed (preview-weather.html).
+ * Weather preview / test bed (dev/preview-weather.html).
  *
  * URL params:
  *   w=clear|rain|storm|snow|fog|dust   weather (default rain)

@@ -1,5 +1,5 @@
 /**
- * Render only (MAPS): the start camera of a World Conquest region battle on the viewport the player actually has.
+ * Render only: the start camera of a World Conquest region battle on the viewport the player actually has.
  * The battlefield's `startFocus` (sim data, saved with nothing) is chosen for a desktop screen; on a portrait phone the
  * view is a few cells wide and the HUD covers its top and bottom, and on a short landscape phone the bars leave a small
  * window. There the camera searches the line from the start towards the landmark, and its distance, for the closest

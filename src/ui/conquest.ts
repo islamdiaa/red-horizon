@@ -24,7 +24,7 @@ import type { World } from '../sim/world';
 import type { Faction } from '../data/rules';
 import type { PerkDef } from '../conquest/data';
 import { fmtDateTime, fmtInt, fmtMoney, trSource } from '../i18n/core';
-import { callSignName } from '../i18n/en/codenames'; // (L10N: generated operation names and call signs translate on display)
+import { callSignName } from '../i18n/en/codenames'; // (generated operation names and call signs translate on display)
 import { typeName } from '../i18n/names';
 import tCq from '../i18n/en/conquest';
 import tCommon from '../i18n/en/common';

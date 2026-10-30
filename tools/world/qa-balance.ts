@@ -1,4 +1,4 @@
-// World Conquest QA: the balance tables (round 6 contract, "Strategy that holds up"), from STRAT's pilot policies
+// World Conquest QA: the balance tables (the goal: "Strategy that holds up"), from the strategic pilot policies
 // (tools/world/strat-lib.ts playGame: greedy, zone-focused, cautious, dice-only; RTS battles drawn from the measured
 // battle-pilot curves) played on the real geography:
 //   1. win rate per size x difficulty x pilot, 95% Wilson intervals, and turns to win;

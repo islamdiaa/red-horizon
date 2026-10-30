@@ -57,7 +57,7 @@ function keepEconomy(w: World, make: () => void) {
  * panel runs, about every half second) raises its alerts as they would show on screen, and the newcomer follows the
  * ones it has read: tanks against the defences that roast its infantry, bigger armies sent all together by
  * attack-move after piecemeal losses, units kept queued (and a second factory) when the money piles up. FM=0 turns it
- * off (the round-4 stand-in that never read an alert).
+ * off (the earlier stand-in that never read an alert).
  */
 function fieldManual(w: World, s: Record<string, any>, log: (t: string) => void) {
   if (process.env.FM === '0') return;
@@ -202,7 +202,7 @@ function newbiePush(w: World, rt: MissionRuntime, s: Record<string, any>, target
     const [x, y] = pt(target);
     const who = lead && tanks.length >= 2 ? tanks : units;
     // (Boot Camp, the loading tips and the Field Manual's key tip all teach the attack-move: the newcomer who reads them
-    // sends armies with it; the round-4 stand-in, FM=0, right-clicked the objective and walked past its guns)
+    // sends armies with it; the earlier stand-in, FM=0, right-clicked the objective and walked past its guns)
     if (!Array.isArray(target) && target.kind === 'building' && process.env.FM === '0' && !together && !learnt(s, 'alerts.attackMove')) attack(w, who, target);
     else attackMove(w, who, x, y);
     if (who !== units) { const [bx, by] = trail(); attackMove(w, inf, bx, by); s.leading = true; }
@@ -670,7 +670,7 @@ PLANS['ironcoast'] = {
   },
 };
 // Boot Camp: the drills say what to do, step by step (the Sergeant Major's radio and the objective line): walk to the
-// beacon, shoot the scouts, then the base drills, the raid and the assault (round 4's stand-in skipped the first two
+// beacon, shoot the scouts, then the base drills, the raid and the assault (the earlier stand-in skipped the first two
 // and marched on the camp with five riflemen)
 PLANS['bootcamp'] = {
   base: { order: ['powr', 'proc', 'tent', 'pbox', 'weap', 'powr'], inf: ['e1', 'e1', 'e3'], veh: ['1tnk', '2tnk'] },

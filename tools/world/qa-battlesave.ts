@@ -1,5 +1,5 @@
 // World Conquest QA: save / load of a World battle in progress (the autosave a player resumes from, rh.save.conquest).
-// Each scenario builds a world battle the way the game does (STRAT's startBattle -> tools/conquest-harness.ts, the
+// Each scenario builds a world battle the way the game does (the strategic layer's startBattle -> tools/conquest-harness.ts, the
 // region battlefield regenerated from the spec), plays it with the strike-force autopilot, saves, loads into a fresh
 // world and plays both on (tools/qa/modesave.ts runScenario: hash right after the load, every 10 ticks after, the
 // serialised state at the end), and also checks what the hash does not cover: every civilian building keeps its

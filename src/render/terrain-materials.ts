@@ -95,7 +95,7 @@ export const CLIMATE_LAYERS: Record<Climate, LayerDef[]> = {
     L('snow', 4.5, [0.86, 0.9, 0.95], 0.95, 0.2, 0.8),
     L('concrete', 4.0, [0.63, 0.58, 0.51], 0.85, 0.2, 0.7),
   ],
-  // World Conquest (MAPS): no new textures, the existing scans recombined and graded: deep jungle grass, dark
+  // World Conquest: no new textures, the existing scans recombined and graded: deep jungle grass, dark
   // forest earth, muted laterite roads (ore stays the only orange), mossy rock, pale beach sand, dark wet mud
   tropical: [
     L('grass', 3.0, [0.19, 0.33, 0.1], 0.88, 0.35, 1.05),

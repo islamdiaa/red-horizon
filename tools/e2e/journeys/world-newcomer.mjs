@@ -1,7 +1,7 @@
 // World Conquest for a first-time player: a fresh profile opens the mode from the menu and begins with the defaults.
 // It starts at home (the homeland of the browser's language region: en-US -> the USA, en-GB -> Britain, de-DE ->
-// Germany...; unknown -> France), and the Field Manual's first target is a land attack whose battle is not a naval one
-// (QA UI-2, UI-3). Then it fights that battle (a forced win) and comes back to the globe.
+// Germany...; unknown -> France), and the Field Manual's first target is a land attack whose battle is not a naval one.
+// Then it fights that battle (a forced win) and comes back to the globe.
 //   node tools/e2e/run.mjs world-newcomer --locale en-GB
 import { sleep } from '../lib.mjs';
 import { Wd, forceWin, runState, tapTerritory } from './world.mjs';

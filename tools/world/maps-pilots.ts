@@ -1,7 +1,7 @@
-// World Conquest region battlefields (MAPS): does the map change who wins? The same Conquest battle specs as the old
+// World Conquest region battlefields: does the map change who wins? The same Conquest battle specs as the old
 // (Europe) curve (src/conquest/testing.ts runWithBattle at strength 3, the core and money of a Europe run), played by
 // the human-like pilots (tools/campaign-players.ts newcomer / casual) on the old generator's map and on a region
-// battlefield of each climate (a GEO region of that climate, its features and landmark, rotating with the seed).
+// battlefield of each climate (a world region of that climate, its features and landmark, rotating with the seed).
 //
 //   node --import tsx tools/world/maps-pilots.ts [--seeds 6] [--kinds assault,capture,hold] [--maps old,temperate,winter,desert,tropical]
 //        [--cells easy:newcomer,easy:casual,normal:casual] [--minutes 30] [--out file.json]     (WORKERS=n, default 4)

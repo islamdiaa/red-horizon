@@ -16,7 +16,7 @@
  *
  * History:
  *  1. Everything recorded before the stamp existed (no `sim` field).
- *  2. Masterpiece wave 2 balance pass: Allied AI (Longbows, artillery, Chronosphere, gap generator, cruisers, spies
+ *  2. Balance pass: Allied AI (Longbows, artillery, Chronosphere, gap generator, cruisers, spies
  *     and thieves, build order), Commander doctrine / power / economy numbers, the bunker firing slits.
  *  3. Difficulty overhaul: the Recruit level, the scaled-down skirmish levels (economy, tech, powers, events, derricks,
  *     waves, defences, rebuilding: src/sim/ai.ts DIFF), assist-only dynamic difficulty against Recruit and Easy.
@@ -24,14 +24,14 @@
  *     harvesting: src/sim/ai-engage.ts, ai-harvest.ts), AI reachability and intel fixes, save/load continuing the
  *     exact game, passengers no longer targetable, vehicles giving way to each other in head-on jams, units walled
  *     in by structures stepping out.
- *  5. Gameplay round: units return fire while attacking unarmed targets, blocked moves retry (RA PATH_RETRY), formations
+ *  5. Gameplay pass: units return fire while attacking unarmed targets, blocked moves retry (RA PATH_RETRY), formations
  *     no longer wait on one laggard, service depots serve one vehicle at a time; Recruit and Easy field smaller, lighter
  *     armies that grow over the match, Normal builds at 1.0 / earns 1.05, the Classic AI hunts, besieges and plays for
  *     Tesla power, AI teammates help a human, refinery first when money is short (src/sim/ai*.ts, ai-team.ts); team-aware
  *     start positions (starts.ts); campaign difficulty with Red Alert's handicaps and per-mission tuning (handicap.ts,
  *     mission fixes in Allied 3, Iron Coast, Conquest captures, co-op waves, King of the Hill, the daily); surrender
  *     (resign.ts).
- *  6. Remaining-items round: the Classic AI masses before its first wave (Hard holds it until 13:00), saves while its
+ *  6. Finishing matches: the Classic AI masses before its first wave (Hard holds it until 13:00), saves while its
  *     army is behind (Normal and Hard, first 25 minutes), shells defences its V2s and artillery outrange and takes more
  *     risk after 25 minutes; every skirmish AI hunts a beaten side's stragglers in search parties on a finer grid,
  *     surrenders when beaten and sells spares when broke; Recruit and Easy allies play support; team pushes and help
@@ -41,7 +41,7 @@
  *     save.ts). Missions: per-level tuning across the campaign, no-base missions fail when nothing left can finish them
  *     (soviet-01, soviet-03), allied-05's trucks stay on the plain, Conquest's Easy naval harbour and Easy capital, and
  *     capital waves stop with the yard (src/missions, src/conquest).
- *  7. Round 5: the Classic AI judges ore fields by the ore left in them and cares for its Ore Trucks by level (Hard
+ *  7. The Classic AI judges ore fields by the ore left in them and cares for its Ore Trucks by level (Hard
  *     turns them back from fire and the enemy's side, Brutal also moves them off mined-out fields), sends a late "luck"
  *     wave only when it outweighs the target's defences; beaten teams concede together; a broke AI pays for its truck
  *     first; new refinery docks and factory exits must lead to open ground; an MCV gives up a deploy spot it can't
@@ -51,7 +51,7 @@
  *     Hard/Brutal camp Tesla Coil, soviet-01 Brutal uplink, wolfpack Brutal subs and convoy speed, Conquest Easy bases
  *     and capital, capture-target locks, water structures placed clear of units, the Easy harbour before the fleet,
  *     Boot Camp beacons revealed, engineers count as structure breakers in the no-base lose rules.
- *  8. Round 6, World Conquest: region battlefields (src/sim/mapgen-region.ts) with landmarks as rock cells
+ *  8. World Conquest: region battlefields (src/sim/mapgen-region.ts) with landmarks as rock cells
  *     (landmarks.ts), civilian buildings (civilian.ts, building types cv11-cv32), the ground round a landmark explored
  *     for every player and a cleared objective zone for hold battles (region-scenery.ts). World battles
  *     (BattleSpec.world, src/conquest/world) land extra tanks for a troop advantage and regulars that fill the core to

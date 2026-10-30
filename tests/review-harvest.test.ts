@@ -1,4 +1,4 @@
-// REVIEW round 5: Ore Truck robustness (src/sim/harvest.ts), found by tools/qa/longrun.ts.
+// Ore Truck robustness (src/sim/harvest.ts), found by tools/qa/longrun.ts.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { sandbox, building, unit, run, seconds, ore } from './helpers';

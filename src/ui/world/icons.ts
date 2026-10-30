@@ -1,5 +1,5 @@
 /**
- * Landmark icons for the globe and the cards: ARCH's landmarkThumb (src/render/landmarks), loaded after the globe
+ * Landmark icons for the globe and the cards: landmarkThumb (src/render/landmarks), loaded after the globe
  * shows; until then (or without it) a small drawn marker. Cached per landmark.
  */
 type Img = CanvasImageSource;

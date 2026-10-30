@@ -1,4 +1,4 @@
-// Long all-AI matches with simulation invariants and a tick-time budget check (REVIEW round 4).
+// Long all-AI matches with simulation invariants and a tick-time budget check.
 //   node --import tsx tools/qa/longrun.ts [--minutes 60] [--only <regex>] [--seeds 1] [--from 1] [-v]     (WORKERS=n in parallel)
 // Every case is a whole match between AI players (2-4, the game's limit; every level, Classic and Commander, teams, sea maps, curated
 // maps). Checked as it runs: the fuzzer's world invariants (NaN, off-map, negative money, tech counts, entity map

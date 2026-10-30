@@ -1,4 +1,4 @@
-// World Conquest QA: determinism of the strategic layer (round 6 contract: "A world run replays identically from its
+// World Conquest QA: determinism of the strategic layer (the goal: "A world run replays identically from its
 // seed and choices. Save and load at any turn gives the same continuation").
 //
 // For each case (homeland, size, difficulty, seed) the random policy of qa-fuzz.ts plays a whole run three times:
@@ -30,7 +30,7 @@ async function play(job: DetJob, mode: 'A' | 'C'): Promise<{ hashes: string[]; r
   const rng = new Rng(job.policy * 2654435761 + 17);
   const stats: StepStats = { battles: 0, dice: 0, blitz: 0, ceasefires: 0, trades: 0 };
   let run = W.newWorldRun({ seed: job.seed, home: job.home, size: job.size, difficulty: job.difficulty as never });
-  // (QA_FRESH=1: start every mode from the run's JSON, i.e. fresh index caches, to look past STRAT-1)
+  // (QA_FRESH=1: start every mode from the run's JSON, i.e. fresh index caches, to rule out a stale cache)
   if (process.env.QA_FRESH) run = JSON.parse(JSON.stringify(run));
   const hashes: string[] = [];
   const mem = new Map<string, string>();

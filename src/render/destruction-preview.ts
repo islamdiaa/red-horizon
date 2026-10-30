@@ -1,5 +1,5 @@
 /**
- * Destruction preview (preview-models.html?destroy=<scene>): structure collapses, vehicle wrecks and
+ * Destruction preview (dev/preview-models.html?destroy=<scene>): structure collapses, vehicle wrecks and
  * debris, infantry ragdolls, damage stages, craters and the Aftermath effects, on a small hilly
  * heightfield with the real effects system.
  *

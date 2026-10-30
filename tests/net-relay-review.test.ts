@@ -1,4 +1,4 @@
-// Relay fixes from the round-4 code review (server/src/relay.ts, src/net/session.ts):
+// Relay fixes from a code review (server/src/relay.ts, src/net/session.ts):
 // - the input delay follows only the players still playing (a surrendered player who stays to watch on a slow link,
 //   or a player whose match is over, no longer sizes it);
 // - a page reloaded mid-match does not drive the delay up while it rebuilds the match (heartbeat times count per

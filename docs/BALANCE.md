@@ -121,8 +121,8 @@ later and smaller naval waves and an extra escort (the newcomer 16 -> 24 of 24, 
 
 ## Ore Trucks and the Classic levels (simulation version 7)
 
-The user's word after version 6 was *"continue"*: Classic Hard was at 50% against the casual stand-in (aimed at 60% or
-more), and 44% of the Classic AI-vs-AI games on the curated maps ran to the time limit (aimed at 35% or less).
+After version 6, Classic Hard was at 50% against the casual stand-in (aimed at 60% or more), and 44% of the Classic
+AI-vs-AI games on the curated maps ran to the time limit (aimed at 35% or less).
 
 ### Why the Classic AI fell behind after minute 10
 
@@ -197,15 +197,14 @@ is still open.
 
 ## Finishing matches and Classic Hard (simulation version 6)
 
-The user's words after version 5: *"fix remaining items, test further extensively, ensure it's flawless"*. Version 5
-left Classic Hard off the curve (38% against the casual stand-in, 68% against the experienced one), most Classic
+Version 5 left Classic Hard off the curve (38% against the casual stand-in, 68% against the experienced one), most Classic
 AI-vs-AI games on the curated maps running to the time limit, newcomers who beat Recruit or Easy unable to finish
 them, a beaten player's last units never hunted down, and AI teammates on the easy levels that rarely came to help.
 
 ### Why Classic Hard lost to the casual player
 
 `levels.ts --probe ai` records what the AI thinks and does. Classic Hard against the casual stand-in (120 games,
-version 5 judgement plus this round's hunting and surrender, before the changes below):
+version 5 judgement plus version 6's hunting and surrender, before the changes below):
 
 | | Against the casual stand-in | Against the experienced one |
 |---|---|---|
@@ -224,7 +223,7 @@ Quick Battle rolls and the 96×96 menu default; the same seeds in every row):
 
 | Classic Hard | vs casual | vs experienced |
 |---|---|---|
-| Before (this round's hunting, surrender and review fixes, nothing else) | 42% [33–51] | 75% [67–82] |
+| Before (version 6's hunting, surrender and review fixes, nothing else) | 42% [33–51] | 75% [67–82] |
 | First wave not before 10:00 / 11:00 / 13:00 / 15:00 unless an enemy attack broke on its base | 48% / 51% / 51% / 50% | 68% / 64% / 58% / 58% |
 | A counter-attack after the enemy's attack broke goes in with 70% of what it would need | 43% | 76% |
 | The luxuries wait while its army is behind its estimate of the enemy's ("thrift") | 45% | 78% |
@@ -358,7 +357,7 @@ of the AIs are gone by minute 45 (2.1–2.3 of 3, was 1.1–1.6: they now hunt d
 survivors have only the human left to attack; the share comes out the same with surrender switched off, and the version-5
 tie-break that spreads the first scouts round the map is unchanged.
 
-### Code review fixes (in this round's AI review)
+### Fixes from a review of the AI code
 
 - An AI teammate's "push with the human" could start a wave of one unit, counted as a broken wave on the next think and
   sent home: 17 one-unit waves by minute 15, each raising the size of its next real wave. Three units at least now, and
@@ -384,10 +383,9 @@ tie-break that spreads the first scouts round the map is unchanged.
 
 ## Where players meet the AI (simulation version 5)
 
-The user's words: *"the AI is hard even on easy, I can't win"*, and then *"improve the gameplay on all modes for all
-levels"*. The UI bot of the test lab (tools/e2e), playing through the real interface the way a first-time player does
-(infantry waves, no defences), lost both of its Recruit Quick Battles; the Recruit AI had about 36 units and flame
-towers by minute 7.
+Player feedback on version 4: *"the AI is hard even on easy, I can't win"*. The UI bot of the test lab (tools/e2e),
+playing through the real interface the way a first-time player does (infantry waves, no defences), lost both of its
+Recruit Quick Battles; the Recruit AI had about 36 units and flame towers by minute 7.
 
 The stand-ins are described under *The stand-ins* below; version 5 adds the **newcomer**, a first-time player.
 
@@ -412,12 +410,12 @@ What applied and what did not:
 What killed the newcomer's units in the AI's wins (the newcomer stand-in, 240 games): heavy tanks ($11,500 a game),
 riflemen and rocket soldiers ($10,600), the flame tower ($4,300), V2 rockets ($3,600) and Mammoth Tanks ($2,400). The
 Soviet Recruit beat an Allied newcomer in 68% of the games, the Allied Recruit a Soviet newcomer in 4%. The bot's waves
-that "stalled mid-map" were a unit-behaviour matter (fixed in the same round: units return fire and retry blocked
+that "stalled mid-map" were a unit-behaviour matter (fixed in the same version: units return fire and retry blocked
 moves) and an interface one (an attack-move click on a structure used to issue a plain attack).
 
 ### The levels against the stand-ins
 
-`tools/selfplay/levels.ts`, 60 games a cell, version 4 against version 5 (this round, with the unit-behaviour fixes).
+`tools/selfplay/levels.ts`, 60 games a cell, version 4 against version 5 (with the unit-behaviour fixes).
 *Quick Battle*: a roll per game (generated 80–112 maps with water or a curated two-player map, climate, a personality or,
 in 35% of the games, a rival with a newcomer's counter-plan, one newcomer-safe mutator below Normal and one or two from
 Normal up, battlefield events, dynamic difficulty on below Normal); Quick Battle is Commander rules, and the same rolls
@@ -437,7 +435,7 @@ goes to the side ahead on material. Pooled over both conditions (240 games a row
 | Hard vs experienced | 40–60% | 57% [50–63] | 60% [53–66] | 58% → 68% | 55% → 52% | — |
 | Brutal vs experienced | ≥ 80% | 93% [89–96] | 93% [88–95] | 94% → 92% | 93% → 93% | — |
 
-The same match-ups with the version-4 AI on this round's units (120 games a ruleset) put Recruit and Easy against the
+The same match-ups with the version-4 AI on version 5's units (120 games a ruleset) put Recruit and Easy against the
 newcomer at 33% and 78%: the drop to 9% and 31% is the AI's. Hard against the experienced stand-in in Classic rose from
 58% to 68% [59–75], above the 40–60% aimed for, while Hard against the casual player in Classic is 38%: Classic Hard
 handles AI-like play better than it did and the tank-massing casual player no better (*Still open*, below).
@@ -460,7 +458,7 @@ harder, and it eased off in 357 of them (down to level −4).
 
 Every one of these is something the easy levels *use less* of, visible on the battlefield; none is a hidden penalty.
 Each step was measured against the newcomer stand-in (40 games a cell: Quick Battle and the menu defaults, both rulesets,
-160 games a level). The later steps ran on the tree with the round's unit-behaviour fixes (return fire, move retries).
+160 games a level). The later steps ran on the tree with version 5's unit-behaviour fixes (return fire, move retries).
 
 | Step | Recruit vs newcomer | Easy vs newcomer |
 |---|---|---|
@@ -492,7 +490,7 @@ Also in version 5:
 ### Classic: finishing the game
 
 Classic AI-vs-AI games on the curated two-player maps (normal and hard, both sides the same AI, 96 games,
-`run.ts --mode faction --maps curated`): 77% ran to the 45-minute limit in version 4, and 93% on this round's tree
+`run.ts --mode faction --maps curated`): 77% ran to the 45-minute limit in version 4, and 93% on version 5's tree
 before these changes (the units now return fire and retry blocked moves, which made sieges costlier still). Half of
 the timeouts were lopsided (the leader at twice the trailer's material or more): the leader either had no target left
 that it knew of (the enemy's last structures out of sight), or turned every wave back at a Tesla Coil base it could not
@@ -519,7 +517,7 @@ which is why they wait for a clear lead.
 | Curated maps, Classic, normal and hard (96 games) | Timeouts | Allied share (timeouts by material) | Allied share of decided games |
 |---|---|---|---|
 | Version 4 | 77% | 70% [60–78] | 50% (11 of 22) |
-| This round's units, version-4 AI | 93% | 71% [61–79] | 71% (5 of 7) |
+| Version 5's units, version-4 AI | 93% | 71% [61–79] | 71% (5 of 7) |
 | + sieges and the lighter tower weight, ungated | 68% | 60% [50–70] | 65% (20 of 31) |
 | + lean build, power play, hunting; sieges gated (version 5, with Normal's economy below) | **57%** | **56% [46–66]** | 66% (27 of 41) |
 
@@ -527,7 +525,7 @@ The Allied share is back inside 40–60%, but timeouts stay far above the 35% ai
 the leader is 1.5 times ahead on material or more (a quarter 2.3 times), the rest are even games in which two fortified
 commanders trade waves. *Still open* (44% in version 6: *Finishing matches and Classic Hard*, above).
 
-**Normal** now builds at 1.0 and earns 1.05 (was 0.95 / 1.0): on this round's tree the unit-behaviour fixes had taken
+**Normal** now builds at 1.0 and earns 1.05 (was 0.95 / 1.0): on version 5's tree the unit-behaviour fixes had taken
 Normal against the casual stand-in from 33% to 27% in Classic and from 45% to 38% under Commander rules (version-4 AI
 on the new units, 120 games each); with the 5% it is 46% [37–55] in Classic and 48% [40–57] under Commander rules
 (custom 40% / 52%, Quick Battle 52% / 45%), inside 40–60% in both. Hard (1.05 / 1.05) stays a step above it.
@@ -543,7 +541,7 @@ and Classic Hard*, above).
 ### Team play, free-for-alls and navies
 
 `tools/selfplay/teams.ts`, 16 games a cell (both rulesets), the casual stand-in as the human; version 4 against version
-5 (both with the round's team-aware start positions, src/sim/starts.ts).
+5 (both with version 5's team-aware start positions, src/sim/starts.ts).
 
 **2v2 with an AI teammate** (the lobby's AI seats; every AI at the level). AI teammates had no notion of a human
 teammate: they never came to his base when it was attacked, and the easy levels sat at home a third to half of the
@@ -575,7 +573,7 @@ Easy AIs on a sea map rarely finish each other inside 45 minutes.
 
 ## Difficulty levels (simulation version 3)
 
-The user report that started this: *"the AI seems to be hard even on easy, I can't win. They collect lots of money"*.
+The player report that started this: *"the AI seems to be hard even on easy, I can't win. They collect lots of money"*.
 It was right. Under Commander rules (the skirmish default) Easy beat the novice stand-in in **every** game and the
 casual one in 85%, and harvested 3.7 times as much as the novice ($3,139 a minute against $857).
 

@@ -36,7 +36,7 @@ import { WORLD_MAPS } from '../i18n/en/world-maps';
 export type RegionKind = 'attack' | 'defend' | 'hold' | 'naval' | 'boss';
 export const REGION_KINDS: readonly RegionKind[] = ['attack', 'defend', 'hold', 'naval', 'boss'];
 
-/** What a world battle asks of its battlefield (STRAT passes exactly these; plain JSON). */
+/** What a world battle asks of its battlefield (the strategic layer passes exactly these; plain JSON). */
 export interface RegionOptions {
   kind: RegionKind;
   terrain: Terrain;
