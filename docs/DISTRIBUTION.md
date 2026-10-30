@@ -195,6 +195,13 @@ Push the zipped `desktop/out` archives with butler to `:windows`, `:linux` and `
 3. Vercel's Web Analytics and Speed Insights are off unless enabled in the dashboard. Leave them off: they would
    add third-party requests and need a CSP change.
 
+## GitHub Pages (the public web build)
+
+`.github/workflows/pages.yml` publishes the browser build on every push to `main`. It is served at
+[itayar.com/red-horizon](https://itayar.com/red-horizon/) through a rewrite on that site, which also sends the
+security headers (GitHub Pages can't), so it is built with `RH_BASE=/red-horizon/`,
+`RH_SITE_URL=https://itayar.com/red-horizon/` and `VITE_MULTIPLAYER=off` (there is no relay).
+
 ## Docker / your own server
 
 `docker compose up -d --build` serves `dist/` with an unprivileged nginx on port 8091.
