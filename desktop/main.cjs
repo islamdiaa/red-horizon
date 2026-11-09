@@ -4,13 +4,20 @@
 // the CSP <meta> the build injects). Files are served from a private `app://` scheme rooted at desktop/app
 // (no path can leave it); navigation away and new windows are refused, except https links, which open in
 // the system browser. Only fullscreen, pointer lock and clipboard writes ("Copy link") are permitted.
-const { app, BrowserWindow, protocol, net, session, shell, Menu } = require('electron');
+const { app, BrowserWindow, protocol, session, shell, Menu } = require('electron');
+const fs = require('node:fs/promises');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, 'app');
 const SCHEME = 'app';
 const HOST = 'red-horizon';
+
+/** Content types of the files the web build contains (anything else is served as bytes). */
+const TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.glb': 'model/gltf-binary',
+};
 
 protocol.registerSchemesAsPrivileged([
   { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true } },
@@ -19,14 +26,21 @@ protocol.registerSchemesAsPrivileged([
 // one window, one instance
 if (!app.requestSingleInstanceLock()) app.quit();
 
-function serveFile(request) {
+// The file is read here rather than handed to net.fetch(file://), which fails part of the page's parallel
+// module loads with net::ERR_FAILED (seen with Electron 44 on Linux), so the game never got past its loading screen.
+async function serveFile(request) {
   const url = new URL(request.url);
   if (url.host !== HOST) return new Response('Not found', { status: 404 });
   let rel = decodeURIComponent(url.pathname);
   if (rel.endsWith('/')) rel += 'index.html';
   const file = path.normalize(path.join(ROOT, rel));
   if (file !== ROOT && !file.startsWith(ROOT + path.sep)) return new Response('Forbidden', { status: 403 });
-  return net.fetch(pathToFileURL(file).toString());
+  try {
+    const body = await fs.readFile(file);
+    return new Response(body, { headers: { 'Content-Type': TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream' } });
+  } catch {
+    return new Response('Not found', { status: 404 });
+  }
 }
 
 function createWindow() {
