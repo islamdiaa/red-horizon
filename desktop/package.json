@@ -16,7 +16,7 @@
     "smoke": "node scripts/prepare.mjs && electron scripts/smoke.cjs --ozone-platform=headless"
   },
   "devDependencies": {
-    "electron": "44.9.0",
+    "electron": "44.9.1",
     "electron-builder": "26.15.3"
   },
   "build": {
