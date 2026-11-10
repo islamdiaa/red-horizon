@@ -3,6 +3,15 @@
 Issues and pull requests are welcome. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for setup and
 architecture.
 
+## Branches
+
+- **`develop`** is the default branch, where development happens. Open pull requests against it.
+- **`main`** is the stable branch: the latest release, and what the [public web build](https://itayar.com/red-horizon/)
+  is published from. It changes only through a release pull request from `develop`, and each release is tagged
+  (`v0.1.0`, ...).
+- Both branches accept changes only through pull requests that pass CI. Work happens on short-lived branches, which
+  are deleted when they are merged.
+
 Before opening a pull request:
 
 ```bash
