@@ -197,7 +197,8 @@ Push the zipped `desktop/out` archives with butler to `:windows`, `:linux` and `
 
 ## GitHub Pages (the public web build)
 
-`.github/workflows/pages.yml` publishes the browser build on every push to `main`. It is served at
+`.github/workflows/pages.yml` publishes the browser build on every push to `main`, the stable branch, which
+changes only through release pull requests from `develop` (see [CONTRIBUTING.md](../CONTRIBUTING.md#branches)). It is served at
 [itayar.com/red-horizon](https://itayar.com/red-horizon/) through a rewrite on that site, which also sends the
 security headers (GitHub Pages can't), so it is built with `RH_BASE=/red-horizon/`,
 `RH_SITE_URL=https://itayar.com/red-horizon/` and `VITE_MULTIPLAYER=off` (there is no relay).

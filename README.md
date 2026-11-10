@@ -5,6 +5,7 @@
 **The gameplay of *Command & Conquer: Red Alert* (1996), rebuilt for the browser in modern real-time 3D.**
 
 [![CI](https://github.com/islamdiaa/red-horizon/actions/workflows/ci.yml/badge.svg)](https://github.com/islamdiaa/red-horizon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/islamdiaa/red-horizon)](https://github.com/islamdiaa/red-horizon/releases/latest)
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE.md)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)
 ![three.js](https://img.shields.io/badge/three.js-WebGL%202-black.svg)
@@ -79,7 +80,7 @@ copyrighted assets, and respect the player (no accounts, tracking, ads or dark p
 ## Quick start
 
 ```bash
-git clone https://github.com/islamdiaa/red-horizon.git && cd red-horizon
+git clone -b main https://github.com/islamdiaa/red-horizon.git && cd red-horizon
 npm ci
 npm run dev                       # http://localhost:5173
 ```
@@ -90,6 +91,7 @@ Or with Docker:
 docker compose up -d --build      # http://localhost:8091 (game + multiplayer relay)
 ```
 
+`main` is the latest release; development happens on `develop` (see [CONTRIBUTING.md](CONTRIBUTING.md#branches)).
 `npm run build` writes a static site to `dist/` that you can host anywhere; a `vercel.json` is included. You need
 Node.js 20.19+ (or 22.12+) and a browser with WebGL 2. On a static host without the multiplayer relay,
 `VITE_MULTIPLAYER=off npm run build` removes online play from the game entirely

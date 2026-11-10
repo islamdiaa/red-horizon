@@ -28,8 +28,8 @@ vulnerability"). Include:
 - steps to reproduce, ideally with a sample file or URL;
 - the browser and version you tested with.
 
-You should get a reply within a week. Fixes go to the `main` branch; there are no other supported
-versions.
+You should get a reply within a week. Only the latest release is supported: fixes land on `develop` and
+are released to the stable `main` branch (and the public web build) straight away.
 
 ## Scope
 
