@@ -7,6 +7,24 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+  # The multiplayer relay and the desktop wrapper have their own lockfiles. Minor and patch updates arrive as one
+  # weekly PR for each; a new major version gets a PR of its own.
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+    groups:
+      server:
+        patterns: ['*']
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    groups:
+      desktop:
+        patterns: ['*']
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
