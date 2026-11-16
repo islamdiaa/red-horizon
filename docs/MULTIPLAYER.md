@@ -91,7 +91,9 @@ unchanged.
   responding.
 - **Dropped connections reconnect.** The client retries with backoff and resumes its seat with its token. The
   relay keeps every closed order of the match. It sends the missing ones, and the client re-sends what never
-  arrived.
+  arrived. The missing orders go out as fast as the connection takes them, never more than about 1 MB ahead of
+  it, so even hours of orders reach a slow link, or a page still loading the match, without overflowing the
+  connection. New ones follow once the player has caught up.
 - **In the lobby too.** While the link is down, the lobby shows "Connection lost · Reconnecting" and disables what
   needs the server (ready, start, settings). The relay keeps the seat for 20 s. Chat typed meanwhile, in the lobby
   or in a match, is kept (up to four lines, shown as "waiting to send") and sent when the seat is resumed. If the
