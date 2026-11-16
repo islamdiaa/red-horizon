@@ -29,8 +29,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
       - run: npm ci --no-audit --no-fund
+      # the relay's own dependencies (ws): without them the WebSocket half of tests/relay.test.ts is skipped
+      - run: npm ci --prefix server --no-audit --no-fund
       - run: npm run typecheck
+      - run: npm --prefix server run typecheck
       - run: npm test
       - name: Save / load determinism
         run: node --import tsx tools/savetest.ts
