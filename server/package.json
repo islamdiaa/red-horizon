@@ -1,7 +1,7 @@
 {
   "name": "red-horizon-relay",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Red Horizon multiplayer relay and verified leaderboards (Node + ws, no database).",
   "type": "module",
   "license": "GPL-3.0-or-later",
