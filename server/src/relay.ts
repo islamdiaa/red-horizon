@@ -6,8 +6,8 @@
  * Lockstep: a seat sends `in` frames (commands for future ticks + a commit "nothing more for ticks <= upTo").
  * Tick T is closed when every active seat has committed it; closed ticks go out to everyone in one order
  * (tick, seat, arrival). The relay keeps every closed command of the match, so a client that reconnects - or
- * reloads the page and re-simulates from the start - gets them again. What a match holds is bounded in bytes, per match
- * and for the whole relay (RelayLimits.maxMatchBytes, maxTotalBytes).
+ * reloads the page and re-simulates from the start - gets them again, at the pace its connection takes them (pump).
+ * What a match holds is bounded in bytes, per match and for the whole relay (RelayLimits.maxMatchBytes, maxTotalBytes).
  *
  * No accounts, no personal data: a seat is a random token, names and chat are cleaned and capped, IP addresses
  * stay in memory for rate limits only and are never logged.
@@ -21,8 +21,11 @@ import { cleanChat, cleanName } from '../../src/net/names';
 import { KeyedLimiter, TokenBucket } from './limits';
 
 export interface RelayConn {
-  send(text: string): void;
+  /** `sent`, when given: called later, once the text has left the transport's buffer (a catch-up then sends more: pump). */
+  send(text: string, sent?: () => void): void;
   close(code: number, reason: string): void;
+  /** Bytes sent but not written out yet. Absent: a transport without a buffer (0). */
+  buffered?(): number;
 }
 
 export interface RelayLimits {
@@ -137,6 +140,22 @@ function tickText(to: number, cmds: LogCmd[], drops?: [number, number][]): strin
   return `{"t":"tick","to":${to},"cmds":[${list}]${drops?.length ? `,"drops":${JSON.stringify(drops)}` : ''}}`;
 }
 
+/** The first command of a log (in tick order) for a tick after `tick`. */
+function firstAfter(log: LogCmd[], tick: number): number {
+  let lo = 0, hi = log.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (log[mid][0] <= tick) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
+/** A catch-up's `tick` messages (pump): up to this many commands, or bytes of their text, then the rest of their tick. */
+const CHUNK_CMDS = 2000, CHUNK_BYTES = 256 << 10;
+/**
+ * A catch-up sends a chunk while its connection holds less than this, unwritten. A long match's log can be tens of MB:
+ * written at once it would sit in the connection's buffer, which the transport caps at 4 MB (http.ts: a reader that
+ * never reads); a page still building the match after a reload reads nothing for seconds.
+ */
+const CATCHUP_BUFFER = 1 << 20;
+
 interface Match {
   start: MatchStart;
   startedAt: number;
@@ -157,6 +176,13 @@ interface Match {
   /** Closing pace: never faster than real time (plus a burst), even when every client idles ahead. */
   pace: TokenBucket;
   ended: string | null;
+}
+
+/** Where a resumed connection's catch-up is in its match's log: the next command (`at`) and the last tick sent (`to`). */
+interface Catchup {
+  match: Match;
+  at: number;
+  to: number;
 }
 
 interface Room {
@@ -194,6 +220,8 @@ class Client {
    * was loaded long ago. The client says `loaded` again after every resume once it has caught up (src/net/session.ts).
    */
   loaded = false;
+  /** Resumed, and not sent every closed tick yet (pump): closed ticks reach it from the log, not live. */
+  catchup: Catchup | null = null;
   msgs: TokenBucket;
   chat: TokenBucket;
   /** Command bytes (cmdBytes). */
@@ -253,14 +281,15 @@ export class Relay {
   // ---------------------------------------------------------------------------------------------------------
 
   /** A message, or its JSON text (tickText). */
-  private send(c: Client | null | undefined, m: ServerMessage | string) {
+  private send(c: Client | null | undefined, m: ServerMessage | string, sent?: () => void) {
     if (!c || c.closed) return;
-    try { c.conn.send(typeof m === 'string' ? m : JSON.stringify(m)); } catch { /* the transport closes it */ }
+    try { c.conn.send(typeof m === 'string' ? m : JSON.stringify(m), sent); } catch { /* the transport closes it */ }
   }
 
-  private broadcast(room: Room, m: ServerMessage | string) {
+  /** `ticks`: closed ticks, which a connection still catching up gets from the log instead, in order (pump). */
+  private broadcast(room: Room, m: ServerMessage | string, ticks = false) {
     const text = typeof m === 'string' ? m : JSON.stringify(m);
-    for (const s of room.seats.values()) if (s.conn && !s.conn.closed) { try { s.conn.conn.send(text); } catch { /* closing */ } }
+    for (const s of room.seats.values()) if (s.conn && !s.conn.closed && !(ticks && s.conn.catchup)) { try { s.conn.conn.send(text); } catch { /* closing */ } }
   }
 
   private error(c: Client, code: string, msg: string) {
@@ -281,6 +310,7 @@ export class Relay {
   private onClose(c: Client) {
     if (c.closed) return;
     c.closed = true;
+    c.catchup = null;
     this.clients.delete(c);
     const n = (this.perIp.get(c.ip) ?? 1) - 1;
     if (n > 0) this.perIp.set(c.ip, n); else this.perIp.delete(c.ip);
@@ -615,7 +645,7 @@ export class Relay {
     m.lastAdvance = now;
     for (const x of cmds) m.log.push(x);
     if (m.stallSeat >= 0) { m.stallSeat = -1; this.broadcast(room, { t: 'stall', seat: -1, ms: 0, canDrop: false, gone: false, loading: false }); }
-    this.broadcast(room, tickText(target, cmds, drops));
+    this.broadcast(room, tickText(target, cmds, drops), true);
   }
 
   /** Forget a seat's commands for ticks not closed yet. */
@@ -709,7 +739,7 @@ export class Relay {
     if (room.phase !== 'over' || seat.id !== room.host) { this.violation(c, 'not-host'); return; }
     for (const s of [...room.seats.values()]) {
       if (!s.conn) room.seats.delete(s.id);
-      else { s.ready = false; s.dropped = false; s.resigned = false; s.over = false; s.loaded = false; s.conn.loaded = false; }
+      else { s.ready = false; s.dropped = false; s.resigned = false; s.over = false; s.loaded = false; s.conn.loaded = false; s.conn.catchup = null; }
     }
     if (room.match) this.free(room.match, room.match.bytes);
     room.match = null;
@@ -755,21 +785,39 @@ export class Relay {
       t: 'welcome', code: room.code, seat: seat.id, token: seat.token, room: this.view(room),
       resume: { start: m.start, committed: m.committed.get(seat.id) ?? -1, closed: m.closed, dropped: seat.dropped || seat.resigned, delay: m.delay },
     });
-    // everything closed after what the client has, in chunks that never split a tick (the drops ride with the
-    // first chunk: a client applies each one when it reaches its tick)
+    // everything closed after what the client has, from the log
     const from = Math.max(-1, Math.min(r.have, m.closed));
-    const cmds = m.log.filter((x) => x[0] > from);
-    const drops = m.drops.filter((d) => d[0] > from);
-    const CHUNK = 2000;
-    let i = 0;
-    do {
-      let j = Math.min(cmds.length, i + CHUNK);
-      while (j < cmds.length && cmds[j][0] === cmds[j - 1][0]) j++;
-      const to = j < cmds.length ? cmds[j - 1][0] : m.closed;
-      this.send(c, tickText(to, cmds.slice(i, j), i === 0 ? drops : undefined));
-      i = j;
-    } while (i < cmds.length);
+    c.catchup = { match: m, at: firstAfter(m.log, from), to: from };
+    this.pump(c);
     this.broadcastRoom(room);
+  }
+
+  /**
+   * A resumed connection's catch-up: the closed ticks it has not had, from the match's log, a chunk at a time while its
+   * transport holds less than CATCHUP_BUFFER unwritten; then more once a chunk is written out, or on the next tick().
+   * A slow reader costs a cursor, not a copy. Chunks never split a tick and carry the drops of their ticks (a client
+   * applies each when it reaches its tick). Meanwhile closed ticks do not reach the connection live (broadcast), so
+   * once the catch-up reaches the closed tick, the next live tick follows on from it: no gap, nothing twice. The rest
+   * is not tick-bound (room, chat, stall, lat, desync, heartbeats) and goes out live. A match that ends but is kept
+   * (phase 'over') still gives a reloaded page the rest of it; the room going back to its lobby, or being deleted, or
+   * the connection closing, ends the catch-up.
+   */
+  private pump(c: Client) {
+    const cu = c.catchup;
+    if (!cu) return;
+    const m = cu.match, log = m.log;
+    if (c.closed || c.room?.match !== m || c.seat?.conn !== c) { c.catchup = null; return; }
+    while (c.catchup === cu && (c.conn.buffered?.() ?? 0) < CATCHUP_BUFFER) {
+      if (cu.at >= log.length && cu.to >= m.closed) { c.catchup = null; return; } // caught up: live from here
+      let j = cu.at, bytes = 0;
+      while (j < log.length && j - cu.at < CHUNK_CMDS && bytes < CHUNK_BYTES) bytes += log[j++][2].length;
+      while (j < log.length && log[j][0] === log[j - 1][0]) j++;
+      const to = j < log.length ? log[j - 1][0] : m.closed;
+      const text = tickText(to, log.slice(cu.at, j), m.drops.filter((d) => d[0] > cu.to && d[0] <= to));
+      cu.at = j;
+      cu.to = to;
+      this.send(c, text, () => this.pump(c));
+    }
   }
 
   /**
@@ -808,6 +856,7 @@ export class Relay {
       if (now - c.lastPong > l.pongTimeoutMs * (loading ? 6 : 1)) { this.kill(c, 1001, 'timeout'); continue; }
       if (!c.pingAt && now - c.lastPong >= l.pingEveryMs - 1) { c.pingN++; c.pingAt = now; this.send(c, { t: 'ping', n: c.pingN }); }
       else if (c.pingAt && now - c.pingAt > l.pingEveryMs * 2) { c.pingN++; c.pingAt = now; this.send(c, { t: 'ping', n: c.pingN }); }
+      this.pump(c); // (a catch-up whose buffer drained unannounced)
     }
     this.joins.prune(now);
     for (const room of [...this.rooms.values()]) this.roomTick(room, now);
