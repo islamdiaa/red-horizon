@@ -1,0 +1,47 @@
+name: Desktop
+
+# Builds the Electron wrapper (desktop/) and runs its headless smoke test whenever the wrapper, its dependencies or
+# the relative build it packages change. The web game itself is covered by CI.
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['desktop/**', 'tools/release/**', '.github/workflows/desktop.yml']
+  pull_request:
+    paths: ['desktop/**', 'tools/release/**', '.github/workflows/desktop.yml']
+
+# Read-only token: this workflow never writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      # actions are pinned to full commit SHAs (the tag is in the comment)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --prefix desktop --no-audit --no-fund
+      - name: Unpacked Linux build
+        run: npm --prefix desktop run build:dir -- --linux
+      # Electron's setuid sandbox helper can't run from node_modules on the runner, hence --no-sandbox; the window only
+      # loads the app's own files. Software rendering: the runner has no GPU.
+      - name: Smoke test (main menu, no page errors)
+        working-directory: desktop
+        run: npx electron scripts/smoke.cjs --ozone-platform=headless --no-sandbox --use-angle=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist "$RUNNER_TEMP/desktop-smoke.png"

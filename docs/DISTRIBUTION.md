@@ -142,7 +142,9 @@ npm run desktop          # build the relative web game into desktop/app and open
 npm run desktop:build    # installers / archives for this OS into desktop/out (electron-builder)
 ```
 
-The first run installs the wrapper's dependencies (`npm --prefix desktop install`).
+The first run installs the wrapper's dependencies (`npm --prefix desktop install`). When `desktop/` changes, CI
+(`.github/workflows/desktop.yml`) builds the unpacked Linux app and runs a headless smoke test that opens the main
+menu (`desktop/scripts/smoke.cjs`).
 
 - **Security.**
   - The window runs the same sandboxed web page as a browser: no Node.js, context isolation, the sandbox,

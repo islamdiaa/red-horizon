@@ -76,6 +76,7 @@ docker/       nginx configuration
 
 ```bash
 npm run typecheck
+npm ci --prefix server                    # the relay's dependencies: without them the WebSocket relay tests are skipped
 npm test                                  # unit, integration, regression and AI-vs-AI soak tests
 node --import tsx tools/savetest.ts       # save/load determinism (must print DETERMINISTIC ✓)
 node --import tsx tools/qa/fuzz.ts --count 40   # command fuzzer: invariants, save / load, replay and portable maths stay in sync

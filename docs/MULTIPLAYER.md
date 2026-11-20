@@ -91,7 +91,9 @@ unchanged.
   responding.
 - **Dropped connections reconnect.** The client retries with backoff and resumes its seat with its token. The
   relay keeps every closed order of the match. It sends the missing ones, and the client re-sends what never
-  arrived.
+  arrived. The missing orders go out as fast as the connection takes them, never more than about 1 MB ahead of
+  it, so even hours of orders reach a slow link, or a page still loading the match, without overflowing the
+  connection. New ones follow once the player has caught up.
 - **In the lobby too.** While the link is down, the lobby shows "Connection lost · Reconnecting" and disables what
   needs the server (ready, start, settings). The relay keeps the seat for 20 s. Chat typed meanwhile, in the lobby
   or in a match, is kept (up to four lines, shown as "waiting to send") and sent when the seat is resumed. If the
@@ -116,6 +118,13 @@ unchanged.
   continues on that machine only. The takeovers are recorded in the replay, so it reproduces the whole battle, the
   online part and the rest. Players who left the battle (surrendered, dropped) only have **Leave**. Leaving keeps
   the replay as usual.
+- **What the relay keeps is bounded in bytes.** The orders a match holds (every closed one, for reconnects, and those
+  waiting for their tick) count by their size, up to 64 MB per match and 128 MB for all matches together
+  (`RELAY_MAX_MATCH_LOG_MB`, `RELAY_MAX_TOTAL_LOG_MB`). Real play stays far below: four players giving 120 orders a
+  minute each, one in ten to a big selection, hold about 8 MB an hour. A match that reaches its budget ends, and its
+  players see "The match log is full."; when all matches together reach theirs, the match holding the most ends with
+  "The server is full. Try again later." Either way the room closes, its orders are freed, and players still in
+  command can play on against the AI.
 
 ### Surrender
 
@@ -195,9 +204,9 @@ per player and board-day, the best one.
 - **IP addresses stay in the relay's memory**, for rate limits only. They are never logged or written to disk.
 - **Untrusted text is cleaned.** Chat is cleaned and capped at 160 characters on the relay, rate-limited, and
   escaped again in the UI. Every player can mute one player or all chat.
-- **Limits on the relay:** room size, message size (16 KB), messages and chat lines per connection, connections
-  per address, rooms, joins per address (against code guessing), heartbeats with timeouts, and origin checks on
-  WebSocket and HTTP.
+- **Limits on the relay:** room size, message size (16 KB), messages, chat lines and bytes of orders per connection,
+  connections per address, rooms, joins per address (against code guessing), the bytes of orders a match and all
+  matches together keep, heartbeats with timeouts, and origin checks on WebSocket and HTTP.
 - **Invite codes** are six characters from a 31-letter alphabet without look-alikes (about 887 million codes).
   An invite link carries the code in the URL fragment (`#join=CODE`), which browsers never send to a server.
 - The relay container is as hardened as the game's: an unprivileged user, a read-only root filesystem, no
@@ -256,6 +265,7 @@ The relay reads these environment variables (all optional):
 | `RELAY_MAX_ROOMS` / `RELAY_MAX_CONNECTIONS` / `RELAY_MAX_PER_IP` | `200` / `1000` / `12` | Capacity limits |
 | `RELAY_RECONNECT_GRACE_MS` | `60000` | How long a disconnected player keeps the seat |
 | `RELAY_DROP_VOTE_MS` / `RELAY_AUTO_DROP_MS` | `20000` / `90000` | When a stalled player can be dropped, or is dropped |
+| `RELAY_MAX_MATCH_LOG_MB` / `RELAY_MAX_TOTAL_LOG_MB` | `64` / `128` | Orders one match, and all matches together, may keep in memory. Keep the total well below the relay's heap (256 MB in the image) |
 | `LB_ENABLED` | `1` | Leaderboards on or off |
 | `LB_FILE` | `/data/leaderboard.json` | Where the boards are stored (`''` keeps them in memory) |
 | `LB_TIMEOUT_MS` / `LB_QUEUE` / `LB_WORKER_MB` | `60000` / `4` / `384` | Verification time limit, waiting runs, worker heap |

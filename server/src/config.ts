@@ -32,6 +32,7 @@ function int(env: Record<string, string | undefined>, key: string, def: number, 
   const v = Number(env[key]);
   return env[key] !== undefined && Number.isFinite(v) ? Math.round(Math.min(hi, Math.max(lo, v))) : def;
 }
+const MB = 1 << 20;
 const flag = (env: Record<string, string | undefined>, key: string, def: boolean) => (env[key] === undefined ? def : /^(1|true|yes|on)$/i.test(env[key]!));
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): ServerConfig {
@@ -61,6 +62,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       reconnectGraceMs: int(env, 'RELAY_RECONNECT_GRACE_MS', 60_000, 5_000, 3_600_000),
       dropVoteMs: int(env, 'RELAY_DROP_VOTE_MS', 20_000, 2_000, 3_600_000),
       autoDropMs: int(env, 'RELAY_AUTO_DROP_MS', 90_000, 5_000, 3_600_000),
+      maxMatchBytes: int(env, 'RELAY_MAX_MATCH_LOG_MB', 64, 1, 4096) * MB,
+      maxTotalBytes: int(env, 'RELAY_MAX_TOTAL_LOG_MB', 128, 1, 16_384) * MB,
     },
   };
 }

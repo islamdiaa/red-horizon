@@ -155,8 +155,9 @@ export function createRelayServer(cfg: ServerConfig, deps: { queue?: VerifyQueue
     const ip = clientIp(req);
     wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
       const handle = relay.connect({
-        send: (t) => { if (ws.bufferedAmount > 4 << 20) { ws.terminate(); return; } ws.send(t); }, // a reader that never reads
+        send: (t, sent) => { if (ws.bufferedAmount > 4 << 20) { ws.terminate(); return; } ws.send(t, sent && ((err) => { if (!err) sent(); })); }, // a reader that never reads
         close: (code, reason) => { try { ws.close(code, reason); } catch { ws.terminate(); } },
+        buffered: () => ws.bufferedAmount,
       }, ip);
       if (!handle) return;
       ws.on('message', (data, binary) => handle.message(binary ? '' : data.toString()));
