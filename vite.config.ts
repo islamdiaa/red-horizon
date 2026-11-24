@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
+import { metaCsp } from './tools/release/relative-build.mjs';
 
 /**
  * Where the build is served from (`base`):
@@ -52,6 +53,28 @@ function linkPreviewMeta(): Plugin {
 }
 
 /**
+ * `RH_CSP_META=1`: also put the deployment's Content-Security-Policy (docker/security-headers.conf, minus what a <meta>
+ * can't carry) in a <meta> tag, for a host that can't send headers: GitHub Pages (.github/workflows/pages.yml), whose
+ * own origin would otherwise serve the game with no CSP at all. Off by default: Docker and Vercel send the header, and
+ * a <meta> copy would also have to be widened whenever a deployment widens the header (a relay on another origin,
+ * docs/MULTIPLAYER.md). The relative builds inject the same tag themselves (tools/release/relative-build.mjs).
+ */
+export function cspMeta(on = /^(1|on|true|yes)$/i.test((process.env.RH_CSP_META ?? '').trim())): Plugin {
+  return {
+    name: 'rh-csp-meta',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        if (!on || html.includes('http-equiv="Content-Security-Policy"')) return html;
+        if (!html.includes('<meta charset="UTF-8" />')) throw new Error('rh-csp-meta: <meta charset="UTF-8" /> not found in index.html');
+        return html.replace('<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${metaCsp()}" />`);
+      },
+    },
+  };
+}
+
+/**
  * MP: keep `Math.pow(a, b)` calls as calls in the bundle. Multiplayer matches and ranked runs swap portable versions
  * into Math (src/net/dmath.ts) so every engine computes the same; the minifier rewrites a literal `Math.pow(a, b)`
  * into `a ** b`, which always runs the engine's own pow and would bypass the swap (map generation and the AI's
@@ -77,7 +100,7 @@ const MULTIPLAYER = !/^(off|false|0|no)$/i.test((process.env.VITE_MULTIPLAYER ??
 
 export default defineConfig({
   base: BASE,
-  plugins: [linkPreviewMeta(), keepMathPow()],
+  plugins: [linkPreviewMeta(), keepMathPow(), cspMeta()],
   // the public address share links point at from relative builds (src/share/links.ts); online play on or off
   define: { 'import.meta.env.RH_SITE_URL': JSON.stringify(siteUrl()), 'globalThis.__RH_MULTIPLAYER__': JSON.stringify(MULTIPLAYER) },
   server: {
