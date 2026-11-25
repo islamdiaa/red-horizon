@@ -40,7 +40,7 @@ export function recordResult(id: string, r: { won: boolean; stars: number; time:
   const best = [won, had].filter((l): l is MissionLevel => !!l).sort((a, b) => MISSION_LEVELS.indexOf(b) - MISSION_LEVELS.indexOf(a))[0];
   if (best) next.level = best;
   all[id] = next;
-  localStorage.setItem(KEY, JSON.stringify(all));
+  try { localStorage.setItem(KEY, JSON.stringify(all)); } catch { /* storage full or blocked: the mission still ends (game.ts gameover) */ }
   // (only missions played at the campaign level: a survival or daily win says nothing about it; a custom mission does)
   const def = getMission(id);
   if (r.won && r.level && (!def || takesLevel(def))) {
