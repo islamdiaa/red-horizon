@@ -14,6 +14,7 @@ import { dt, fmtInt, trSource } from '../i18n/core';
 import { typeName } from '../i18n/names';
 import tCampaign, { CAST } from '../i18n/en/campaign';
 import tCommon from '../i18n/en/common';
+import { defaultStorage } from '../meta/profile';
 
 type Tab = 'allies' | 'soviet' | 'special';
 
@@ -536,7 +537,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   root.className = 'cmp';
   document.body.appendChild(root);
   const unlockAll = new URLSearchParams(location.search).has('unlockall');
-  let tab: Tab = (localStorage.getItem('rh.campaign.tab') as Tab) || 'allies';
+  let tab: Tab = (defaultStorage().getItem('rh.campaign.tab') as Tab) || 'allies';
   if (!['allies', 'soviet', 'special'].includes(tab)) tab = 'allies';
   let selected: MissionDef | null = null;
   let typer = 0;
@@ -567,7 +568,7 @@ export function showCampaign(opts: { onDeploy: (missionId: string) => void; onBa
   window.addEventListener('keydown', onKey);
 
   const render = () => {
-    localStorage.setItem('rh.campaign.tab', tab);
+    defaultStorage().setItem('rh.campaign.tab', tab);
     document.body.classList.toggle('faction-soviet', tab === 'soviet');
     const missions = tab === 'special' ? [...campaignMissions(tab), ...customMissionDefs()] : campaignMissions(tab); // + custom missions
     const order = missions.map((m) => m.id);

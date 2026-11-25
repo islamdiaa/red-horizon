@@ -178,6 +178,20 @@ describe('campaign difficulty: Red Alert handicaps', () => {
     assert.equal(loadLevel(), 'normal', 'a win from before the levels existed (no level) still means Normal');
   });
 
+  test('a mission still ends when storage refuses the write (full or blocked)', () => {
+    mem.clear();
+    const ls = (globalThis as unknown as { localStorage: { setItem: (k: string, v: string) => void } }).localStorage;
+    const setItem = ls.setItem;
+    ls.setItem = () => { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); };
+    try {
+      const rec = recordResult('allied-01', { won: true, stars: 2, time: 600, level: 'easy' });
+      assert.equal(rec.completed, true, 'the result is still returned for the end screen');
+      assert.equal(rec.stars, 2);
+    } finally {
+      ls.setItem = setItem;
+    }
+  });
+
   test('a five-wave Survival run (recorded without a level) leaves a new player on Easy', () => {
     mem.clear();
     // (game.ts records the run as lost at its level, then the meta layer completes the operation without one)
