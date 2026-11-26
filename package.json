@@ -1,7 +1,7 @@
 {
   "name": "red-horizon",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The gameplay of Command & Conquer: Red Alert, rebuilt for the browser in real-time 3D (TypeScript, three.js, no copyrighted assets).",
   "keywords": [
     "rts",

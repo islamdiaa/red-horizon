@@ -4,7 +4,7 @@
  */
 export const GAME_TITLE = 'RED HORIZON';
 export const GAME_SUBTITLE = 'A Cold War Real-Time Strategy';
-export const VERSION = '0.1.1';
+export const VERSION = '0.1.2';
 
 /**
  * Online play: the multiplayer lobby, invite links (#join=) and the global leaderboards, all served by the relay
