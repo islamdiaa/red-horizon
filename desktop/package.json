@@ -2,7 +2,7 @@
   "name": "red-horizon-desktop",
   "productName": "Red Horizon",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Red Horizon as a desktop app: an Electron window around the relative-base web build.",
   "license": "GPL-3.0-or-later",
   "author": "Red Horizon contributors",
@@ -16,7 +16,7 @@
     "smoke": "node scripts/prepare.mjs && electron scripts/smoke.cjs --ozone-platform=headless"
   },
   "devDependencies": {
-    "electron": "45.3.2",
+    "electron": "45.3.4",
     "electron-builder": "26.18.0"
   },
   "build": {

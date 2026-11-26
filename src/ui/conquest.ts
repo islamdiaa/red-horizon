@@ -10,7 +10,7 @@ import type { SaveData } from '../sim/save';
 import { deleteSave, readSave } from '../sim/save';
 import { insigniaSvg, picto, PICTO } from '../meta/art';
 import { showAchievementToast } from '../meta/toast';
-import { loadProfile } from '../meta/profile';
+import { defaultStorage, loadProfile } from '../meta/profile';
 import { castPortrait } from './campaign';
 import { alliedEmblem, rankBadge, sovietEmblem } from './icons';
 import {
@@ -575,7 +575,7 @@ class ConquestScreen {
     if (current === this) current = null;
   }
 
-  private summarySeen() { return localStorage.getItem('rh.conquest.seen') === this.run?.id; }
+  private summarySeen() { return defaultStorage().getItem('rh.conquest.seen') === this.run?.id; }
 
   private onKey(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
@@ -608,9 +608,9 @@ class ConquestScreen {
   // ---------------------------------------------------------------------------------------------------
   private newRunScreen() {
     const meta = this.meta = loadMeta();
-    let faction: Faction = (localStorage.getItem('rh.conquest.faction') as Faction) === 'soviet' ? 'soviet' : 'allies';
-    let difficulty: Difficulty = (localStorage.getItem('rh.conquest.diff') as Difficulty) || 'normal';
-    let doctrine = localStorage.getItem('rh.conquest.doctrine') ?? 'combined_arms';
+    let faction: Faction = (defaultStorage().getItem('rh.conquest.faction') as Faction) === 'soviet' ? 'soviet' : 'allies';
+    let difficulty: Difficulty = (defaultStorage().getItem('rh.conquest.diff') as Difficulty) || 'normal';
+    let doctrine = defaultStorage().getItem('rh.conquest.doctrine') ?? 'combined_arms';
     let seed = (Math.random() * 1e9) >>> 0;
     const root = document.createElement('div');
     root.className = 'cq-new';
@@ -677,9 +677,9 @@ class ConquestScreen {
       (root.querySelector('[data-act="back"]') as HTMLElement).onclick = () => this.back();
       (root.querySelector('[data-act="begin"]') as HTMLElement).onclick = () => {
         seed = (Math.abs(parseInt(seedIn.value, 10)) || seed) >>> 0;
-        localStorage.setItem('rh.conquest.faction', faction);
-        localStorage.setItem('rh.conquest.diff', difficulty);
-        localStorage.setItem('rh.conquest.doctrine', doctrine);
+        defaultStorage().setItem('rh.conquest.faction', faction);
+        defaultStorage().setItem('rh.conquest.diff', difficulty);
+        defaultStorage().setItem('rh.conquest.doctrine', doctrine);
         this.opts.play('click');
         this.run = generateRun({ seed, faction, difficulty, doctrine, now: Date.now(), renown: meta.renown });
         this.save();
@@ -775,7 +775,7 @@ class ConquestScreen {
       this.after();
     }, true));
     on('summary', () => this.summaryModal());
-    on('newrun', () => { localStorage.setItem('rh.conquest.seen', this.run!.id); this.newRunScreen(); });
+    on('newrun', () => { defaultStorage().setItem('rh.conquest.seen', this.run!.id); this.newRunScreen(); });
     on('select-threat', () => { this.selected = this.run!.threat?.target ?? null; this.render(); });
   }
 
@@ -1130,8 +1130,8 @@ class ConquestScreen {
       </div>
       <div class="cq-actions"><button class="cq-btn" data-act="map">${esc(tCq('summary.viewMap'))}</button><button class="cq-btn" data-act="menu">${esc(tCq('summary.mainMenu'))}</button><button class="cq-btn pri" data-act="new">${picto('flag')}${esc(tCq('summary.newCampaign'))}</button></div>`, 'wide');
     (m.querySelector('[data-act="map"]') as HTMLElement).onclick = () => { this.opts.play('click'); this.closeModal(); };
-    (m.querySelector('[data-act="menu"]') as HTMLElement).onclick = () => { localStorage.setItem('rh.conquest.seen', run.id); this.closeModal(); this.back(); };
-    (m.querySelector('[data-act="new"]') as HTMLElement).onclick = () => { this.opts.play('click'); localStorage.setItem('rh.conquest.seen', run.id); this.closeModal(); this.newRunScreen(); };
+    (m.querySelector('[data-act="menu"]') as HTMLElement).onclick = () => { defaultStorage().setItem('rh.conquest.seen', run.id); this.closeModal(); this.back(); };
+    (m.querySelector('[data-act="new"]') as HTMLElement).onclick = () => { this.opts.play('click'); defaultStorage().setItem('rh.conquest.seen', run.id); this.closeModal(); this.newRunScreen(); };
   }
 }
 
