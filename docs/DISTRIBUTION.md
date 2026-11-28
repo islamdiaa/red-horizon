@@ -204,6 +204,8 @@ changes only through release pull requests from `develop` (see [CONTRIBUTING.md]
 [itayar.com/red-horizon](https://itayar.com/red-horizon/) through a rewrite on that site, which also sends the
 security headers (GitHub Pages can't), so it is built with `RH_BASE=/red-horizon/`,
 `RH_SITE_URL=https://itayar.com/red-horizon/` and `VITE_MULTIPLAYER=off` (there is no relay).
+The Pages origin itself still serves the game too, so the build also sets `RH_CSP_META=1`: the page carries the
+same Content-Security-Policy as a `<meta>` tag, like the relative builds (`frame-ancestors` can't be set that way).
 
 ## Docker / your own server
 

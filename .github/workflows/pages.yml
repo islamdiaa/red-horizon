@@ -26,6 +26,8 @@ jobs:
       RH_BASE: /red-horizon/
       RH_SITE_URL: https://itayar.com/red-horizon/
       VITE_MULTIPLAYER: 'off'
+      # GitHub Pages can't send headers: put the CSP in a <meta> tag (vite.config.ts cspMeta)
+      RH_CSP_META: '1'
     steps:
       # actions are pinned to full commit SHAs (the tag is in the comment)
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
